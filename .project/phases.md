@@ -11,8 +11,8 @@
 | 1 | Email Sync | `feat/1-email-sync` | [phase-1](specs/phase-1-email-sync.md) | 0 | Done |
 | 2 | Classification Pipeline | `feat/2-classification` | [phase-2](specs/phase-2-classification.md) | 0 | Done |
 | 3 | Text Extraction | `feat/3-text-extraction` | [phase-3](specs/phase-3-text-extraction.md) | 2 | Done |
-| 4 | Full-Text Search | `feat/4-fulltext-search` | [phase-4](specs/phase-4-fulltext-search.md) | 3 | Not Started |
-| 5 | Embeddings & Semantic Search | `feat/5-embeddings` | [phase-5](specs/phase-5-embeddings.md) | 3 | Not Started |
+| 4 | Full-Text Search | `feat/4-fulltext-search` | [phase-4](specs/phase-4-fulltext-search.md) | 3 | Done |
+| 5 | Embeddings & Semantic Search | `feat/5-embeddings` | [phase-5](specs/phase-5-embeddings.md) | 3 | Done |
 | 6 | MCP Server | `feat/6-mcp-server` | [phase-6](specs/phase-6-mcp-server.md) | 4, 5 | Not Started |
 | 7 | Background Service | `feat/7-background-service` | [phase-7](specs/phase-7-background-service.md) | 1, 2, 3 | Not Started |
 | 8 | Avalonia UI & Installer | `feat/8-ui-installer` | [phase-8](specs/phase-8-ui-and-installer.md) | 7 | Not Started |
