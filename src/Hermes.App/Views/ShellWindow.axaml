@@ -1,0 +1,86 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Hermes.App.Views.ShellWindow"
+        Title="Hermes"
+        Width="700" Height="500"
+        WindowStartupLocation="CenterScreen"
+        CanResize="True">
+
+  <TabControl Margin="8">
+
+    <!-- Status Tab -->
+    <TabItem Header="Status">
+      <ScrollViewer>
+        <StackPanel Margin="16" Spacing="12">
+          <TextBlock Text="Service Status" FontSize="18" FontWeight="Bold" />
+
+          <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" Margin="0,4">
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Status:" FontWeight="SemiBold" />
+            <TextBlock Grid.Row="0" Grid.Column="1" x:Name="StatusText" Text="Loading..." />
+
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Documents:" FontWeight="SemiBold" />
+            <TextBlock Grid.Row="1" Grid.Column="1" x:Name="DocumentCount" Text="—" />
+
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Unclassified:" FontWeight="SemiBold" />
+            <TextBlock Grid.Row="2" Grid.Column="1" x:Name="UnclassifiedCount" Text="—" />
+
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="Last Sync:" FontWeight="SemiBold" />
+            <TextBlock Grid.Row="3" Grid.Column="1" x:Name="LastSyncTime" Text="—" />
+
+            <TextBlock Grid.Row="4" Grid.Column="0" Text="Archive:" FontWeight="SemiBold" />
+            <TextBlock Grid.Row="4" Grid.Column="1" x:Name="ArchivePath" Text="—" />
+
+            <TextBlock Grid.Row="5" Grid.Column="0" Text="Ollama:" FontWeight="SemiBold" />
+            <TextBlock Grid.Row="5" Grid.Column="1" x:Name="OllamaStatus" Text="—" />
+
+            <TextBlock Grid.Row="6" Grid.Column="0" Text="Started:" FontWeight="SemiBold" />
+            <TextBlock Grid.Row="6" Grid.Column="1" x:Name="StartedAt" Text="—" />
+          </Grid>
+
+          <TextBlock Text="Category Summary" FontSize="16" FontWeight="Bold" Margin="0,12,0,0" />
+          <TextBlock x:Name="CategorySummary" Text="Loading..." FontFamily="Cascadia Mono,Consolas,monospace" FontSize="12" />
+        </StackPanel>
+      </ScrollViewer>
+    </TabItem>
+
+    <!-- Accounts Tab -->
+    <TabItem Header="Accounts">
+      <StackPanel Margin="16" Spacing="12">
+        <TextBlock Text="Email Accounts" FontSize="18" FontWeight="Bold" />
+        <TextBlock x:Name="AccountsList" Text="No accounts configured." />
+        <Button x:Name="AddAccountButton" Content="Add Gmail Account" HorizontalAlignment="Left" />
+      </StackPanel>
+    </TabItem>
+
+    <!-- Settings Tab -->
+    <TabItem Header="Settings">
+      <ScrollViewer>
+        <StackPanel Margin="16" Spacing="12">
+          <TextBlock Text="Settings" FontSize="18" FontWeight="Bold" />
+
+          <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto,Auto" Margin="0,4">
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Archive Location:" VerticalAlignment="Center" />
+            <TextBox Grid.Row="0" Grid.Column="1" x:Name="ArchiveLocationBox" IsReadOnly="True" />
+
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Sync Interval (min):" VerticalAlignment="Center" />
+            <NumericUpDown Grid.Row="1" Grid.Column="1" x:Name="SyncIntervalBox" Minimum="1" Maximum="1440" Value="15" />
+
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Min File Size (KB):" VerticalAlignment="Center" />
+            <NumericUpDown Grid.Row="2" Grid.Column="1" x:Name="MinSizeBox" Minimum="0" Maximum="10240" Value="20" />
+
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="Ollama URL:" VerticalAlignment="Center" />
+            <TextBox Grid.Row="3" Grid.Column="1" x:Name="OllamaUrlBox" Watermark="http://localhost:11434" />
+          </Grid>
+
+          <TextBlock Text="Watched Folders" FontSize="16" FontWeight="Bold" Margin="0,12,0,0" />
+          <TextBlock x:Name="WatchFoldersList" Text="None configured." />
+          <Button x:Name="AddWatchFolderButton" Content="Add Folder" HorizontalAlignment="Left" />
+
+          <Button x:Name="SaveSettingsButton" Content="Save Settings" HorizontalAlignment="Left" Margin="0,12,0,0" />
+        </StackPanel>
+      </ScrollViewer>
+    </TabItem>
+
+  </TabControl>
+
+</Window>

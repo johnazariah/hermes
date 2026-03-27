@@ -1,0 +1,88 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Hermes.App.Views.SetupWizard"
+        Title="Hermes Setup"
+        Width="550" Height="420"
+        WindowStartupLocation="CenterScreen"
+        CanResize="False">
+
+  <Border Padding="24">
+    <Panel>
+
+      <!-- Page 0: Welcome -->
+      <StackPanel x:Name="PageWelcome" Spacing="16">
+        <TextBlock Text="Welcome to Hermes" FontSize="24" FontWeight="Bold" />
+        <TextBlock TextWrapping="Wrap"
+                   Text="Hermes organises your email attachments and documents automatically. It runs quietly in the background, classifying and indexing everything so you can find it instantly." />
+        <TextBlock TextWrapping="Wrap"
+                   Text="Let's get you set up — it only takes a minute." />
+        <Button x:Name="WelcomeNext" Content="Get Started →" HorizontalAlignment="Right" Margin="0,16,0,0" />
+      </StackPanel>
+
+      <!-- Page 1: Archive Location -->
+      <StackPanel x:Name="PageArchive" Spacing="12" IsVisible="False">
+        <TextBlock Text="Archive Location" FontSize="20" FontWeight="Bold" />
+        <TextBlock TextWrapping="Wrap"
+                   Text="Where should Hermes store your documents? Each category gets its own folder." />
+        <Grid ColumnDefinitions="*,Auto">
+          <TextBox Grid.Column="0" x:Name="ArchivePathBox" IsReadOnly="True" />
+          <Button Grid.Column="1" x:Name="BrowseArchive" Content="Browse..." Margin="8,0,0,0" />
+        </Grid>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,16,0,0">
+          <Button x:Name="ArchiveBack" Content="← Back" />
+          <Button x:Name="ArchiveNext" Content="Next →" />
+        </StackPanel>
+      </StackPanel>
+
+      <!-- Page 2: Email Accounts -->
+      <StackPanel x:Name="PageAccounts" Spacing="12" IsVisible="False">
+        <TextBlock Text="Email Accounts" FontSize="20" FontWeight="Bold" />
+        <TextBlock TextWrapping="Wrap"
+                   Text="Add a Gmail account to start syncing attachments. You can add more accounts later in Settings." />
+        <TextBlock x:Name="AccountStatus" Text="No accounts added yet." Foreground="Gray" />
+        <Button x:Name="AddGmailButton" Content="Add Gmail Account" HorizontalAlignment="Left" />
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,16,0,0">
+          <Button x:Name="AccountsBack" Content="← Back" />
+          <Button x:Name="AccountsNext" Content="Next →" />
+        </StackPanel>
+      </StackPanel>
+
+      <!-- Page 3: Watch Folders -->
+      <StackPanel x:Name="PageWatch" Spacing="12" IsVisible="False">
+        <TextBlock Text="Watch Folders" FontSize="20" FontWeight="Bold" />
+        <TextBlock TextWrapping="Wrap"
+                   Text="Should Hermes watch your Downloads folder for new documents (PDFs, statements, invoices)?" />
+        <CheckBox x:Name="WatchDownloads" Content="Watch ~/Downloads for PDFs and documents" IsChecked="True" />
+        <CheckBox x:Name="WatchDesktop" Content="Watch ~/Desktop for PDFs" IsChecked="False" />
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,16,0,0">
+          <Button x:Name="WatchBack" Content="← Back" />
+          <Button x:Name="WatchNext" Content="Next →" />
+        </StackPanel>
+      </StackPanel>
+
+      <!-- Page 4: Ollama -->
+      <StackPanel x:Name="PageOllama" Spacing="12" IsVisible="False">
+        <TextBlock Text="AI-Powered Search" FontSize="20" FontWeight="Bold" />
+        <TextBlock x:Name="OllamaDetectText" TextWrapping="Wrap"
+                   Text="Checking for GPU and Ollama..." />
+        <CheckBox x:Name="InstallOllama" Content="Install Ollama for AI-powered semantic search" IsChecked="False" />
+        <TextBlock x:Name="OllamaProgress" Text="" Foreground="Gray" TextWrapping="Wrap" />
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,16,0,0">
+          <Button x:Name="OllamaBack" Content="← Back" />
+          <Button x:Name="OllamaNext" Content="Next →" />
+        </StackPanel>
+      </StackPanel>
+
+      <!-- Page 5: Done -->
+      <StackPanel x:Name="PageDone" Spacing="16" IsVisible="False">
+        <TextBlock Text="You're All Set!" FontSize="24" FontWeight="Bold" />
+        <TextBlock TextWrapping="Wrap"
+                   Text="Hermes will now sync your email every 15 minutes and watch for new documents. You can access it anytime from the system tray." />
+        <TextBlock x:Name="DoneSummary" TextWrapping="Wrap" Foreground="Gray" />
+        <Button x:Name="DoneButton" Content="Start Hermes" HorizontalAlignment="Right" Margin="0,16,0,0" />
+      </StackPanel>
+
+    </Panel>
+  </Border>
+
+</Window>

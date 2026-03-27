@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <?define ProductName = "Hermes" ?>
+  <?define ProductVersion = "0.1.0" ?>
+  <?define ProductManufacturer = "John Azariah" ?>
+  <?define UpgradeCode = "7A2E1F3D-4B5C-6D7E-8F9A-0B1C2D3E4F5A" ?>
+
+  <Package Name="$(ProductName)"
+           Version="$(ProductVersion)"
+           Manufacturer="$(ProductManufacturer)"
+           UpgradeCode="$(UpgradeCode)"
+           InstallerVersion="500"
+           Compressed="yes"
+           Scope="perUser">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of $(ProductName) is already installed." />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Install location -->
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="HERMES_COMPANY" Name="Hermes">
+        <Directory Id="INSTALLFOLDER" Name="App" />
+      </Directory>
+    </StandardDirectory>
+
+    <!-- Start Menu shortcut -->
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="HermesMenuFolder" Name="Hermes" />
+    </StandardDirectory>
+
+    <!-- Main component: all published files -->
+    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+      <Files Include="$(var.PublishDir)\**" />
+    </ComponentGroup>
+
+    <!-- Shortcut -->
+    <Component Id="StartMenuShortcut" Directory="HermesMenuFolder" Guid="8B3E2F4D-5C6A-7D8E-9F0A-1B2C3D4E5F6B">
+      <Shortcut Id="HermesShortcut"
+                Name="Hermes"
+                Description="Hermes Document Intelligence"
+                Target="[INSTALLFOLDER]Hermes.App.exe"
+                WorkingDirectory="INSTALLFOLDER" />
+      <RegistryValue Root="HKCU" Key="Software\Hermes" Name="Installed" Type="integer" Value="1" KeyPath="yes" />
+      <RemoveFolder Id="RemoveMenuFolder" Directory="HermesMenuFolder" On="uninstall" />
+    </Component>
+
+    <!-- Auto-start via registry Run key -->
+    <Component Id="AutoStart" Directory="INSTALLFOLDER" Guid="9C4F3A5E-6D7B-8E9F-0A1B-2C3D4E5F6A7B">
+      <RegistryValue Root="HKCU"
+                     Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                     Name="Hermes"
+                     Type="string"
+                     Value="&quot;[INSTALLFOLDER]Hermes.App.exe&quot;"
+                     KeyPath="yes" />
+    </Component>
+
+    <Feature Id="ProductFeature" Title="Hermes" Level="1">
+      <ComponentGroupRef Id="ProductComponents" />
+      <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="AutoStart" />
+    </Feature>
+
+  </Package>
+
+</Wix>
