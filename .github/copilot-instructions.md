@@ -8,14 +8,14 @@
 
 Hermes is a local-first document intelligence service for macOS and Windows. It connects to email accounts, watches local folders, and continuously ingests, classifies, and indexes documents — exposing everything through an MCP server for AI agents.
 
-| Concept | Description |
-|---------|-------------|
-| **Archive** | `~/Documents/Hermes/` — categorised document storage |
-| **Intake** | `unclassified/` folder — universal queue for all document sources |
-| **Pipeline** | Classify → Extract → Embed (async `Channel<T>` stages) |
-| **Rules** | YAML-configured cascade: sender domain → filename → subject → `unsorted/` |
-| **Index** | SQLite + FTS5 (keyword) + sqlite-vec (semantic) |
-| **MCP** | Streamable HTTP on `localhost:21740`, stdio shim for compat |
+| Concept      | Description                                                               |
+| ------------ | ------------------------------------------------------------------------- |
+| **Archive**  | `~/Documents/Hermes/` — categorised document storage                      |
+| **Intake**   | `unclassified/` folder — universal queue for all document sources         |
+| **Pipeline** | Classify → Extract → Embed (async `Channel<T>` stages)                    |
+| **Rules**    | YAML-configured cascade: sender domain → filename → subject → `unsorted/` |
+| **Index**    | SQLite + FTS5 (keyword) + sqlite-vec (semantic)                           |
+| **MCP**      | Streamable HTTP on `localhost:21740`, stdio shim for compat               |
 
 ## Architecture
 
@@ -30,21 +30,21 @@ Hermes Process (.NET 9)
 
 ## Technology Stack
 
-| Component | Choice |
-|-----------|--------|
-| Runtime | .NET 9, self-contained |
-| Language | F# (core logic), C# (Avalonia UI) |
-| UI | Avalonia (cross-platform tray + shell) |
-| Database | SQLite via `Microsoft.Data.Sqlite` |
-| Email | `Google.Apis.Gmail.v1` |
-| PDF | PdfPig (`UglyToad.PdfPig`) |
-| Embeddings | Ollama REST API / ONNX Runtime fallback |
-| OCR | Ollama `llava` / Azure Document Intelligence |
-| Config | YAML via `YamlDotNet` |
-| Hosting | `Microsoft.Extensions.Hosting` (`BackgroundService`) |
-| Pipeline | `System.Threading.Channels` |
-| Testing | xUnit + FsCheck |
-| Logging | Serilog |
+| Component  | Choice                                               |
+| ---------- | ---------------------------------------------------- |
+| Runtime    | .NET 9, self-contained                               |
+| Language   | F# (core logic), C# (Avalonia UI)                    |
+| UI         | Avalonia (cross-platform tray + shell)               |
+| Database   | SQLite via `Microsoft.Data.Sqlite`                   |
+| Email      | `Google.Apis.Gmail.v1`                               |
+| PDF        | PdfPig (`UglyToad.PdfPig`)                           |
+| Embeddings | Ollama REST API / ONNX Runtime fallback              |
+| OCR        | Ollama `llava` / Azure Document Intelligence         |
+| Config     | YAML via `YamlDotNet`                                |
+| Hosting    | `Microsoft.Extensions.Hosting` (`BackgroundService`) |
+| Pipeline   | `System.Threading.Channels`                          |
+| Testing    | xUnit + FsCheck                                      |
+| Logging    | Serilog                                              |
 
 ## Solution Structure
 
@@ -74,6 +74,7 @@ dotnet publish -c Release -r osx-arm64 --self-contained  # publish macOS
 ## Code Conventions
 
 ### F# (Hermes.Core)
+
 - **Immutable by default**: records, discriminated unions, `let` bindings
 - **Pipeline operators**: `|>` chains for data flow
 - **Result type**: `Result<'T, 'Error>` for operations that can fail — no exceptions for business logic
@@ -82,12 +83,14 @@ dotnet publish -c Release -r osx-arm64 --self-contained  # publish macOS
 - **Module structure**: one module per concept, `[<RequireQualifiedAccess>]` for disambiguation
 
 ### C# (Hermes.App — Avalonia)
+
 - **Nullable reference types**: enabled, no suppressions
 - **Primary constructors**: where appropriate
 - **Records**: for DTOs and view models
 - **Warnings as errors**: `TreatWarningsAsErrors` in `Directory.Build.props`
 
 ### General
+
 - **Line endings**: LF everywhere (`.gitattributes` enforced)
 - **Encoding**: UTF-8 with BOM for F#/C#, UTF-8 without BOM for YAML/JSON/MD
 - **Indentation**: 4 spaces (F#/C#), 2 spaces (YAML/JSON)
@@ -103,14 +106,14 @@ dotnet publish -c Release -r osx-arm64 --self-contained  # publish macOS
 
 ## Key Files
 
-| File | Purpose |
-|------|---------|
-| `docs/design/03-architecture.md` | Architecture overview with diagrams |
-| `docs/design/04-data-model.md` | SQLite schema, config YAML format |
-| `docs/design/05-mcp-server-design.md` | MCP tools with JSON schemas |
-| `docs/design/07-open-questions.md` | All decisions (resolved) |
-| `docs/specs/phase-*.md` | Phase specs with acceptance criteria |
-| `.project/testing-register.md` | Test catalog — keep in sync |
+| File                                  | Purpose                              |
+| ------------------------------------- | ------------------------------------ |
+| `docs/design/03-architecture.md`      | Architecture overview with diagrams  |
+| `docs/design/04-data-model.md`        | SQLite schema, config YAML format    |
+| `docs/design/05-mcp-server-design.md` | MCP tools with JSON schemas          |
+| `docs/design/07-open-questions.md`    | All decisions (resolved)             |
+| `docs/specs/phase-*.md`               | Phase specs with acceptance criteria |
+| `.project/testing-register.md`        | Test catalog — keep in sync          |
 
 ## Tips for AI Agents
 

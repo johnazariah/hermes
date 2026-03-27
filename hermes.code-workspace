@@ -1,0 +1,18 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../devex-toolkit"
+		}
+	],
+	"settings": {
+		"github.copilot.chat.commitMessageGeneration.instructions": [
+			{
+				"text": "Use conventional commits (feat:, fix:, docs:, test:, chore:, refactor:). Subject line: imperative mood, lowercase, no period, max 72 chars. Include Co-authored-by trailer for AI-assisted commits."
+			}
+		],
+		"powershell.cwd": "hermes"
+	}
+}

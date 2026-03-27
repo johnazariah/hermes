@@ -11,16 +11,16 @@ description: "Analyze staged changes, group into logical conventional commits, a
 2. **Analyze Changes**: Run `git diff --cached --stat` and `git diff --cached` to understand all staged changes.
 
 3. **Group by Concern**: Organize changes into logical commits. Each commit should be one coherent change:
-   - Feature addition → `feat: ...`
-   - Bug fix → `fix: ...`
-   - Test additions → `test: ...`
-   - Documentation → `docs: ...`
-   - Refactoring → `refactor: ...`
-   - Build/config → `chore: ...`
+    - Feature addition → `feat: ...`
+    - Bug fix → `fix: ...`
+    - Test additions → `test: ...`
+    - Documentation → `docs: ...`
+    - Refactoring → `refactor: ...`
+    - Build/config → `chore: ...`
 
 4. **Stage & Commit Each Group**:
-   - `git reset HEAD` to unstage everything
-   - For each group: `git add <files>` then `git commit -m "<type>: <imperative description>"`
+    - `git reset HEAD` to unstage everything
+    - For each group: `git add <files>` then `git commit -m "<type>: <imperative description>"`
 
 5. **Testing Register**: If any test files changed, verify `.project/testing-register.md` is also updated. If not, update it before committing.
 
@@ -43,7 +43,7 @@ model: <model-name>
 - One logical change per commit
 - Never commit failing builds or tests
 - Always include AI attribution trailers for AI-assisted commits:
-  - `Co-authored-by:` — who assisted
-  - `agent:` — which AI tool (github-copilot, claude, etc.)
-  - `model:` — which model was used
-  - All-or-none: if any AI trailer is present, all three must be
+    - `Co-authored-by:` — who assisted
+    - `agent:` — which AI tool (github-copilot, claude, etc.)
+    - `model:` — which model was used
+    - All-or-none: if any AI trailer is present, all three must be
