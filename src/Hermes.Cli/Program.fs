@@ -93,6 +93,11 @@ let private notImplemented (name: string) =
 let main argv =
     let parser = ArgumentParser.Create<CliArgs>(programName = "hermes")
 
+    // Handle --version before Argu parsing (which requires subcommand)
+    if argv |> Array.exists (fun a -> a = "--version" || a = "-v") then
+        version ()
+    else
+
     try
         let results = parser.ParseCommandLine(inputs = argv, raiseOnUsage = true)
 

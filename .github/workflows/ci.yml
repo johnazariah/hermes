@@ -11,9 +11,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest          # GitHub-hosted — cheap
-          - os: self-hosted-windows    # self-hosted — no minute cost
-          # - os: self-hosted-macos    # enable when macOS runner available
+          - os: ubuntu-latest
+          - os: [self-hosted, Windows, X64, buildbeast]
+          - os: [self-hosted, macOS, ARM64]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
