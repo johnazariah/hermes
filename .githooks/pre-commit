@@ -1,0 +1,46 @@
+#!/bin/sh
+# Pre-commit hook for Hermes
+# Installed via: git config core.hooksPath .githooks
+
+set -e
+
+REPO_ROOT=$(git rev-parse --show-toplevel)
+
+# 1. Check for secrets (basic patterns)
+echo "Checking for secrets..."
+SECRETS_PATTERN='(password|secret|api[_-]?key|token|credential)\s*[:=]\s*["\x27][^"\x27]{8,}'
+if git diff --cached --diff-filter=d -U0 | grep -iEq "$SECRETS_PATTERN"; then
+    echo "ERROR: Possible secret detected in staged changes. Review before committing."
+    echo "Run: git diff --cached | grep -iE '$SECRETS_PATTERN'"
+    exit 1
+fi
+
+# 2. Fix line endings (CRLF → LF)
+echo "Checking line endings..."
+STAGED=$(git diff --cached --name-only --diff-filter=ACM)
+for file in $STAGED; do
+    if file "$file" | grep -q "CRLF"; then
+        sed -i 's/\r$//' "$file"
+        git add "$file"
+        echo "  Fixed CRLF in: $file"
+    fi
+done
+
+# 3. Build check
+echo "Running build..."
+dotnet build --nologo -v q 2>&1 | tail -5
+if [ $? -ne 0 ]; then
+    echo "ERROR: Build failed. Fix before committing."
+    exit 1
+fi
+
+# 4. Testing register check
+TEST_FILES_CHANGED=$(git diff --cached --name-only | grep -c "Tests/" || true)
+REGISTER_CHANGED=$(git diff --cached --name-only | grep -c "testing-register.md" || true)
+if [ "$TEST_FILES_CHANGED" -gt 0 ] && [ "$REGISTER_CHANGED" -eq 0 ]; then
+    echo "WARNING: Test files changed but .project/testing-register.md was not updated."
+    echo "Please update the testing register to reflect test changes."
+    exit 1
+fi
+
+echo "Pre-commit checks passed."

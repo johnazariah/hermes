@@ -1,0 +1,25 @@
+#!/bin/sh
+# Pre-push hook for Hermes
+# Full quality gate before pushing
+
+set -e
+
+echo "Running pre-push quality gate..."
+
+# 1. Build
+echo "Building..."
+dotnet build --nologo -v q
+if [ $? -ne 0 ]; then
+    echo "ERROR: Build failed."
+    exit 1
+fi
+
+# 2. Tests
+echo "Running tests..."
+dotnet test --nologo -v q
+if [ $? -ne 0 ]; then
+    echo "ERROR: Tests failed."
+    exit 1
+fi
+
+echo "Pre-push quality gate passed."

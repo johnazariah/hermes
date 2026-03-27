@@ -1,0 +1,58 @@
+## Build
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+publish/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+## NuGet
+*.nupkg
+*.snupkg
+**/packages/*
+project.lock.json
+project.fragment.lock.json
+
+## .NET
+*.dll
+*.exe
+*.pdb
+*.mdb
+BundleConfig.json
+
+## IDE
+.vs/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+
+## OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+## Project private directories
+.project/notes/
+.project/reports/
+.project/research/
+
+## Logs
+logs/
+*.log
+
+## Secrets
+**/appsettings.*.json
+!**/appsettings.json
+**/credentials.json
+**/tokens/
