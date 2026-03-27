@@ -11,6 +11,7 @@
     <Compile Include="RulesTests.fs" />
     <Compile Include="ClassifierTests.fs" />
     <Compile Include="EmailSyncTests.fs" />
+    <Compile Include="FolderWatcherTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

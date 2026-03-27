@@ -64,11 +64,8 @@ let private version () =
 let private initCmd () =
     let fs = Interpreters.realFileSystem
     let logger = Logging.configureDefault ()
-
     logger.info "Initialising Hermes..."
-
     let configResult = Config.init fs |> Async.AwaitTask |> Async.RunSynchronously
-
     match configResult with
     | Error e ->
         logger.error $"Config init failed: {e}"
@@ -76,10 +73,8 @@ let private initCmd () =
     | Ok created ->
         for path in created do
             logger.info $"Created: {path}"
-
         let configPath = Path.Combine(Config.configDir (), "config.yaml")
         let loadResult = Config.load fs configPath |> Async.AwaitTask |> Async.RunSynchronously
-
         match loadResult with
         | Error e ->
             logger.error $"Failed to load config: {e}"
@@ -89,7 +84,6 @@ let private initCmd () =
                 Database.initArchive fs config.ArchiveDir
                 |> Async.AwaitTask
                 |> Async.RunSynchronously
-
             match archiveResult with
             | Error e ->
                 logger.error $"Archive init failed: {e}"
@@ -105,14 +99,12 @@ let private loadConfigAndDb () =
     let logger = Logging.configureDefault ()
     let configPath = Path.Combine(Config.configDir (), "config.yaml")
     let loadResult = Config.load fs configPath |> Async.AwaitTask |> Async.RunSynchronously
-
     match loadResult with
     | Error e ->
         logger.error $"Failed to load config: {e}"
         None
     | Ok config ->
         let dbPath = Path.Combine(config.ArchiveDir, "db.sqlite")
-
         if not (File.Exists(dbPath)) then
             logger.error "Database not found. Run 'hermes init' first."
             None
@@ -122,7 +114,6 @@ let private loadConfigAndDb () =
 
 let private reconcileCmd (args: ParseResults<ReconcileArgs>) =
     let dryRun = args.Contains Dry_Run
-
     match loadConfigAndDb () with
     | None -> 1
     | Some(fs, logger, config, db) ->
@@ -131,7 +122,6 @@ let private reconcileCmd (args: ParseResults<ReconcileArgs>) =
                 Classifier.reconcile fs db logger config.ArchiveDir dryRun
                 |> Async.AwaitTask
                 |> Async.RunSynchronously
-
             if actions.IsEmpty then
                 logger.info "Archive is in sync - no discrepancies found."
             else
@@ -146,9 +136,7 @@ let private reconcileCmd (args: ParseResults<ReconcileArgs>) =
                     | Classifier.MovedOnDisk(path, docId) ->
                         let prefix = if dryRun then "[DRY-RUN] " else ""
                         printfn $"{prefix}Moved on disk: {path} (doc ID: {docId})"
-
                 printfn $"Total discrepancies: {actions.Length}"
-
             0
         finally
             db.dispose ()
@@ -162,13 +150,11 @@ let private suggestRulesCmd () =
                 Classifier.suggestRules fs db logger config.ArchiveDir
                 |> Async.AwaitTask
                 |> Async.RunSynchronously
-
             if suggestions.IsEmpty then
                 printfn "No rule suggestions found."
             else
                 printfn "Suggested rules (add to rules.yaml):"
                 printfn ""
-
                 for s in suggestions do
                     printfn $"  - name: {s.SuggestedName}"
                     printfn $"    match:"
@@ -176,7 +162,6 @@ let private suggestRulesCmd () =
                     printfn $"    category: {s.Category}"
                     printfn $"    # based on: {s.ExampleFile}"
                     printfn ""
-
             0
         finally
             db.dispose ()
@@ -188,14 +173,11 @@ let private notImplemented (name: string) =
 [<EntryPoint>]
 let main argv =
     let parser = ArgumentParser.Create<CliArgs>(programName = "hermes")
-
     if argv |> Array.exists (fun a -> a = "--version" || a = "-v") then
         version ()
     else
-
     try
         let results = parser.ParseCommandLine(inputs = argv, raiseOnUsage = true)
-
         if results.Contains Version then
             version ()
         elif results.Contains Init then
