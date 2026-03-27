@@ -31,7 +31,7 @@
 
 ## Key Decisions
 
-All 13 open questions resolved — see `docs/design/07-open-questions.md`.
+All 13 open questions resolved — see `.project/design/07-open-questions.md`.
 
 - **Runtime**: .NET 9 / F# + C# (Avalonia)
 - **AI**: Ollama (auto-installed) + ONNX Runtime fallback + Azure Document Intelligence

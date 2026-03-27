@@ -51,7 +51,7 @@ dotnet run --project src/Hermes.App    # run app
 
 ## Project Status
 
-See [.project/STATUS.md](.project/STATUS.md) for current phase status and [docs/design/](docs/design/) for the full design.
+See [.project/STATUS.md](.project/STATUS.md) for current phase status and [.project/design/](.project/design/) for the full design.
 
 | Phase | Name | Status |
 |-------|------|--------|
@@ -68,14 +68,14 @@ See [.project/STATUS.md](.project/STATUS.md) for current phase status and [docs/
 
 ## Documentation
 
-- [Vision & Goals](docs/design/01-vision-and-goals.md)
-- [Functional Requirements](docs/design/02-functional-requirements.md)
-- [Architecture](docs/design/03-architecture.md)
-- [Data Model](docs/design/04-data-model.md)
-- [MCP Server Design](docs/design/05-mcp-server-design.md)
-- [Development Phases](docs/design/06-development-phases.md)
-- [Decisions Log](docs/design/07-open-questions.md)
-- [Phase Specs](docs/specs/)
+- [Vision & Goals](.project/design/01-vision-and-goals.md)
+- [Functional Requirements](.project/design/02-functional-requirements.md)
+- [Architecture](.project/design/03-architecture.md)
+- [Data Model](.project/design/04-data-model.md)
+- [MCP Server Design](.project/design/05-mcp-server-design.md)
+- [Development Phases](.project/design/06-development-phases.md)
+- [Decisions Log](.project/design/07-open-questions.md)
+- [Phase Specs](.project/specs/)
 
 ## License
 

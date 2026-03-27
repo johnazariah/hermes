@@ -7,7 +7,7 @@ description: "Gather context about the project and recommend the next best thing
 ## Steps
 
 1. **Gather Context**:
-    - Read `docs/specs/phase-*.md` — check which phases are in progress, which are blocked
+    - Read `.project/phases.md` — check the dependency graph and phase status
     - Run `git log --oneline -20` — see recent activity
     - Check `gh issue list --repo johnazariah/hermes` — open issues and their status
     - Run `dotnet build` and `dotnet test` — is the build healthy?

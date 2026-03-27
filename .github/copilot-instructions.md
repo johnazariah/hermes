@@ -55,9 +55,12 @@ src/
 └── Hermes.Cli/           CLI entry point — thin wrapper calling Core
 tests/
 └── Hermes.Tests/         xUnit + FsCheck
-docs/
+.project/
 ├── design/               Architecture & design docs
-└── specs/                Phase specs with task checklists
+├── specs/                Phase specs with task checklists
+├── phases.md             Dependency graph for automated planning
+├── testing-register.md   Test catalog
+└── STATUS.md             Project status dashboard
 ```
 
 ## Development Commands
@@ -106,19 +109,19 @@ dotnet publish -c Release -r osx-arm64 --self-contained  # publish macOS
 
 ## Key Files
 
-| File                                  | Purpose                              |
-| ------------------------------------- | ------------------------------------ |
-| `docs/design/03-architecture.md`      | Architecture overview with diagrams  |
-| `docs/design/04-data-model.md`        | SQLite schema, config YAML format    |
-| `docs/design/05-mcp-server-design.md` | MCP tools with JSON schemas          |
-| `docs/design/07-open-questions.md`    | All decisions (resolved)             |
-| `docs/specs/phase-*.md`               | Phase specs with acceptance criteria |
-| `.project/testing-register.md`        | Test catalog — keep in sync          |
+| File                                      | Purpose                              |
+| ----------------------------------------- | ------------------------------------ |
+| `.project/design/03-architecture.md`      | Architecture overview with diagrams  |
+| `.project/design/04-data-model.md`        | SQLite schema, config YAML format    |
+| `.project/design/05-mcp-server-design.md` | MCP tools with JSON schemas          |
+| `.project/design/07-open-questions.md`    | All decisions (resolved)             |
+| `.project/specs/phase-*.md`               | Phase specs with acceptance criteria |
+| `.project/testing-register.md`            | Test catalog — keep in sync          |
 
 ## Tips for AI Agents
 
 1. Read the current phase spec before implementing
-2. Check `docs/design/07-open-questions.md` for resolved decisions
+2. Check `.project/design/07-open-questions.md` for resolved decisions
 3. Update the testing register when tests change
 4. Use the commit prompt (`.github/prompts/commit.prompt.md`) for clean commits
 5. Run `dotnet build` and `dotnet test` before committing
