@@ -22,7 +22,8 @@ module Search =
           ExtractedVendor: string option
           ExtractedAmount: float option
           RelevanceScore: float
-          Snippet: string option }
+          Snippet: string option
+          ResultType: string }  // "document" or "email"
 
     /// Filters for search queries.
     type SearchFilter =
@@ -198,7 +199,83 @@ module Search =
           ExtractedVendor = tryString row "extracted_vendor"
           ExtractedAmount = tryFloat row "extracted_amount"
           RelevanceScore = tryFloat row "rank" |> Option.defaultValue 0.0
-          Snippet = tryString row "snippet" }
+          Snippet = tryString row "snippet"
+          ResultType = "document" }
+
+    /// Map an email row from messages_fts to a SearchResult.
+    let private mapEmailRow (row: Map<string, obj>) : SearchResult =
+        { DocumentId = 0L
+          SavedPath = ""
+          OriginalName = None
+          Category = "email"
+          Sender = tryString row "sender"
+          Subject = tryString row "subject"
+          EmailDate = tryString row "date"
+          ExtractedVendor = None
+          ExtractedAmount = None
+          RelevanceScore = tryFloat row "rank" |> Option.defaultValue 0.0
+          Snippet = tryString row "snippet"
+          ResultType = "email" }
+
+    /// Build the SQL for email body search.
+    let private buildEmailQuery (filter: SearchFilter) : string * (string * obj) list =
+        let sanitised = sanitiseQuery filter.Query
+
+        if String.IsNullOrWhiteSpace(sanitised) then
+            "SELECT 0 WHERE 0", []
+        else
+
+        let conditions = ResizeArray<string>()
+        let parameters = ResizeArray<string * obj>()
+
+        conditions.Add("messages_fts MATCH @query")
+        parameters.Add(("@query", Database.boxVal sanitised))
+
+        match filter.Sender with
+        | Some s ->
+            conditions.Add("m.sender LIKE @sender")
+            parameters.Add(("@sender", Database.boxVal ("%" + s + "%")))
+        | None -> ()
+
+        match filter.DateFrom with
+        | Some df ->
+            conditions.Add("m.date >= @dateFrom")
+            parameters.Add(("@dateFrom", Database.boxVal df))
+        | None -> ()
+
+        match filter.DateTo with
+        | Some dt ->
+            conditions.Add("m.date <= @dateTo")
+            parameters.Add(("@dateTo", Database.boxVal dt))
+        | None -> ()
+
+        match filter.Account with
+        | Some acc ->
+            conditions.Add("m.account = @account")
+            parameters.Add(("@account", Database.boxVal acc))
+        | None -> ()
+
+        let whereClause = conditions |> Seq.toArray |> String.concat " AND "
+
+        let sql =
+            "SELECT "
+            + "m.rowid AS id, "
+            + "m.sender, "
+            + "m.subject, "
+            + "m.date, "
+            + "m.account, "
+            + "bm25(messages_fts) AS rank, "
+            + "snippet(messages_fts, 2, '>>>', '<<<', '...', 32) AS snippet "
+            + "FROM messages_fts "
+            + "JOIN messages m ON m.rowid = messages_fts.rowid "
+            + "WHERE "
+            + whereClause
+            + " ORDER BY rank "
+            + "LIMIT @limit"
+
+        parameters.Add(("@limit", Database.boxVal filter.Limit))
+
+        (sql, parameters |> Seq.toList)
 
     // ─── Execute search ──────────────────────────────────────────────
 
@@ -208,4 +285,27 @@ module Search =
             let sql, parameters = buildQuery filter
             let! rows = db.execReader sql parameters
             return rows |> List.map mapRow
+        }
+
+    /// Execute a full-text search against the email body index.
+    let executeEmailSearch (db: Algebra.Database) (filter: SearchFilter) : Task<SearchResult list> =
+        task {
+            let sql, parameters = buildEmailQuery filter
+            let! rows = db.execReader sql parameters
+            return rows |> List.map mapEmailRow
+        }
+
+    /// Unified search: query both document and email indexes, merge by relevance.
+    let executeUnified (db: Algebra.Database) (filter: SearchFilter) : Task<SearchResult list> =
+        task {
+            let! docResults = execute db filter
+            let! emailResults = executeEmailSearch db filter
+
+            // Merge and sort by relevance (BM25 rank — lower is better)
+            let combined =
+                (docResults @ emailResults)
+                |> List.sortBy (fun r -> r.RelevanceScore)
+                |> List.truncate filter.Limit
+
+            return combined
         }

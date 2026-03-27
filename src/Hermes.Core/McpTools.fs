@@ -122,7 +122,7 @@ module McpTools =
                       SourceType = None
                       Limit = limit }
 
-                let! results = Search.execute db filter
+                let! results = Search.executeUnified db filter
 
                 let arr = JsonArray()
 
@@ -132,6 +132,7 @@ module McpTools =
                     item["path"] <- JsonValue.Create(r.SavedPath)
                     item["category"] <- JsonValue.Create(r.Category)
                     item["score"] <- JsonValue.Create(r.RelevanceScore)
+                    item["resultType"] <- JsonValue.Create(r.ResultType)
 
                     r.OriginalName
                     |> Option.iter (fun v -> item["originalName"] <- JsonValue.Create(v))

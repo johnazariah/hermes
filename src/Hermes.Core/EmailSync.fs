@@ -124,8 +124,8 @@ module EmailSync =
         task {
             let! _ =
                 db.execNonQuery
-                    """INSERT OR IGNORE INTO messages (gmail_id, account, sender, subject, date, label_ids, has_attachments, processed_at)
-                       VALUES (@gid, @acc, @sender, @subject, @date, @labels, @hasAtt, @processed)"""
+                    """INSERT OR IGNORE INTO messages (gmail_id, account, sender, subject, date, thread_id, body_text, label_ids, has_attachments, processed_at)
+                       VALUES (@gid, @acc, @sender, @subject, @date, @tid, @body, @labels, @hasAtt, @processed)"""
                     [ ("@gid", boxVal msg.ProviderId)
                       ("@acc", boxVal account)
                       ("@sender", msg.Sender |> Option.map boxVal |> Option.defaultValue (boxVal DBNull.Value))
@@ -134,6 +134,8 @@ module EmailSync =
                        msg.Date
                        |> Option.map (fun d -> boxVal (d.ToString("o")))
                        |> Option.defaultValue (boxVal DBNull.Value))
+                      ("@tid", boxVal msg.ThreadId)
+                      ("@body", msg.BodyText |> Option.map boxVal |> Option.defaultValue (boxVal DBNull.Value))
                       ("@labels", boxVal (String.Join(",", msg.Labels)))
                       ("@hasAtt", boxVal (if msg.HasAttachments then 1L else 0L))
                       ("@processed", boxVal (now.ToString("o"))) ]

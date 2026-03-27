@@ -84,11 +84,13 @@ let mockProvider
                 match attachmentMap |> Map.tryFind msgId with
                 | Some atts -> atts
                 | None -> []
-        } }
+        }
+      getMessageBody = fun _ -> task { return None } }
 
 let emptyProvider : Algebra.EmailProvider =
     { listNewMessages = fun _ -> task { return [] }
-      getAttachments = fun _ -> task { return [] } }
+      getAttachments = fun _ -> task { return [] }
+      getMessageBody = fun _ -> task { return None } }
 
 // ─── Test config ─────────────────────────────────────────────────────
 
@@ -117,7 +119,8 @@ let sampleMessage : Domain.EmailMessage =
       Subject = Some "Invoice #42"
       Date = Some (DateTimeOffset(2024, 6, 15, 10, 30, 0, TimeSpan.Zero))
       Labels = [ "INBOX"; "IMPORTANT" ]
-      HasAttachments = true }
+      HasAttachments = true
+      BodyText = Some "Please find the invoice attached." }
 
 let sampleAttachment : Domain.EmailAttachment =
     { FileName = "invoice.pdf"

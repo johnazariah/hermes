@@ -9,7 +9,7 @@ open Microsoft.Data.Sqlite
 [<RequireQualifiedAccess>]
 module Database =
 
-    let [<Literal>] CurrentSchemaVersion = 1
+    let [<Literal>] CurrentSchemaVersion = 2
 
     // ─── Schema DDL ──────────────────────────────────────────────────
 
@@ -28,6 +28,8 @@ module Database =
             sender          TEXT,
             subject         TEXT,
             date            TEXT,
+            thread_id       TEXT,
+            body_text       TEXT,
             label_ids       TEXT,
             has_attachments INTEGER NOT NULL DEFAULT 0,
             processed_at    TEXT NOT NULL DEFAULT (datetime('now')),
@@ -115,6 +117,33 @@ module Database =
             VALUES ('delete', old.id, old.sender, old.subject, old.original_name, old.category, old.extracted_text, old.extracted_vendor);
             INSERT INTO documents_fts(rowid, sender, subject, original_name, category, extracted_text, extracted_vendor)
             VALUES (new.id, new.sender, new.subject, new.original_name, new.category, new.extracted_text, new.extracted_vendor);
+        END;
+        """
+
+           // ── Messages FTS (email body search) ──────────────────────────
+           """
+        CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+            sender,
+            subject,
+            body_text,
+            content='messages',
+            content_rowid='rowid'
+        );
+        """
+
+           """
+        CREATE TRIGGER IF NOT EXISTS msg_fts_insert AFTER INSERT ON messages BEGIN
+            INSERT INTO messages_fts(rowid, sender, subject, body_text)
+            VALUES (new.rowid, new.sender, new.subject, new.body_text);
+        END;
+        """
+
+           """
+        CREATE TRIGGER IF NOT EXISTS msg_fts_update AFTER UPDATE ON messages BEGIN
+            INSERT INTO messages_fts(messages_fts, rowid, sender, subject, body_text)
+            VALUES ('delete', old.rowid, old.sender, old.subject, old.body_text);
+            INSERT INTO messages_fts(rowid, sender, subject, body_text)
+            VALUES (new.rowid, new.sender, new.subject, new.body_text);
         END;
         """ |]
 

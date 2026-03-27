@@ -125,7 +125,8 @@ module Domain =
           Subject: string option
           Date: DateTimeOffset option
           Labels: string list
-          HasAttachments: bool }
+          HasAttachments: bool
+          BodyText: string option }
 
     /// An attachment downloaded from an email.
     type EmailAttachment =

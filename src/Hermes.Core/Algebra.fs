@@ -54,7 +54,8 @@ module Algebra =
 
     type EmailProvider =
         { listNewMessages: DateTimeOffset option -> Task<Domain.EmailMessage list>
-          getAttachments: string -> Task<Domain.EmailAttachment list> }
+          getAttachments: string -> Task<Domain.EmailAttachment list>
+          getMessageBody: string -> Task<string option> }
 
     // ─── Rules engine ────────────────────────────────────────────────
 
