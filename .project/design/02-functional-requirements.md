@@ -183,7 +183,7 @@ See [05-mcp-server-design.md](05-mcp-server-design.md) for full tool/resource de
 ## FR8: Installer & Packaging
 
 ### FR8.1 Self-Contained
-- .NET 9 self-contained single binary. No runtime prerequisites.
+- .NET 10 self-contained single binary. No runtime prerequisites.
 - macOS: `.dmg` app bundle. Registers LaunchAgent on first run.
 - Windows: `.msi` installer (WiX). Registers service/scheduled task on install.
 

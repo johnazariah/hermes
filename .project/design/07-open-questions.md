@@ -5,7 +5,7 @@ All questions resolved as of 2026-03-27.
 ## Architecture
 
 ### OQ-1: Language/Runtime — DECIDED
-- **Decision**: **.NET 9 / F#**
+- **Decision**: **.NET 10 / F#**
 - **Rationale**: Self-contained single binary (~30-50MB trimmed), native Windows Service + launchd support, F# pipelines map naturally onto the processing flow, no runtime dependency headaches. Avalonia for cross-platform tray + shell UI. Ollama via REST API (`HttpClient` / OllamaSharp). SQLite via `Microsoft.Data.Sqlite` with sqlite-vec as native extension. ONNX Runtime for no-Ollama embedding fallback.
 
 ### OQ-2: Threads vs Processes — DECIDED

@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/johnazariah/hermes/actions/workflows/ci.yml/badge.svg)](https://github.com/johnazariah/hermes/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![.NET 9](https://img.shields.io/badge/.NET-9.0-purple.svg)](https://dotnet.microsoft.com/)
+[![.NET 10](https://img.shields.io/badge/.NET-10.0-purple.svg)](https://dotnet.microsoft.com/)
 
 **Local-first document intelligence service for macOS and Windows.**
 
@@ -22,7 +22,7 @@ Install it once, forget it's there, and never lose a document again.
 ## Architecture
 
 ```
-Hermes Process (.NET 9 / F#)
+Hermes Process (.NET 10 / F#)
 ├── Producers: Email Sync, Folder Watchers → unclassified/
 ├── Pipeline: Classifier → Extractor → Embedder (Channel<T>)
 ├── Store: db.sqlite (tables + FTS5 + sqlite-vec)
@@ -34,7 +34,7 @@ Hermes Process (.NET 9 / F#)
 
 | Component | Choice |
 |-----------|--------|
-| Runtime | .NET 9, self-contained |
+| Runtime | .NET 10, self-contained |
 | Core Logic | F# |
 | UI | Avalonia (C#) |
 | Database | SQLite + FTS5 + sqlite-vec |

@@ -20,7 +20,7 @@ Hermes is a local-first document intelligence service for macOS and Windows. It 
 ## Architecture
 
 ```
-Hermes Process (.NET 9)
+Hermes Process (.NET 10)
 ├── Producers: Email Sync, Folder Watchers → unclassified/
 ├── Pipeline: Classifier → Extractor → Embedder (Channel<T>)
 ├── Store: db.sqlite (tables + FTS5 + sqlite-vec)
@@ -32,7 +32,7 @@ Hermes Process (.NET 9)
 
 | Component  | Choice                                               |
 | ---------- | ---------------------------------------------------- |
-| Runtime    | .NET 9, self-contained                               |
+| Runtime    | .NET 10, self-contained                              |
 | Language   | F# (core logic), C# (Avalonia UI)                    |
 | UI         | Avalonia (cross-platform tray + shell)               |
 | Database   | SQLite via `Microsoft.Data.Sqlite`                   |

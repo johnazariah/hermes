@@ -33,7 +33,7 @@
 
 All 13 open questions resolved — see `.project/design/07-open-questions.md`.
 
-- **Runtime**: .NET 9 / F# + C# (Avalonia)
+- **Runtime**: .NET 10 / F# + C# (Avalonia)
 - **AI**: Ollama (auto-installed) + ONNX Runtime fallback + Azure Document Intelligence
 - **MCP**: Service IS the MCP server (streamable HTTP on localhost)
 - **UI**: Avalonia tray icon + shell window

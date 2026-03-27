@@ -4,7 +4,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     Hermes Process (.NET 9 / F#)                 │
+│                     Hermes Process (.NET 10 / F#)                │
 │                                                                  │
 │  ┌───────────────────── Background Tasks ──────────────────────┐ │
 │  │                                                              │ │
@@ -164,7 +164,7 @@ All DB writes serialised through a single writer. MCP reads are concurrent via W
 
 | Concern | macOS | Windows |
 |---------|-------|---------|
-| Runtime | .NET 9 self-contained (arm64/x64) | .NET 9 self-contained (x64) |
+| Runtime | .NET 10 self-contained (arm64/x64) | .NET 10 self-contained (x64) |
 | Service | launchd LaunchAgent (per-user) | Windows Service or Task Scheduler |
 | Auto-start | plist in `~/Library/LaunchAgents/` | Scheduled task "at logon" |
 | UI | Avalonia (native rendering) | Avalonia (native rendering) |

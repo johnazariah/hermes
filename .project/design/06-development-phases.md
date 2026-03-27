@@ -4,7 +4,7 @@
 
 | Component | Choice | Notes |
 |-----------|--------|-------|
-| **Runtime** | .NET 9 | Self-contained single binary, cross-platform |
+| **Runtime** | .NET 10 | Self-contained single binary, cross-platform |
 | **Language** | F# (core logic), C# (Avalonia UI) | F# pipelines for data flow, C# for XAML bindings |
 | **UI** | Avalonia | Cross-platform tray icon + shell window |
 | **Database** | SQLite via `Microsoft.Data.Sqlite` | FTS5 + sqlite-vec native extensions |

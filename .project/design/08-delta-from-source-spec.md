@@ -19,7 +19,7 @@
 
 | Source Concept | Hermes Change | Why |
 |---------------|--------------|-----|
-| **Python** | → **.NET 9 / F#** | Self-contained binary (~30-50MB), native service support, no runtime dependency, type safety |
+| **Python** | → **.NET 10 / F#** | Self-contained binary (~30-50MB), native service support, no runtime dependency, type safety |
 | CLI-only tool | → **Background service + Avalonia tray/shell + CLI** | Needs to run unattended for non-technical users |
 | pystray / rumps | → **Avalonia** | Cross-platform .NET UI: tray icon + shell window + future chat panel |
 | `sentence-transformers` default | → **Ollama embeddings**, ONNX Runtime fallback | Leverages local GPU, keeps data on machine |

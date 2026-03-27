@@ -46,7 +46,7 @@ hermes/
 
 ### 0.1 — Solution & Project Scaffolding
 - [ ] Create `hermes.sln` with projects: `Hermes.Core` (F#), `Hermes.App` (C#/Avalonia), `Hermes.Cli` (F#), `Hermes.Tests` (F#)
-- [ ] `Directory.Build.props` targeting `net9.0`, nullable enabled, warnings as errors
+- [ ] `Directory.Build.props` targeting `net10.0`, nullable enabled, warnings as errors
 - [ ] `.gitignore` for .NET, JetBrains, VS Code
 
 ### 0.2 — Configuration
