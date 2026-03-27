@@ -19,8 +19,8 @@
 | Phase | Name | Status | Issue |
 |-------|------|--------|-------|
 | 0 | Project Skeleton | ✅ Done | [#1](https://github.com/johnazariah/hermes/issues/1) |
-| 1 | Email Sync | 📝 Not Started | [#2](https://github.com/johnazariah/hermes/issues/2) |
-| 2 | Classification | 📝 Not Started | [#3](https://github.com/johnazariah/hermes/issues/3) |
+| 1 | Email Sync | ✅ Done | [#2](https://github.com/johnazariah/hermes/issues/2) |
+| 2 | Classification | ✅ Done | [#3](https://github.com/johnazariah/hermes/issues/3) |
 | 3 | Text Extraction | 📝 Not Started | [#4](https://github.com/johnazariah/hermes/issues/4) |
 | 4 | Full-Text Search | 📝 Not Started | [#5](https://github.com/johnazariah/hermes/issues/5) |
 | 5 | Embeddings | 📝 Not Started | [#6](https://github.com/johnazariah/hermes/issues/6) |
