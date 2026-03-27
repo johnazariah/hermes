@@ -1,0 +1,26 @@
+{
+  "github.copilot.chat.commitMessageGeneration.instructions": [
+    {
+      "text": "Use conventional commits (feat:, fix:, docs:, test:, chore:, refactor:). Subject line: imperative mood, lowercase, no period, max 72 chars. Include Co-authored-by trailer for AI-assisted commits."
+    }
+  ],
+  "editor.formatOnSave": true,
+  "files.eol": "\n",
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+  "[markdown]": {
+    "files.trimTrailingWhitespace": false
+  },
+  "[fsharp]": {
+    "editor.tabSize": 4
+  },
+  "[csharp]": {
+    "editor.tabSize": 4
+  },
+  "[yaml]": {
+    "editor.tabSize": 2
+  },
+  "[json]": {
+    "editor.tabSize": 2
+  }
+}

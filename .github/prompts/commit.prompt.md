@@ -33,6 +33,8 @@ description: "Analyze staged changes, group into logical conventional commits, a
 
 [optional footer]
 Co-authored-by: GitHub Copilot <noreply@github.com>
+agent: github-copilot
+model: <model-name>
 ```
 
 ## Rules
@@ -40,4 +42,8 @@ Co-authored-by: GitHub Copilot <noreply@github.com>
 - Subject line: imperative mood, lowercase, no period, max 72 chars
 - One logical change per commit
 - Never commit failing builds or tests
-- Always include `Co-authored-by` trailer for AI-assisted commits
+- Always include AI attribution trailers for AI-assisted commits:
+  - `Co-authored-by:` — who assisted
+  - `agent:` — which AI tool (github-copilot, claude, etc.)
+  - `model:` — which model was used
+  - All-or-none: if any AI trailer is present, all three must be
