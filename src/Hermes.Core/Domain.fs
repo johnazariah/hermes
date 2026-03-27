@@ -114,3 +114,58 @@ module Domain =
           Ollama: OllamaConfig
           Fallback: FallbackConfig
           Azure: AzureConfig }
+
+    // ─── Email sync domain types ─────────────────────────────────────
+
+    /// A Gmail message returned by the provider.
+    type EmailMessage =
+        { ProviderId: string
+          ThreadId: string
+          Sender: string option
+          Subject: string option
+          Date: DateTimeOffset option
+          Labels: string list
+          HasAttachments: bool }
+
+    /// An attachment downloaded from an email.
+    type EmailAttachment =
+        { FileName: string
+          MimeType: string
+          SizeBytes: int64
+          Content: byte array }
+
+    /// Sidecar metadata written alongside each downloaded attachment.
+    type SidecarMetadata =
+        { SourceType: string
+          Account: string
+          GmailId: string
+          ThreadId: string
+          Sender: string option
+          Subject: string option
+          EmailDate: string option
+          OriginalName: string
+          SavedAs: string
+          Sha256: string
+          DownloadedAt: string }
+
+    // ─── Classification domain types ─────────────────────────────────
+
+    /// Which rule type matched during classification.
+    type ClassificationRule =
+        | DomainRule of ruleName: string * domain: string
+        | FilenameRule of ruleName: string * pattern: string
+        | SubjectRule of ruleName: string * pattern: string
+        | DefaultRule
+
+    /// Result of classifying a document.
+    type ClassificationResult =
+        { Category: string
+          MatchedRule: ClassificationRule }
+
+    module ClassificationRule =
+        let describe =
+            function
+            | DomainRule(name, domain) -> $"domain rule '{name}' (domain={domain})"
+            | FilenameRule(name, pattern) -> $"filename rule '{name}' (pattern={pattern})"
+            | SubjectRule(name, pattern) -> $"subject rule '{name}' (pattern={pattern})"
+            | DefaultRule -> "default (unsorted)"

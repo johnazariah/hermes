@@ -10,9 +10,14 @@
     <Compile Include="Config.fs" />
     <Compile Include="Logging.fs" />
     <Compile Include="Database.fs" />
+    <Compile Include="Rules.fs" />
+    <Compile Include="Classifier.fs" />
+    <Compile Include="EmailSync.fs" />
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Google.Apis.Gmail.v1" Version="1.69.0.3742" />
+    <PackageReference Include="Google.Apis.Auth" Version="1.69.0" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.4" />
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="9.0.4" />
     <PackageReference Include="Serilog" Version="4.2.0" />

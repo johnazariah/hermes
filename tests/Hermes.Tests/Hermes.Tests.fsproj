@@ -8,6 +8,9 @@
   <ItemGroup>
     <Compile Include="ConfigTests.fs" />
     <Compile Include="DatabaseTests.fs" />
+    <Compile Include="RulesTests.fs" />
+    <Compile Include="ClassifierTests.fs" />
+    <Compile Include="EmailSyncTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

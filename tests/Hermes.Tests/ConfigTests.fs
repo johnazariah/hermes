@@ -12,6 +12,7 @@ open Hermes.Core
 
 let inMemoryFileSystem () =
     let files = System.Collections.Concurrent.ConcurrentDictionary<string, string>()
+    let fileBytes = System.Collections.Concurrent.ConcurrentDictionary<string, byte array>()
     let dirs = System.Collections.Concurrent.ConcurrentDictionary<string, bool>()
 
     let fs: Algebra.FileSystem =
@@ -23,9 +24,50 @@ let inMemoryFileSystem () =
             }
           writeAllText = fun path content ->
             task { files.[path] <- content }
-          fileExists = fun path -> files.ContainsKey(path)
+          writeAllBytes = fun path bytes ->
+            task {
+                fileBytes.[path] <- bytes
+                files.[path] <- System.Text.Encoding.UTF8.GetString(bytes)
+            }
+          readAllBytes = fun path ->
+            task {
+                match fileBytes.TryGetValue(path) with
+                | true, bytes -> return bytes
+                | _ ->
+                    match files.TryGetValue(path) with
+                    | true, content -> return System.Text.Encoding.UTF8.GetBytes(content)
+                    | _ -> return failwith $"File not found: {path}"
+            }
+          fileExists = fun path -> files.ContainsKey(path) || fileBytes.ContainsKey(path)
           directoryExists = fun path -> dirs.ContainsKey(path)
-          createDirectory = fun path -> dirs.[path] <- true }
+          createDirectory = fun path -> dirs.[path] <- true
+          deleteFile = fun path ->
+            files.TryRemove(path) |> ignore
+            fileBytes.TryRemove(path) |> ignore
+          moveFile = fun src dst ->
+            match files.TryRemove(src) with
+            | true, content -> files.[dst] <- content
+            | _ -> ()
+            match fileBytes.TryRemove(src) with
+            | true, bytes -> fileBytes.[dst] <- bytes
+            | _ -> ()
+          getFiles = fun dir pattern ->
+            let prefix = if dir.EndsWith("/") || dir.EndsWith("\\") then dir else dir + "/"
+            files.Keys
+            |> Seq.append fileBytes.Keys
+            |> Seq.distinct
+            |> Seq.filter (fun k ->
+                k.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                && not (k.Substring(prefix.Length).Contains("/"))
+                && not (k.Substring(prefix.Length).Contains("\\")))
+            |> Seq.toArray
+          getFileSize = fun path ->
+            match fileBytes.TryGetValue(path) with
+            | true, bytes -> int64 bytes.Length
+            | _ ->
+                match files.TryGetValue(path) with
+                | true, content -> int64 (System.Text.Encoding.UTF8.GetByteCount(content))
+                | _ -> 0L }
 
     fs, files, dirs
 
