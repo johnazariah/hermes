@@ -12,6 +12,8 @@
     <Compile Include="ClassifierTests.fs" />
     <Compile Include="EmailSyncTests.fs" />
     <Compile Include="FolderWatcherTests.fs" />
+    <Compile Include="EmbeddingTests.fs" />
+    <Compile Include="SearchTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

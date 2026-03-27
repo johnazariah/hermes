@@ -44,6 +44,7 @@ module Algebra =
     type Database =
         { execNonQuery: string -> (string * obj) list -> Task<int>
           execScalar: string -> (string * obj) list -> Task<obj | null>
+          execReader: string -> (string * obj) list -> Task<Map<string, obj> list>
           initSchema: unit -> Task<Result<unit, string>>
           tableExists: string -> Task<bool>
           schemaVersion: unit -> Task<int>
@@ -60,6 +61,13 @@ module Algebra =
     type RulesEngine =
         { classify: Domain.SidecarMetadata option -> string -> Domain.ClassificationResult
           reload: unit -> Task<Result<unit, string>> }
+
+    // ─── Embedding client ─────────────────────────────────────────────
+
+    type EmbeddingClient =
+        { embed: string -> Task<Result<float32[], string>>
+          dimensions: int
+          isAvailable: unit -> Task<bool> }
 
     // ─── File watcher ────────────────────────────────────────────────
 

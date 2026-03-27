@@ -146,6 +146,37 @@ module Database =
             return result
         }
 
+    let private execReader (conn: SqliteConnection) (sql: string) (ps: (string * obj) list) =
+        task {
+            use cmd = conn.CreateCommand()
+            cmd.CommandText <- sql
+            addParams cmd ps
+            use! reader = cmd.ExecuteReaderAsync()
+            let results = ResizeArray<Map<string, obj>>()
+            let! firstRow = reader.ReadAsync()
+            let mutable hasMore = firstRow
+
+            while hasMore do
+                let mutable row = Map.empty<string, obj>
+
+                for i in 0 .. reader.FieldCount - 1 do
+                    let name = reader.GetName(i)
+                    let rawValue : obj | null = reader.GetValue(i)
+
+                    let value =
+                        match rawValue with
+                        | null -> boxVal System.DBNull.Value
+                        | v -> v
+
+                    row <- row |> Map.add name value
+
+                results.Add(row)
+                let! nextRow = reader.ReadAsync()
+                hasMore <- nextRow
+
+            return results |> Seq.toList
+        }
+
     let private toInt64 (value: obj | null) : int64 =
         match value with
         | null -> 0L
@@ -221,6 +252,7 @@ module Database =
     let fromConnection (conn: SqliteConnection) : Algebra.Database =
         { execNonQuery = fun sql ps -> execNonQuery conn sql ps
           execScalar = fun sql ps -> execScalar conn sql ps
+          execReader = fun sql ps -> execReader conn sql ps
           initSchema = fun () -> initSchemaImpl conn
           tableExists = fun name -> tableExistsImpl conn name
           schemaVersion = fun () -> schemaVersionImpl conn

@@ -12,10 +12,28 @@ type InitArgs =
 
 type SearchArgs =
     | [<MainCommand>] Query of string
+    | [<AltCommandLine("-s")>] Semantic
+    | [<AltCommandLine("-H")>] Hybrid
+    | [<AltCommandLine("-c")>] Category of string
+    | Sender of string
+    | From of string
+    | To of string
+    | Account of string
+    | [<AltCommandLine("-n")>] Limit of int
+    | Json
     interface IArgParserTemplate with
         member this.Usage =
             match this with
             | Query _ -> "search query"
+            | Semantic -> "use semantic (embedding) search"
+            | Hybrid -> "combine keyword + semantic search"
+            | Category _ -> "filter by category"
+            | Sender _ -> "filter by sender"
+            | From _ -> "filter results from date (YYYY-MM-DD)"
+            | To _ -> "filter results to date (YYYY-MM-DD)"
+            | Account _ -> "filter by email account"
+            | Limit _ -> "max results (default 20)"
+            | Json -> "output results as JSON"
 
 type SyncArgs =
     | [<Hidden>] Placeholder
@@ -34,6 +52,15 @@ type SuggestRulesArgs =
     interface IArgParserTemplate with
         member _.Usage = ""
 
+type EmbedArgs =
+    | [<AltCommandLine("-f")>] Force
+    | [<AltCommandLine("-n")>] Limit of int
+    interface IArgParserTemplate with
+        member this.Usage =
+            match this with
+            | Force -> "re-embed documents that already have embeddings"
+            | Limit _ -> "max documents to embed"
+
 [<RequireSubcommand>]
 type CliArgs =
     | Version
@@ -42,15 +69,17 @@ type CliArgs =
     | [<CliPrefix(CliPrefix.None)>] Sync of ParseResults<SyncArgs>
     | [<CliPrefix(CliPrefix.None)>] Reconcile of ParseResults<ReconcileArgs>
     | [<CliPrefix(CliPrefix.None)>] Suggest_Rules of ParseResults<SuggestRulesArgs>
+    | [<CliPrefix(CliPrefix.None)>] Embed of ParseResults<EmbedArgs>
     interface IArgParserTemplate with
         member this.Usage =
             match this with
             | Version -> "print version and exit"
             | Init _ -> "initialise config, rules, and database"
-            | Search _ -> "search documents (not yet implemented)"
+            | Search _ -> "search documents"
             | Sync _ -> "sync email accounts (not yet implemented)"
             | Reconcile _ -> "walk archive, find moved/deleted/new files"
             | Suggest_Rules _ -> "analyse unsorted patterns and suggest rules"
+            | Embed _ -> "generate embeddings for documents"
 
 let private version () =
     let asm = System.Reflection.Assembly.GetEntryAssembly()
@@ -166,6 +195,139 @@ let private suggestRulesCmd () =
         finally
             db.dispose ()
 
+let private searchCmd (args: ParseResults<SearchArgs>) =
+    match args.TryGetResult Query with
+    | None ->
+        printfn "Usage: hermes search <query>"
+        1
+    | Some query ->
+        match loadConfigAndDb () with
+        | None -> 1
+        | Some(_fs, _logger, config, db) ->
+            try
+                if args.Contains Hybrid || args.Contains Semantic then
+                    // Semantic / hybrid mode via embeddings
+                    let mode =
+                        if args.Contains Hybrid then SemanticSearch.Hybrid
+                        else SemanticSearch.Semantic
+
+                    let limit = args.TryGetResult SearchArgs.Limit |> Option.defaultValue 10
+
+                    let client =
+                        Embeddings.ollamaClient
+                            config.Ollama.BaseUrl
+                            config.Ollama.EmbeddingModel
+                            768
+
+                    let results =
+                        SemanticSearch.search db client mode query limit
+                        |> Async.AwaitTask
+                        |> Async.RunSynchronously
+
+                    if results.IsEmpty then
+                        printfn "No results found."
+                    else
+                        for r in results do
+                            printfn $"[{r.Score:F3}] {r.Title} ({r.Category})"
+                            if r.Snippet.Length > 0 then
+                                printfn $"  {r.Snippet}"
+                            printfn ""
+                    0
+                else
+                    // Default: FTS5 keyword search
+                    let filter : Search.SearchFilter =
+                        { Query = query
+                          Category = args.TryGetResult Category
+                          Sender = args.TryGetResult Sender
+                          DateFrom = args.TryGetResult From
+                          DateTo = args.TryGetResult To
+                          Account = args.TryGetResult Account
+                          SourceType = None
+                          Limit = args.TryGetResult SearchArgs.Limit |> Option.defaultValue 20 }
+
+                    let results =
+                        Search.execute db filter
+                        |> Async.AwaitTask
+                        |> Async.RunSynchronously
+
+                    if args.Contains Json then
+                        let jsonItems =
+                            results
+                            |> List.map (fun r ->
+                                let dict = System.Collections.Generic.Dictionary<string, obj>()
+                                dict.["id"] <- Database.boxVal r.DocumentId
+                                dict.["path"] <- Database.boxVal r.SavedPath
+                                dict.["category"] <- Database.boxVal r.Category
+                                dict.["score"] <- Database.boxVal r.RelevanceScore
+                                r.OriginalName |> Option.iter (fun v -> dict.["originalName"] <- Database.boxVal v)
+                                r.Sender |> Option.iter (fun v -> dict.["sender"] <- Database.boxVal v)
+                                r.Subject |> Option.iter (fun v -> dict.["subject"] <- Database.boxVal v)
+                                r.EmailDate |> Option.iter (fun v -> dict.["emailDate"] <- Database.boxVal v)
+                                r.ExtractedVendor |> Option.iter (fun v -> dict.["vendor"] <- Database.boxVal v)
+                                r.ExtractedAmount |> Option.iter (fun v -> dict.["amount"] <- Database.boxVal v)
+                                r.Snippet |> Option.iter (fun v -> dict.["snippet"] <- Database.boxVal v)
+                                dict)
+
+                        let options = System.Text.Json.JsonSerializerOptions(WriteIndented = true)
+                        printfn "%s" (System.Text.Json.JsonSerializer.Serialize(jsonItems, options))
+                    else
+                        if results.IsEmpty then
+                            printfn "No results found."
+                        else
+                            printfn "%-6s %-20s %-20s %-30s %s" "ID" "Category" "Sender" "Subject" "Score"
+                            printfn "%s" (String.replicate 85 "-")
+                            for r in results do
+                                let sender =
+                                    r.Sender
+                                    |> Option.defaultValue "-"
+                                    |> fun s -> if s.Length > 20 then s.[..19] else s
+                                let subject =
+                                    r.Subject
+                                    |> Option.defaultValue "-"
+                                    |> fun s -> if s.Length > 30 then s.[..29] else s
+                                printfn "%-6d %-20s %-20s %-30s %.4f"
+                                    r.DocumentId r.Category sender subject r.RelevanceScore
+                            printfn ""
+                            printfn $"{results.Length} result(s) found."
+                    0
+            finally
+                db.dispose ()
+
+let private embedCmd (args: ParseResults<EmbedArgs>) =
+    match loadConfigAndDb () with
+    | None -> 1
+    | Some(_fs, logger, config, db) ->
+        try
+            let force = args.Contains Force
+            let limit = args.TryGetResult EmbedArgs.Limit
+
+            let client =
+                Embeddings.ollamaClient
+                    config.Ollama.BaseUrl
+                    config.Ollama.EmbeddingModel
+                    768
+
+            let progress : Embeddings.ProgressCallback =
+                fun completed total ->
+                    printf $"\rEmbedding: {completed}/{total}"
+
+            let result =
+                Embeddings.batchEmbed db logger client force limit (Some progress)
+                |> Async.AwaitTask
+                |> Async.RunSynchronously
+
+            printfn ""
+
+            match result with
+            | Ok count ->
+                printfn $"Done: {count} documents embedded."
+                0
+            | Error e ->
+                logger.error $"Embedding failed: {e}"
+                1
+        finally
+            db.dispose ()
+
 let private notImplemented (name: string) =
     printfn $"hermes {name}: not yet implemented"
     0
@@ -183,13 +345,15 @@ let main argv =
         elif results.Contains Init then
             initCmd ()
         elif results.Contains Search then
-            notImplemented "search"
+            searchCmd (results.GetResult Search)
         elif results.Contains Sync then
             notImplemented "sync"
         elif results.Contains Reconcile then
             reconcileCmd (results.GetResult Reconcile)
         elif results.Contains Suggest_Rules then
             suggestRulesCmd ()
+        elif results.Contains Embed then
+            embedCmd (results.GetResult Embed)
         else
             printfn "%s" (parser.PrintUsage())
             0
