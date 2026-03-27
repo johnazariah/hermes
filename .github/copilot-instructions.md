@@ -78,6 +78,16 @@ dotnet publish -c Release -r osx-arm64 --self-contained  # publish macOS
 
 ### F# (Hermes.Core)
 
+- **Tagless-Final architecture**: define capabilities as abstract records of functions, parameterized over the effect type. Wire concrete implementations at the composition root. This applies to all provider abstractions (email, extraction, embedding, storage, search).
+    ```fsharp
+    // Example: capabilities as records of functions
+    type EmailProvider<'F> = {
+        ListMessages: DateTimeOffset option -> 'F<EmailMessage list>
+        GetAttachments: string -> 'F<EmailAttachment list>
+    }
+    // Concrete: GmailProvider : EmailProvider<Task>
+    // Test:     FakeProvider  : EmailProvider<Id>
+    ```
 - **Immutable by default**: records, discriminated unions, `let` bindings
 - **Pipeline operators**: `|>` chains for data flow
 - **Result type**: `Result<'T, 'Error>` for operations that can fail — no exceptions for business logic

@@ -1,2 +1,2 @@
-﻿// See https://aka.ms/new-console-template for more information
-Console.WriteLine("Hello, World!");
+// Hermes.App — Avalonia entry point (placeholder for Phase 8)
+Console.WriteLine("Hermes App — UI not yet implemented. Use 'hermes' CLI.");
