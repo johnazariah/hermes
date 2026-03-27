@@ -14,6 +14,8 @@
     <Compile Include="FolderWatcherTests.fs" />
     <Compile Include="EmbeddingTests.fs" />
     <Compile Include="SearchTests.fs" />
+    <Compile Include="McpTests.fs" />
+    <Compile Include="ServiceTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

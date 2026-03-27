@@ -17,6 +17,10 @@
     <Compile Include="FolderWatcher.fs" />
     <Compile Include="EmailSync.fs" />
     <Compile Include="Search.fs" />
+    <Compile Include="ServiceHost.fs" />
+    <Compile Include="ServiceInstaller.fs" />
+    <Compile Include="McpTools.fs" />
+    <Compile Include="McpServer.fs" />
   </ItemGroup>
 
   <ItemGroup>

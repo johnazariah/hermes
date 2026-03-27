@@ -2,6 +2,7 @@ module Hermes.Cli.Program
 
 open System
 open System.IO
+open System.Threading
 open Argu
 open Hermes.Core
 
@@ -61,6 +62,28 @@ type EmbedArgs =
             | Force -> "re-embed documents that already have embeddings"
             | Limit _ -> "max documents to embed"
 
+type McpArgs =
+    | [<Hidden>] Placeholder
+    interface IArgParserTemplate with
+        member _.Usage = ""
+
+type ServiceArgs =
+    | [<CliPrefix(CliPrefix.None)>] Install
+    | [<CliPrefix(CliPrefix.None)>] Uninstall
+    | [<CliPrefix(CliPrefix.None)>] Start
+    | [<CliPrefix(CliPrefix.None)>] Stop
+    | [<CliPrefix(CliPrefix.None)>] Status
+    | [<CliPrefix(CliPrefix.None)>] Run
+    interface IArgParserTemplate with
+        member this.Usage =
+            match this with
+            | Install -> "register for auto-start on login"
+            | Uninstall -> "remove auto-start registration"
+            | Start -> "start the background service"
+            | Stop -> "stop the background service"
+            | Status -> "show service status"
+            | Run -> "run in foreground with console logging"
+
 [<RequireSubcommand>]
 type CliArgs =
     | Version
@@ -70,6 +93,8 @@ type CliArgs =
     | [<CliPrefix(CliPrefix.None)>] Reconcile of ParseResults<ReconcileArgs>
     | [<CliPrefix(CliPrefix.None)>] Suggest_Rules of ParseResults<SuggestRulesArgs>
     | [<CliPrefix(CliPrefix.None)>] Embed of ParseResults<EmbedArgs>
+    | [<CliPrefix(CliPrefix.None)>] Mcp of ParseResults<McpArgs>
+    | [<CliPrefix(CliPrefix.None)>] Service of ParseResults<ServiceArgs>
     interface IArgParserTemplate with
         member this.Usage =
             match this with
@@ -80,6 +105,8 @@ type CliArgs =
             | Reconcile _ -> "walk archive, find moved/deleted/new files"
             | Suggest_Rules _ -> "analyse unsorted patterns and suggest rules"
             | Embed _ -> "generate embeddings for documents"
+            | Mcp _ -> "start MCP server (JSON-RPC over stdio)"
+            | Service _ -> "manage the background service"
 
 let private version () =
     let asm = System.Reflection.Assembly.GetEntryAssembly()
@@ -332,6 +359,148 @@ let private notImplemented (name: string) =
     printfn $"hermes {name}: not yet implemented"
     0
 
+let private mcpCmd () =
+    match loadConfigAndDb () with
+    | None -> 1
+    | Some(fs, logger, config, db) ->
+        try
+            logger.info "MCP server starting (stdio mode)..."
+            let mutable running = true
+
+            while running do
+                let line = Console.ReadLine()
+
+                match line with
+                | null -> running <- false
+                | "" -> ()
+                | msg ->
+                    let response =
+                        McpServer.processMessage db fs logger config.ArchiveDir msg
+                        |> Async.AwaitTask
+                        |> Async.RunSynchronously
+
+                    Console.Out.WriteLine(response)
+                    Console.Out.Flush()
+
+            logger.info "MCP server shutting down."
+            0
+        finally
+            db.dispose ()
+
+let private serviceCmd (args: ParseResults<ServiceArgs>) =
+    if args.Contains ServiceArgs.Install then
+        let fs = Interpreters.realFileSystem
+        let logger = Logging.configureDefault ()
+        let result =
+            ServiceInstaller.install fs logger
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
+        printfn "%s" (ServiceInstaller.formatResult result)
+        match result with
+        | ServiceInstaller.Installed | ServiceInstaller.AlreadyInstalled -> 0
+        | _ -> 1
+    elif args.Contains ServiceArgs.Uninstall then
+        let fs = Interpreters.realFileSystem
+        let logger = Logging.configureDefault ()
+        let result =
+            ServiceInstaller.uninstall fs logger
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
+        printfn "%s" (ServiceInstaller.formatResult result)
+        match result with
+        | ServiceInstaller.Uninstalled | ServiceInstaller.NotInstalled -> 0
+        | _ -> 1
+    elif args.Contains ServiceArgs.Start then
+        let logger = Logging.configureDefault ()
+        let result =
+            ServiceInstaller.start logger
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
+        printfn "%s" (ServiceInstaller.formatResult result)
+        match result with
+        | ServiceInstaller.Started | ServiceInstaller.AlreadyRunning -> 0
+        | _ -> 1
+    elif args.Contains ServiceArgs.Stop then
+        let logger = Logging.configureDefault ()
+        let result =
+            ServiceInstaller.stop logger
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
+        printfn "%s" (ServiceInstaller.formatResult result)
+        match result with
+        | ServiceInstaller.Stopped | ServiceInstaller.NotRunning -> 0
+        | _ -> 1
+    elif args.Contains ServiceArgs.Status then
+        match loadConfigAndDb () with
+        | None ->
+            // Fall back to platform status if config/db unavailable
+            let logger = Logging.configureDefault ()
+            let platformResult =
+                ServiceInstaller.status logger
+                |> Async.AwaitTask
+                |> Async.RunSynchronously
+            printfn "%s" (ServiceInstaller.formatResult platformResult)
+            0
+        | Some(fs, logger, config, db) ->
+            try
+                // Show heartbeat status
+                let heartbeat =
+                    ServiceHost.readHeartbeat fs config.ArchiveDir
+                    |> Async.AwaitTask
+                    |> Async.RunSynchronously
+
+                match heartbeat with
+                | Some status ->
+                    let state = if status.Running then "running" else "stopped"
+                    printfn $"Service: {state}"
+                    status.StartedAt |> Option.iter (fun t -> printfn $"Started at: {t:u}")
+                    status.LastSyncAt |> Option.iter (fun t ->
+                        let syncState = if status.LastSyncOk then "ok" else "error"
+                        printfn $"Last sync: {t:u} ({syncState})")
+                    printfn $"Documents: {status.DocumentCount}"
+                    printfn $"Unclassified: {status.UnclassifiedCount}"
+                    status.ErrorMessage |> Option.iter (fun e -> printfn $"Last error: {e}")
+                | None ->
+                    printfn "Service: no status file found (not running or never started)"
+
+                // Also show platform status
+                let platformResult =
+                    ServiceInstaller.status logger
+                    |> Async.AwaitTask
+                    |> Async.RunSynchronously
+                printfn $"Platform: {ServiceInstaller.formatResult platformResult}"
+                0
+            finally
+                db.dispose ()
+    elif args.Contains ServiceArgs.Run then
+        match loadConfigAndDb () with
+        | None -> 1
+        | Some(fs, logger, config, db) ->
+            try
+                let clock = Interpreters.systemClock
+                let rulesPath = Path.Combine(Config.configDir (), "rules.yaml")
+                let rules = Rules.fromFile fs logger rulesPath
+
+                let serviceConfig = ServiceHost.defaultServiceConfig config
+
+                use cts = new CancellationTokenSource()
+
+                Console.CancelKeyPress.Add(fun e ->
+                    e.Cancel <- true
+                    logger.info "Ctrl+C received, shutting down..."
+                    cts.Cancel())
+
+                ServiceHost.createServiceHost fs db logger clock rules serviceConfig cts.Token
+                |> Async.AwaitTask
+                |> Async.RunSynchronously
+                0
+            finally
+                db.dispose ()
+    else
+        let parser = ArgumentParser.Create<ServiceArgs>(programName = "hermes service")
+        printfn "%s" (parser.PrintUsage())
+        0
+
 [<EntryPoint>]
 let main argv =
     let parser = ArgumentParser.Create<CliArgs>(programName = "hermes")
@@ -354,6 +523,10 @@ let main argv =
             suggestRulesCmd ()
         elif results.Contains Embed then
             embedCmd (results.GetResult Embed)
+        elif results.Contains Mcp then
+            mcpCmd ()
+        elif results.Contains Service then
+            serviceCmd (results.GetResult Service)
         else
             printfn "%s" (parser.PrintUsage())
             0
