@@ -13,6 +13,7 @@
     <Compile Include="Rules.fs" />
     <Compile Include="Classifier.fs" />
     <Compile Include="Embeddings.fs" />
+    <Compile Include="Markdown.fs" />
     <Compile Include="SemanticSearch.fs" />
     <Compile Include="FolderWatcher.fs" />
     <Compile Include="EmailSync.fs" />

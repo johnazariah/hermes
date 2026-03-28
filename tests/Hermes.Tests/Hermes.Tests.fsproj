@@ -17,6 +17,7 @@
     <Compile Include="McpTests.fs" />
     <Compile Include="ServiceTests.fs" />
     <Compile Include="EmailBodyTests.fs" />
+    <Compile Include="MarkdownTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
