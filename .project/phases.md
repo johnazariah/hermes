@@ -17,8 +17,8 @@
 | 7 | Background Service | `feat/7-background-service` | [phase-7](specs/phase-7-background-service.md) | 1, 2, 3 | Done |
 | 8 | Avalonia UI & Installer | `feat/8-ui-installer` | [phase-8](specs/phase-8-ui-and-installer.md) | 7 | In Progress |
 | 9 | Folder Watching | `feat/9-folder-watching` | [phase-9](specs/phase-9-folder-watching.md) | 2 | Done |
-| 10 | Email Body Indexing | `feat/10-email-bodies` | [phase-10](specs/phase-10-email-body-indexing.md) | 1, 4 | In Progress |
-| 11 | Document-to-Markdown | `feat/11-doc-to-markdown` | [phase-11](specs/phase-11-document-to-markdown.md) | 3, 5 | Not Started |
+| 10 | Email Body Indexing | `feat/10-email-bodies` | [phase-10](specs/phase-10-email-body-indexing.md) | 1, 4 | Done |
+| 11 | Document-to-Markdown | `feat/11-doc-to-markdown` | [phase-11](specs/phase-11-document-to-markdown.md) | 3, 5 | Done |
 
 ## Execution Waves
 
