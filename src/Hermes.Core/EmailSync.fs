@@ -83,6 +83,27 @@ module EmailSync =
     let serialiseSidecar (sidecar: Domain.SidecarMetadata) : string =
         JsonSerializer.Serialize(sidecar, jsonOptions)
 
+    // ─── HTML-to-text stripping ─────────────────────────────────────
+
+    let private htmlTagRegex = System.Text.RegularExpressions.Regex(@"<[^>]+>", System.Text.RegularExpressions.RegexOptions.Compiled)
+    let private whitespaceCollapseRegex = System.Text.RegularExpressions.Regex(@"\s+", System.Text.RegularExpressions.RegexOptions.Compiled)
+
+    /// Strip HTML tags, decode common entities, and collapse whitespace.
+    let stripHtml (html: string) : string =
+        if System.String.IsNullOrWhiteSpace(html) then ""
+        else
+            html
+            |> fun s -> htmlTagRegex.Replace(s, " ")
+            |> fun s -> s.Replace("&amp;", "&")
+            |> fun s -> s.Replace("&lt;", "<")
+            |> fun s -> s.Replace("&gt;", ">")
+            |> fun s -> s.Replace("&quot;", "\"")
+            |> fun s -> s.Replace("&#39;", "'")
+            |> fun s -> s.Replace("&apos;", "'")
+            |> fun s -> s.Replace("&nbsp;", " ")
+            |> fun s -> whitespaceCollapseRegex.Replace(s, " ")
+            |> fun s -> s.Trim()
+
     // ─── Dedup check ─────────────────────────────────────────────────
 
     /// Check if a SHA256 hash already exists in the documents table.
@@ -265,6 +286,25 @@ module EmailSync =
                             // Record message first (documents table has FK to messages)
                             do! recordMessage db account msg now
                             processed <- processed + 1
+
+                            // Fetch and store body text if not already present
+                            if msg.BodyText.IsNone then
+                                try
+                                    let! body = provider.getMessageBody msg.ProviderId
+                                    match body with
+                                    | Some rawBody ->
+                                        let cleanBody = stripHtml rawBody
+                                        if not (String.IsNullOrWhiteSpace(cleanBody)) then
+                                            let! _ =
+                                                db.execNonQuery
+                                                    "UPDATE messages SET body_text = @body WHERE account = @acc AND gmail_id = @gid"
+                                                    [ ("@body", boxVal cleanBody)
+                                                      ("@acc", boxVal account)
+                                                      ("@gid", boxVal msg.ProviderId) ]
+                                            logger.debug $"[{account}] Stored body text for {msg.ProviderId}"
+                                    | None -> ()
+                                with ex ->
+                                    logger.debug $"[{account}] Could not fetch body for {msg.ProviderId}: {ex.Message}"
 
                             let! attachments = provider.getAttachments msg.ProviderId
 

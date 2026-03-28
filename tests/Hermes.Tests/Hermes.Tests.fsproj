@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <IsPackable>false</IsPackable>
@@ -16,6 +16,7 @@
     <Compile Include="SearchTests.fs" />
     <Compile Include="McpTests.fs" />
     <Compile Include="ServiceTests.fs" />
+    <Compile Include="EmailBodyTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
