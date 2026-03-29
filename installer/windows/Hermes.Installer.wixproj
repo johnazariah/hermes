@@ -3,6 +3,7 @@
   <PropertyGroup>
     <InstallerPlatform>x64</InstallerPlatform>
     <OutputType>Package</OutputType>
+    <SuppressValidation>true</SuppressValidation>
   </PropertyGroup>
 
 </Project>

@@ -158,6 +158,42 @@ module McpTools =
 
     // ─── hermes_get_document ─────────────────────────────────────────
 
+    /// Map a DB row to a JsonObject for document responses. Pure — no async.
+    let private mapDocumentRow (row: Map<string, obj>) : JsonObject =
+        let doc = JsonObject()
+        doc["id"] <- JsonValue.Create(getInt64Val row "id")
+        doc["sourceType"] <- JsonValue.Create(getStringVal row "source_type" "")
+        doc["savedPath"] <- JsonValue.Create(getStringVal row "saved_path" "")
+        doc["category"] <- JsonValue.Create(getStringVal row "category" "")
+        doc["sha256"] <- JsonValue.Create(getStringVal row "sha256" "")
+
+        let addOpt (jsonKey: string) (dbKey: string) =
+            tryStringVal row dbKey
+            |> Option.iter (fun v -> doc[jsonKey] <- JsonValue.Create(v))
+
+        addOpt "gmailId" "gmail_id"
+        addOpt "account" "account"
+        addOpt "sender" "sender"
+        addOpt "subject" "subject"
+        addOpt "emailDate" "email_date"
+        addOpt "originalName" "original_name"
+        addOpt "mimeType" "mime_type"
+        addOpt "extractedText" "extracted_text"
+        addOpt "extractedDate" "extracted_date"
+        addOpt "extractedVendor" "extracted_vendor"
+        addOpt "extractionMethod" "extraction_method"
+        addOpt "extractedAt" "extracted_at"
+        addOpt "embeddedAt" "embedded_at"
+        addOpt "ingestedAt" "ingested_at"
+
+        tryFloatVal row "size_bytes"
+        |> Option.iter (fun v -> doc["sizeBytes"] <- JsonValue.Create(int64 v))
+
+        tryFloatVal row "extracted_amount"
+        |> Option.iter (fun v -> doc["extractedAmount"] <- JsonValue.Create(v))
+
+        doc
+
     /// Get full metadata + extracted text for a document by ID or path.
     let getDocument (db: Algebra.Database) (args: JsonNode) : Task<JsonNode> =
         task {
@@ -185,62 +221,7 @@ module McpTools =
                 result["error"] <- JsonValue.Create("Document not found")
                 return result :> JsonNode
             | row :: _ ->
-                let doc = JsonObject()
-                doc["id"] <- JsonValue.Create(getInt64Val row "id")
-                doc["sourceType"] <- JsonValue.Create(getStringVal row "source_type" "")
-                doc["savedPath"] <- JsonValue.Create(getStringVal row "saved_path" "")
-                doc["category"] <- JsonValue.Create(getStringVal row "category" "")
-                doc["sha256"] <- JsonValue.Create(getStringVal row "sha256" "")
-
-                tryStringVal row "gmail_id"
-                |> Option.iter (fun v -> doc["gmailId"] <- JsonValue.Create(v))
-
-                tryStringVal row "account"
-                |> Option.iter (fun v -> doc["account"] <- JsonValue.Create(v))
-
-                tryStringVal row "sender"
-                |> Option.iter (fun v -> doc["sender"] <- JsonValue.Create(v))
-
-                tryStringVal row "subject"
-                |> Option.iter (fun v -> doc["subject"] <- JsonValue.Create(v))
-
-                tryStringVal row "email_date"
-                |> Option.iter (fun v -> doc["emailDate"] <- JsonValue.Create(v))
-
-                tryStringVal row "original_name"
-                |> Option.iter (fun v -> doc["originalName"] <- JsonValue.Create(v))
-
-                tryStringVal row "mime_type"
-                |> Option.iter (fun v -> doc["mimeType"] <- JsonValue.Create(v))
-
-                tryFloatVal row "size_bytes"
-                |> Option.iter (fun v -> doc["sizeBytes"] <- JsonValue.Create(int64 v))
-
-                tryStringVal row "extracted_text"
-                |> Option.iter (fun v -> doc["extractedText"] <- JsonValue.Create(v))
-
-                tryStringVal row "extracted_date"
-                |> Option.iter (fun v -> doc["extractedDate"] <- JsonValue.Create(v))
-
-                tryFloatVal row "extracted_amount"
-                |> Option.iter (fun v -> doc["extractedAmount"] <- JsonValue.Create(v))
-
-                tryStringVal row "extracted_vendor"
-                |> Option.iter (fun v -> doc["extractedVendor"] <- JsonValue.Create(v))
-
-                tryStringVal row "extraction_method"
-                |> Option.iter (fun v -> doc["extractionMethod"] <- JsonValue.Create(v))
-
-                tryStringVal row "extracted_at"
-                |> Option.iter (fun v -> doc["extractedAt"] <- JsonValue.Create(v))
-
-                tryStringVal row "embedded_at"
-                |> Option.iter (fun v -> doc["embeddedAt"] <- JsonValue.Create(v))
-
-                tryStringVal row "ingested_at"
-                |> Option.iter (fun v -> doc["ingestedAt"] <- JsonValue.Create(v))
-
-                return doc :> JsonNode
+                return mapDocumentRow row :> JsonNode
         }
 
     // ─── hermes_list_categories ──────────────────────────────────────
