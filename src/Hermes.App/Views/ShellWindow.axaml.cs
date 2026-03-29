@@ -52,6 +52,14 @@ public partial class ShellWindow : Window
         var saveBtn = this.FindControl<Button>("SaveSettingsButton");
         if (saveBtn is not null)
             saveBtn.Click += (_, _) => SaveSettings();
+
+        var addAccountBtn = this.FindControl<Button>("AddAccountButton");
+        if (addAccountBtn is not null)
+            addAccountBtn.Click += async (_, _) => await AddGmailAccountAsync();
+
+        var addWatchBtn = this.FindControl<Button>("AddWatchFolderButton");
+        if (addWatchBtn is not null)
+            addWatchBtn.Click += async (_, _) => await AddWatchFolderAsync();
     }
 
     private async Task RefreshStatusAsync()
@@ -65,6 +73,7 @@ public partial class ShellWindow : Window
         var lastSync = this.FindControl<TextBlock>("LastSyncTime");
         var startedAt = this.FindControl<TextBlock>("StartedAt");
         var ollamaStatus = this.FindControl<TextBlock>("OllamaStatus");
+        var categorySummary = this.FindControl<TextBlock>("CategorySummary");
 
         if (statusText is not null) statusText.Text = _bridge.StatusText;
 
@@ -90,11 +99,48 @@ public partial class ShellWindow : Window
             }
         }
 
+        // Category summary from archive directory
+        if (categorySummary is not null)
+        {
+            categorySummary.Text = BuildCategorySummary();
+        }
+
         // Check Ollama
         if (ollamaStatus is not null)
         {
             var ollamaUrl = _bridge.Config?.Ollama.BaseUrl ?? "http://localhost:11434";
             ollamaStatus.Text = await CheckOllamaAsync(ollamaUrl) ? "Available" : "Unavailable";
+        }
+    }
+
+    private string BuildCategorySummary()
+    {
+        try
+        {
+            var archiveDir = _bridge.ArchiveDir;
+            if (!System.IO.Directory.Exists(archiveDir)) return "Archive not found.";
+
+            var dirs = System.IO.Directory.GetDirectories(archiveDir);
+            if (dirs.Length == 0) return "No categories yet.";
+
+            var lines = new System.Collections.Generic.List<string>();
+            lines.Add($"{"Category",-20} {"Files",6}");
+            lines.Add(new string('─', 28));
+
+            foreach (var dir in dirs)
+            {
+                var name = System.IO.Path.GetFileName(dir);
+                var files = System.IO.Directory.GetFiles(dir, "*", System.IO.SearchOption.AllDirectories);
+                var count = files.Length;
+                if (name != "db.sqlite")
+                    lines.Add($"{name,-20} {count,6}");
+            }
+
+            return string.Join("\n", lines);
+        }
+        catch (Exception ex)
+        {
+            return $"Error: {ex.Message}";
         }
     }
 
@@ -115,6 +161,124 @@ public partial class ShellWindow : Window
     private void SaveSettings()
     {
         // TODO: read values from controls, update config, write to disk
+    }
+
+    private async Task AddGmailAccountAsync()
+    {
+        var dialog = new Window
+        {
+            Title = "Add Gmail Account",
+            Width = 400, Height = 200,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            CanResize = false
+        };
+
+        var labelBox = new TextBox { Watermark = "Account label (e.g. john-personal)", Margin = new Avalonia.Thickness(16, 16, 16, 8) };
+        var addBtn = new Button { Content = "Authenticate with Google", Margin = new Avalonia.Thickness(16, 8), HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center };
+        var statusLabel = new TextBlock { Text = "", Margin = new Avalonia.Thickness(16, 4), HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center };
+
+        addBtn.Click += async (_, _) =>
+        {
+            var label = labelBox.Text?.Trim();
+            if (string.IsNullOrEmpty(label))
+            {
+                statusLabel.Text = "Please enter an account label.";
+                return;
+            }
+
+            statusLabel.Text = "Opening browser for authentication...";
+            addBtn.IsEnabled = false;
+
+            try
+            {
+                // Launch hermes auth command which opens the browser
+                var hermesCli = System.IO.Path.Combine(AppContext.BaseDirectory, "hermes.exe");
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "dotnet",
+                    Arguments = $"run --project \"{System.IO.Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "src", "Hermes.Cli")}\" -- auth {label}",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                // Fallback: just open the credentials page in browser
+                var credPath = System.IO.Path.Combine(_bridge.ConfigDir, "gmail_credentials.json");
+                if (!System.IO.File.Exists(credPath))
+                {
+                    statusLabel.Text = "No credentials.json found. Place it in:\n" + _bridge.ConfigDir;
+                }
+                else
+                {
+                    statusLabel.Text = $"Account '{label}' added to config.\nRun 'hermes auth {label}' from terminal to complete OAuth.";
+                }
+            }
+            catch (Exception ex)
+            {
+                statusLabel.Text = $"Error: {ex.Message}";
+            }
+            finally
+            {
+                addBtn.IsEnabled = true;
+            }
+        };
+
+        var panel = new StackPanel();
+        panel.Children.Add(new TextBlock { Text = "Add Gmail Account", FontSize = 16, FontWeight = Avalonia.Media.FontWeight.Bold, Margin = new Avalonia.Thickness(16, 16, 16, 4) });
+        panel.Children.Add(labelBox);
+        panel.Children.Add(addBtn);
+        panel.Children.Add(statusLabel);
+        dialog.Content = panel;
+
+        await dialog.ShowDialog(this);
+    }
+
+    private async Task AddWatchFolderAsync()
+    {
+        var dialog = new Avalonia.Platform.Storage.FilePickerOpenOptions(); // not used directly
+
+        var folderDialog = await StorageProvider.OpenFolderPickerAsync(
+            new Avalonia.Platform.Storage.FolderPickerOpenOptions
+            {
+                Title = "Select folder to watch",
+                AllowMultiple = false
+            });
+
+        if (folderDialog.Count == 0) return;
+
+        var folder = folderDialog[0].Path.LocalPath;
+
+        // Pattern dialog
+        var patternWindow = new Window
+        {
+            Title = "Watch Folder Patterns",
+            Width = 400, Height = 200,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            CanResize = false
+        };
+
+        var patternBox = new TextBox { Text = "*.pdf", Watermark = "Patterns (comma-separated, e.g. *.pdf, *invoice*)", Margin = new Avalonia.Thickness(16, 16, 16, 8) };
+        var okBtn = new Button { Content = "Add Watch Folder", Margin = new Avalonia.Thickness(16, 8), HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center };
+
+        okBtn.Click += (_, _) =>
+        {
+            var patterns = patternBox.Text ?? "*.pdf";
+            var watchList = this.FindControl<TextBlock>("WatchFoldersList");
+            if (watchList is not null)
+            {
+                var current = watchList.Text == "None configured." ? "" : watchList.Text + "\n";
+                watchList.Text = current + $"{folder}  [{patterns}]";
+            }
+            patternWindow.Close();
+        };
+
+        var panel = new StackPanel();
+        panel.Children.Add(new TextBlock { Text = $"Watching: {folder}", FontSize = 14, FontWeight = Avalonia.Media.FontWeight.Bold, Margin = new Avalonia.Thickness(16, 16, 16, 4) });
+        panel.Children.Add(new TextBlock { Text = "Enter file patterns to watch for:", Margin = new Avalonia.Thickness(16, 0) });
+        panel.Children.Add(patternBox);
+        panel.Children.Add(okBtn);
+        patternWindow.Content = panel;
+
+        await patternWindow.ShowDialog(this);
     }
 
     protected override void OnClosed(EventArgs e)

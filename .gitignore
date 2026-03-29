@@ -56,3 +56,4 @@ logs/
 !**/appsettings.json
 **/credentials.json
 **/tokens/
+dist/

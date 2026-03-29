@@ -128,6 +128,16 @@ dotnet publish -c Release -r osx-arm64 --self-contained  # publish macOS
 | `.project/specs/phase-*.md`               | Phase specs with acceptance criteria |
 | `.project/testing-register.md`            | Test catalog — keep in sync          |
 
+## Idiom Standards (Always Active)
+
+All AI-generated code in this project **must** conform to the language idiom standards. Full standards are in `devex-toolkit` (multi-root workspace peer). Key rules summarised here for when devex-toolkit is unavailable:
+
+- **F# (Hermes.Core):** Small functions (≤20 lines), `|>` pipelines, no `mutable`, DUs over strings, `Option.map`/`bind`/`defaultValue` over explicit match, `task {}` blocks ≤15 lines, Tagless-Final with records-of-functions, partial application (stable params first), active patterns for complex matching.
+- **C# (Hermes.App):** Records over classes, `sealed` by default, pattern matching over `if/else`, LINQ for transformations, non-nullable, `CancellationToken` on all async methods, Tagless-Final with capability interfaces, list/relational/property patterns.
+- **Architecture:** Tagless-Final as default architecture, fakes over mocks, capability records parameterised over effect type.
+
+For dedicated write/review/refactor workflows, invoke the `@fsharp-dev` or `@csharp-dev` agents.
+
 ## Tips for AI Agents
 
 1. Read the current phase spec before implementing
@@ -135,3 +145,4 @@ dotnet publish -c Release -r osx-arm64 --self-contained  # publish macOS
 3. Update the testing register when tests change
 4. Use the commit prompt (`.github/prompts/commit.prompt.md`) for clean commits
 5. Run `dotnet build` and `dotnet test` before committing
+6. Check code against the idiom standards before presenting — fix violations first
