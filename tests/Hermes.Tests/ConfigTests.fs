@@ -8,69 +8,6 @@ open FsCheck
 open FsCheck.Xunit
 open Hermes.Core
 
-// ─── In-memory FileSystem interpreter for testing ────────────────────
-
-let inMemoryFileSystem () =
-    let files = System.Collections.Concurrent.ConcurrentDictionary<string, string>()
-    let fileBytes = System.Collections.Concurrent.ConcurrentDictionary<string, byte array>()
-    let dirs = System.Collections.Concurrent.ConcurrentDictionary<string, bool>()
-
-    let fs: Algebra.FileSystem =
-        { readAllText = fun path ->
-            task {
-                match files.TryGetValue(path) with
-                | true, content -> return content
-                | _ -> return failwith $"File not found: {path}"
-            }
-          writeAllText = fun path content ->
-            task { files.[path] <- content }
-          writeAllBytes = fun path bytes ->
-            task {
-                fileBytes.[path] <- bytes
-                files.[path] <- System.Text.Encoding.UTF8.GetString(bytes)
-            }
-          readAllBytes = fun path ->
-            task {
-                match fileBytes.TryGetValue(path) with
-                | true, bytes -> return bytes
-                | _ ->
-                    match files.TryGetValue(path) with
-                    | true, content -> return System.Text.Encoding.UTF8.GetBytes(content)
-                    | _ -> return failwith $"File not found: {path}"
-            }
-          fileExists = fun path -> files.ContainsKey(path) || fileBytes.ContainsKey(path)
-          directoryExists = fun path -> dirs.ContainsKey(path)
-          createDirectory = fun path -> dirs.[path] <- true
-          deleteFile = fun path ->
-            files.TryRemove(path) |> ignore
-            fileBytes.TryRemove(path) |> ignore
-          moveFile = fun src dst ->
-            match files.TryRemove(src) with
-            | true, content -> files.[dst] <- content
-            | _ -> ()
-            match fileBytes.TryRemove(src) with
-            | true, bytes -> fileBytes.[dst] <- bytes
-            | _ -> ()
-          getFiles = fun dir pattern ->
-            let prefix = if dir.EndsWith("/") || dir.EndsWith("\\") then dir else dir + "/"
-            files.Keys
-            |> Seq.append fileBytes.Keys
-            |> Seq.distinct
-            |> Seq.filter (fun k ->
-                k.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-                && not (k.Substring(prefix.Length).Contains("/"))
-                && not (k.Substring(prefix.Length).Contains("\\")))
-            |> Seq.toArray
-          getFileSize = fun path ->
-            match fileBytes.TryGetValue(path) with
-            | true, bytes -> int64 bytes.Length
-            | _ ->
-                match files.TryGetValue(path) with
-                | true, content -> int64 (System.Text.Encoding.UTF8.GetByteCount(content))
-                | _ -> 0L }
-
-    fs, files, dirs
-
 // ─── Config parsing tests ────────────────────────────────────────────
 
 [<Fact>]
@@ -142,8 +79,8 @@ watch_folders:
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``Config_Load_MissingFile_ReturnsError`` () =
-    let fs, _, _ = inMemoryFileSystem ()
-    let result = Config.load fs "/nonexistent/config.yaml" |> Async.AwaitTask |> Async.RunSynchronously
+    let m = TestHelpers.memFs ()
+    let result = Config.load m.Fs "/nonexistent/config.yaml" |> Async.AwaitTask |> Async.RunSynchronously
 
     match result with
     | Error msg -> Assert.Contains("not found", msg)
@@ -152,9 +89,9 @@ let ``Config_Load_MissingFile_ReturnsError`` () =
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``Config_Load_ValidFile_ReturnsConfig`` () =
-    let fs, files, _ = inMemoryFileSystem ()
-    files.["/test/config.yaml"] <- "sync_interval_minutes: 42"
-    let result = Config.load fs "/test/config.yaml" |> Async.AwaitTask |> Async.RunSynchronously
+    let m = TestHelpers.memFs ()
+    m.Files.["/test/config.yaml"] <- "sync_interval_minutes: 42"
+    let result = Config.load m.Fs "/test/config.yaml" |> Async.AwaitTask |> Async.RunSynchronously
 
     match result with
     | Ok config -> Assert.Equal(42, config.SyncIntervalMinutes)
@@ -163,28 +100,28 @@ let ``Config_Load_ValidFile_ReturnsConfig`` () =
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``Config_Init_CreatesConfigAndRules`` () =
-    let fs, files, dirs = inMemoryFileSystem ()
-    let result = Config.init fs |> Async.AwaitTask |> Async.RunSynchronously
+    let m = TestHelpers.memFs ()
+    let result = Config.init m.Fs |> Async.AwaitTask |> Async.RunSynchronously
 
     match result with
     | Ok created ->
         Assert.Equal(2, created.Length)
-        Assert.True(files.Count >= 2)
+        Assert.True(m.Files.Count >= 2)
     | Error e -> failwith $"Expected Ok, got Error: {e}"
 
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``Config_Init_SkipsExistingFiles`` () =
-    let fs, files, _ = inMemoryFileSystem ()
+    let m = TestHelpers.memFs ()
     let configPath = Path.Combine(Config.configDir (), "config.yaml")
-    files.[configPath] <- "existing content"
-    let result = Config.init fs |> Async.AwaitTask |> Async.RunSynchronously
+    m.Files.[configPath] <- "existing content"
+    let result = Config.init m.Fs |> Async.AwaitTask |> Async.RunSynchronously
 
     match result with
     | Ok created ->
         // Only rules.yaml should be created, config.yaml already existed
         Assert.Equal(1, created.Length)
-        Assert.Equal("existing content", files.[configPath])
+        Assert.Equal("existing content", m.Files.[configPath])
     | Error e -> failwith $"Expected Ok, got Error: {e}"
 
 // ─── Path expansion tests ────────────────────────────────────────────

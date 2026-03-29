@@ -1,116 +1,16 @@
 module Hermes.Tests.EmailSyncTests
 
 open System
-open System.Collections.Concurrent
 open System.Threading.Tasks
 open Xunit
 open Hermes.Core
 
-// ─── In-memory FileSystem algebra for testing ────────────────────────
-
-let inMemoryFileSystem () =
-    let files = ConcurrentDictionary<string, string>()
-    let binaryFiles = ConcurrentDictionary<string, byte array>()
-    let dirs = ConcurrentDictionary<string, bool>()
-
-    let fs: Algebra.FileSystem =
-        { readAllText = fun path ->
-            task {
-                match files.TryGetValue(path) with
-                | true, content -> return content
-                | _ -> return failwith $"File not found: {path}"
-            }
-          writeAllText = fun path content ->
-            task { files.[path] <- content }
-          writeAllBytes = fun path bytes ->
-            task { binaryFiles.[path] <- bytes }
-          readAllBytes = fun path ->
-            task {
-                match binaryFiles.TryGetValue(path) with
-                | true, bytes -> return bytes
-                | _ ->
-                    match files.TryGetValue(path) with
-                    | true, content -> return System.Text.Encoding.UTF8.GetBytes(content)
-                    | _ -> return failwith $"File not found: {path}"
-            }
-          fileExists = fun path -> files.ContainsKey(path) || binaryFiles.ContainsKey(path)
-          directoryExists = fun path -> dirs.ContainsKey(path)
-          createDirectory = fun path -> dirs.[path] <- true
-          deleteFile = fun path ->
-            files.TryRemove(path) |> ignore
-            binaryFiles.TryRemove(path) |> ignore
-          moveFile = fun src dst ->
-            match files.TryRemove(src) with
-            | true, content -> files.[dst] <- content
-            | _ -> ()
-            match binaryFiles.TryRemove(src) with
-            | true, bytes -> binaryFiles.[dst] <- bytes
-            | _ -> ()
-          getFiles = fun dir _pattern ->
-            let prefix = if dir.EndsWith("/") || dir.EndsWith("\\") then dir else dir + "/"
-            files.Keys
-            |> Seq.append binaryFiles.Keys
-            |> Seq.distinct
-            |> Seq.filter (fun k ->
-                k.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-                && not (k.Substring(prefix.Length).Contains("/"))
-                && not (k.Substring(prefix.Length).Contains("\\")))
-            |> Seq.toArray
-          getFileSize = fun path ->
-            match binaryFiles.TryGetValue(path) with
-            | true, bytes -> int64 bytes.Length
-            | _ ->
-                match files.TryGetValue(path) with
-                | true, content -> int64 (System.Text.Encoding.UTF8.GetByteCount(content))
-                | _ -> 0L }
-
-    fs, files, binaryFiles, dirs
-
-// ─── Fixed clock ─────────────────────────────────────────────────────
-
-let fixedClock (dt: DateTimeOffset) : Algebra.Clock =
-    { utcNow = fun () -> dt }
-
-// ─── Mock email provider ─────────────────────────────────────────────
-
-let mockProvider
-    (messages: Domain.EmailMessage list)
-    (attachmentMap: Map<string, Domain.EmailAttachment list>)
-    : Algebra.EmailProvider =
-    { listNewMessages = fun _ -> task { return messages }
-      getAttachments = fun msgId ->
-        task {
-            return
-                match attachmentMap |> Map.tryFind msgId with
-                | Some atts -> atts
-                | None -> []
-        }
-      getMessageBody = fun _ -> task { return None } }
-
-let emptyProvider : Algebra.EmailProvider =
-    { listNewMessages = fun _ -> task { return [] }
-      getAttachments = fun _ -> task { return [] }
-      getMessageBody = fun _ -> task { return None } }
-
-// ─── Test config ─────────────────────────────────────────────────────
-
-let testConfig archiveDir : Domain.HermesConfig =
-    { ArchiveDir = archiveDir
-      Credentials = "/test/creds.json"
-      Accounts = [ { Label = "test-account"; Provider = "gmail" } ]
-      SyncIntervalMinutes = 15
-      MinAttachmentSize = 100
-      WatchFolders = []
-      Ollama =
-        { Enabled = false
-          BaseUrl = ""
-          EmbeddingModel = ""
-          VisionModel = ""
-          InstructModel = "" }
-      Fallback = { Embedding = ""; Ocr = "" }
-      Azure = { DocumentIntelligenceEndpoint = ""; DocumentIntelligenceKey = "" } }
-
 // ─── Sample data ─────────────────────────────────────────────────────
+
+let private emailTestConfig archiveDir : Domain.HermesConfig =
+    { TestHelpers.testConfig archiveDir with
+        Accounts = [ { Label = "test-account"; Provider = "gmail" } ]
+        MinAttachmentSize = 100 }
 
 let sampleMessage : Domain.EmailMessage =
     { ProviderId = "msg-001"
@@ -133,18 +33,6 @@ let smallAttachment : Domain.EmailAttachment =
       MimeType = "text/plain"
       SizeBytes = 50L
       Content = Array.init 50 (fun i -> byte (i % 256)) }
-
-// ─── Helper ──────────────────────────────────────────────────────────
-
-let createTestDb () =
-    let conn = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:")
-    conn.Open()
-
-    use pragma = conn.CreateCommand()
-    pragma.CommandText <- "PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;"
-    pragma.ExecuteNonQuery() |> ignore
-
-    Database.fromConnection conn
 
 // ─── Filename sanitisation tests ─────────────────────────────────────
 
@@ -258,7 +146,7 @@ let ``EmailSync_SerialiseSidecar_ProducesValidJson`` () =
 [<Trait("Category", "Unit")>]
 let ``EmailSync_LoadSyncState_NoState_ReturnsNone`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
 
         try
             let! _ = db.initSchema ()
@@ -272,7 +160,7 @@ let ``EmailSync_LoadSyncState_NoState_ReturnsNone`` () =
 [<Trait("Category", "Unit")>]
 let ``EmailSync_LoadSyncState_AfterSync_ReturnsSome`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
 
         try
             let! _ = db.initSchema ()
@@ -297,15 +185,15 @@ let ``EmailSync_LoadSyncState_AfterSync_ReturnsSome`` () =
 [<Trait("Category", "Unit")>]
 let ``EmailSync_SyncAccount_NoMessages_ReturnsZeroCounts`` () =
     task {
-        let fs, _, _, _ = inMemoryFileSystem ()
-        let db = createTestDb ()
+        let m = TestHelpers.memFs ()
+        let db = TestHelpers.createRawDb ()
         let logger = Logging.silent
-        let clock = fixedClock (DateTimeOffset(2024, 6, 15, 12, 0, 0, TimeSpan.Zero))
-        let config = testConfig "/archive"
+        let clock = TestHelpers.fixedClock (DateTimeOffset(2024, 6, 15, 12, 0, 0, TimeSpan.Zero))
+        let config = emailTestConfig "/archive"
 
         try
             let! _ = db.initSchema ()
-            let! result = EmailSync.syncAccount fs db logger clock emptyProvider config "test-account"
+            let! result = EmailSync.syncAccount m.Fs db logger clock TestHelpers.emptyProvider config "test-account"
 
             Assert.Equal("test-account", result.Account)
             Assert.Equal(0, result.MessagesProcessed)
@@ -320,20 +208,20 @@ let ``EmailSync_SyncAccount_NoMessages_ReturnsZeroCounts`` () =
 [<Trait("Category", "Unit")>]
 let ``EmailSync_SyncAccount_WithAttachments_DownloadsAndRecords`` () =
     task {
-        let fs, textFiles, binaryFiles, dirs = inMemoryFileSystem ()
-        let db = createTestDb ()
+        let m = TestHelpers.memFs ()
+        let db = TestHelpers.createRawDb ()
         let logger = Logging.silent
-        let clock = fixedClock (DateTimeOffset(2024, 6, 15, 12, 0, 0, TimeSpan.Zero))
-        let config = testConfig "/archive"
+        let clock = TestHelpers.fixedClock (DateTimeOffset(2024, 6, 15, 12, 0, 0, TimeSpan.Zero))
+        let config = emailTestConfig "/archive"
 
         let provider =
-            mockProvider
+            TestHelpers.mockProvider
                 [ sampleMessage ]
                 (Map.ofList [ ("msg-001", [ sampleAttachment ]) ])
 
         try
             let! _ = db.initSchema ()
-            let! result = EmailSync.syncAccount fs db logger clock provider config "test-account"
+            let! result = EmailSync.syncAccount m.Fs db logger clock provider config "test-account"
 
             Assert.Equal(1, result.MessagesProcessed)
             Assert.Equal(1, result.AttachmentsDownloaded)
@@ -341,12 +229,12 @@ let ``EmailSync_SyncAccount_WithAttachments_DownloadsAndRecords`` () =
             Assert.Empty(result.Errors)
 
             // Verify binary file was written
-            Assert.True(binaryFiles.Count > 0, "Should have written at least one binary file")
+            Assert.True(m.Bytes.Count > 0, "Should have written at least one binary file")
 
             // Verify sidecar was written
-            Assert.True(textFiles.Count > 0, "Should have written at least one sidecar file")
-            let sidecarKey = textFiles.Keys |> Seq.find (fun k -> k.EndsWith(".meta.json"))
-            let sidecarJson = textFiles.[sidecarKey]
+            Assert.True(m.Files.Count > 0, "Should have written at least one sidecar file")
+            let sidecarKey = m.Files.Keys |> Seq.find (fun k -> k.EndsWith(".meta.json"))
+            let sidecarJson = m.Files.[sidecarKey]
             Assert.Contains("email_attachment", sidecarJson)
             Assert.Contains("msg-001", sidecarJson)
         finally
@@ -357,14 +245,14 @@ let ``EmailSync_SyncAccount_WithAttachments_DownloadsAndRecords`` () =
 [<Trait("Category", "Unit")>]
 let ``EmailSync_SyncAccount_DuplicateHash_SkipsDownload`` () =
     task {
-        let fs, _, _, _ = inMemoryFileSystem ()
-        let db = createTestDb ()
+        let m = TestHelpers.memFs ()
+        let db = TestHelpers.createRawDb ()
         let logger = Logging.silent
-        let clock = fixedClock (DateTimeOffset(2024, 6, 15, 12, 0, 0, TimeSpan.Zero))
-        let config = testConfig "/archive"
+        let clock = TestHelpers.fixedClock (DateTimeOffset(2024, 6, 15, 12, 0, 0, TimeSpan.Zero))
+        let config = emailTestConfig "/archive"
 
         let provider =
-            mockProvider
+            TestHelpers.mockProvider
                 [ sampleMessage ]
                 (Map.ofList [ ("msg-001", [ sampleAttachment ]) ])
 
@@ -380,7 +268,7 @@ let ``EmailSync_SyncAccount_DuplicateHash_SkipsDownload`` () =
                        VALUES ('manual_drop', 'existing.pdf', 'invoices', @sha)"""
                     [ ("@sha", Database.boxVal sha) ]
 
-            let! result = EmailSync.syncAccount fs db logger clock provider config "test-account"
+            let! result = EmailSync.syncAccount m.Fs db logger clock provider config "test-account"
 
             Assert.Equal(1, result.MessagesProcessed)
             Assert.Equal(0, result.AttachmentsDownloaded)
@@ -393,24 +281,24 @@ let ``EmailSync_SyncAccount_DuplicateHash_SkipsDownload`` () =
 [<Trait("Category", "Unit")>]
 let ``EmailSync_SyncAccount_SmallAttachment_FilteredByMinSize`` () =
     task {
-        let fs, _, binaryFiles, _ = inMemoryFileSystem ()
-        let db = createTestDb ()
+        let m = TestHelpers.memFs ()
+        let db = TestHelpers.createRawDb ()
         let logger = Logging.silent
-        let clock = fixedClock (DateTimeOffset(2024, 6, 15, 12, 0, 0, TimeSpan.Zero))
-        let config = testConfig "/archive"
+        let clock = TestHelpers.fixedClock (DateTimeOffset(2024, 6, 15, 12, 0, 0, TimeSpan.Zero))
+        let config = emailTestConfig "/archive"
 
         let provider =
-            mockProvider
+            TestHelpers.mockProvider
                 [ sampleMessage ]
                 (Map.ofList [ ("msg-001", [ smallAttachment ]) ])
 
         try
             let! _ = db.initSchema ()
-            let! result = EmailSync.syncAccount fs db logger clock provider config "test-account"
+            let! result = EmailSync.syncAccount m.Fs db logger clock provider config "test-account"
 
             Assert.Equal(1, result.MessagesProcessed)
             Assert.Equal(0, result.AttachmentsDownloaded)
-            Assert.True(binaryFiles.IsEmpty)
+            Assert.True(m.Bytes.IsEmpty)
         finally
             db.dispose ()
     }
@@ -419,14 +307,14 @@ let ``EmailSync_SyncAccount_SmallAttachment_FilteredByMinSize`` () =
 [<Trait("Category", "Unit")>]
 let ``EmailSync_SyncAccount_AlreadyProcessedMessage_Skipped`` () =
     task {
-        let fs, _, _, _ = inMemoryFileSystem ()
-        let db = createTestDb ()
+        let m = TestHelpers.memFs ()
+        let db = TestHelpers.createRawDb ()
         let logger = Logging.silent
-        let clock = fixedClock (DateTimeOffset(2024, 6, 15, 12, 0, 0, TimeSpan.Zero))
-        let config = testConfig "/archive"
+        let clock = TestHelpers.fixedClock (DateTimeOffset(2024, 6, 15, 12, 0, 0, TimeSpan.Zero))
+        let config = emailTestConfig "/archive"
 
         let provider =
-            mockProvider
+            TestHelpers.mockProvider
                 [ sampleMessage ]
                 (Map.ofList [ ("msg-001", [ sampleAttachment ]) ])
 
@@ -439,7 +327,7 @@ let ``EmailSync_SyncAccount_AlreadyProcessedMessage_Skipped`` () =
                     [ ("@gid", Database.boxVal "msg-001")
                       ("@acc", Database.boxVal "test-account") ]
 
-            let! result = EmailSync.syncAccount fs db logger clock provider config "test-account"
+            let! result = EmailSync.syncAccount m.Fs db logger clock provider config "test-account"
 
             Assert.Equal(0, result.MessagesProcessed)
             Assert.Equal(0, result.AttachmentsDownloaded)
@@ -453,11 +341,11 @@ let ``EmailSync_SyncAccount_AlreadyProcessedMessage_Skipped`` () =
 [<Trait("Category", "Unit")>]
 let ``EmailSync_DryRun_ListsMessagesWithAttachments`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
         let logger = Logging.silent
 
         let provider =
-            mockProvider
+            TestHelpers.mockProvider
                 [ sampleMessage ]
                 (Map.ofList [ ("msg-001", [ sampleAttachment ]) ])
 
@@ -478,12 +366,12 @@ let ``EmailSync_DryRun_ListsMessagesWithAttachments`` () =
 [<Trait("Category", "Unit")>]
 let ``EmailSync_DryRun_NoMessages_ReturnsEmpty`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
         let logger = Logging.silent
 
         try
             let! _ = db.initSchema ()
-            let! items = EmailSync.dryRun db logger emptyProvider "test-account"
+            let! items = EmailSync.dryRun db logger TestHelpers.emptyProvider "test-account"
             Assert.Empty(items)
         finally
             db.dispose ()
@@ -495,21 +383,21 @@ let ``EmailSync_DryRun_NoMessages_ReturnsEmpty`` () =
 [<Trait("Category", "Unit")>]
 let ``EmailSync_SyncAccount_UpdatesSyncState`` () =
     task {
-        let fs, _, _, _ = inMemoryFileSystem ()
-        let db = createTestDb ()
+        let m = TestHelpers.memFs ()
+        let db = TestHelpers.createRawDb ()
         let logger = Logging.silent
         let syncTime = DateTimeOffset(2024, 6, 15, 12, 0, 0, TimeSpan.Zero)
-        let clock = fixedClock syncTime
-        let config = testConfig "/archive"
+        let clock = TestHelpers.fixedClock syncTime
+        let config = emailTestConfig "/archive"
 
         let provider =
-            mockProvider
+            TestHelpers.mockProvider
                 [ sampleMessage ]
                 (Map.ofList [ ("msg-001", [ sampleAttachment ]) ])
 
         try
             let! _ = db.initSchema ()
-            let! _ = EmailSync.syncAccount fs db logger clock provider config "test-account"
+            let! _ = EmailSync.syncAccount m.Fs db logger clock provider config "test-account"
 
             let! state = EmailSync.loadSyncState db "test-account"
             Assert.True(state.IsSome, "Sync state should be set after sync")

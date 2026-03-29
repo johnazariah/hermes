@@ -8,17 +8,6 @@ open Hermes.Core
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
-/// Create a temporary in-memory SQLite database algebra.
-let createTestDb () =
-    let conn = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:")
-    conn.Open()
-
-    use pragma = conn.CreateCommand()
-    pragma.CommandText <- "PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;"
-    pragma.ExecuteNonQuery() |> ignore
-
-    Database.fromConnection conn
-
 /// Create a temporary file-based SQLite database algebra.
 let createTempFileDb () =
     let dir = Path.Combine(Path.GetTempPath(), $"hermes-test-{Guid.NewGuid():N}")
@@ -39,7 +28,7 @@ let cleanupDir dir =
 [<Trait("Category", "Unit")>]
 let ``Database_InitSchema_CreatesAllTables`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
 
         try
             let! result = db.initSchema ()
@@ -67,7 +56,7 @@ let ``Database_InitSchema_CreatesAllTables`` () =
 [<Trait("Category", "Unit")>]
 let ``Database_InitSchema_SetsSchemaVersion`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
 
         try
             let! _ = db.initSchema ()
@@ -81,7 +70,7 @@ let ``Database_InitSchema_SetsSchemaVersion`` () =
 [<Trait("Category", "Unit")>]
 let ``Database_InitSchema_IsIdempotent`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
 
         try
             let! r1 = db.initSchema ()
@@ -100,7 +89,7 @@ let ``Database_InitSchema_IsIdempotent`` () =
 [<Trait("Category", "Unit")>]
 let ``Database_SchemaVersion_BeforeInit_ReturnsZero`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
 
         try
             let! version = db.schemaVersion ()
@@ -113,7 +102,7 @@ let ``Database_SchemaVersion_BeforeInit_ReturnsZero`` () =
 [<Trait("Category", "Unit")>]
 let ``Database_TableExists_NonexistentTable_ReturnsFalse`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
 
         try
             let! exists = db.tableExists "nonexistent_table"
@@ -128,7 +117,7 @@ let ``Database_TableExists_NonexistentTable_ReturnsFalse`` () =
 [<Trait("Category", "Unit")>]
 let ``Database_FTS5_InsertTrigger_PopulatesFtsOnInsert`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
 
         try
             let! _ = db.initSchema ()
@@ -151,7 +140,7 @@ let ``Database_FTS5_InsertTrigger_PopulatesFtsOnInsert`` () =
 [<Trait("Category", "Unit")>]
 let ``Database_FTS5_SearchByVendor_FindsDocument`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
 
         try
             let! _ = db.initSchema ()
@@ -221,7 +210,7 @@ let ``Database_FromPath_CreatesParentDirectories`` () =
 [<Trait("Category", "Unit")>]
 let ``Database_InitSchema_CreatesAllIndexes`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
 
         try
             let! _ = db.initSchema ()

@@ -11,113 +11,19 @@ open Hermes.Core
 
 // ─── Test helpers ────────────────────────────────────────────────────
 
-let inMemoryFileSystem () =
-    let files =
-        System.Collections.Concurrent.ConcurrentDictionary<string, string>()
-
-    let fileBytes =
-        System.Collections.Concurrent.ConcurrentDictionary<string, byte array>()
-
-    let dirs =
-        System.Collections.Concurrent.ConcurrentDictionary<string, bool>()
-
-    let fs: Algebra.FileSystem =
-        { readAllText =
-            fun path ->
-                task {
-                    match files.TryGetValue(path) with
-                    | true, content -> return content
-                    | _ -> return failwith $"File not found: {path}"
-                }
-          writeAllText = fun path content -> task { files.[path] <- content }
-          writeAllBytes =
-            fun path bytes ->
-                task {
-                    fileBytes.[path] <- bytes
-                    files.[path] <- System.Text.Encoding.UTF8.GetString(bytes)
-                }
-          readAllBytes =
-            fun path ->
-                task {
-                    match fileBytes.TryGetValue(path) with
-                    | true, bytes -> return bytes
-                    | _ ->
-                        match files.TryGetValue(path) with
-                        | true, content -> return System.Text.Encoding.UTF8.GetBytes(content)
-                        | _ -> return failwith $"File not found: {path}"
-                }
-          fileExists = fun path -> files.ContainsKey(path) || fileBytes.ContainsKey(path)
-          directoryExists = fun path -> dirs.ContainsKey(path)
-          createDirectory = fun path -> dirs.[path] <- true
-          deleteFile =
-            fun path ->
-                files.TryRemove(path) |> ignore
-                fileBytes.TryRemove(path) |> ignore
-          moveFile =
-            fun src dst ->
-                match files.TryRemove(src) with
-                | true, content -> files.[dst] <- content
-                | _ -> ()
-
-                match fileBytes.TryRemove(src) with
-                | true, bytes -> fileBytes.[dst] <- bytes
-                | _ -> ()
-          getFiles =
-            fun dir pattern ->
-                let prefix =
-                    if dir.EndsWith("/") || dir.EndsWith("\\") then
-                        dir
-                    else
-                        dir + "/"
-
-                files.Keys
-                |> Seq.append fileBytes.Keys
-                |> Seq.distinct
-                |> Seq.filter (fun k ->
-                    k.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-                    && not (k.Substring(prefix.Length).Contains("/"))
-                    && not (k.Substring(prefix.Length).Contains("\\")))
-                |> Seq.toArray
-          getFileSize =
-            fun path ->
-                match fileBytes.TryGetValue(path) with
-                | true, bytes -> int64 bytes.Length
-                | _ ->
-                    match files.TryGetValue(path) with
-                    | true, content -> int64 (System.Text.Encoding.UTF8.GetByteCount(content))
-                    | _ -> 0L }
-
-    fs, files, dirs
-
-let testLogger () : Algebra.Logger =
-    { info = fun _ -> ()
-      warn = fun _ -> ()
-      error = fun _ -> ()
-      debug = fun _ -> () }
-
-let createTestDb () =
-    let conn =
-        new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:")
-
-    conn.Open()
-    use pragma = conn.CreateCommand()
-    pragma.CommandText <- "PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;"
-    pragma.ExecuteNonQuery() |> ignore
-    Database.fromConnection conn
-
-let insertTestDocument (db: Algebra.Database) (category: string) (name: string) =
+let insertTestDocument (db: Algebra.Database) (category: string) (name: string) : Task<unit> =
     task {
         let! _ =
             db.execNonQuery
                 """INSERT INTO documents (source_type, saved_path, category, sha256, original_name, sender, subject, extracted_text)
                    VALUES ('manual_drop', @path, @cat, @sha, @name, @sender, @subject, @text)"""
-                [ ("@path", Database.boxVal ($"{category}/{name}"))
-                  ("@cat", Database.boxVal category)
-                  ("@sha", Database.boxVal (Guid.NewGuid().ToString("N")))
-                  ("@name", Database.boxVal name)
-                  ("@sender", Database.boxVal "test@example.com")
-                  ("@subject", Database.boxVal $"Test document {name}")
-                  ("@text", Database.boxVal $"Content of {name}") ]
+                ([ ("@path", Database.boxVal ($"{category}/{name}"))
+                   ("@cat", Database.boxVal category)
+                   ("@sha", Database.boxVal (Guid.NewGuid().ToString("N")))
+                   ("@name", Database.boxVal name)
+                   ("@sender", Database.boxVal "test@example.com")
+                   ("@subject", Database.boxVal $"Test document {name}")
+                   ("@text", Database.boxVal $"Content of {name}") ] : (string * obj) list)
 
         ()
     }
@@ -185,15 +91,15 @@ let ``McpServer_SerialiseResponse_ErrorResponse_ContainsErrorField`` () =
 [<Trait("Category", "Unit")>]
 let ``McpServer_Dispatch_Initialize_ReturnsCapabilities`` () =
     task {
-        let db = createTestDb ()
-        let fs, _, _ = inMemoryFileSystem ()
-        let logger = testLogger ()
+        let db = TestHelpers.createRawDb ()
+        let m = TestHelpers.memFs ()
+        let logger = TestHelpers.silentLogger
 
         try
             let json =
                 """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"""
 
-            let! response = McpServer.processMessage db fs logger "/archive" json
+            let! response = McpServer.processMessage db m.Fs logger "/archive" json
             let doc = JsonDocument.Parse(response)
             let root = doc.RootElement
 
@@ -210,15 +116,15 @@ let ``McpServer_Dispatch_Initialize_ReturnsCapabilities`` () =
 [<Trait("Category", "Unit")>]
 let ``McpServer_Dispatch_ToolsList_ReturnsAllTools`` () =
     task {
-        let db = createTestDb ()
-        let fs, _, _ = inMemoryFileSystem ()
-        let logger = testLogger ()
+        let db = TestHelpers.createRawDb ()
+        let m = TestHelpers.memFs ()
+        let logger = TestHelpers.silentLogger
 
         try
             let json =
                 """{"jsonrpc":"2.0","id":2,"method":"tools/list","params":null}"""
 
-            let! response = McpServer.processMessage db fs logger "/archive" json
+            let! response = McpServer.processMessage db m.Fs logger "/archive" json
             let doc = JsonDocument.Parse(response)
             let result = doc.RootElement.GetProperty("result")
             let tools = result.GetProperty("tools")
@@ -241,15 +147,15 @@ let ``McpServer_Dispatch_ToolsList_ReturnsAllTools`` () =
 [<Trait("Category", "Unit")>]
 let ``McpServer_Dispatch_UnknownMethod_ReturnsError`` () =
     task {
-        let db = createTestDb ()
-        let fs, _, _ = inMemoryFileSystem ()
-        let logger = testLogger ()
+        let db = TestHelpers.createRawDb ()
+        let m = TestHelpers.memFs ()
+        let logger = TestHelpers.silentLogger
 
         try
             let json =
                 """{"jsonrpc":"2.0","id":3,"method":"unknown/method","params":null}"""
 
-            let! response = McpServer.processMessage db fs logger "/archive" json
+            let! response = McpServer.processMessage db m.Fs logger "/archive" json
             let doc = JsonDocument.Parse(response)
             let root = doc.RootElement
             Assert.True(root.TryGetProperty("error") |> fst)
@@ -263,15 +169,15 @@ let ``McpServer_Dispatch_UnknownMethod_ReturnsError`` () =
 [<Trait("Category", "Unit")>]
 let ``McpServer_Dispatch_ToolsCallUnknownTool_ReturnsError`` () =
     task {
-        let db = createTestDb ()
-        let fs, _, _ = inMemoryFileSystem ()
-        let logger = testLogger ()
+        let db = TestHelpers.createRawDb ()
+        let m = TestHelpers.memFs ()
+        let logger = TestHelpers.silentLogger
 
         try
             let json =
                 """{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"nonexistent_tool","arguments":{}}}"""
 
-            let! response = McpServer.processMessage db fs logger "/archive" json
+            let! response = McpServer.processMessage db m.Fs logger "/archive" json
             let doc = JsonDocument.Parse(response)
             let root = doc.RootElement
             Assert.True(root.TryGetProperty("error") |> fst)
@@ -283,9 +189,9 @@ let ``McpServer_Dispatch_ToolsCallUnknownTool_ReturnsError`` () =
 [<Trait("Category", "Unit")>]
 let ``McpServer_Dispatch_ToolsCallSearch_ReturnsContent`` () =
     task {
-        let db = createTestDb ()
-        let fs, _, _ = inMemoryFileSystem ()
-        let logger = testLogger ()
+        let db = TestHelpers.createRawDb ()
+        let m = TestHelpers.memFs ()
+        let logger = TestHelpers.silentLogger
 
         try
             let! _ = db.initSchema ()
@@ -296,7 +202,7 @@ let ``McpServer_Dispatch_ToolsCallSearch_ReturnsContent`` () =
             let json =
                 """{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"hermes_search","arguments":{"query":"invoice"}}}"""
 
-            let! response = McpServer.processMessage db fs logger "/archive" json
+            let! response = McpServer.processMessage db m.Fs logger "/archive" json
             let doc = JsonDocument.Parse(response)
             let root = doc.RootElement
 
@@ -312,9 +218,9 @@ let ``McpServer_Dispatch_ToolsCallSearch_ReturnsContent`` () =
 [<Trait("Category", "Unit")>]
 let ``McpServer_Dispatch_ToolsCallStats_ReturnsStats`` () =
     task {
-        let db = createTestDb ()
-        let fs, _, _ = inMemoryFileSystem ()
-        let logger = testLogger ()
+        let db = TestHelpers.createRawDb ()
+        let m = TestHelpers.memFs ()
+        let logger = TestHelpers.silentLogger
 
         try
             let! _ = db.initSchema ()
@@ -323,7 +229,7 @@ let ``McpServer_Dispatch_ToolsCallStats_ReturnsStats`` () =
             let json =
                 """{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"hermes_stats","arguments":{}}}"""
 
-            let! response = McpServer.processMessage db fs logger "/archive" json
+            let! response = McpServer.processMessage db m.Fs logger "/archive" json
             let doc = JsonDocument.Parse(response)
             let result = doc.RootElement.GetProperty("result")
             let content = result.GetProperty("content")
@@ -340,9 +246,9 @@ let ``McpServer_Dispatch_ToolsCallStats_ReturnsStats`` () =
 [<Trait("Category", "Unit")>]
 let ``McpServer_Dispatch_ToolsCallListCategories_ReturnsCategories`` () =
     task {
-        let db = createTestDb ()
-        let fs, _, _ = inMemoryFileSystem ()
-        let logger = testLogger ()
+        let db = TestHelpers.createRawDb ()
+        let m = TestHelpers.memFs ()
+        let logger = TestHelpers.silentLogger
 
         try
             let! _ = db.initSchema ()
@@ -353,7 +259,7 @@ let ``McpServer_Dispatch_ToolsCallListCategories_ReturnsCategories`` () =
             let json =
                 """{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"hermes_list_categories","arguments":{}}}"""
 
-            let! response = McpServer.processMessage db fs logger "/archive" json
+            let! response = McpServer.processMessage db m.Fs logger "/archive" json
             let doc = JsonDocument.Parse(response)
             let result = doc.RootElement.GetProperty("result")
             let content = result.GetProperty("content")
@@ -422,7 +328,7 @@ let ``McpTools_IsPathSafe_WhitespacePath_ReturnsError`` () =
 [<Trait("Category", "Unit")>]
 let ``McpTools_Search_EmptyQuery_ReturnsError`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
 
         try
             let! _ = db.initSchema ()
@@ -439,7 +345,7 @@ let ``McpTools_Search_EmptyQuery_ReturnsError`` () =
 [<Trait("Category", "Unit")>]
 let ``McpTools_GetDocument_MissingIdAndPath_ReturnsNotFound`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
 
         try
             let! _ = db.initSchema ()
@@ -455,7 +361,7 @@ let ``McpTools_GetDocument_MissingIdAndPath_ReturnsNotFound`` () =
 [<Trait("Category", "Unit")>]
 let ``McpTools_GetDocument_ValidId_ReturnsDocument`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
 
         try
             let! _ = db.initSchema ()
@@ -475,10 +381,10 @@ let ``McpTools_GetDocument_ValidId_ReturnsDocument`` () =
 [<Trait("Category", "Unit")>]
 let ``McpTools_ReadFile_PathTraversal_ReturnsError`` () =
     task {
-        let fs, _, _ = inMemoryFileSystem ()
+        let m = TestHelpers.memFs ()
         let args = JsonObject()
         args["path"] <- JsonValue.Create("../secret.txt")
-        let! result = McpTools.readFile fs "/archive" (args :> JsonNode)
+        let! result = McpTools.readFile m.Fs "/archive" (args :> JsonNode)
         let doc = JsonDocument.Parse(result.ToJsonString())
         Assert.True(doc.RootElement.TryGetProperty("error") |> fst)
         Assert.Contains("traversal", (doc.RootElement.GetProperty("error").GetString() |> Option.ofObj |> Option.defaultValue "").ToLower())
@@ -488,9 +394,9 @@ let ``McpTools_ReadFile_PathTraversal_ReturnsError`` () =
 [<Trait("Category", "Unit")>]
 let ``McpTools_ReadFile_MissingPath_ReturnsError`` () =
     task {
-        let fs, _, _ = inMemoryFileSystem ()
+        let m = TestHelpers.memFs ()
         let args = JsonObject()
-        let! result = McpTools.readFile fs "/archive" (args :> JsonNode)
+        let! result = McpTools.readFile m.Fs "/archive" (args :> JsonNode)
         let doc = JsonDocument.Parse(result.ToJsonString())
         Assert.True(doc.RootElement.TryGetProperty("error") |> fst)
     }
@@ -499,9 +405,9 @@ let ``McpTools_ReadFile_MissingPath_ReturnsError`` () =
 [<Trait("Category", "Unit")>]
 let ``McpServer_ProcessMessage_CompleteRoundTrip_ValidJsonRpc`` () =
     task {
-        let db = createTestDb ()
-        let fs, _, _ = inMemoryFileSystem ()
-        let logger = testLogger ()
+        let db = TestHelpers.createRawDb ()
+        let m = TestHelpers.memFs ()
+        let logger = TestHelpers.silentLogger
 
         try
             let! _ = db.initSchema ()
@@ -509,7 +415,7 @@ let ``McpServer_ProcessMessage_CompleteRoundTrip_ValidJsonRpc`` () =
             let json =
                 """{"jsonrpc":"2.0","id":42,"method":"initialize","params":{}}"""
 
-            let! response = McpServer.processMessage db fs logger "/archive" json
+            let! response = McpServer.processMessage db m.Fs logger "/archive" json
             let doc = JsonDocument.Parse(response)
             let root = doc.RootElement
 

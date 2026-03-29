@@ -2,116 +2,14 @@ module Hermes.Tests.FolderWatcherTests
 
 open System
 open System.IO
-open System.Collections.Concurrent
 open System.Threading.Tasks
 open Xunit
 open Hermes.Core
 
 // ─── Test helpers ────────────────────────────────────────────────────
 
-let private inMemoryFileSystem () =
-    let files = ConcurrentDictionary<string, string>()
-    let fileBytes = ConcurrentDictionary<string, byte array>()
-    let dirs = ConcurrentDictionary<string, bool>()
-
-    let fs: Algebra.FileSystem =
-        { readAllText =
-            fun path ->
-                task {
-                    match files.TryGetValue(path) with
-                    | true, content -> return content
-                    | _ -> return failwith $"File not found: {path}"
-                }
-          writeAllText = fun path content -> task { files.[path] <- content }
-          writeAllBytes =
-            fun path bytes ->
-                task {
-                    fileBytes.[path] <- bytes
-                    files.[path] <- Text.Encoding.UTF8.GetString(bytes)
-                }
-          readAllBytes =
-            fun path ->
-                task {
-                    match fileBytes.TryGetValue(path) with
-                    | true, bytes -> return bytes
-                    | _ ->
-                        match files.TryGetValue(path) with
-                        | true, content -> return Text.Encoding.UTF8.GetBytes(content)
-                        | _ -> return failwith $"File not found: {path}"
-                }
-          fileExists = fun path -> files.ContainsKey(path) || fileBytes.ContainsKey(path)
-          directoryExists = fun path -> dirs.ContainsKey(path)
-          createDirectory = fun path -> dirs.[path] <- true
-          deleteFile =
-            fun path ->
-                files.TryRemove(path) |> ignore
-                fileBytes.TryRemove(path) |> ignore
-          moveFile =
-            fun src dst ->
-                match files.TryRemove(src) with
-                | true, content -> files.[dst] <- content
-                | _ -> ()
-
-                match fileBytes.TryRemove(src) with
-                | true, bytes -> fileBytes.[dst] <- bytes
-                | _ -> ()
-          getFiles =
-            fun dir _pattern ->
-                let prefix =
-                    if dir.EndsWith("/") || dir.EndsWith("\\") then
-                        dir
-                    else
-                        dir + "/"
-
-                files.Keys
-                |> Seq.append fileBytes.Keys
-                |> Seq.distinct
-                |> Seq.filter (fun k ->
-                    k.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-                    && not (k.Substring(prefix.Length).Contains("/"))
-                    && not (k.Substring(prefix.Length).Contains("\\")))
-                |> Seq.toArray
-          getFileSize =
-            fun path ->
-                match fileBytes.TryGetValue(path) with
-                | true, bytes -> int64 bytes.Length
-                | _ ->
-                    match files.TryGetValue(path) with
-                    | true, content -> int64 (Text.Encoding.UTF8.GetByteCount(content))
-                    | _ -> 0L }
-
-    fs, files, fileBytes, dirs
-
-let private testClock () : Algebra.Clock =
-    { utcNow = fun () -> DateTimeOffset(2025, 3, 15, 10, 30, 0, TimeSpan.Zero) }
-
-let private testDb () =
-    let conn = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:")
-    conn.Open()
-
-    use pragma = conn.CreateCommand()
-    pragma.CommandText <- "PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;"
-    pragma.ExecuteNonQuery() |> ignore
-
-    let db = Database.fromConnection conn
-    db.initSchema () |> Async.AwaitTask |> Async.RunSynchronously |> ignore
-    db
-
-let private testConfig archiveDir watchFolders : Domain.HermesConfig =
-    { ArchiveDir = archiveDir
-      Credentials = ""
-      Accounts = []
-      SyncIntervalMinutes = 15
-      MinAttachmentSize = 20480
-      WatchFolders = watchFolders
-      Ollama =
-        { Enabled = false
-          BaseUrl = ""
-          EmbeddingModel = ""
-          VisionModel = ""
-          InstructModel = "" }
-      Fallback = { Embedding = ""; Ocr = "" }
-      Azure = { DocumentIntelligenceEndpoint = ""; DocumentIntelligenceKey = "" } }
+let private watchTestConfig archiveDir watchFolders : Domain.HermesConfig =
+    { TestHelpers.testConfig archiveDir with WatchFolders = watchFolders }
 
 // ─── Glob pattern matching tests ─────────────────────────────────────
 
@@ -191,7 +89,7 @@ let ``FolderWatcher_SanitiseFileName_EmptyString_ReturnsFallback`` () =
 [<Trait("Category", "Unit")>]
 let ``FolderWatcher_IsDuplicate_NoExistingDoc_ReturnsFalse`` () =
     task {
-        let db = testDb ()
+        let db = TestHelpers.createDb ()
 
         try
             let! isDup = FolderWatcher.isDuplicate db "abc123"
@@ -204,7 +102,7 @@ let ``FolderWatcher_IsDuplicate_NoExistingDoc_ReturnsFalse`` () =
 [<Trait("Category", "Unit")>]
 let ``FolderWatcher_IsDuplicate_ExistingDoc_ReturnsTrue`` () =
     task {
-        let db = testDb ()
+        let db = TestHelpers.createDb ()
 
         try
             let! _ =
@@ -255,17 +153,17 @@ let ``FolderWatcher_SerialiseSidecar_ProducesValidJson`` () =
 [<Trait("Category", "Unit")>]
 let ``FolderWatcher_ProcessFile_CopiesMatchingFile`` () =
     task {
-        let fs, files, _, dirs = inMemoryFileSystem ()
-        let db = testDb ()
-        let clock = testClock ()
+        let m = TestHelpers.memFs ()
+        let db = TestHelpers.createDb ()
+        let clock = TestHelpers.defaultClock
         let logger = Logging.silent
 
         let archiveDir = "/archive"
-        dirs.[archiveDir] <- true
-        dirs.["/watch/Downloads"] <- true
+        m.Dirs.[archiveDir] <- true
+        m.Dirs.["/watch/Downloads"] <- true
 
         let srcPath = "/watch/Downloads/invoice.pdf"
-        files.[srcPath] <- "PDF content here"
+        m.Files.[srcPath] <- "PDF content here"
 
         let watchFolder : Domain.WatchFolderConfig =
             { Path = "/watch/Downloads"
@@ -273,7 +171,7 @@ let ``FolderWatcher_ProcessFile_CopiesMatchingFile`` () =
 
         try
             let! result =
-                FolderWatcher.processFile fs db logger clock archiveDir watchFolder srcPath
+                FolderWatcher.processFile m.Fs db logger clock archiveDir watchFolder srcPath
 
             match result with
             | FolderWatcher.Copied savedPath ->
@@ -281,9 +179,9 @@ let ``FolderWatcher_ProcessFile_CopiesMatchingFile`` () =
                 Assert.Contains("Downloads", savedPath)
                 Assert.Contains("invoice.pdf", savedPath)
                 // Source file should still exist (copy, not move)
-                Assert.True(files.ContainsKey(srcPath))
+                Assert.True(m.Files.ContainsKey(srcPath))
                 // Sidecar should exist
-                Assert.True(files.ContainsKey(savedPath + ".meta.json"))
+                Assert.True(m.Files.ContainsKey(savedPath + ".meta.json"))
             | other -> failwith $"Expected Copied, got {other}"
         finally
             db.dispose ()
@@ -293,13 +191,13 @@ let ``FolderWatcher_ProcessFile_CopiesMatchingFile`` () =
 [<Trait("Category", "Unit")>]
 let ``FolderWatcher_ProcessFile_SkipsNonMatchingPattern`` () =
     task {
-        let fs, files, _, dirs = inMemoryFileSystem ()
-        let db = testDb ()
-        let clock = testClock ()
+        let m = TestHelpers.memFs ()
+        let db = TestHelpers.createDb ()
+        let clock = TestHelpers.defaultClock
         let logger = Logging.silent
 
-        dirs.["/watch"] <- true
-        files.["/watch/readme.txt"] <- "text content"
+        m.Dirs.["/watch"] <- true
+        m.Files.["/watch/readme.txt"] <- "text content"
 
         let watchFolder : Domain.WatchFolderConfig =
             { Path = "/watch"
@@ -307,7 +205,7 @@ let ``FolderWatcher_ProcessFile_SkipsNonMatchingPattern`` () =
 
         try
             let! result =
-                FolderWatcher.processFile fs db logger clock "/archive" watchFolder "/watch/readme.txt"
+                FolderWatcher.processFile m.Fs db logger clock "/archive" watchFolder "/watch/readme.txt"
 
             match result with
             | FolderWatcher.Skipped reason ->
@@ -321,20 +219,20 @@ let ``FolderWatcher_ProcessFile_SkipsNonMatchingPattern`` () =
 [<Trait("Category", "Unit")>]
 let ``FolderWatcher_ProcessFile_DetectsDuplicate`` () =
     task {
-        let fs, files, _, dirs = inMemoryFileSystem ()
-        let db = testDb ()
-        let clock = testClock ()
+        let m = TestHelpers.memFs ()
+        let db = TestHelpers.createDb ()
+        let clock = TestHelpers.defaultClock
         let logger = Logging.silent
 
         let archiveDir = "/archive"
-        dirs.[archiveDir] <- true
-        dirs.["/watch"] <- true
+        m.Dirs.[archiveDir] <- true
+        m.Dirs.["/watch"] <- true
 
         let content = "duplicate content"
-        files.["/watch/dup.pdf"] <- content
+        m.Files.["/watch/dup.pdf"] <- content
 
         // Compute hash and pre-insert
-        let! hash = FolderWatcher.computeSha256 fs "/watch/dup.pdf"
+        let! hash = FolderWatcher.computeSha256 m.Fs "/watch/dup.pdf"
 
         let! _ =
             db.execNonQuery
@@ -348,7 +246,7 @@ let ``FolderWatcher_ProcessFile_DetectsDuplicate`` () =
 
         try
             let! result =
-                FolderWatcher.processFile fs db logger clock archiveDir watchFolder "/watch/dup.pdf"
+                FolderWatcher.processFile m.Fs db logger clock archiveDir watchFolder "/watch/dup.pdf"
 
             match result with
             | FolderWatcher.Duplicate _ -> ()
@@ -361,9 +259,9 @@ let ``FolderWatcher_ProcessFile_DetectsDuplicate`` () =
 [<Trait("Category", "Unit")>]
 let ``FolderWatcher_ProcessFile_MissingFile_ReturnsSkipped`` () =
     task {
-        let fs, _, _, _ = inMemoryFileSystem ()
-        let db = testDb ()
-        let clock = testClock ()
+        let m = TestHelpers.memFs ()
+        let db = TestHelpers.createDb ()
+        let clock = TestHelpers.defaultClock
         let logger = Logging.silent
 
         let watchFolder : Domain.WatchFolderConfig =
@@ -372,7 +270,7 @@ let ``FolderWatcher_ProcessFile_MissingFile_ReturnsSkipped`` () =
 
         try
             let! result =
-                FolderWatcher.processFile fs db logger clock "/archive" watchFolder "/watch/nonexistent.pdf"
+                FolderWatcher.processFile m.Fs db logger clock "/archive" watchFolder "/watch/nonexistent.pdf"
 
             match result with
             | FolderWatcher.Skipped _ -> ()
@@ -385,16 +283,16 @@ let ``FolderWatcher_ProcessFile_MissingFile_ReturnsSkipped`` () =
 [<Trait("Category", "Unit")>]
 let ``FolderWatcher_ProcessFile_UsesSafeCopyRename`` () =
     task {
-        let fs, files, _, dirs = inMemoryFileSystem ()
-        let db = testDb ()
-        let clock = testClock ()
+        let m = TestHelpers.memFs ()
+        let db = TestHelpers.createDb ()
+        let clock = TestHelpers.defaultClock
         let logger = Logging.silent
 
         let archiveDir = "/archive"
-        dirs.[archiveDir] <- true
-        dirs.["/watch"] <- true
+        m.Dirs.[archiveDir] <- true
+        m.Dirs.["/watch"] <- true
 
-        files.["/watch/test.pdf"] <- "content"
+        m.Files.["/watch/test.pdf"] <- "content"
 
         let watchFolder : Domain.WatchFolderConfig =
             { Path = "/watch"
@@ -402,14 +300,14 @@ let ``FolderWatcher_ProcessFile_UsesSafeCopyRename`` () =
 
         try
             let! result =
-                FolderWatcher.processFile fs db logger clock archiveDir watchFolder "/watch/test.pdf"
+                FolderWatcher.processFile m.Fs db logger clock archiveDir watchFolder "/watch/test.pdf"
 
             match result with
             | FolderWatcher.Copied savedPath ->
                 // Temp file should NOT exist (renamed away)
-                Assert.False(files.ContainsKey(savedPath + ".hermes_copying"))
+                Assert.False(m.Files.ContainsKey(savedPath + ".hermes_copying"))
                 // Final file should exist
-                Assert.True(files.ContainsKey(savedPath))
+                Assert.True(m.Files.ContainsKey(savedPath))
             | other -> failwith $"Expected Copied, got {other}"
         finally
             db.dispose ()
@@ -420,7 +318,7 @@ let ``FolderWatcher_ProcessFile_UsesSafeCopyRename`` () =
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``FolderWatcher_AddWatchFolder_AddsToConfig`` () =
-    let config = testConfig "/archive" []
+    let config = watchTestConfig "/archive" []
 
     match FolderWatcher.addWatchFolder config "/watch/new" [ "*.pdf" ] with
     | Ok updated ->
@@ -432,7 +330,7 @@ let ``FolderWatcher_AddWatchFolder_AddsToConfig`` () =
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``FolderWatcher_AddWatchFolder_EmptyPatterns_DefaultsToStar`` () =
-    let config = testConfig "/archive" []
+    let config = watchTestConfig "/archive" []
 
     match FolderWatcher.addWatchFolder config "/watch/new" [] with
     | Ok updated ->
@@ -445,7 +343,7 @@ let ``FolderWatcher_AddWatchFolder_Duplicate_ReturnsError`` () =
     let existing : Domain.WatchFolderConfig =
         { Path = "/watch/existing"; Patterns = [ "*" ] }
 
-    let config = testConfig "/archive" [ existing ]
+    let config = watchTestConfig "/archive" [ existing ]
 
     match FolderWatcher.addWatchFolder config "/watch/existing" [ "*.pdf" ] with
     | Error e -> Assert.Contains("already configured", e)
@@ -457,7 +355,7 @@ let ``FolderWatcher_RemoveWatchFolder_RemovesFromConfig`` () =
     let existing : Domain.WatchFolderConfig =
         { Path = "/watch/existing"; Patterns = [ "*" ] }
 
-    let config = testConfig "/archive" [ existing ]
+    let config = watchTestConfig "/archive" [ existing ]
 
     match FolderWatcher.removeWatchFolder config "/watch/existing" with
     | Ok updated -> Assert.Empty(updated.WatchFolders)
@@ -466,7 +364,7 @@ let ``FolderWatcher_RemoveWatchFolder_RemovesFromConfig`` () =
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``FolderWatcher_RemoveWatchFolder_NotFound_ReturnsError`` () =
-    let config = testConfig "/archive" []
+    let config = watchTestConfig "/archive" []
 
     match FolderWatcher.removeWatchFolder config "/watch/nonexistent" with
     | Error e -> Assert.Contains("not found", e)
@@ -477,16 +375,16 @@ let ``FolderWatcher_RemoveWatchFolder_NotFound_ReturnsError`` () =
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``FolderWatcher_ListWatchFolders_ReportsStatus`` () =
-    let fs, _, _, dirs = inMemoryFileSystem ()
-    dirs.["/watch/existing"] <- true
+    let m = TestHelpers.memFs ()
+    m.Dirs.["/watch/existing"] <- true
 
     let config =
-        testConfig
+        watchTestConfig
             "/archive"
             [ { Path = "/watch/existing"; Patterns = [ "*.pdf" ] }
               { Path = "/watch/missing"; Patterns = [ "*" ] } ]
 
-    let statuses = FolderWatcher.listWatchFolders fs config
+    let statuses = FolderWatcher.listWatchFolders m.Fs config
 
     Assert.Equal(2, statuses.Length)
     Assert.True(statuses.[0].Exists)
@@ -498,18 +396,18 @@ let ``FolderWatcher_ListWatchFolders_ReportsStatus`` () =
 [<Trait("Category", "Unit")>]
 let ``FolderWatcher_ScanFolder_ProcessesAllMatchingFiles`` () =
     task {
-        let fs, files, _, dirs = inMemoryFileSystem ()
-        let db = testDb ()
-        let clock = testClock ()
+        let m = TestHelpers.memFs ()
+        let db = TestHelpers.createDb ()
+        let clock = TestHelpers.defaultClock
         let logger = Logging.silent
 
         let archiveDir = "/archive"
-        dirs.[archiveDir] <- true
-        dirs.["/watch"] <- true
+        m.Dirs.[archiveDir] <- true
+        m.Dirs.["/watch"] <- true
 
-        files.["/watch/invoice1.pdf"] <- "content1"
-        files.["/watch/invoice2.pdf"] <- "content2"
-        files.["/watch/readme.txt"] <- "text content"
+        m.Files.["/watch/invoice1.pdf"] <- "content1"
+        m.Files.["/watch/invoice2.pdf"] <- "content2"
+        m.Files.["/watch/readme.txt"] <- "text content"
 
         let watchFolder : Domain.WatchFolderConfig =
             { Path = "/watch"
@@ -517,7 +415,7 @@ let ``FolderWatcher_ScanFolder_ProcessesAllMatchingFiles`` () =
 
         try
             let! results =
-                FolderWatcher.scanFolder fs db logger clock archiveDir watchFolder
+                FolderWatcher.scanFolder m.Fs db logger clock archiveDir watchFolder
 
             let copied =
                 results

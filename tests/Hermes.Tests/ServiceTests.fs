@@ -5,80 +5,12 @@ open System.Threading.Tasks
 open Xunit
 open Hermes.Core
 
-// ─── In-memory FileSystem interpreter ────────────────────────────────
-
-let inMemoryFileSystem () =
-    let files = System.Collections.Concurrent.ConcurrentDictionary<string, string>()
-    let fileBytes = System.Collections.Concurrent.ConcurrentDictionary<string, byte array>()
-    let dirs = System.Collections.Concurrent.ConcurrentDictionary<string, bool>()
-
-    let fs: Algebra.FileSystem =
-        { readAllText = fun path ->
-            task {
-                match files.TryGetValue(path) with
-                | true, content -> return content
-                | _ -> return failwith $"File not found: {path}"
-            }
-          writeAllText = fun path content ->
-            task { files.[path] <- content }
-          writeAllBytes = fun path bytes ->
-            task {
-                fileBytes.[path] <- bytes
-                files.[path] <- System.Text.Encoding.UTF8.GetString(bytes)
-            }
-          readAllBytes = fun path ->
-            task {
-                match fileBytes.TryGetValue(path) with
-                | true, bytes -> return bytes
-                | _ ->
-                    match files.TryGetValue(path) with
-                    | true, content -> return System.Text.Encoding.UTF8.GetBytes(content)
-                    | _ -> return failwith $"File not found: {path}"
-            }
-          fileExists = fun path -> files.ContainsKey(path) || fileBytes.ContainsKey(path)
-          directoryExists = fun path -> dirs.ContainsKey(path)
-          createDirectory = fun path -> dirs.[path] <- true
-          deleteFile = fun path ->
-            files.TryRemove(path) |> ignore
-            fileBytes.TryRemove(path) |> ignore
-          moveFile = fun src dst ->
-            match files.TryRemove(src) with
-            | true, content -> files.[dst] <- content
-            | _ -> ()
-            match fileBytes.TryRemove(src) with
-            | true, bytes -> fileBytes.[dst] <- bytes
-            | _ -> ()
-          getFiles = fun dir pattern ->
-            let prefix = if dir.EndsWith("/") || dir.EndsWith("\\") then dir else dir + "/"
-            files.Keys
-            |> Seq.append fileBytes.Keys
-            |> Seq.distinct
-            |> Seq.filter (fun k ->
-                k.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-                && not (k.Substring(prefix.Length).Contains("/"))
-                && not (k.Substring(prefix.Length).Contains("\\")))
-            |> Seq.toArray
-          getFileSize = fun path ->
-            match fileBytes.TryGetValue(path) with
-            | true, bytes -> int64 bytes.Length
-            | _ ->
-                match files.TryGetValue(path) with
-                | true, content -> int64 (System.Text.Encoding.UTF8.GetByteCount(content))
-                | _ -> 0L }
-
-    fs, files, dirs
-
-// ─── Test clock ──────────────────────────────────────────────────────
-
-let fixedClock (time: DateTimeOffset) : Algebra.Clock =
-    { utcNow = fun () -> time }
-
 // ─── Heartbeat writing tests ─────────────────────────────────────────
 
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``ServiceHost_WriteHeartbeat_CreatesStatusFile`` () =
-    let fs, files, _ = inMemoryFileSystem ()
+    let m = TestHelpers.memFs ()
     let archiveDir = "/archive"
 
     let status: ServiceHost.ServiceStatus =
@@ -90,21 +22,21 @@ let ``ServiceHost_WriteHeartbeat_CreatesStatusFile`` () =
           UnclassifiedCount = 3
           ErrorMessage = None }
 
-    ServiceHost.writeHeartbeat fs archiveDir status
+    ServiceHost.writeHeartbeat m.Fs archiveDir status
     |> Async.AwaitTask
     |> Async.RunSynchronously
 
     let path = ServiceHost.statusFilePath archiveDir
-    Assert.True(files.ContainsKey(path), "Status file should exist")
+    Assert.True(m.Files.ContainsKey(path), "Status file should exist")
 
-    let content = files.[path]
+    let content = m.Files.[path]
     Assert.Contains("\"running\": true", content)
     Assert.Contains("\"documentCount\": 42", content)
 
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``ServiceHost_WriteHeartbeat_StoppedState_WritesRunningFalse`` () =
-    let fs, files, _ = inMemoryFileSystem ()
+    let m = TestHelpers.memFs ()
     let archiveDir = "/archive"
 
     let status: ServiceHost.ServiceStatus =
@@ -116,12 +48,12 @@ let ``ServiceHost_WriteHeartbeat_StoppedState_WritesRunningFalse`` () =
           UnclassifiedCount = 0
           ErrorMessage = Some "test error" }
 
-    ServiceHost.writeHeartbeat fs archiveDir status
+    ServiceHost.writeHeartbeat m.Fs archiveDir status
     |> Async.AwaitTask
     |> Async.RunSynchronously
 
     let path = ServiceHost.statusFilePath archiveDir
-    let content = files.[path]
+    let content = m.Files.[path]
     Assert.Contains("\"running\": false", content)
     Assert.Contains("\"errorMessage\": \"test error\"", content)
 
@@ -130,7 +62,7 @@ let ``ServiceHost_WriteHeartbeat_StoppedState_WritesRunningFalse`` () =
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``ServiceHost_ReadHeartbeat_ValidJson_ReturnsStatus`` () =
-    let fs, files, _ = inMemoryFileSystem ()
+    let m = TestHelpers.memFs ()
     let archiveDir = "/archive"
 
     let json = """{
@@ -143,10 +75,10 @@ let ``ServiceHost_ReadHeartbeat_ValidJson_ReturnsStatus`` () =
   "errorMessage": null
 }"""
 
-    files.[ServiceHost.statusFilePath archiveDir] <- json
+    m.Files.[ServiceHost.statusFilePath archiveDir] <- json
 
     let result =
-        ServiceHost.readHeartbeat fs archiveDir
+        ServiceHost.readHeartbeat m.Fs archiveDir
         |> Async.AwaitTask
         |> Async.RunSynchronously
 
@@ -161,10 +93,10 @@ let ``ServiceHost_ReadHeartbeat_ValidJson_ReturnsStatus`` () =
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``ServiceHost_ReadHeartbeat_MissingFile_ReturnsNone`` () =
-    let fs, _, _ = inMemoryFileSystem ()
+    let m = TestHelpers.memFs ()
 
     let result =
-        ServiceHost.readHeartbeat fs "/nonexistent"
+        ServiceHost.readHeartbeat m.Fs "/nonexistent"
         |> Async.AwaitTask
         |> Async.RunSynchronously
 
@@ -173,13 +105,13 @@ let ``ServiceHost_ReadHeartbeat_MissingFile_ReturnsNone`` () =
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``ServiceHost_ReadHeartbeat_InvalidJson_ReturnsNone`` () =
-    let fs, files, _ = inMemoryFileSystem ()
+    let m = TestHelpers.memFs ()
     let archiveDir = "/archive"
 
-    files.[ServiceHost.statusFilePath archiveDir] <- "not valid json{{"
+    m.Files.[ServiceHost.statusFilePath archiveDir] <- "not valid json{{"
 
     let result =
-        ServiceHost.readHeartbeat fs archiveDir
+        ServiceHost.readHeartbeat m.Fs archiveDir
         |> Async.AwaitTask
         |> Async.RunSynchronously
 
@@ -190,7 +122,7 @@ let ``ServiceHost_ReadHeartbeat_InvalidJson_ReturnsNone`` () =
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``ServiceHost_Heartbeat_Roundtrip_PreservesValues`` () =
-    let fs, _, _ = inMemoryFileSystem ()
+    let m = TestHelpers.memFs ()
     let archiveDir = "/archive"
 
     let original: ServiceHost.ServiceStatus =
@@ -202,12 +134,12 @@ let ``ServiceHost_Heartbeat_Roundtrip_PreservesValues`` () =
           UnclassifiedCount = 5
           ErrorMessage = None }
 
-    ServiceHost.writeHeartbeat fs archiveDir original
+    ServiceHost.writeHeartbeat m.Fs archiveDir original
     |> Async.AwaitTask
     |> Async.RunSynchronously
 
     let result =
-        ServiceHost.readHeartbeat fs archiveDir
+        ServiceHost.readHeartbeat m.Fs archiveDir
         |> Async.AwaitTask
         |> Async.RunSynchronously
 
@@ -254,33 +186,33 @@ let ``ServiceHost_DefaultServiceConfig_CustomInterval_Preserved`` () =
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``ServiceHost_CountUnclassified_EmptyDir_ReturnsZero`` () =
-    let fs, _, dirs = inMemoryFileSystem ()
+    let m = TestHelpers.memFs ()
     let archiveDir = "/archive"
     let unclassifiedDir = System.IO.Path.Combine(archiveDir, "unclassified")
-    dirs.[unclassifiedDir] <- true
-    let count = ServiceHost.countUnclassified fs archiveDir
+    m.Dirs.[unclassifiedDir] <- true
+    let count = ServiceHost.countUnclassified m.Fs archiveDir
     Assert.Equal(0, count)
 
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``ServiceHost_CountUnclassified_WithFiles_CountsCorrectly`` () =
-    let fs, files, dirs = inMemoryFileSystem ()
+    let m = TestHelpers.memFs ()
     let archiveDir = "/archive"
     let unclassifiedDir = System.IO.Path.Combine(archiveDir, "unclassified")
-    dirs.[unclassifiedDir] <- true
-    files.[unclassifiedDir + "/doc1.pdf"] <- "pdf content"
-    files.[unclassifiedDir + "/doc2.pdf"] <- "pdf content 2"
-    files.[unclassifiedDir + "/doc1.pdf.meta.json"] <- "{}"
+    m.Dirs.[unclassifiedDir] <- true
+    m.Files.[unclassifiedDir + "/doc1.pdf"] <- "pdf content"
+    m.Files.[unclassifiedDir + "/doc2.pdf"] <- "pdf content 2"
+    m.Files.[unclassifiedDir + "/doc1.pdf.meta.json"] <- "{}"
 
-    let count = ServiceHost.countUnclassified fs archiveDir
+    let count = ServiceHost.countUnclassified m.Fs archiveDir
     // Should count 2 PDFs, not the .meta.json
     Assert.Equal(2, count)
 
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``ServiceHost_CountUnclassified_NoDir_ReturnsZero`` () =
-    let fs, _, _ = inMemoryFileSystem ()
-    let count = ServiceHost.countUnclassified fs "/archive"
+    let m = TestHelpers.memFs ()
+    let count = ServiceHost.countUnclassified m.Fs "/archive"
     Assert.Equal(0, count)
 
 // ─── ServiceInstaller tests ──────────────────────────────────────────

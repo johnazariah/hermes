@@ -7,16 +7,6 @@ open Hermes.Core
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
-let createTestDb () =
-    let conn = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:")
-    conn.Open()
-
-    use pragma = conn.CreateCommand()
-    pragma.CommandText <- "PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;"
-    pragma.ExecuteNonQuery() |> ignore
-
-    Database.fromConnection conn
-
 let insertTestDocument
     (db: Algebra.Database)
     (sender: string)
@@ -25,6 +15,7 @@ let insertTestDocument
     (originalName: string)
     (extractedText: string)
     (extractedVendor: string)
+    : Task<unit>
     =
     task {
         let! _ =
@@ -34,15 +25,15 @@ let insertTestDocument
                     original_name, extracted_text, extracted_vendor)
                    VALUES
                    (@st, @sp, @cat, @sha, @sender, @subject, @name, @text, @vendor)"""
-                [ ("@st", Database.boxVal "manual_drop")
-                  ("@sp", Database.boxVal (category + "/" + originalName))
-                  ("@cat", Database.boxVal category)
-                  ("@sha", Database.boxVal (Guid.NewGuid().ToString("N")))
-                  ("@sender", Database.boxVal sender)
-                  ("@subject", Database.boxVal subject)
-                  ("@name", Database.boxVal originalName)
-                  ("@text", Database.boxVal extractedText)
-                  ("@vendor", Database.boxVal extractedVendor) ]
+                ([ ("@st", Database.boxVal "manual_drop")
+                   ("@sp", Database.boxVal (category + "/" + originalName))
+                   ("@cat", Database.boxVal category)
+                   ("@sha", Database.boxVal (Guid.NewGuid().ToString("N")))
+                   ("@sender", Database.boxVal sender)
+                   ("@subject", Database.boxVal subject)
+                   ("@name", Database.boxVal originalName)
+                   ("@text", Database.boxVal extractedText)
+                   ("@vendor", Database.boxVal extractedVendor) ] : (string * obj) list)
 
         return ()
     }
@@ -160,7 +151,7 @@ let ``Search_BuildQuery_LimitIsParameterised`` () =
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``Search_MapRow_MapsAllFields`` () =
-    let row =
+    let row : Map<string, obj> =
         [ "id", Database.boxVal 42L
           "saved_path", Database.boxVal "invoices/test.pdf"
           "original_name", Database.boxVal "test.pdf"
@@ -189,7 +180,7 @@ let ``Search_MapRow_MapsAllFields`` () =
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``Search_MapRow_HandlesMissingFields`` () =
-    let row =
+    let row : Map<string, obj> =
         [ "id", Database.boxVal 1L
           "saved_path", Database.boxVal "test.pdf"
           "category", Database.boxVal "unsorted"
@@ -211,7 +202,7 @@ let ``Search_MapRow_HandlesMissingFields`` () =
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``Search_MapRow_HandlesDbNullValues`` () =
-    let row =
+    let row : Map<string, obj> =
         [ "id", Database.boxVal 1L
           "saved_path", Database.boxVal "test.pdf"
           "category", Database.boxVal "unsorted"
@@ -230,7 +221,7 @@ let ``Search_MapRow_HandlesDbNullValues`` () =
 [<Trait("Category", "Integration")>]
 let ``Search_Execute_FindsMatchingDocument`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
 
         try
             let! _ = db.initSchema ()
@@ -249,7 +240,7 @@ let ``Search_Execute_FindsMatchingDocument`` () =
 [<Trait("Category", "Integration")>]
 let ``Search_Execute_FilterByCategory_ExcludesOthers`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
 
         try
             let! _ = db.initSchema ()
@@ -269,7 +260,7 @@ let ``Search_Execute_FilterByCategory_ExcludesOthers`` () =
 [<Trait("Category", "Integration")>]
 let ``Search_Execute_NoMatch_ReturnsEmpty`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
 
         try
             let! _ = db.initSchema ()
@@ -287,7 +278,7 @@ let ``Search_Execute_NoMatch_ReturnsEmpty`` () =
 [<Trait("Category", "Integration")>]
 let ``Search_Execute_ReturnsSnippet`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
 
         try
             let! _ = db.initSchema ()
@@ -308,7 +299,7 @@ let ``Search_Execute_ReturnsSnippet`` () =
 [<Trait("Category", "Integration")>]
 let ``Search_Execute_EmptyQuery_ReturnsEmpty`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
 
         try
             let! _ = db.initSchema ()
@@ -326,7 +317,7 @@ let ``Search_Execute_EmptyQuery_ReturnsEmpty`` () =
 [<Trait("Category", "Integration")>]
 let ``Search_Execute_MultipleResults_RankedByRelevance`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
 
         try
             let! _ = db.initSchema ()

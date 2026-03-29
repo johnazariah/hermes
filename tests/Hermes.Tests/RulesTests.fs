@@ -96,17 +96,17 @@ let private makeSidecar
     (subject: string option)
     : Domain.SidecarMetadata option =
     Some
-        { SourceType = "email_attachment"
-          Account = "test"
-          GmailId = "msg123"
-          ThreadId = "thread123"
-          Sender = sender
-          Subject = subject
-          EmailDate = Some "2025-03-15T10:30:00+11:00"
-          OriginalName = "test.pdf"
-          SavedAs = "test.pdf"
-          Sha256 = "abc123"
-          DownloadedAt = "2025-03-15T10:30:00Z" }
+        ({ SourceType = "email_attachment"
+           Account = "test"
+           GmailId = "msg123"
+           ThreadId = "thread123"
+           Sender = sender
+           Subject = subject
+           EmailDate = Some "2025-03-15T10:30:00+11:00"
+           OriginalName = "test.pdf"
+           SavedAs = "test.pdf"
+           Sha256 = "abc123"
+           DownloadedAt = "2025-03-15T10:30:00Z" } : Domain.SidecarMetadata)
 
 [<Fact>]
 [<Trait("Category", "Unit")>]

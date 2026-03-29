@@ -7,29 +7,10 @@ open Hermes.Core
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
-/// A fake embedding client that returns deterministic embeddings.
-let fakeEmbeddingClient (dims: int) : Algebra.EmbeddingClient =
-    { embed =
-        fun text ->
-            task {
-                // Deterministic: hash text to produce a repeatable embedding
-                let hash = abs (text.GetHashCode())
-                let arr = Array.init dims (fun i -> float32 (hash % (i + 2)) / 100.0f)
-                return Ok arr
-            }
-      dimensions = dims
-      isAvailable = fun () -> task { return true } }
-
-/// A fake embedding client that always fails.
-let failingEmbeddingClient : Algebra.EmbeddingClient =
-    { embed = fun _ -> task { return Error "service down" }
-      dimensions = 768
-      isAvailable = fun () -> task { return false } }
-
 /// Create an in-memory test database with schema initialised.
-let createTestDbWithSchema () =
+let createTestDbWithSchema () : Task<Algebra.Database> =
     task {
-        let db = DatabaseTests.createTestDb ()
+        let db = TestHelpers.createRawDb ()
         let! _ = db.initSchema ()
         do! Embeddings.initSchema db
         return db
@@ -280,7 +261,7 @@ let ``Embeddings_EmbedDocument_ChunksAndStores`` () =
         let! db = createTestDbWithSchema ()
 
         try
-            let client = fakeEmbeddingClient 4
+            let client = TestHelpers.fakeEmbedder 4
 
             // Insert a test document
             let! _ =
@@ -314,7 +295,7 @@ let ``Embeddings_EmbedDocument_UpdatesDocumentMetadata`` () =
         let! db = createTestDbWithSchema ()
 
         try
-            let client = fakeEmbeddingClient 4
+            let client = TestHelpers.fakeEmbedder 4
 
             let! _ =
                 db.execNonQuery
@@ -346,7 +327,7 @@ let ``Embeddings_EmbedDocument_EmptyText_ReturnsZero`` () =
         let! db = createTestDbWithSchema ()
 
         try
-            let client = fakeEmbeddingClient 4
+            let client = TestHelpers.fakeEmbedder 4
             let! result = Embeddings.embedDocument db Logging.silent client 1L ""
 
             match result with
@@ -369,7 +350,7 @@ let ``Embeddings_EmbedDocument_FailingClient_ReportsErrors`` () =
                        VALUES ('manual_drop', 'test/doc.pdf', 'invoices', 'sha3', 'Some text.')"""
                     []
 
-            let! result = Embeddings.embedDocument db Logging.silent failingEmbeddingClient 1L "Some text."
+            let! result = Embeddings.embedDocument db Logging.silent TestHelpers.failingEmbedder 1L "Some text."
 
             match result with
             | Error msg -> Assert.Contains("failed", msg)

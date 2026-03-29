@@ -7,29 +7,21 @@ open Hermes.Core
 
 // --- Helpers ---
 
-let createTestDb () =
-    let conn = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:")
-    conn.Open()
-    use pragma = conn.CreateCommand()
-    pragma.CommandText <- "PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;"
-    pragma.ExecuteNonQuery() |> ignore
-    Database.fromConnection conn
-
-let insertTestMessage (db: Algebra.Database) (account: string) (gmailId: string) (sender: string) (subject: string) (bodyText: string) =
+let insertTestMessage (db: Algebra.Database) (account: string) (gmailId: string) (sender: string) (subject: string) (bodyText: string) : Task<unit> =
     task {
         let! _ =
             db.execNonQuery
                 """INSERT INTO messages (gmail_id, account, sender, subject, body_text, has_attachments, processed_at)
                    VALUES (@gid, @acc, @sender, @subject, @body, 0, datetime('now'))"""
-                [ ("@gid", Database.boxVal gmailId)
-                  ("@acc", Database.boxVal account)
-                  ("@sender", Database.boxVal sender)
-                  ("@subject", Database.boxVal subject)
-                  ("@body", Database.boxVal bodyText) ]
+                ([ ("@gid", Database.boxVal gmailId)
+                   ("@acc", Database.boxVal account)
+                   ("@sender", Database.boxVal sender)
+                   ("@subject", Database.boxVal subject)
+                   ("@body", Database.boxVal bodyText) ] : (string * obj) list)
         ()
     }
 
-let insertTestDocument (db: Algebra.Database) (sender: string) (subject: string) (category: string) (originalName: string) (extractedText: string) =
+let insertTestDocument (db: Algebra.Database) (sender: string) (subject: string) (category: string) (originalName: string) (extractedText: string) : Task<unit> =
     task {
         let! _ =
             db.execNonQuery
@@ -37,13 +29,13 @@ let insertTestDocument (db: Algebra.Database) (sender: string) (subject: string)
                    (source_type, saved_path, category, sha256, sender, subject, original_name, extracted_text)
                    VALUES
                    ('manual_drop', @sp, @cat, @sha, @sender, @subject, @name, @text)"""
-                [ ("@sp", Database.boxVal (category + "/" + originalName))
-                  ("@cat", Database.boxVal category)
-                  ("@sha", Database.boxVal (Guid.NewGuid().ToString("N")))
-                  ("@sender", Database.boxVal sender)
-                  ("@subject", Database.boxVal subject)
-                  ("@name", Database.boxVal originalName)
-                  ("@text", Database.boxVal extractedText) ]
+                ([ ("@sp", Database.boxVal (category + "/" + originalName))
+                   ("@cat", Database.boxVal category)
+                   ("@sha", Database.boxVal (Guid.NewGuid().ToString("N")))
+                   ("@sender", Database.boxVal sender)
+                   ("@subject", Database.boxVal subject)
+                   ("@name", Database.boxVal originalName)
+                   ("@text", Database.boxVal extractedText) ] : (string * obj) list)
         ()
     }
 
@@ -103,7 +95,7 @@ let ``EmailSync_StripHtml_DecodesNbsp`` () =
 [<Trait("Category", "Integration")>]
 let ``MessagesFts_InsertTrigger_IndexesBodyText`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
         try
             let! _ = db.initSchema ()
             do! insertTestMessage db "test-acct" "msg-100" "alice@example.com" "Quarterly Report" "Revenue increased by 15 percent in Q3"
@@ -117,7 +109,7 @@ let ``MessagesFts_InsertTrigger_IndexesBodyText`` () =
 [<Trait("Category", "Integration")>]
 let ``MessagesFts_SearchBySubject_FindsMessage`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
         try
             let! _ = db.initSchema ()
             do! insertTestMessage db "test-acct" "msg-101" "bob@example.com" "Monthly Invoice" "Please pay the attached invoice"
@@ -131,7 +123,7 @@ let ``MessagesFts_SearchBySubject_FindsMessage`` () =
 [<Trait("Category", "Integration")>]
 let ``MessagesFts_SearchBySender_FindsMessage`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
         try
             let! _ = db.initSchema ()
             do! insertTestMessage db "test-acct" "msg-102" "alice@example.com" "Hello" "Test body"
@@ -145,7 +137,7 @@ let ``MessagesFts_SearchBySender_FindsMessage`` () =
 [<Trait("Category", "Integration")>]
 let ``MessagesFts_NoMatch_ReturnsZero`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
         try
             let! _ = db.initSchema ()
             do! insertTestMessage db "test-acct" "msg-103" "bob@test.com" "Hello" "World"
@@ -159,7 +151,7 @@ let ``MessagesFts_NoMatch_ReturnsZero`` () =
 [<Trait("Category", "Integration")>]
 let ``MessagesFts_UpdateTrigger_ReindexesOnUpdate`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
         try
             let! _ = db.initSchema ()
             do! insertTestMessage db "test-acct" "msg-104" "bob@test.com" "Old Subject" "Old body content"
@@ -176,7 +168,7 @@ let ``MessagesFts_UpdateTrigger_ReindexesOnUpdate`` () =
 [<Trait("Category", "Integration")>]
 let ``Search_ExecuteEmailSearch_FindsMessageByBody`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
         try
             let! _ = db.initSchema ()
             do! insertTestMessage db "test-acct" "msg-200" "alice@example.com" "Report" "The quarterly financial report shows growth"
@@ -192,7 +184,7 @@ let ``Search_ExecuteEmailSearch_FindsMessageByBody`` () =
 [<Trait("Category", "Integration")>]
 let ``Search_ExecuteEmailSearch_ReturnsSnippet`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
         try
             let! _ = db.initSchema ()
             do! insertTestMessage db "test-acct" "msg-201" "bob@test.com" "Payment" "Please process the payment for invoice number twelve"
@@ -208,7 +200,7 @@ let ``Search_ExecuteEmailSearch_ReturnsSnippet`` () =
 [<Trait("Category", "Integration")>]
 let ``Search_ExecuteEmailSearch_NoMatch_ReturnsEmpty`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
         try
             let! _ = db.initSchema ()
             do! insertTestMessage db "test-acct" "msg-202" "bob@test.com" "Hello" "World"
@@ -225,7 +217,7 @@ let ``Search_ExecuteEmailSearch_NoMatch_ReturnsEmpty`` () =
 [<Trait("Category", "Integration")>]
 let ``Search_ExecuteUnified_MergesDocumentAndEmailResults`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
         try
             let! _ = db.initSchema ()
             do! insertTestDocument db "alice@example.com" "Doc Invoice" "invoices" "inv.pdf" "This document is an invoice for services"
@@ -244,7 +236,7 @@ let ``Search_ExecuteUnified_MergesDocumentAndEmailResults`` () =
 [<Trait("Category", "Integration")>]
 let ``Search_ExecuteUnified_RespectsLimit`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
         try
             let! _ = db.initSchema ()
             for i in 1..5 do
@@ -261,7 +253,7 @@ let ``Search_ExecuteUnified_RespectsLimit`` () =
 [<Trait("Category", "Integration")>]
 let ``Search_ExecuteUnified_SortedByRelevance`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
         try
             let! _ = db.initSchema ()
             do! insertTestDocument db "a@test.com" "Water Bill" "utilities" "water.pdf" "Water usage charges"
@@ -282,7 +274,7 @@ let ``Search_ExecuteUnified_SortedByRelevance`` () =
 [<Trait("Category", "Integration")>]
 let ``Database_SchemaV2_HasBodyTextColumn`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
         try
             let! _ = db.initSchema ()
             let! _ = db.execNonQuery "INSERT INTO messages (gmail_id, account, body_text, has_attachments) VALUES ('test', 'acct', 'body content', 0)" []
@@ -298,7 +290,7 @@ let ``Database_SchemaV2_HasBodyTextColumn`` () =
 [<Trait("Category", "Integration")>]
 let ``Database_SchemaV2_HasThreadIdColumn`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
         try
             let! _ = db.initSchema ()
             let! _ = db.execNonQuery "INSERT INTO messages (gmail_id, account, thread_id, has_attachments) VALUES ('test', 'acct', 'thread-123', 0)" []
@@ -314,7 +306,7 @@ let ``Database_SchemaV2_HasThreadIdColumn`` () =
 [<Trait("Category", "Integration")>]
 let ``Database_SchemaV2_HasMessagesFts`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
         try
             let! _ = db.initSchema ()
             let! exists = db.tableExists "messages_fts"
@@ -327,7 +319,7 @@ let ``Database_SchemaV2_HasMessagesFts`` () =
 [<Trait("Category", "Integration")>]
 let ``Database_SchemaV2_VersionIs2`` () =
     task {
-        let db = createTestDb ()
+        let db = TestHelpers.createRawDb ()
         try
             let! _ = db.initSchema ()
             let! version = db.schemaVersion ()
@@ -342,11 +334,11 @@ let ``Database_SchemaV2_VersionIs2`` () =
 [<Trait("Category", "Integration")>]
 let ``EmailSync_SyncAccount_FetchesBodyWhenMissing`` () =
     task {
-        let fs, _, _, _ = EmailSyncTests.inMemoryFileSystem ()
-        let db = createTestDb ()
+        let m = TestHelpers.memFs ()
+        let db = TestHelpers.createRawDb ()
         let logger = Logging.silent
-        let clock = EmailSyncTests.fixedClock (DateTimeOffset(2024, 6, 15, 12, 0, 0, TimeSpan.Zero))
-        let config = EmailSyncTests.testConfig "/archive"
+        let clock = TestHelpers.fixedClock (DateTimeOffset(2024, 6, 15, 12, 0, 0, TimeSpan.Zero))
+        let config = TestHelpers.testConfig "/archive"
         let msg : Domain.EmailMessage =
             { ProviderId = "msg-body-001"
               ThreadId = "thread-001"
@@ -362,7 +354,7 @@ let ``EmailSync_SyncAccount_FetchesBodyWhenMissing`` () =
               getMessageBody = fun _ -> task { return Some "<p>Hello <b>World</b></p>" } }
         try
             let! _ = db.initSchema ()
-            let! _ = EmailSync.syncAccount fs db logger clock provider config "test-account"
+            let! _ = EmailSync.syncAccount m.Fs db logger clock provider config "test-account"
             let! result = db.execScalar "SELECT body_text FROM messages WHERE gmail_id = 'msg-body-001' AND account = 'test-account'" []
             match result with
             | null -> failwith "Expected body_text to be stored"
@@ -376,11 +368,11 @@ let ``EmailSync_SyncAccount_FetchesBodyWhenMissing`` () =
 [<Trait("Category", "Integration")>]
 let ``EmailSync_SyncAccount_SkipsBodyFetchWhenPresent`` () =
     task {
-        let fs, _, _, _ = EmailSyncTests.inMemoryFileSystem ()
-        let db = createTestDb ()
+        let m = TestHelpers.memFs ()
+        let db = TestHelpers.createRawDb ()
         let logger = Logging.silent
-        let clock = EmailSyncTests.fixedClock (DateTimeOffset(2024, 6, 15, 12, 0, 0, TimeSpan.Zero))
-        let config = EmailSyncTests.testConfig "/archive"
+        let clock = TestHelpers.fixedClock (DateTimeOffset(2024, 6, 15, 12, 0, 0, TimeSpan.Zero))
+        let config = TestHelpers.testConfig "/archive"
         let mutable bodyFetched = false
         let msg : Domain.EmailMessage =
             { ProviderId = "msg-body-002"
@@ -400,7 +392,7 @@ let ``EmailSync_SyncAccount_SkipsBodyFetchWhenPresent`` () =
               } }
         try
             let! _ = db.initSchema ()
-            let! _ = EmailSync.syncAccount fs db logger clock provider config "test-account"
+            let! _ = EmailSync.syncAccount m.Fs db logger clock provider config "test-account"
             Assert.False(bodyFetched, "Should not call getMessageBody when BodyText is already present")
         finally
             db.dispose ()

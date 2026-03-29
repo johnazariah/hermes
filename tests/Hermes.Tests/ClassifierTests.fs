@@ -2,100 +2,11 @@ module Hermes.Tests.ClassifierTests
 
 open System
 open System.IO
-open System.Collections.Concurrent
 open System.Threading.Tasks
 open Xunit
 open Hermes.Core
 
 // ─── Test helpers ────────────────────────────────────────────────────
-
-let private inMemoryFileSystem () =
-    let files = ConcurrentDictionary<string, string>()
-    let fileBytes = ConcurrentDictionary<string, byte array>()
-    let dirs = ConcurrentDictionary<string, bool>()
-
-    let fs: Algebra.FileSystem =
-        { readAllText =
-            fun path ->
-                task {
-                    match files.TryGetValue(path) with
-                    | true, content -> return content
-                    | _ -> return failwith $"File not found: {path}"
-                }
-          writeAllText = fun path content -> task { files.[path] <- content }
-          writeAllBytes =
-            fun path bytes ->
-                task {
-                    fileBytes.[path] <- bytes
-                    files.[path] <- Text.Encoding.UTF8.GetString(bytes)
-                }
-          readAllBytes =
-            fun path ->
-                task {
-                    match fileBytes.TryGetValue(path) with
-                    | true, bytes -> return bytes
-                    | _ ->
-                        match files.TryGetValue(path) with
-                        | true, content -> return Text.Encoding.UTF8.GetBytes(content)
-                        | _ -> return failwith $"File not found: {path}"
-                }
-          fileExists = fun path -> files.ContainsKey(path) || fileBytes.ContainsKey(path)
-          directoryExists = fun path -> dirs.ContainsKey(path)
-          createDirectory = fun path -> dirs.[path] <- true
-          deleteFile =
-            fun path ->
-                files.TryRemove(path) |> ignore
-                fileBytes.TryRemove(path) |> ignore
-          moveFile =
-            fun src dst ->
-                match files.TryRemove(src) with
-                | true, content -> files.[dst] <- content
-                | _ -> ()
-
-                match fileBytes.TryRemove(src) with
-                | true, bytes -> fileBytes.[dst] <- bytes
-                | _ -> ()
-          getFiles =
-            fun dir _pattern ->
-                let prefix =
-                    if dir.EndsWith("/") || dir.EndsWith("\\") then
-                        dir
-                    else
-                        dir + "/"
-
-                files.Keys
-                |> Seq.append fileBytes.Keys
-                |> Seq.distinct
-                |> Seq.filter (fun k ->
-                    k.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-                    && not (k.Substring(prefix.Length).Contains("/"))
-                    && not (k.Substring(prefix.Length).Contains("\\")))
-                |> Seq.toArray
-          getFileSize =
-            fun path ->
-                match fileBytes.TryGetValue(path) with
-                | true, bytes -> int64 bytes.Length
-                | _ ->
-                    match files.TryGetValue(path) with
-                    | true, content -> int64 (Text.Encoding.UTF8.GetByteCount(content))
-                    | _ -> 0L }
-
-    fs, files, fileBytes, dirs
-
-let private testClock () : Algebra.Clock =
-    { utcNow = fun () -> DateTimeOffset(2025, 3, 15, 10, 30, 0, TimeSpan.Zero) }
-
-let private testDb () =
-    let conn = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:")
-    conn.Open()
-
-    use pragma = conn.CreateCommand()
-    pragma.CommandText <- "PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;"
-    pragma.ExecuteNonQuery() |> ignore
-
-    let db = Database.fromConnection conn
-    db.initSchema () |> Async.AwaitTask |> Async.RunSynchronously |> ignore
-    db
 
 let private testRulesEngine () : Algebra.RulesEngine =
     let rulesYaml =
@@ -121,8 +32,8 @@ default_category: unsorted
 
     match Rules.parseRulesYaml rulesYaml with
     | Ok(rules, defaultCat) ->
-        { classify = fun sidecar filename -> Rules.classifyWithRules rules defaultCat sidecar filename
-          reload = fun () -> task { return Ok() } }
+        ({ classify = fun sidecar filename -> Rules.classifyWithRules rules defaultCat sidecar filename
+           reload = fun () -> task { return Ok() } } : Algebra.RulesEngine)
     | Error e -> failwith $"Failed to load test rules: {e}"
 
 // ─── Sidecar parsing tests ───────────────────────────────────────────
@@ -187,7 +98,7 @@ let ``Classifier_ParseSidecar_InvalidJson_ReturnsError`` () =
 [<Trait("Category", "Unit")>]
 let ``Classifier_IsDuplicate_NoExistingDoc_ReturnsFalse`` () =
     task {
-        let db = testDb ()
+        let db = TestHelpers.createDb ()
 
         try
             let! isDup = Classifier.isDuplicate db "abc123"
@@ -200,7 +111,7 @@ let ``Classifier_IsDuplicate_NoExistingDoc_ReturnsFalse`` () =
 [<Trait("Category", "Unit")>]
 let ``Classifier_IsDuplicate_ExistingDoc_ReturnsTrue`` () =
     task {
-        let db = testDb ()
+        let db = TestHelpers.createDb ()
 
         try
             let! _ =
@@ -219,7 +130,7 @@ let ``Classifier_IsDuplicate_ExistingDoc_ReturnsTrue`` () =
 [<Trait("Category", "Unit")>]
 let ``Classifier_IsDuplicate_DifferentHash_ReturnsFalse`` () =
     task {
-        let db = testDb ()
+        let db = TestHelpers.createDb ()
 
         try
             let! _ =
@@ -240,11 +151,11 @@ let ``Classifier_IsDuplicate_DifferentHash_ReturnsFalse`` () =
 [<Trait("Category", "Unit")>]
 let ``Classifier_ComputeSha256_ReturnsConsistentHash`` () =
     task {
-        let fs, files, _, _ = inMemoryFileSystem ()
-        files.["/test/file.pdf"] <- "hello world"
+        let m = TestHelpers.memFs ()
+        m.Files.["/test/file.pdf"] <- "hello world"
 
-        let! hash1 = Classifier.computeSha256 fs "/test/file.pdf"
-        let! hash2 = Classifier.computeSha256 fs "/test/file.pdf"
+        let! hash1 = Classifier.computeSha256 m.Fs "/test/file.pdf"
+        let! hash2 = Classifier.computeSha256 m.Fs "/test/file.pdf"
 
         Assert.Equal(hash1, hash2)
         Assert.Equal(64, hash1.Length) // SHA256 = 32 bytes = 64 hex chars
@@ -254,12 +165,12 @@ let ``Classifier_ComputeSha256_ReturnsConsistentHash`` () =
 [<Trait("Category", "Unit")>]
 let ``Classifier_ComputeSha256_DifferentContent_DifferentHash`` () =
     task {
-        let fs, files, _, _ = inMemoryFileSystem ()
-        files.["/test/file1.pdf"] <- "hello"
-        files.["/test/file2.pdf"] <- "world"
+        let m = TestHelpers.memFs ()
+        m.Files.["/test/file1.pdf"] <- "hello"
+        m.Files.["/test/file2.pdf"] <- "world"
 
-        let! hash1 = Classifier.computeSha256 fs "/test/file1.pdf"
-        let! hash2 = Classifier.computeSha256 fs "/test/file2.pdf"
+        let! hash1 = Classifier.computeSha256 m.Fs "/test/file1.pdf"
+        let! hash2 = Classifier.computeSha256 m.Fs "/test/file2.pdf"
 
         Assert.True(hash1 <> hash2)
     }
@@ -270,13 +181,13 @@ let ``Classifier_ComputeSha256_DifferentContent_DifferentHash`` () =
 [<Trait("Category", "Unit")>]
 let ``Classifier_TryLoadSidecar_WithMetaFile_ReturnsSome`` () =
     task {
-        let fs, files, _, _ = inMemoryFileSystem ()
+        let m = TestHelpers.memFs ()
         let logger = Logging.silent
 
-        files.["/archive/unclassified/test.pdf.meta.json"] <-
+        m.Files.["/archive/unclassified/test.pdf.meta.json"] <-
             """{"source_type":"email_attachment","account":"test","gmail_id":"msg1","sender":"bob@example.com","subject":"Test","original_name":"test.pdf","sha256":"abc"}"""
 
-        let! result = Classifier.tryLoadSidecar fs logger "/archive/unclassified/test.pdf"
+        let! result = Classifier.tryLoadSidecar m.Fs logger "/archive/unclassified/test.pdf"
 
         Assert.True(result.IsSome)
         Assert.Equal(Some "bob@example.com", result.Value.Sender)
@@ -286,10 +197,10 @@ let ``Classifier_TryLoadSidecar_WithMetaFile_ReturnsSome`` () =
 [<Trait("Category", "Unit")>]
 let ``Classifier_TryLoadSidecar_NoMetaFile_ReturnsNone`` () =
     task {
-        let fs, _, _, _ = inMemoryFileSystem ()
+        let m = TestHelpers.memFs ()
         let logger = Logging.silent
 
-        let! result = Classifier.tryLoadSidecar fs logger "/archive/unclassified/test.pdf"
+        let! result = Classifier.tryLoadSidecar m.Fs logger "/archive/unclassified/test.pdf"
         Assert.True(result.IsNone)
     }
 
@@ -299,28 +210,28 @@ let ``Classifier_TryLoadSidecar_NoMetaFile_ReturnsNone`` () =
 [<Trait("Category", "Unit")>]
 let ``Classifier_ProcessFile_ClassifiesAndMovesFile`` () =
     task {
-        let fs, files, _, dirs = inMemoryFileSystem ()
-        let db = testDb ()
+        let m = TestHelpers.memFs ()
+        let db = TestHelpers.createDb ()
         let logger = Logging.silent
-        let clock = testClock ()
+        let clock = TestHelpers.defaultClock
         let rules = testRulesEngine ()
 
         let archiveDir = "/archive"
-        dirs.[archiveDir] <- true
+        m.Dirs.[archiveDir] <- true
         let srcPath = Path.Combine(archiveDir, "unclassified", "Invoice-March.pdf")
-        files.[srcPath] <- "PDF content here"
+        m.Files.[srcPath] <- "PDF content here"
 
         try
             let! result =
-                Classifier.processFile fs db logger clock rules archiveDir srcPath
+                Classifier.processFile m.Fs db logger clock rules archiveDir srcPath
 
             Assert.True(Result.isOk result)
 
             // File should have been moved to invoices/
-            Assert.False(files.ContainsKey(srcPath))
+            Assert.False(m.Files.ContainsKey(srcPath))
             let destPath = Path.Combine(archiveDir, "invoices", "Invoice-March.pdf")
-            let keysStr = String.Join("; ", files.Keys)
-            Assert.True(files.ContainsKey(destPath), $"Expected file at {destPath}. Keys: {keysStr}")
+            let keysStr = String.Join("; ", m.Files.Keys)
+            Assert.True(m.Files.ContainsKey(destPath), $"Expected file at {destPath}. Keys: {keysStr}")
 
             // Document should be in the database
             let! count =
@@ -335,34 +246,34 @@ let ``Classifier_ProcessFile_ClassifiesAndMovesFile`` () =
 [<Trait("Category", "Unit")>]
 let ``Classifier_ProcessFile_WithSidecar_UsesMetadataForClassification`` () =
     task {
-        let fs, files, _, dirs = inMemoryFileSystem ()
-        let db = testDb ()
+        let m = TestHelpers.memFs ()
+        let db = TestHelpers.createDb ()
         let logger = Logging.silent
-        let clock = testClock ()
+        let clock = TestHelpers.defaultClock
         let rules = testRulesEngine ()
 
         let archiveDir = "/archive"
-        dirs.[archiveDir] <- true
+        m.Dirs.[archiveDir] <- true
         let srcPath = Path.Combine(archiveDir, "unclassified", "document.pdf")
         let metaPath = srcPath + ".meta.json"
-        files.[srcPath] <- "PDF content"
+        m.Files.[srcPath] <- "PDF content"
 
-        files.[metaPath] <-
+        m.Files.[metaPath] <-
             """{"source_type":"email_attachment","account":"john","gmail_id":"msg1","sender":"bob@plumbing.com.au","subject":"March invoice","original_name":"document.pdf","sha256":"abc"}"""
 
         try
             let! result =
-                Classifier.processFile fs db logger clock rules archiveDir srcPath
+                Classifier.processFile m.Fs db logger clock rules archiveDir srcPath
 
             Assert.True(Result.isOk result, $"Expected Ok but got: {result}")
 
             // Domain rule should have classified to trades (plumbing.com.au)
             let destPath = Path.Combine(archiveDir, "trades", "document.pdf")
-            let keysStr = String.Join("; ", files.Keys)
-            Assert.True(files.ContainsKey(destPath), $"Expected file at {destPath}. Keys: {keysStr}")
+            let keysStr = String.Join("; ", m.Files.Keys)
+            Assert.True(m.Files.ContainsKey(destPath), $"Expected file at {destPath}. Keys: {keysStr}")
 
             // Sidecar should have been cleaned up
-            Assert.False(files.ContainsKey(metaPath))
+            Assert.False(m.Files.ContainsKey(metaPath))
         finally
             db.dispose ()
     }
@@ -371,22 +282,22 @@ let ``Classifier_ProcessFile_WithSidecar_UsesMetadataForClassification`` () =
 [<Trait("Category", "Unit")>]
 let ``Classifier_ProcessFile_DuplicateHash_SkipsFile`` () =
     task {
-        let fs, files, _, dirs = inMemoryFileSystem ()
-        let db = testDb ()
+        let m = TestHelpers.memFs ()
+        let db = TestHelpers.createDb ()
         let logger = Logging.silent
-        let clock = testClock ()
+        let clock = TestHelpers.defaultClock
         let rules = testRulesEngine ()
 
         let archiveDir = "/archive"
-        dirs.[archiveDir] <- true
+        m.Dirs.[archiveDir] <- true
 
         // Add a file with known content
         let content = "duplicate content"
         let srcPath = Path.Combine(archiveDir, "unclassified", "dup.pdf")
-        files.[srcPath] <- content
+        m.Files.[srcPath] <- content
 
         // Pre-insert a document with the same hash
-        let! hash = Classifier.computeSha256 fs srcPath
+        let! hash = Classifier.computeSha256 m.Fs srcPath
 
         let! _ =
             db.execNonQuery
@@ -396,16 +307,16 @@ let ``Classifier_ProcessFile_DuplicateHash_SkipsFile`` () =
 
         try
             let! result =
-                Classifier.processFile fs db logger clock rules archiveDir srcPath
+                Classifier.processFile m.Fs db logger clock rules archiveDir srcPath
 
             Assert.True(Result.isOk result)
 
             // File should have been deleted (not moved)
-            Assert.False(files.ContainsKey(srcPath))
+            Assert.False(m.Files.ContainsKey(srcPath))
 
             // Should NOT have been moved to any category
-            Assert.False(files.ContainsKey(Path.Combine(archiveDir, "invoices", "dup.pdf")))
-            Assert.False(files.ContainsKey(Path.Combine(archiveDir, "unsorted", "dup.pdf")))
+            Assert.False(m.Files.ContainsKey(Path.Combine(archiveDir, "invoices", "dup.pdf")))
+            Assert.False(m.Files.ContainsKey(Path.Combine(archiveDir, "unsorted", "dup.pdf")))
         finally
             db.dispose ()
     }
@@ -414,15 +325,15 @@ let ``Classifier_ProcessFile_DuplicateHash_SkipsFile`` () =
 [<Trait("Category", "Unit")>]
 let ``Classifier_ProcessFile_MissingFile_ReturnsOk`` () =
     task {
-        let fs, _, _, _ = inMemoryFileSystem ()
-        let db = testDb ()
+        let m = TestHelpers.memFs ()
+        let db = TestHelpers.createDb ()
         let logger = Logging.silent
-        let clock = testClock ()
+        let clock = TestHelpers.defaultClock
         let rules = testRulesEngine ()
 
         try
             let! result =
-                Classifier.processFile fs db logger clock rules "/archive" "/archive/unclassified/nonexistent.pdf"
+                Classifier.processFile m.Fs db logger clock rules "/archive" "/archive/unclassified/nonexistent.pdf"
 
             Assert.True(Result.isOk result)
         finally
@@ -433,25 +344,25 @@ let ``Classifier_ProcessFile_MissingFile_ReturnsOk`` () =
 [<Trait("Category", "Unit")>]
 let ``Classifier_ProcessFile_UnmatchedFile_GoesToUnsorted`` () =
     task {
-        let fs, files, _, dirs = inMemoryFileSystem ()
-        let db = testDb ()
+        let m = TestHelpers.memFs ()
+        let db = TestHelpers.createDb ()
         let logger = Logging.silent
-        let clock = testClock ()
+        let clock = TestHelpers.defaultClock
         let rules = testRulesEngine ()
 
         let archiveDir = "/archive"
-        dirs.[archiveDir] <- true
+        m.Dirs.[archiveDir] <- true
         let srcPath = Path.Combine(archiveDir, "unclassified", "random-file.pdf")
-        files.[srcPath] <- "some content"
+        m.Files.[srcPath] <- "some content"
 
         try
             let! result =
-                Classifier.processFile fs db logger clock rules archiveDir srcPath
+                Classifier.processFile m.Fs db logger clock rules archiveDir srcPath
 
             Assert.True(Result.isOk result)
             let destPath = Path.Combine(archiveDir, "unsorted", "random-file.pdf")
-            let keysStr = String.Join("; ", files.Keys)
-            Assert.True(files.ContainsKey(destPath), $"Expected file at {destPath}. Keys: {keysStr}")
+            let keysStr = String.Join("; ", m.Files.Keys)
+            Assert.True(m.Files.ContainsKey(destPath), $"Expected file at {destPath}. Keys: {keysStr}")
         finally
             db.dispose ()
     }
@@ -460,20 +371,20 @@ let ``Classifier_ProcessFile_UnmatchedFile_GoesToUnsorted`` () =
 [<Trait("Category", "Unit")>]
 let ``Classifier_ProcessFile_InsertsDocumentRecord`` () =
     task {
-        let fs, files, _, dirs = inMemoryFileSystem ()
-        let db = testDb ()
+        let m = TestHelpers.memFs ()
+        let db = TestHelpers.createDb ()
         let logger = Logging.silent
-        let clock = testClock ()
+        let clock = TestHelpers.defaultClock
         let rules = testRulesEngine ()
 
         let archiveDir = "/archive"
-        dirs.[archiveDir] <- true
+        m.Dirs.[archiveDir] <- true
         let srcPath = Path.Combine(archiveDir, "unclassified", "Invoice-Test.pdf")
-        files.[srcPath] <- "invoice content"
+        m.Files.[srcPath] <- "invoice content"
 
         try
             let! _ =
-                Classifier.processFile fs db logger clock rules archiveDir srcPath
+                Classifier.processFile m.Fs db logger clock rules archiveDir srcPath
 
             let! countResult =
                 db.execScalar "SELECT COUNT(*) FROM documents WHERE original_name = 'Invoice-Test.pdf'" []
