@@ -47,11 +47,13 @@
 
     <!-- Accounts Tab -->
     <TabItem Header="Accounts">
-      <StackPanel Margin="16" Spacing="12">
-        <TextBlock Text="Email Accounts" FontSize="18" FontWeight="Bold" />
-        <TextBlock x:Name="AccountsList" Text="No accounts configured." />
-        <Button x:Name="AddAccountButton" Content="Add Gmail Account" HorizontalAlignment="Left" />
-      </StackPanel>
+      <ScrollViewer>
+        <StackPanel Margin="16" Spacing="12">
+          <TextBlock Text="Email Accounts" FontSize="18" FontWeight="Bold" />
+          <TextBlock x:Name="AccountsList" Text="Loading accounts..." FontFamily="Cascadia Mono,Consolas,monospace" FontSize="12" />
+          <Button x:Name="AddAccountButton" Content="Add Gmail Account" HorizontalAlignment="Left" />
+        </StackPanel>
+      </ScrollViewer>
     </TabItem>
 
     <!-- Settings Tab -->

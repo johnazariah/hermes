@@ -490,7 +490,7 @@ let private serviceCmd (args: ParseResults<ServiceArgs>) =
                     logger.info "Ctrl+C received, shutting down..."
                     cts.Cancel())
 
-                ServiceHost.createServiceHost fs db logger clock rules serviceConfig cts.Token
+                ServiceHost.createServiceHost fs db logger clock rules serviceConfig configPath cts.Token
                 |> Async.AwaitTask
                 |> Async.RunSynchronously
                 0

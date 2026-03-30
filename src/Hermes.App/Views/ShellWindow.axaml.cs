@@ -5,6 +5,7 @@ using Google.Apis.Auth.OAuth2;
 using Google.Apis.Gmail.v1;
 using Google.Apis.Util.Store;
 using Hermes.Core;
+using Microsoft.Data.Sqlite;
 using Microsoft.FSharp.Core;
 using System;
 using System.IO;
@@ -130,6 +131,11 @@ public partial class ShellWindow : Window
         if (categorySummary is not null)
             categorySummary.Text = BuildCategorySummary();
 
+        // Accounts list
+        var accountsList = this.FindControl<TextBlock>("AccountsList");
+        if (accountsList is not null)
+            accountsList.Text = BuildAccountsSummary();
+
         // Check Ollama
         if (ollamaStatus is not null)
         {
@@ -166,6 +172,78 @@ public partial class ShellWindow : Window
         catch (Exception ex)
         {
             return $"Error: {ex.Message}";
+        }
+    }
+
+    private string BuildAccountsSummary()
+    {
+        try
+        {
+            var config = _bridge.Config;
+            if (config is null || config.Accounts.IsEmpty)
+                return "No accounts configured.";
+
+            var dbPath = Path.Combine(_bridge.ArchiveDir, "db.sqlite");
+            var lines = new System.Collections.Generic.List<string>();
+            lines.Add($"{"Account",-40} {"Emails",7} {"Docs",6} {"Last Sync",-20} {"Token"}");
+            lines.Add(new string('─', 90));
+
+            // Query DB for per-account stats
+            var msgCounts = new System.Collections.Generic.Dictionary<string, int>();
+            var docCounts = new System.Collections.Generic.Dictionary<string, int>();
+            var syncTimes = new System.Collections.Generic.Dictionary<string, string>();
+
+            if (File.Exists(dbPath))
+            {
+                using var conn = new SqliteConnection($"Data Source={dbPath};Mode=ReadOnly");
+                conn.Open();
+
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT account, COUNT(*) FROM messages GROUP BY account";
+                    using var reader = cmd.ExecuteReader();
+                    while (reader.Read())
+                        msgCounts[reader.GetString(0)] = reader.GetInt32(1);
+                }
+
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT account, COUNT(*) FROM documents WHERE account IS NOT NULL GROUP BY account";
+                    using var reader = cmd.ExecuteReader();
+                    while (reader.Read())
+                        docCounts[reader.GetString(0)] = reader.GetInt32(1);
+                }
+
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT account, last_sync_at FROM sync_state";
+                    using var reader = cmd.ExecuteReader();
+                    while (reader.Read())
+                        syncTimes[reader.GetString(0)] = reader.IsDBNull(1) ? "Never" : reader.GetString(1);
+                }
+            }
+
+            foreach (var account in config.Accounts)
+            {
+                var label = account.Label;
+                var emails = msgCounts.GetValueOrDefault(label, 0);
+                var docs = docCounts.GetValueOrDefault(label, 0);
+                var lastSync = syncTimes.GetValueOrDefault(label, "Never");
+
+                // Check token exists
+                var tokensDir = Path.Combine(_bridge.ConfigDir, "tokens");
+                var hasToken = Directory.Exists(tokensDir) &&
+                    Directory.GetFiles(tokensDir, $"*{label}*").Length > 0;
+                var tokenStatus = hasToken ? "✅" : "❌ missing";
+
+                lines.Add($"{label,-40} {emails,7} {docs,6} {lastSync,-20} {tokenStatus}");
+            }
+
+            return string.Join("\n", lines);
+        }
+        catch (Exception ex)
+        {
+            return $"Error loading accounts: {ex.Message}";
         }
     }
 
