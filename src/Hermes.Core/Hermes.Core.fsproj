@@ -17,6 +17,8 @@
     <Compile Include="SemanticSearch.fs" />
     <Compile Include="FolderWatcher.fs" />
     <Compile Include="EmailSync.fs" />
+    <Compile Include="GmailProvider.fs" />
+    <Compile Include="Extraction.fs" />
     <Compile Include="Search.fs" />
     <Compile Include="ServiceHost.fs" />
     <Compile Include="ServiceInstaller.fs" />
@@ -28,6 +30,7 @@
     <PackageReference Include="Google.Apis.Gmail.v1" Version="1.69.0.3742" />
     <PackageReference Include="Google.Apis.Auth" Version="1.69.0" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.4" />
+    <PackageReference Include="PdfPig" Version="0.1.14" />
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="9.0.4" />
     <PackageReference Include="Serilog" Version="4.2.0" />
     <PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />

@@ -29,7 +29,7 @@ module Extraction =
             let text =
                 doc.GetPages()
                 |> Seq.map (fun page -> page.Text)
-                |> Seq.choose (fun t -> t |> Option.ofObj)
+                |> Seq.choose (fun t -> if String.IsNullOrEmpty(t) then None else Some t)
                 |> String.concat "\n"
             Ok text
         with ex ->
@@ -53,7 +53,7 @@ module Extraction =
         else
             datePatterns
             |> Array.tryPick (fun pattern ->
-                let m = Regex.Match(t, pattern, RegexOptions.IgnoreCase)
+                let m = Regex.Match(text, pattern, RegexOptions.IgnoreCase)
                 if m.Success then Some m.Value else None)
 
     /// Amount patterns: $X,XXX.XX or AUD X,XXX.XX or numeric with dollar sign.

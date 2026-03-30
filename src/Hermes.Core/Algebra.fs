@@ -75,6 +75,18 @@ module Algebra =
     type FileWatcher =
         { start: string -> (string -> unit) -> IDisposable }
 
+    // ─── Text extraction ─────────────────────────────────────────────
+
+    type TextExtractor =
+        { extractPdf: byte array -> Task<Result<string, string>>
+          extractImage: byte array -> Task<Result<string, string>> }
+
+    // ─── Ollama client ───────────────────────────────────────────────
+
+    type OllamaClient =
+        { generate: string -> string -> byte array option -> Task<Result<string, string>>
+          isAvailable: unit -> Task<bool> }
+
 
 /// Production interpreters for the algebras.
 [<RequireQualifiedAccess>]

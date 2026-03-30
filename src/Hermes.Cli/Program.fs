@@ -482,6 +482,7 @@ let private serviceCmd (args: ParseResults<ServiceArgs>) =
                 let rules = Rules.fromFile fs logger rulesPath
 
                 let serviceConfig = ServiceHost.defaultServiceConfig config
+                let cfgPath = Path.Combine(Config.configDir (), "config.yaml")
 
                 use cts = new CancellationTokenSource()
 
@@ -490,7 +491,7 @@ let private serviceCmd (args: ParseResults<ServiceArgs>) =
                     logger.info "Ctrl+C received, shutting down..."
                     cts.Cancel())
 
-                ServiceHost.createServiceHost fs db logger clock rules serviceConfig configPath cts.Token
+                ServiceHost.createServiceHost fs db logger clock rules serviceConfig cfgPath cts.Token
                 |> Async.AwaitTask
                 |> Async.RunSynchronously
                 0

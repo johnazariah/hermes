@@ -130,7 +130,7 @@ module ServiceHost =
 
     // ─── Sync cycle ─────────────────────────────────────────────────
 
-    /// Run one sync cycle: scan watch folders, classify unclassified files.
+    /// Run one sync cycle: email sync, watch folders, classify, extract, embed.
     let runSyncCycle
         (fs: Algebra.FileSystem)
         (db: Algebra.Database)
@@ -138,16 +138,25 @@ module ServiceHost =
         (clock: Algebra.Clock)
         (rules: Algebra.RulesEngine)
         (config: Domain.HermesConfig)
+        (configDir: string)
         : Task<Result<unit, string>> =
         task {
             try
-                // 1. Scan watch folders → unclassified/
+                // 1. Email sync → unclassified/
+                for account in config.Accounts do
+                    try
+                        logger.debug $"Syncing email account: {account.Label}"
+                        let! provider = GmailProvider.create configDir account.Label logger
+                        let! _result = EmailSync.syncAccount fs db logger clock provider config account.Label
+                        ()
+                    with ex ->
+                        logger.warn $"Email sync failed for {account.Label}: {ex.Message}"
+
+                // 2. Scan watch folders → unclassified/
                 logger.debug "Scanning watch folders..."
+                let! _watchResults = FolderWatcher.scanAll fs db logger clock config
 
-                let! _watchResults =
-                    FolderWatcher.scanAll fs db logger clock config
-
-                // 2. Classify unclassified files → archive categories
+                // 3. Classify unclassified files → archive categories
                 let unclassifiedDir = Path.Combine(config.ArchiveDir, "unclassified")
 
                 if fs.directoryExists unclassifiedDir then
@@ -159,6 +168,25 @@ module ServiceHost =
                     for file in files do
                         let! _ = Classifier.processFile fs db logger clock rules config.ArchiveDir file
                         ()
+
+                // 4. Extract text from un-extracted documents
+                logger.debug "Running extraction on backlog..."
+                let extractor : Algebra.TextExtractor =
+                    { extractPdf = fun bytes -> task { return Extraction.extractPdfText bytes }
+                      extractImage = fun _ -> task { return Error "Ollama not configured" } }
+                let! _extractResult =
+                    Extraction.extractBatch fs db logger clock extractor config.ArchiveDir None false 50
+
+                // 5. Embed un-embedded documents
+                logger.debug "Running embedding on backlog..."
+                let embedder : Algebra.EmbeddingClient =
+                    { embed = fun _ -> task { return Error "Ollama not configured" }
+                      dimensions = 768
+                      isAvailable = fun () -> task { return false } }
+                let! embedAvailable = embedder.isAvailable ()
+                if embedAvailable then
+                    let! _embedResult = Embeddings.batchEmbed db logger embedder false (Some 50) None
+                    ()
 
                 logger.debug "Sync cycle completed."
                 return Ok()
@@ -183,6 +211,10 @@ module ServiceHost =
         : Task<unit> =
         task {
             let startedAt = clock.utcNow ()
+            let configDir =
+                Path.GetDirectoryName(configPath)
+                |> Option.ofObj
+                |> Option.defaultValue (Config.configDir ())
             let mutable lastSyncAt: DateTimeOffset option = None
             let mutable lastSyncOk = true
             let mutable lastError: string option = None
@@ -230,7 +262,7 @@ module ServiceHost =
             logger.info "Processing startup backlog..."
 
             let! initialResult =
-                runSyncCycle fs db logger clock rules liveConfig
+                runSyncCycle fs db logger clock rules liveConfig configDir
 
             match initialResult with
             | Ok() ->
@@ -289,7 +321,7 @@ module ServiceHost =
                         do! reloadConfig ()
 
                         let! result =
-                            runSyncCycle fs db logger clock rules liveConfig
+                            runSyncCycle fs db logger clock rules liveConfig configDir
 
                         match result with
                         | Ok() ->
