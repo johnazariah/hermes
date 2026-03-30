@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <AvaloniaResource Include="Assets\**" />
+    <EmbeddedResource Include="Assets\hermes.ico" LogicalName="hermes.ico" />
   </ItemGroup>
 
   <ItemGroup>

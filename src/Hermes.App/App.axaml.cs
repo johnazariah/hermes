@@ -49,12 +49,23 @@ public class App : Application
             // Configure tray icon
             var trayViewModel = new TrayIconViewModel(_bridge, desktop);
 
+            WindowIcon? trayIconImage = null;
+            try
+            {
+                var stream = typeof(App).Assembly.GetManifestResourceStream("hermes.ico");
+                if (stream is not null)
+                    trayIconImage = new WindowIcon(stream);
+            }
+            catch { /* icon loading is best-effort */ }
+
             var trayIcon = new TrayIcon
             {
                 ToolTipText = "Hermes — Document Intelligence",
                 Menu = TrayMenuBuilder.Build(trayViewModel),
                 IsVisible = true
             };
+            if (trayIconImage is not null)
+                trayIcon.Icon = trayIconImage;
 
             trayIcon.Clicked += (_, _) => trayViewModel.OpenShellWindow();
 
