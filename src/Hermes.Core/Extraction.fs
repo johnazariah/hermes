@@ -183,6 +183,59 @@ module Extraction =
         let exts = [| ".png"; ".jpg"; ".jpeg"; ".tiff"; ".tif"; ".bmp"; ".gif"; ".webp" |]
         exts |> Array.exists (fun ext -> filePath.EndsWith(ext, StringComparison.OrdinalIgnoreCase))
 
+    /// Extract text from file bytes based on file type.
+    let private extractFromBytes
+        (extractor: Algebra.TextExtractor)
+        (savedPath: string)
+        (bytes: byte array)
+        : Task<Result<ExtractionResult, string>> =
+        task {
+            if isPdf savedPath then
+                let! result = extractor.extractPdf bytes
+                match result with
+                | Ok text ->
+                    let method = if isLikelyScanned text then "ollama_vision" else "pdfpig"
+                    let confidence = if isLikelyScanned text then Some 0.7 else None
+                    return Ok (analyseText text method confidence)
+                | Error e -> return Error e
+            elif isImage savedPath then
+                let! result = extractor.extractImage bytes
+                match result with
+                | Ok text -> return Ok (analyseText text "ollama_vision" (Some 0.8))
+                | Error e -> return Error e
+            else
+                return Error $"Unsupported file type: {savedPath}"
+        }
+
+    /// Update the documents row with extraction results.
+    let private updateDocumentRow
+        (db: Algebra.Database)
+        (clock: Algebra.Clock)
+        (docId: int64)
+        (result: ExtractionResult)
+        : Task<unit> =
+        task {
+            let now = clock.utcNow().ToString("o")
+            let! _ =
+                db.execNonQuery
+                    """UPDATE documents
+                       SET extracted_text = @text, extracted_date = @date,
+                           extracted_amount = @amount, extracted_vendor = @vendor,
+                           extracted_abn = @abn, extraction_method = @method,
+                           ocr_confidence = @confidence, extracted_at = @now
+                       WHERE id = @id"""
+                    [ ("@text", Database.boxVal result.Text)
+                      ("@date", result.Date |> Option.map Database.boxVal |> Option.defaultValue (Database.boxVal DBNull.Value))
+                      ("@amount", result.Amount |> Option.map (fun d -> Database.boxVal (float d)) |> Option.defaultValue (Database.boxVal DBNull.Value))
+                      ("@vendor", result.Vendor |> Option.map Database.boxVal |> Option.defaultValue (Database.boxVal DBNull.Value))
+                      ("@abn", result.Abn |> Option.map Database.boxVal |> Option.defaultValue (Database.boxVal DBNull.Value))
+                      ("@method", Database.boxVal result.Method)
+                      ("@confidence", result.OcrConfidence |> Option.map Database.boxVal |> Option.defaultValue (Database.boxVal DBNull.Value))
+                      ("@now", Database.boxVal now)
+                      ("@id", Database.boxVal docId) ]
+            ()
+        }
+
     /// Process a single document: extract text, parse fields, update DB row.
     let processDocument
         (fs: Algebra.FileSystem)
@@ -193,14 +246,12 @@ module Extraction =
         (archiveDir: string)
         (docId: int64)
         (savedPath: string)
-        (force: bool)
+        (_force: bool)
         =
         task {
             let fullPath =
-                if System.IO.Path.IsPathRooted(savedPath) then
-                    savedPath
-                else
-                    System.IO.Path.Combine(archiveDir, savedPath)
+                if System.IO.Path.IsPathRooted(savedPath) then savedPath
+                else System.IO.Path.Combine(archiveDir, savedPath)
 
             if not (fs.fileExists fullPath) then
                 logger.warn $"File not found, skipping extraction: {savedPath}"
@@ -209,74 +260,14 @@ module Extraction =
 
             try
                 let! bytes = fs.readAllBytes fullPath
-
-                let! extractionResult =
-                    task {
-                        if isPdf savedPath then
-                            let! result = extractor.extractPdf bytes
-                            match result with
-                            | Ok text ->
-                                let method =
-                                    if isLikelyScanned text then "ollama_vision"
-                                    else "pdfpig"
-                                let confidence =
-                                    if isLikelyScanned text then Some 0.7
-                                    else None
-                                return Ok (analyseText text method confidence)
-                            | Error e -> return Error e
-                        elif isImage savedPath then
-                            let! result = extractor.extractImage bytes
-                            match result with
-                            | Ok text ->
-                                return Ok (analyseText text "ollama_vision" (Some 0.8))
-                            | Error e -> return Error e
-                        else
-                            return Error $"Unsupported file type: {savedPath}"
-                    }
+                let! extractionResult = extractFromBytes extractor savedPath bytes
 
                 match extractionResult with
                 | Error e ->
                     logger.warn $"Extraction failed for doc {docId}: {e}"
                     return Error e
                 | Ok result ->
-                    let now = clock.utcNow().ToString("o")
-
-                    let! _ =
-                        db.execNonQuery
-                            """UPDATE documents
-                               SET extracted_text = @text,
-                                   extracted_date = @date,
-                                   extracted_amount = @amount,
-                                   extracted_vendor = @vendor,
-                                   extracted_abn = @abn,
-                                   extraction_method = @method,
-                                   ocr_confidence = @confidence,
-                                   extracted_at = @now
-                               WHERE id = @id"""
-                            [ ("@text", Database.boxVal result.Text)
-                              ("@date",
-                               result.Date
-                               |> Option.map Database.boxVal
-                               |> Option.defaultValue (Database.boxVal DBNull.Value))
-                              ("@amount",
-                               result.Amount
-                               |> Option.map (fun d -> Database.boxVal (float d))
-                               |> Option.defaultValue (Database.boxVal DBNull.Value))
-                              ("@vendor",
-                               result.Vendor
-                               |> Option.map Database.boxVal
-                               |> Option.defaultValue (Database.boxVal DBNull.Value))
-                              ("@abn",
-                               result.Abn
-                               |> Option.map Database.boxVal
-                               |> Option.defaultValue (Database.boxVal DBNull.Value))
-                              ("@method", Database.boxVal result.Method)
-                              ("@confidence",
-                               result.OcrConfidence
-                               |> Option.map Database.boxVal
-                               |> Option.defaultValue (Database.boxVal DBNull.Value))
-                              ("@now", Database.boxVal now)
-                              ("@id", Database.boxVal docId) ]
+                    do! updateDocumentRow db clock docId result
 
                     let dateStr = result.Date |> Option.defaultValue "none"
                     let amountStr = result.Amount |> Option.map string |> Option.defaultValue "none"
