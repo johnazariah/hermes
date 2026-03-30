@@ -1,10 +1,15 @@
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
+using Google.Apis.Auth.OAuth2;
+using Google.Apis.Gmail.v1;
+using Google.Apis.Util.Store;
 using Hermes.Core;
 using Microsoft.FSharp.Core;
 using System;
+using System.IO;
 using System.Net.Http;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Hermes.App.Views;
@@ -49,9 +54,14 @@ public partial class ShellWindow : Window
             if (ollamaBox is not null) ollamaBox.Text = config.Ollama.BaseUrl;
         }
 
+        // Set category summary immediately (synchronous) so it's never "Loading..."
+        var categorySummary = this.FindControl<TextBlock>("CategorySummary");
+        if (categorySummary is not null)
+            categorySummary.Text = BuildCategorySummary();
+
         var saveBtn = this.FindControl<Button>("SaveSettingsButton");
         if (saveBtn is not null)
-            saveBtn.Click += (_, _) => SaveSettings();
+            saveBtn.Click += async (_, _) => await SaveSettingsAsync();
 
         var addAccountBtn = this.FindControl<Button>("AddAccountButton");
         if (addAccountBtn is not null)
@@ -164,9 +174,27 @@ public partial class ShellWindow : Window
         }
     }
 
-    private void SaveSettings()
+    private async Task SaveSettingsAsync()
     {
-        // TODO: read values from controls, update config, write to disk
+        var syncBox = this.FindControl<NumericUpDown>("SyncIntervalBox");
+        var sizeBox = this.FindControl<NumericUpDown>("MinSizeBox");
+        var ollamaBox = this.FindControl<TextBox>("OllamaUrlBox");
+
+        var syncInterval = (int)(syncBox?.Value ?? 15);
+        var minSizeKb = (int)(sizeBox?.Value ?? 20);
+        var ollamaUrl = ollamaBox?.Text ?? "http://localhost:11434";
+
+        try
+        {
+            await _bridge.UpdateConfigAsync(syncInterval, minSizeKb, ollamaUrl);
+            var statusText = this.FindControl<TextBlock>("StatusText");
+            if (statusText is not null) statusText.Text = "Settings saved.";
+        }
+        catch (Exception ex)
+        {
+            var statusText = this.FindControl<TextBlock>("StatusText");
+            if (statusText is not null) statusText.Text = $"Error saving settings: {ex.Message}";
+        }
     }
 
     private async Task AddGmailAccountAsync()
@@ -174,7 +202,7 @@ public partial class ShellWindow : Window
         var dialog = new Window
         {
             Title = "Add Gmail Account",
-            Width = 420, Height = 220,
+            Width = 440, Height = 260,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             CanResize = false
         };
@@ -192,54 +220,46 @@ public partial class ShellWindow : Window
                 return;
             }
 
-            var credPath = System.IO.Path.Combine(_bridge.ConfigDir, "gmail_credentials.json");
-            if (!System.IO.File.Exists(credPath))
+            var credPath = Path.Combine(_bridge.ConfigDir, "gmail_credentials.json");
+            if (!File.Exists(credPath))
             {
-                statusLabel.Text = $"Missing: {credPath}\nDownload from Google Cloud Console → OAuth 2.0 Client IDs.";
+                statusLabel.Text = $"Missing credentials file:\n{credPath}\n\nDownload from Google Cloud Console → OAuth 2.0 Client IDs and save there.";
                 return;
             }
 
-            statusLabel.Text = "Launching OAuth flow in browser...";
+            statusLabel.Text = "Opening browser for Google authentication…";
             addBtn.IsEnabled = false;
 
             try
             {
-                // Find hermes CLI — it's alongside the App exe or on PATH
-                var appDir = AppContext.BaseDirectory;
-                var hermesCli = System.IO.Path.Combine(appDir, "hermes.exe");
-                if (!System.IO.File.Exists(hermesCli))
-                    hermesCli = "hermes"; // fall back to PATH
+                ClientSecrets clientSecrets;
+                await using (var stream = File.OpenRead(credPath))
+                    clientSecrets = (await GoogleClientSecrets.FromStreamAsync(stream)).Secrets;
 
-                var psi = new System.Diagnostics.ProcessStartInfo
+                var tokenDir = Path.Combine(_bridge.ConfigDir, "tokens");
+                Directory.CreateDirectory(tokenDir);
+
+                await GoogleWebAuthorizationBroker.AuthorizeAsync(
+                    clientSecrets,
+                    new[] { GmailService.Scope.GmailReadonly, GmailService.Scope.GmailModify },
+                    label,
+                    CancellationToken.None,
+                    new FileDataStore(tokenDir, true));
+
+                await _bridge.AddGmailAccountToConfigAsync(label);
+
+                var accountsList = this.FindControl<TextBlock>("AccountsList");
+                if (accountsList is not null)
                 {
-                    FileName = hermesCli,
-                    Arguments = $"auth {label}",
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true
-                };
-
-                var proc = System.Diagnostics.Process.Start(psi);
-                if (proc is not null)
-                {
-                    var output = await proc.StandardOutput.ReadToEndAsync();
-                    var error = await proc.StandardError.ReadToEndAsync();
-                    await proc.WaitForExitAsync();
-
-                    if (proc.ExitCode == 0)
-                        statusLabel.Text = $"✅ Account '{label}' authenticated.\n{output}".Trim();
-                    else
-                        statusLabel.Text = $"❌ Auth failed (exit {proc.ExitCode}):\n{(string.IsNullOrEmpty(error) ? output : error)}".Trim();
+                    var existing = accountsList.Text == "No accounts configured." ? "" : accountsList.Text + "\n";
+                    accountsList.Text = existing + label;
                 }
-                else
-                {
-                    statusLabel.Text = "Failed to start hermes CLI.";
-                }
+
+                statusLabel.Text = $"✅ Account '{label}' authenticated successfully!";
             }
             catch (Exception ex)
             {
-                statusLabel.Text = $"Error: {ex.Message}";
+                statusLabel.Text = $"❌ Authentication failed:\n{ex.Message}";
             }
             finally
             {
@@ -249,6 +269,7 @@ public partial class ShellWindow : Window
 
         var panel = new StackPanel();
         panel.Children.Add(new TextBlock { Text = "Add Gmail Account", FontSize = 16, FontWeight = Avalonia.Media.FontWeight.Bold, Margin = new Avalonia.Thickness(16, 16, 16, 4) });
+        panel.Children.Add(new TextBlock { Text = "Enter a friendly label for this account:", Margin = new Avalonia.Thickness(16, 0, 16, 0) });
         panel.Children.Add(labelBox);
         panel.Children.Add(addBtn);
         panel.Children.Add(statusLabel);
@@ -276,24 +297,38 @@ public partial class ShellWindow : Window
             var patternWindow = new Window
             {
                 Title = "Watch Folder Patterns",
-                Width = 420, Height = 200,
+                Width = 420, Height = 220,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
                 CanResize = false
             };
 
             var patternBox = new TextBox { Text = "*.pdf", Watermark = "Patterns (comma-separated)", Margin = new Avalonia.Thickness(16, 16, 16, 8) };
             var okBtn = new Button { Content = "Add Watch Folder", Margin = new Avalonia.Thickness(16, 8), HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center };
+            var statusLbl = new TextBlock { Text = "", Margin = new Avalonia.Thickness(16, 4) };
 
-            okBtn.Click += (_, _) =>
+            okBtn.Click += async (_, _) =>
             {
                 var patterns = patternBox.Text ?? "*.pdf";
-                var watchList = this.FindControl<TextBlock>("WatchFoldersList");
-                if (watchList is not null)
+                okBtn.IsEnabled = false;
+                statusLbl.Text = "Saving…";
+
+                try
                 {
-                    var current = watchList.Text == "None configured." ? "" : watchList.Text + "\n";
-                    watchList.Text = current + $"{folder}  [{patterns}]";
+                    await _bridge.AddWatchFolderToConfigAsync(folder, patterns);
+
+                    var watchList = this.FindControl<TextBlock>("WatchFoldersList");
+                    if (watchList is not null)
+                    {
+                        var current = watchList.Text == "None configured." ? "" : watchList.Text + "\n";
+                        watchList.Text = current + $"{folder}  [{patterns}]";
+                    }
+                    patternWindow.Close();
                 }
-                patternWindow.Close();
+                catch (Exception ex)
+                {
+                    statusLbl.Text = $"Error: {ex.Message}";
+                    okBtn.IsEnabled = true;
+                }
             };
 
             var panel = new StackPanel();
@@ -301,6 +336,7 @@ public partial class ShellWindow : Window
             panel.Children.Add(new TextBlock { Text = "Enter file patterns to watch for:", Margin = new Avalonia.Thickness(16, 0) });
             panel.Children.Add(patternBox);
             panel.Children.Add(okBtn);
+            panel.Children.Add(statusLbl);
             patternWindow.Content = panel;
 
             await patternWindow.ShowDialog(this);

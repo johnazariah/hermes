@@ -95,7 +95,7 @@ module Config =
 
     /// Default archive directory.
     let defaultArchiveDir () =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Hermes")
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "hermes")
 
     // ─── Defaults ────────────────────────────────────────────────────
 
@@ -234,7 +234,7 @@ module Config =
     // ─── Default YAML templates ──────────────────────────────────────
 
     let defaultConfigYaml () =
-        $"""archive_dir: ~/Documents/Hermes
+        $"""archive_dir: ~/Documents/hermes
 
 # Gmail OAuth client credential (shared across accounts)
 credentials: {configDir ()}/gmail_credentials.json

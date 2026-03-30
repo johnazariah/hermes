@@ -1,9 +1,14 @@
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
+using Google.Apis.Auth.OAuth2;
+using Google.Apis.Gmail.v1;
+using Google.Apis.Util.Store;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Hermes.App.Views;
 
@@ -67,11 +72,42 @@ public partial class SetupWizard : Window
         this.FindControl<Button>("ArchiveNext")!.Click += (_, _) => ShowPage(2);
 
         // Accounts
-        this.FindControl<Button>("AddGmailButton")!.Click += (_, _) =>
+        this.FindControl<Button>("AddGmailButton")!.Click += async (_, _) =>
         {
-            // TODO: launch OAuth flow in browser
-            this.FindControl<TextBlock>("AccountStatus")!.Text =
-                "OAuth flow will open in your browser. (Not yet implemented — add accounts in Settings after setup.)";
+            var statusBlock = this.FindControl<TextBlock>("AccountStatus")!;
+            var credPath = Path.Combine(_bridge.ConfigDir, "gmail_credentials.json");
+
+            if (!File.Exists(credPath))
+            {
+                statusBlock.Text =
+                    $"Credentials file not found:\n{credPath}\n\n" +
+                    "Copy your Gmail OAuth credentials JSON there and try again.";
+                return;
+            }
+
+            statusBlock.Text = "Opening Google login in your browser…";
+            try
+            {
+                ClientSecrets secrets;
+                await using (var stream = File.OpenRead(credPath))
+                    secrets = (await GoogleClientSecrets.FromStreamAsync(stream)).Secrets;
+
+                var tokenDir = Path.Combine(_bridge.ConfigDir, "tokens");
+                Directory.CreateDirectory(tokenDir);
+
+                await GoogleWebAuthorizationBroker.AuthorizeAsync(
+                    secrets,
+                    new[] { GmailService.Scope.GmailReadonly, GmailService.Scope.GmailModify },
+                    "default",
+                    CancellationToken.None,
+                    new FileDataStore(tokenDir, true));
+
+                statusBlock.Text = "✅ Gmail account connected!";
+            }
+            catch (Exception ex)
+            {
+                statusBlock.Text = $"❌ Authentication failed: {ex.Message}";
+            }
         };
         this.FindControl<Button>("AccountsBack")!.Click += (_, _) => ShowPage(1);
         this.FindControl<Button>("AccountsNext")!.Click += (_, _) => ShowPage(3);
