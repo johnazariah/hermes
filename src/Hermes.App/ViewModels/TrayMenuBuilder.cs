@@ -35,6 +35,11 @@ public static class TrayMenuBuilder
         };
         menu.Items.Add(pauseItem);
 
+        // Sync Now
+        var syncItem = new NativeMenuItem("Sync Now");
+        syncItem.Click += (_, _) => vm.RequestSync();
+        menu.Items.Add(syncItem);
+
         // Update available (shown dynamically)
         if (vm.UpdateAvailable is { IsUpdateAvailable: true } update)
         {

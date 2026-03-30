@@ -39,6 +39,8 @@
 
           <TextBlock Text="Category Summary" FontSize="16" FontWeight="Bold" Margin="0,12,0,0" />
           <TextBlock x:Name="CategorySummary" Text="Loading..." FontFamily="Cascadia Mono,Consolas,monospace" FontSize="12" />
+
+          <Button x:Name="SyncNowButton" Content="⟳ Sync Now" HorizontalAlignment="Left" Margin="0,12,0,0" />
         </StackPanel>
       </ScrollViewer>
     </TabItem>

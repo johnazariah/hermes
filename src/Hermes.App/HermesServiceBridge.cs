@@ -64,8 +64,8 @@ public sealed class HermesServiceBridge
         var rules = Rules.fromFile(fs, logger, rulesPath);
         var serviceConfig = ServiceHost.defaultServiceConfig(_config);
 
-        // Run the service loop
-        await ServiceHost.createServiceHost(fs, db, logger, clock, rules, serviceConfig, ct);
+        // Run the service loop — pass configPath so it reloads config before each sync
+        await ServiceHost.createServiceHost(fs, db, logger, clock, rules, serviceConfig, configPath, ct);
     }
 
     public async Task RefreshStatusAsync()
@@ -78,6 +78,11 @@ public sealed class HermesServiceBridge
         {
             _lastStatus = result.Value;
         }
+    }
+
+    public void RequestSync()
+    {
+        ServiceHost.requestSync(ArchiveDir);
     }
 
     public void TogglePause()
@@ -146,6 +151,9 @@ public sealed class HermesServiceBridge
         var fs = Interpreters.realFileSystem;
         var result = await Core.Config.load(fs, configPath);
         if (result.IsOk) _config = result.ResultValue;
+
+        // Trigger an immediate sync so existing files in the new folder are ingested now
+        RequestSync();
     }
 
     public string StatusText

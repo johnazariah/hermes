@@ -40,6 +40,12 @@ module ServiceHost =
           ErrorMessage: string option }
 
     let private statusFileName = "hermes-status.json"
+    let private syncTriggerFileName = "hermes-sync-now"
+
+    /// Drop a trigger file to request an immediate sync.
+    let requestSync (archiveDir: string) : unit =
+        let path = Path.Combine(archiveDir, syncTriggerFileName)
+        File.WriteAllText(path, DateTimeOffset.UtcNow.ToString("O"))
 
     let private jsonOptions =
         JsonSerializerOptions(WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase)
@@ -164,6 +170,7 @@ module ServiceHost =
     // ─── Service host ───────────────────────────────────────────────
 
     /// Run the background service loop until cancellation is requested.
+    /// configPath is re-read before each sync so folder/account changes are picked up live.
     let createServiceHost
         (fs: Algebra.FileSystem)
         (db: Algebra.Database)
@@ -171,6 +178,7 @@ module ServiceHost =
         (clock: Algebra.Clock)
         (rules: Algebra.RulesEngine)
         (serviceConfig: HermesServiceConfig)
+        (configPath: string)
         (ct: CancellationToken)
         : Task<unit> =
         task {
@@ -179,6 +187,7 @@ module ServiceHost =
             let mutable lastSyncOk = true
             let mutable lastError: string option = None
             let mutable syncRunning = false
+            let mutable liveConfig = serviceConfig.Config
 
             logger.info $"Hermes service starting (sync every {serviceConfig.SyncIntervalMinutes}m, heartbeat every {serviceConfig.HeartbeatIntervalSeconds}s)"
 
@@ -202,6 +211,18 @@ module ServiceHost =
                         logger.warn $"Failed to write heartbeat: {ex.Message}"
                 }
 
+            /// Reload config from disk; fall back to current liveConfig on failure.
+            let reloadConfig () =
+                task {
+                    let! result = Config.load fs configPath
+                    match result with
+                    | Ok cfg ->
+                        liveConfig <- cfg
+                        logger.debug "Config reloaded."
+                    | Error e ->
+                        logger.warn $"Config reload failed, using previous config: {e}"
+                }
+
             // Write initial heartbeat
             do! writeStatus true
 
@@ -209,7 +230,7 @@ module ServiceHost =
             logger.info "Processing startup backlog..."
 
             let! initialResult =
-                runSyncCycle fs db logger clock rules serviceConfig.Config
+                runSyncCycle fs db logger clock rules liveConfig
 
             match initialResult with
             | Ok() ->
@@ -224,7 +245,6 @@ module ServiceHost =
 
             do! writeStatus true
 
-            let syncInterval = TimeSpan.FromMinutes(float serviceConfig.SyncIntervalMinutes)
             let heartbeatInterval = TimeSpan.FromSeconds(float serviceConfig.HeartbeatIntervalSeconds)
             let mutable lastHeartbeat = clock.utcNow ()
 
@@ -246,8 +266,17 @@ module ServiceHost =
                     do! writeStatus true
                     lastHeartbeat <- now
 
-                // Sync
+                // Sync — either timer fired or trigger file was dropped
+                let triggerPath = Path.Combine(serviceConfig.ArchiveDir, syncTriggerFileName)
+                let triggered = fs.fileExists triggerPath
+
+                if triggered then
+                    try fs.deleteFile triggerPath with _ -> ()
+
+                let syncInterval = TimeSpan.FromMinutes(float liveConfig.SyncIntervalMinutes)
+
                 let shouldSync =
+                    triggered ||
                     match lastSyncAt with
                     | None -> true
                     | Some last -> now - last >= syncInterval
@@ -256,8 +285,11 @@ module ServiceHost =
                     syncRunning <- true
 
                     try
+                        // Always reload config before syncing so new watch folders are picked up
+                        do! reloadConfig ()
+
                         let! result =
-                            runSyncCycle fs db logger clock rules serviceConfig.Config
+                            runSyncCycle fs db logger clock rules liveConfig
 
                         match result with
                         | Ok() ->

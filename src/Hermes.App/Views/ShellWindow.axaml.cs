@@ -70,6 +70,15 @@ public partial class ShellWindow : Window
         var addWatchBtn = this.FindControl<Button>("AddWatchFolderButton");
         if (addWatchBtn is not null)
             addWatchBtn.Click += async (_, _) => await AddWatchFolderAsync();
+
+        var syncNowBtn = this.FindControl<Button>("SyncNowButton");
+        if (syncNowBtn is not null)
+            syncNowBtn.Click += (_, _) =>
+            {
+                _bridge.RequestSync();
+                var statusText = this.FindControl<TextBlock>("StatusText");
+                if (statusText is not null) statusText.Text = "Sync requested — processing in background…";
+            };
     }
 
     private async Task RefreshStatusAsync()

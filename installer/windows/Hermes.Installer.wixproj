@@ -4,6 +4,7 @@
     <InstallerPlatform>x64</InstallerPlatform>
     <OutputType>Package</OutputType>
     <SuppressValidation>true</SuppressValidation>
+    <DefineConstants>PublishDir=$(MSBuildThisFileDirectory)publish\</DefineConstants>
   </PropertyGroup>
 
 </Project>
