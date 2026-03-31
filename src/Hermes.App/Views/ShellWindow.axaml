@@ -2,91 +2,208 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="Hermes.App.Views.ShellWindow"
         Title="Hermes — Document Intelligence"
-        Width="960" Height="640"
+        Width="980" Height="660"
         WindowStartupLocation="CenterScreen"
         CanResize="True"
-        MinWidth="800" MinHeight="500">
+        MinWidth="700" MinHeight="500"
+        Background="{DynamicResource ChatBg}">
 
-  <Grid ColumnDefinitions="280,*">
+  <Grid RowDefinitions="*,Auto">
 
-    <!-- ═══ LEFT PANEL: Status ═══ -->
-    <Border Grid.Column="0" BorderBrush="#30808080" BorderThickness="0,0,1,0" Background="#08000000">
-      <ScrollViewer>
-        <StackPanel Margin="12" Spacing="14">
+    <!-- ── Main: sidebar (left) + chat (right) ── -->
+    <Grid Grid.Row="0" ColumnDefinitions="280,4,*">
 
-          <!-- Ollama -->
-          <StackPanel Spacing="2">
-            <TextBlock Text="🤖 Ollama" FontWeight="Bold" FontSize="13" />
-            <TextBlock x:Name="OllamaStatus" Text="Checking..." FontSize="12" Foreground="#888" />
-            <TextBlock x:Name="OllamaModels" Text="" FontSize="11" Foreground="#666" FontFamily="Cascadia Mono,Consolas,monospace" />
-          </StackPanel>
+      <!-- ════════════════════ LEFT SIDEBAR ════════════════════ -->
+      <Border Grid.Column="0"
+              Background="{DynamicResource SidebarBg}"
+              BorderBrush="{DynamicResource SidebarBorder}"
+              BorderThickness="0,0,1,0">
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                      VerticalScrollBarVisibility="Auto">
+          <StackPanel>
 
-          <Separator Height="1" />
+            <!-- App header -->
+            <Border Padding="16,14,12,12"
+                    BorderBrush="{DynamicResource SidebarBorder}"
+                    BorderThickness="0,0,0,1">
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBlock Text="⚡" FontSize="15" VerticalAlignment="Center" />
+                <TextBlock Text="HERMES" FontWeight="Bold" FontSize="13"
+                           LetterSpacing="2" VerticalAlignment="Center"
+                           Foreground="{DynamicResource PrimaryFg}"
+                           FontFamily="Inter,Segoe UI,sans-serif" />
+              </StackPanel>
+            </Border>
 
-          <!-- Index -->
-          <StackPanel Spacing="2">
-            <TextBlock Text="📚 Index" FontWeight="Bold" FontSize="13" />
-            <TextBlock x:Name="IndexStats" Text="Loading..." FontSize="12" Foreground="#888" />
-            <TextBlock x:Name="CategorySummary" Text="" FontSize="11" Foreground="#666" FontFamily="Cascadia Mono,Consolas,monospace" />
-          </StackPanel>
+            <!-- ── OLLAMA ── -->
+            <Expander Classes="section" IsExpanded="True">
+              <Expander.Header>
+                <TextBlock Text="OLLAMA" FontSize="10" FontWeight="SemiBold"
+                           Foreground="{DynamicResource SectionFg}" LetterSpacing="1.5" />
+              </Expander.Header>
+              <StackPanel Margin="20,4,12,12" Spacing="6">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Ellipse x:Name="OllamaDot" Width="10" Height="10" Fill="#888"
+                           VerticalAlignment="Center" />
+                  <TextBlock x:Name="OllamaStatusText" Text="Checking…"
+                             FontSize="12" Foreground="{DynamicResource MutedFg}"
+                             VerticalAlignment="Center" />
+                </StackPanel>
+                <TextBlock x:Name="OllamaModelsText" Text="" FontSize="11"
+                           Foreground="{DynamicResource MutedFg}" TextWrapping="Wrap" />
+              </StackPanel>
+            </Expander>
 
-          <Separator Height="1" />
+            <Rectangle Height="1" Fill="{DynamicResource SidebarBorder}" />
 
-          <!-- Email Accounts -->
-          <StackPanel Spacing="2">
-            <TextBlock Text="📧 Accounts" FontWeight="Bold" FontSize="13" />
-            <TextBlock x:Name="AccountsList" Text="Loading..." FontSize="11" Foreground="#666" FontFamily="Cascadia Mono,Consolas,monospace" />
-            <Button x:Name="AddAccountButton" Content="+ Add Account" FontSize="11" Padding="6,2" HorizontalAlignment="Left" Margin="0,2,0,0" />
-          </StackPanel>
+            <!-- ── INDEX ── -->
+            <Expander Classes="section" IsExpanded="True">
+              <Expander.Header>
+                <TextBlock Text="INDEX" FontSize="10" FontWeight="SemiBold"
+                           Foreground="{DynamicResource SectionFg}" LetterSpacing="1.5" />
+              </Expander.Header>
+              <StackPanel Margin="20,4,12,12" Spacing="5">
+                <TextBlock x:Name="IndexDocCount" Text="0 documents" FontSize="12"
+                           Foreground="{DynamicResource PrimaryFg}" />
+                <Grid ColumnDefinitions="62,*,Auto" Margin="0,3,0,0">
+                  <TextBlock Text="Extracted" FontSize="10"
+                             Foreground="{DynamicResource MutedFg}" VerticalAlignment="Center" />
+                  <ProgressBar Grid.Column="1" x:Name="ExtractedBar" Minimum="0" Maximum="100" Value="0"
+                               Height="4" Margin="8,0" CornerRadius="2" />
+                  <TextBlock Grid.Column="2" x:Name="ExtractedCount" Text="0" FontSize="10"
+                             Foreground="{DynamicResource MutedFg}" VerticalAlignment="Center" />
+                </Grid>
+                <Grid ColumnDefinitions="62,*,Auto">
+                  <TextBlock Text="Embedded" FontSize="10"
+                             Foreground="{DynamicResource MutedFg}" VerticalAlignment="Center" />
+                  <ProgressBar Grid.Column="1" x:Name="EmbeddedBar" Minimum="0" Maximum="100" Value="0"
+                               Height="4" Margin="8,0" CornerRadius="2" />
+                  <TextBlock Grid.Column="2" x:Name="EmbeddedCount" Text="0" FontSize="10"
+                             Foreground="{DynamicResource MutedFg}" VerticalAlignment="Center" />
+                </Grid>
+                <!-- Category breakdown (monospace, compact) -->
+                <TextBlock x:Name="CategoryText" Text="" FontSize="10"
+                           Foreground="{DynamicResource MutedFg}"
+                           FontFamily="Cascadia Code,Consolas,monospace"
+                           TextWrapping="Wrap" Margin="0,4,0,0" />
+              </StackPanel>
+            </Expander>
 
-          <Separator Height="1" />
+            <Rectangle Height="1" Fill="{DynamicResource SidebarBorder}" />
 
-          <!-- Watch Folders -->
-          <StackPanel Spacing="2">
-            <TextBlock Text="📁 Watch Folders" FontWeight="Bold" FontSize="13" />
-            <TextBlock x:Name="WatchFoldersList" Text="None configured." FontSize="11" Foreground="#666" />
-            <Button x:Name="AddWatchFolderButton" Content="+ Add Folder" FontSize="11" Padding="6,2" HorizontalAlignment="Left" Margin="0,2,0,0" />
-          </StackPanel>
+            <!-- ── EMAIL ACCOUNTS ── -->
+            <Expander Classes="section" IsExpanded="True">
+              <Expander.Header>
+                <TextBlock Text="EMAIL ACCOUNTS" FontSize="10" FontWeight="SemiBold"
+                           Foreground="{DynamicResource SectionFg}" LetterSpacing="1.5" />
+              </Expander.Header>
+              <StackPanel Margin="20,4,12,12" Spacing="6">
+                <TextBlock x:Name="AccountsText" Text="No accounts configured."
+                           FontSize="11" Foreground="{DynamicResource MutedFg}" TextWrapping="Wrap" />
+                <Button x:Name="AddAccountButton" Content="+ Add Account"
+                        Classes="action" HorizontalAlignment="Left" />
+              </StackPanel>
+            </Expander>
 
-          <Separator Height="1" />
+            <Rectangle Height="1" Fill="{DynamicResource SidebarBorder}" />
 
-          <!-- Controls -->
-          <StackPanel Spacing="4">
-            <TextBlock x:Name="LastSyncText" Text="Last sync: —" FontSize="11" Foreground="#888" />
-            <StackPanel Orientation="Horizontal" Spacing="8">
-              <Button x:Name="SyncNowButton" Content="⟳ Sync Now" FontSize="11" Padding="8,4" />
-              <Button x:Name="PauseButton" Content="⏸ Pause" FontSize="11" Padding="8,4" />
-              <Button x:Name="SettingsButton" Content="⚙" FontSize="11" Padding="8,4" />
+            <!-- ── WATCH FOLDERS ── -->
+            <Expander Classes="section" IsExpanded="True">
+              <Expander.Header>
+                <TextBlock Text="WATCH FOLDERS" FontSize="10" FontWeight="SemiBold"
+                           Foreground="{DynamicResource SectionFg}" LetterSpacing="1.5" />
+              </Expander.Header>
+              <StackPanel Margin="20,4,12,12" Spacing="6">
+                <TextBlock x:Name="WatchFoldersText" Text="None configured."
+                           FontSize="11" Foreground="{DynamicResource MutedFg}" TextWrapping="Wrap" />
+                <Button x:Name="AddWatchFolderButton" Content="+ Add Folder"
+                        Classes="action" HorizontalAlignment="Left" />
+              </StackPanel>
+            </Expander>
+
+            <Rectangle Height="1" Fill="{DynamicResource SidebarBorder}" />
+
+            <!-- ── Sync controls ── -->
+            <StackPanel Margin="16,10,12,14" Spacing="8">
+              <TextBlock x:Name="LastSyncText" Text="Last sync: —" FontSize="10"
+                         Foreground="{DynamicResource MutedFg}" />
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <Button x:Name="SyncNowButton" Content="⟳ Sync Now" Classes="action" />
+                <Button x:Name="PauseButton"   Content="⏸ Pause"    Classes="action" />
+                <Button x:Name="SettingsButton" Content="⚙"         Classes="action" Padding="7,3" />
+              </StackPanel>
             </StackPanel>
+
           </StackPanel>
-
-        </StackPanel>
-      </ScrollViewer>
-    </Border>
-
-    <!-- ═══ RIGHT PANEL: Chat ═══ -->
-    <Grid Grid.Column="1" RowDefinitions="*,Auto">
-
-      <!-- Chat history -->
-      <ScrollViewer x:Name="ChatScroller" Grid.Row="0" Margin="0">
-        <StackPanel x:Name="ChatPanel" Margin="16,12" Spacing="12" />
-      </ScrollViewer>
-
-      <!-- Input bar -->
-      <Border Grid.Row="1" BorderBrush="#30808080" BorderThickness="0,1,0,0" Padding="12,8">
-        <Grid ColumnDefinitions="*,Auto,Auto">
-          <TextBox x:Name="ChatInput" Grid.Column="0"
-                   Watermark="Ask Hermes... (e.g. 'find my car insurance documents')"
-                   FontSize="13" Padding="8,6" />
-          <ToggleButton x:Name="AiToggle" Grid.Column="1"
-                        Content="🧠" ToolTip.Tip="Toggle AI-enhanced answers (uses Ollama)"
-                        FontSize="14" Padding="6,4" Margin="6,0,0,0" />
-          <Button x:Name="SendButton" Grid.Column="2"
-                  Content="🔍" FontSize="14" Padding="8,4" Margin="4,0,0,0" />
-        </Grid>
+        </ScrollViewer>
       </Border>
 
+      <!-- ════════════════════ SPLITTER ════════════════════ -->
+      <GridSplitter Grid.Column="1"
+                    Background="{DynamicResource SidebarBorder}"
+                    HorizontalAlignment="Stretch"
+                    VerticalAlignment="Stretch" />
+
+      <!-- ════════════════════ RIGHT CHAT PANEL ════════════════════ -->
+      <Grid Grid.Column="2" RowDefinitions="*,Auto" Background="{DynamicResource ChatBg}">
+
+        <!-- Messages -->
+        <ScrollViewer x:Name="ChatScroller" Grid.Row="0" Padding="0,8">
+          <StackPanel x:Name="ChatPanel" Margin="20,8" Spacing="12" />
+        </ScrollViewer>
+
+        <!-- Input bar -->
+        <Border Grid.Row="1"
+                Background="{DynamicResource ChatBg}"
+                BorderBrush="{DynamicResource SidebarBorder}"
+                BorderThickness="0,1,0,0"
+                Padding="16,10">
+          <StackPanel Spacing="8">
+
+            <!-- Suggested query chips (hidden once first message sent) -->
+            <WrapPanel x:Name="SuggestedQueries" Orientation="Horizontal" IsVisible="True">
+              <Button Content="recent invoices"    Classes="chip" Margin="0,0,6,6" />
+              <Button Content="bank statements"    Classes="chip" Margin="0,0,6,6" />
+              <Button Content="tax documents"      Classes="chip" Margin="0,0,6,6" />
+              <Button Content="insurance policies" Classes="chip" Margin="0,0,6,6" />
+              <Button Content="list all documents" Classes="chip" Margin="0,0,6,6" />
+            </WrapPanel>
+
+            <Grid ColumnDefinitions="*,Auto,Auto">
+              <TextBox x:Name="ChatInput" Grid.Column="0"
+                       Watermark="Ask Hermes… (e.g. 'find my car insurance documents')"
+                       FontSize="13" Padding="10,7" CornerRadius="6" />
+              <ToggleButton x:Name="AiToggle" Grid.Column="1"
+                            Content="AI" ToolTip.Tip="Toggle AI-enhanced answers (uses Ollama)"
+                            FontSize="12" Padding="10,6" Margin="6,0,0,0" />
+              <Button x:Name="SendButton" Grid.Column="2"
+                      Content="→" FontSize="15" FontWeight="Bold"
+                      Padding="12,6" Margin="6,0,0,0"
+                      Background="{DynamicResource AccentBrush}"
+                      Foreground="White"
+                      CornerRadius="6" />
+            </Grid>
+
+          </StackPanel>
+        </Border>
+
+      </Grid>
+
     </Grid>
+
+    <!-- ════════════════════ STATUS BAR ════════════════════ -->
+    <Border Grid.Row="1"
+            Background="{DynamicResource SidebarBg}"
+            BorderBrush="{DynamicResource SidebarBorder}"
+            BorderThickness="0,1,0,0"
+            Padding="14,5">
+      <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+        <Ellipse x:Name="StatusDot" Width="8" Height="8" Fill="#4CAF50"
+                 VerticalAlignment="Center" />
+        <TextBlock x:Name="StatusBarText" Text="Starting…" FontSize="11"
+                   Foreground="{DynamicResource MutedFg}" VerticalAlignment="Center" />
+      </StackPanel>
+    </Border>
 
   </Grid>
 
