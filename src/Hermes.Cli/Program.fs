@@ -84,6 +84,15 @@ type ServiceArgs =
             | Status -> "show service status"
             | Run -> "run in foreground with console logging"
 
+type BackfillArgs =
+    | [<AltCommandLine("-a")>] Account of string
+    | Reset
+    interface IArgParserTemplate with
+        member this.Usage =
+            match this with
+            | Account _ -> "account label"
+            | Reset -> "reset backfill progress (re-scan from start)"
+
 [<RequireSubcommand>]
 type CliArgs =
     | Version
@@ -95,6 +104,7 @@ type CliArgs =
     | [<CliPrefix(CliPrefix.None)>] Embed of ParseResults<EmbedArgs>
     | [<CliPrefix(CliPrefix.None)>] Mcp of ParseResults<McpArgs>
     | [<CliPrefix(CliPrefix.None)>] Service of ParseResults<ServiceArgs>
+    | [<CliPrefix(CliPrefix.None)>] Backfill of ParseResults<BackfillArgs>
     interface IArgParserTemplate with
         member this.Usage =
             match this with
@@ -107,6 +117,7 @@ type CliArgs =
             | Embed _ -> "generate embeddings for documents"
             | Mcp _ -> "start MCP server (JSON-RPC over stdio)"
             | Service _ -> "manage the background service"
+            | Backfill _ -> "manage email backfill (reset progress)"
 
 let private version () =
     let asm = System.Reflection.Assembly.GetEntryAssembly()
@@ -528,6 +539,33 @@ let main argv =
             mcpCmd ()
         elif results.Contains Service then
             serviceCmd (results.GetResult Service)
+        elif results.Contains Backfill then
+            let args = results.GetResult Backfill
+            if args.Contains BackfillArgs.Reset then
+                let label = args.TryGetResult BackfillArgs.Account
+                match label with
+                | None ->
+                    eprintfn "Error: --account is required for backfill reset"
+                    1
+                | Some account ->
+                    match loadConfigAndDb () with
+                    | None -> 1
+                    | Some(_, logger, _, db) ->
+                        try
+                            db.execNonQuery
+                                """UPDATE sync_state
+                                   SET backfill_page_token = NULL, backfill_scanned = 0,
+                                       backfill_completed = 0, backfill_started_at = NULL
+                                   WHERE account = @acc"""
+                                [ ("@acc", Database.boxVal account) ]
+                            |> Async.AwaitTask |> Async.RunSynchronously |> ignore
+                            printfn $"Backfill reset for account '{account}'. Will restart on next sync cycle."
+                            0
+                        finally
+                            db.dispose ()
+            else
+                printfn "Usage: hermes backfill --reset --account <label>"
+                0
         else
             printfn "%s" (parser.PrintUsage())
             0
