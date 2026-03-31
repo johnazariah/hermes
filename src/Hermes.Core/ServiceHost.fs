@@ -179,14 +179,45 @@ module ServiceHost =
 
                 // 5. Embed un-embedded documents
                 logger.debug "Running embedding on backlog..."
+                let ollamaUrl = config.Ollama.BaseUrl.TrimEnd('/')
+                let embedModel = config.Ollama.EmbeddingModel
                 let embedder : Algebra.EmbeddingClient =
-                    { embed = fun _ -> task { return Error "Ollama not configured" }
+                    { embed = fun text ->
+                        task {
+                            try
+                                use client = new System.Net.Http.HttpClient(Timeout = TimeSpan.FromSeconds(30.0))
+                                let payload = System.Text.Json.JsonSerializer.Serialize({| model = embedModel; input = text |})
+                                let content = new System.Net.Http.StringContent(payload, Text.Encoding.UTF8, "application/json")
+                                let! response = client.PostAsync($"{ollamaUrl}/api/embed", content)
+                                let! body = response.Content.ReadAsStringAsync()
+                                if not response.IsSuccessStatusCode then
+                                    return Error $"Ollama embed failed: {response.StatusCode}"
+                                else
+                                    let doc = System.Text.Json.JsonDocument.Parse(body)
+                                    let arr = doc.RootElement.GetProperty("embeddings").[0]
+                                    let vec = [| for i in 0 .. arr.GetArrayLength() - 1 -> arr.[i].GetSingle() |]
+                                    return Ok vec
+                            with ex ->
+                                return Error $"Ollama embed error: {ex.Message}"
+                        }
                       dimensions = 768
-                      isAvailable = fun () -> task { return false } }
-                let! embedAvailable = embedder.isAvailable ()
-                if embedAvailable then
-                    let! _embedResult = Embeddings.batchEmbed db logger embedder false (Some 50) None
-                    ()
+                      isAvailable = fun () ->
+                        task {
+                            try
+                                use client = new System.Net.Http.HttpClient(Timeout = TimeSpan.FromSeconds(2.0))
+                                let! response = client.GetAsync($"{ollamaUrl}/api/tags")
+                                return response.IsSuccessStatusCode
+                            with _ -> return false
+                        } }
+
+                if config.Ollama.Enabled then
+                    let! embedAvailable = embedder.isAvailable ()
+                    if embedAvailable then
+                        logger.info "Ollama available — embedding documents..."
+                        let! _embedResult = Embeddings.batchEmbed db logger embedder false (Some 50) None
+                        ()
+                    else
+                        logger.debug "Ollama not available, skipping embedding"
 
                 logger.debug "Sync cycle completed."
                 return Ok()

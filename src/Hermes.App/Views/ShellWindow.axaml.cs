@@ -1,4 +1,6 @@
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Input;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using Google.Apis.Auth.OAuth2;
@@ -8,8 +10,11 @@ using Hermes.Core;
 using Microsoft.Data.Sqlite;
 using Microsoft.FSharp.Core;
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -19,12 +24,30 @@ public partial class ShellWindow : Window
 {
     private readonly HermesServiceBridge _bridge;
     private readonly DispatcherTimer _refreshTimer;
+    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(3) };
+
+    // Named controls (resolved once after InitializeComponent)
+    private TextBlock _ollamaStatus = null!;
+    private TextBlock _ollamaModels = null!;
+    private TextBlock _indexStats = null!;
+    private TextBlock _categorySummary = null!;
+    private TextBlock _accountsList = null!;
+    private TextBlock _watchFoldersList = null!;
+    private TextBlock _lastSyncText = null!;
+    private Button _syncNowButton = null!;
+    private Button _pauseButton = null!;
+    private StackPanel _chatPanel = null!;
+    private ScrollViewer _chatScroller = null!;
+    private TextBox _chatInput = null!;
+    private ToggleButton _aiToggle = null!;
 
     public ShellWindow(HermesServiceBridge bridge)
     {
         _bridge = bridge;
         InitializeComponent();
-        LoadCurrentValues();
+        ResolveControls();
+        WireUpButtons();
+        AddChatBubble("Hermes", "Welcome! Ask me anything about your documents.\nToggle 🧠 for AI-enhanced answers.");
 
         _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
         _refreshTimer.Tick += async (_, _) => await RefreshStatusAsync();
@@ -35,52 +58,38 @@ public partial class ShellWindow : Window
 
     private void InitializeComponent() => AvaloniaXamlLoader.Load(this);
 
-    private void LoadCurrentValues()
+    private void ResolveControls()
     {
-        var config = _bridge.Config;
-        var archiveBox = this.FindControl<TextBox>("ArchiveLocationBox");
-        var syncBox = this.FindControl<NumericUpDown>("SyncIntervalBox");
-        var sizeBox = this.FindControl<NumericUpDown>("MinSizeBox");
-        var ollamaBox = this.FindControl<TextBox>("OllamaUrlBox");
-        var archivePath = this.FindControl<TextBlock>("ArchivePath");
-
-        if (archivePath is not null)
-            archivePath.Text = _bridge.ArchiveDir;
-
-        if (config is not null)
-        {
-            if (archiveBox is not null) archiveBox.Text = config.ArchiveDir;
-            if (syncBox is not null) syncBox.Value = config.SyncIntervalMinutes;
-            if (sizeBox is not null) sizeBox.Value = config.MinAttachmentSize / 1024;
-            if (ollamaBox is not null) ollamaBox.Text = config.Ollama.BaseUrl;
-        }
-
-        // Set category summary immediately (synchronous) so it's never "Loading..."
-        var categorySummary = this.FindControl<TextBlock>("CategorySummary");
-        if (categorySummary is not null)
-            categorySummary.Text = BuildCategorySummary();
-
-        var saveBtn = this.FindControl<Button>("SaveSettingsButton");
-        if (saveBtn is not null)
-            saveBtn.Click += async (_, _) => await SaveSettingsAsync();
-
-        var addAccountBtn = this.FindControl<Button>("AddAccountButton");
-        if (addAccountBtn is not null)
-            addAccountBtn.Click += async (_, _) => await AddGmailAccountAsync();
-
-        var addWatchBtn = this.FindControl<Button>("AddWatchFolderButton");
-        if (addWatchBtn is not null)
-            addWatchBtn.Click += async (_, _) => await AddWatchFolderAsync();
-
-        var syncNowBtn = this.FindControl<Button>("SyncNowButton");
-        if (syncNowBtn is not null)
-            syncNowBtn.Click += (_, _) =>
-            {
-                _bridge.RequestSync();
-                var statusText = this.FindControl<TextBlock>("StatusText");
-                if (statusText is not null) statusText.Text = "Sync requested — processing in background…";
-            };
+        _ollamaStatus = this.FindControl<TextBlock>("OllamaStatus")!;
+        _ollamaModels = this.FindControl<TextBlock>("OllamaModels")!;
+        _indexStats = this.FindControl<TextBlock>("IndexStats")!;
+        _categorySummary = this.FindControl<TextBlock>("CategorySummary")!;
+        _accountsList = this.FindControl<TextBlock>("AccountsList")!;
+        _watchFoldersList = this.FindControl<TextBlock>("WatchFoldersList")!;
+        _lastSyncText = this.FindControl<TextBlock>("LastSyncText")!;
+        _syncNowButton = this.FindControl<Button>("SyncNowButton")!;
+        _pauseButton = this.FindControl<Button>("PauseButton")!;
+        _chatPanel = this.FindControl<StackPanel>("ChatPanel")!;
+        _chatScroller = this.FindControl<ScrollViewer>("ChatScroller")!;
+        _chatInput = this.FindControl<TextBox>("ChatInput")!;
+        _aiToggle = this.FindControl<ToggleButton>("AiToggle")!;
     }
+
+    private void WireUpButtons()
+    {
+        _syncNowButton.Click += async (_, _) => await HandleSyncNowAsync();
+        _pauseButton.Click += (_, _) => HandlePauseToggle();
+        this.FindControl<Button>("SettingsButton")!.Click += async (_, _) => await ShowSettingsDialogAsync();
+        this.FindControl<Button>("AddAccountButton")!.Click += async (_, _) => await AddGmailAccountAsync();
+        this.FindControl<Button>("AddWatchFolderButton")!.Click += async (_, _) => await AddWatchFolderAsync();
+        this.FindControl<Button>("SendButton")!.Click += async (_, _) => await HandleSendAsync();
+        _chatInput.KeyDown += async (_, e) =>
+        {
+            if (e.Key == Key.Enter) await HandleSendAsync();
+        };
+    }
+
+    // ── Status refresh (every 5s) ──────────────────────────────────────
 
     private async Task RefreshStatusAsync()
     {
@@ -90,199 +99,352 @@ public partial class ShellWindow : Window
         }
         catch
         {
-            // Service not running yet or heartbeat missing — that's fine
+            // Service not running yet — that's fine
         }
 
-        var status = _bridge.LastStatus;
-
-        var statusText = this.FindControl<TextBlock>("StatusText");
-        var docCount = this.FindControl<TextBlock>("DocumentCount");
-        var unclassified = this.FindControl<TextBlock>("UnclassifiedCount");
-        var lastSync = this.FindControl<TextBlock>("LastSyncTime");
-        var startedAt = this.FindControl<TextBlock>("StartedAt");
-        var ollamaStatus = this.FindControl<TextBlock>("OllamaStatus");
-        var categorySummary = this.FindControl<TextBlock>("CategorySummary");
-
-        if (statusText is not null) statusText.Text = _bridge.StatusText;
-
-        if (status is { } s)
-        {
-            if (docCount is not null) docCount.Text = $"{s.DocumentCount:N0}";
-            if (unclassified is not null) unclassified.Text = $"{s.UnclassifiedCount}";
-
-            if (lastSync is not null)
-            {
-                var syncAt = s.LastSyncAt;
-                lastSync.Text = (syncAt is not null && FSharpOption<DateTimeOffset>.get_IsSome(syncAt))
-                    ? syncAt.Value.ToString("yyyy-MM-dd HH:mm:ss")
-                    : "Never";
-            }
-
-            if (startedAt is not null)
-            {
-                var started = s.StartedAt;
-                startedAt.Text = (started is not null && FSharpOption<DateTimeOffset>.get_IsSome(started))
-                    ? started.Value.ToString("yyyy-MM-dd HH:mm:ss")
-                    : "—";
-            }
-        }
-
-        // Category summary — always update even if service isn't running
-        if (categorySummary is not null)
-            categorySummary.Text = BuildCategorySummary();
-
-        // Accounts list
-        var accountsList = this.FindControl<TextBlock>("AccountsList");
-        if (accountsList is not null)
-            accountsList.Text = BuildAccountsSummary();
-
-        // Check Ollama
-        if (ollamaStatus is not null)
-        {
-            var ollamaUrl = _bridge.Config?.Ollama.BaseUrl ?? "http://localhost:11434";
-            ollamaStatus.Text = await CheckOllamaAsync(ollamaUrl) ? "✅ Available" : "❌ Unavailable";
-        }
-    }
-
-    private string BuildCategorySummary()
-    {
         try
         {
-            var archiveDir = _bridge.ArchiveDir;
-            if (!System.IO.Directory.Exists(archiveDir)) return "Archive not found.";
-
-            var dirs = System.IO.Directory.GetDirectories(archiveDir);
-            if (dirs.Length == 0) return "No categories yet.";
-
-            var lines = new System.Collections.Generic.List<string>();
-            lines.Add($"{"Category",-20} {"Files",6}");
-            lines.Add(new string('─', 28));
-
-            foreach (var dir in dirs)
-            {
-                var name = System.IO.Path.GetFileName(dir);
-                var files = System.IO.Directory.GetFiles(dir, "*", System.IO.SearchOption.AllDirectories);
-                var count = files.Length;
-                if (name != "db.sqlite")
-                    lines.Add($"{name,-20} {count,6}");
-            }
-
-            return string.Join("\n", lines);
-        }
-        catch (Exception ex)
-        {
-            return $"Error: {ex.Message}";
-        }
-    }
-
-    private string BuildAccountsSummary()
-    {
-        try
-        {
-            var config = _bridge.Config;
-            if (config is null || config.Accounts.IsEmpty)
-                return "No accounts configured.";
-
-            var dbPath = Path.Combine(_bridge.ArchiveDir, "db.sqlite");
-            var lines = new System.Collections.Generic.List<string>();
-            lines.Add($"{"Account",-40} {"Emails",7} {"Docs",6} {"Last Sync",-20} {"Token"}");
-            lines.Add(new string('─', 90));
-
-            // Query DB for per-account stats
-            var msgCounts = new System.Collections.Generic.Dictionary<string, int>();
-            var docCounts = new System.Collections.Generic.Dictionary<string, int>();
-            var syncTimes = new System.Collections.Generic.Dictionary<string, string>();
-
-            if (File.Exists(dbPath))
-            {
-                using var conn = new SqliteConnection($"Data Source={dbPath};Mode=ReadOnly");
-                conn.Open();
-
-                using (var cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = "SELECT account, COUNT(*) FROM messages GROUP BY account";
-                    using var reader = cmd.ExecuteReader();
-                    while (reader.Read())
-                        msgCounts[reader.GetString(0)] = reader.GetInt32(1);
-                }
-
-                using (var cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = "SELECT account, COUNT(*) FROM documents WHERE account IS NOT NULL GROUP BY account";
-                    using var reader = cmd.ExecuteReader();
-                    while (reader.Read())
-                        docCounts[reader.GetString(0)] = reader.GetInt32(1);
-                }
-
-                using (var cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = "SELECT account, last_sync_at FROM sync_state";
-                    using var reader = cmd.ExecuteReader();
-                    while (reader.Read())
-                        syncTimes[reader.GetString(0)] = reader.IsDBNull(1) ? "Never" : reader.GetString(1);
-                }
-            }
-
-            foreach (var account in config.Accounts)
-            {
-                var label = account.Label;
-                var emails = msgCounts.GetValueOrDefault(label, 0);
-                var docs = docCounts.GetValueOrDefault(label, 0);
-                var lastSync = syncTimes.GetValueOrDefault(label, "Never");
-
-                // Check token exists
-                var tokensDir = Path.Combine(_bridge.ConfigDir, "tokens");
-                var hasToken = Directory.Exists(tokensDir) &&
-                    Directory.GetFiles(tokensDir, $"*{label}*").Length > 0;
-                var tokenStatus = hasToken ? "✅" : "❌ missing";
-
-                lines.Add($"{label,-40} {emails,7} {docs,6} {lastSync,-20} {tokenStatus}");
-            }
-
-            return string.Join("\n", lines);
-        }
-        catch (Exception ex)
-        {
-            return $"Error loading accounts: {ex.Message}";
-        }
-    }
-
-    private static async Task<bool> CheckOllamaAsync(string baseUrl)
-    {
-        try
-        {
-            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
-            var response = await client.GetAsync($"{baseUrl.TrimEnd('/')}/api/tags");
-            return response.IsSuccessStatusCode;
+            await RefreshOllamaStatusAsync();
+            RefreshIndexStats();
+            RefreshCategorySummary();
+            RefreshAccountsList();
+            RefreshWatchFoldersList();
+            RefreshLastSync();
         }
         catch
         {
-            return false;
+            // Never crash the timer
         }
     }
 
-    private async Task SaveSettingsAsync()
+    private async Task RefreshOllamaStatusAsync()
     {
-        var syncBox = this.FindControl<NumericUpDown>("SyncIntervalBox");
-        var sizeBox = this.FindControl<NumericUpDown>("MinSizeBox");
-        var ollamaBox = this.FindControl<TextBox>("OllamaUrlBox");
+        var baseUrl = _bridge.Config?.Ollama.BaseUrl ?? "http://localhost:11434";
+        try
+        {
+            var response = await _http.GetAsync($"{baseUrl.TrimEnd('/')}/api/tags");
+            if (response.IsSuccessStatusCode)
+            {
+                _ollamaStatus.Text = "✅ Available";
+                var json = await response.Content.ReadAsStringAsync();
+                var doc = JsonDocument.Parse(json);
+                var names = doc.RootElement.GetProperty("models").EnumerateArray()
+                    .Select(m => m.GetProperty("name").GetString())
+                    .Where(n => n is not null);
+                _ollamaModels.Text = string.Join(", ", names);
+            }
+            else
+            {
+                _ollamaStatus.Text = "❌ Unavailable";
+                _ollamaModels.Text = "";
+            }
+        }
+        catch
+        {
+            _ollamaStatus.Text = "❌ Unavailable";
+            _ollamaModels.Text = "";
+        }
+    }
 
-        var syncInterval = (int)(syncBox?.Value ?? 15);
-        var minSizeKb = (int)(sizeBox?.Value ?? 20);
-        var ollamaUrl = ollamaBox?.Text ?? "http://localhost:11434";
+    private void RefreshIndexStats()
+    {
+        var status = _bridge.LastStatus;
+        long docCount = status?.DocumentCount ?? 0;
+
+        long extracted = 0, embedded = 0;
+        double sizeMb = 0;
+
+        var dbPath = Path.Combine(_bridge.ArchiveDir, "db.sqlite");
+        if (File.Exists(dbPath))
+        {
+            try
+            {
+                using var conn = new SqliteConnection($"Data Source={dbPath};Mode=ReadOnly");
+                conn.Open();
+                extracted = ScalarInt64(conn, "SELECT COUNT(*) FROM documents WHERE extracted_text IS NOT NULL");
+                embedded = ScalarInt64(conn, "SELECT COUNT(*) FROM documents WHERE embedded_at IS NOT NULL");
+                sizeMb = new FileInfo(dbPath).Length / (1024.0 * 1024.0);
+            }
+            catch
+            {
+                // DB may not exist yet
+            }
+        }
+
+        _indexStats.Text = $"{docCount} docs · {extracted} extracted · {embedded} embedded\nDB: {sizeMb:F1} MB";
+    }
+
+    private void RefreshCategorySummary()
+    {
+        var archiveDir = _bridge.ArchiveDir;
+        if (!Directory.Exists(archiveDir)) { _categorySummary.Text = ""; return; }
+
+        var dirs = Directory.GetDirectories(archiveDir);
+        var lines = new List<string>();
+        foreach (var dir in dirs)
+        {
+            var name = Path.GetFileName(dir);
+            if (name is "unclassified" or ".hermes") continue;
+            var count = Directory.GetFiles(dir, "*", SearchOption.AllDirectories).Length;
+            if (count > 0)
+                lines.Add($"  {name,-14} {count,4}");
+        }
+
+        _categorySummary.Text = lines.Count > 0 ? string.Join("\n", lines) : "";
+    }
+
+    private void RefreshAccountsList()
+    {
+        var config = _bridge.Config;
+        if (config is null || config.Accounts.IsEmpty)
+        {
+            _accountsList.Text = "No accounts configured.";
+            return;
+        }
+
+        var dbPath = Path.Combine(_bridge.ArchiveDir, "db.sqlite");
+        var msgCounts = new Dictionary<string, int>();
+        var syncTimes = new Dictionary<string, string>();
+
+        if (File.Exists(dbPath))
+        {
+            try
+            {
+                using var conn = new SqliteConnection($"Data Source={dbPath};Mode=ReadOnly");
+                conn.Open();
+                ReadAccountMsgCounts(conn, msgCounts);
+                ReadAccountSyncTimes(conn, syncTimes);
+            }
+            catch { /* DB may be locked or missing tables */ }
+        }
+
+        var lines = new List<string>();
+        foreach (var acct in config.Accounts)
+        {
+            var label = acct.Label;
+            var emails = msgCounts.GetValueOrDefault(label, 0);
+            var lastSync = syncTimes.GetValueOrDefault(label, "Never");
+            lines.Add($"  {label}  ✅ {emails} emails  last: {lastSync}");
+        }
+
+        _accountsList.Text = string.Join("\n", lines);
+    }
+
+    private void RefreshWatchFoldersList()
+    {
+        var config = _bridge.Config;
+        if (config is null || config.WatchFolders.IsEmpty)
+        {
+            _watchFoldersList.Text = "None configured.";
+            return;
+        }
+
+        var lines = config.WatchFolders
+            .Select(wf => $"  {wf.Path}  [{string.Join(", ", wf.Patterns)}]");
+        _watchFoldersList.Text = string.Join("\n", lines);
+    }
+
+    private void RefreshLastSync()
+    {
+        var status = _bridge.LastStatus;
+        if (status is null)
+        {
+            _lastSyncText.Text = "Last sync: Never";
+            return;
+        }
+
+        var syncAt = status.LastSyncAt;
+        if (syncAt is null || !FSharpOption<DateTimeOffset>.get_IsSome(syncAt))
+        {
+            _lastSyncText.Text = "Last sync: Never";
+            return;
+        }
+
+        var ago = DateTimeOffset.UtcNow - syncAt.Value;
+        var agoText = ago.TotalMinutes < 1 ? "just now"
+            : ago.TotalMinutes < 60 ? $"{(int)ago.TotalMinutes}m ago"
+            : ago.TotalHours < 24 ? $"{(int)ago.TotalHours}h ago"
+            : $"{(int)ago.TotalDays}d ago";
+        _lastSyncText.Text = $"Last sync: {agoText}";
+    }
+
+    // ── Chat ───────────────────────────────────────────────────────────
+
+    private async Task HandleSendAsync()
+    {
+        var query = _chatInput.Text?.Trim();
+        if (string.IsNullOrEmpty(query)) return;
+
+        _chatInput.Text = "";
+        AddChatBubble("You", query);
+
+        var useAi = _aiToggle.IsChecked == true;
+        var dbPath = Path.Combine(_bridge.ArchiveDir, "db.sqlite");
+
+        if (!File.Exists(dbPath))
+        {
+            AddChatBubble("Hermes", "No database found. Run a sync first.");
+            return;
+        }
 
         try
         {
-            await _bridge.UpdateConfigAsync(syncInterval, minSizeKb, ollamaUrl);
-            var statusText = this.FindControl<TextBlock>("StatusText");
-            if (statusText is not null) statusText.Text = "Settings saved.";
+            var db = Database.fromPath(dbPath);
+            var ollamaUrl = _bridge.Config?.Ollama.BaseUrl ?? "http://localhost:11434";
+            var response = await Chat.query(db, ollamaUrl, "llama3:8b", useAi, query);
+
+            var text = FormatChatResponse(response, useAi);
+            AddChatBubble("Hermes", text);
         }
         catch (Exception ex)
         {
-            var statusText = this.FindControl<TextBlock>("StatusText");
-            if (statusText is not null) statusText.Text = $"Error saving settings: {ex.Message}";
+            AddChatBubble("Hermes", $"Search error: {ex.Message}");
         }
     }
+
+    private static string FormatChatResponse(Chat.ChatResponse response, bool useAi)
+    {
+        var results = response.Results;
+        if (results.IsEmpty)
+            return "No results found.";
+
+        var lines = new List<string>();
+
+        // AI summary first
+        var aiSummary = response.AiSummary;
+        if (useAi && aiSummary is not null && FSharpOption<string>.get_IsSome(aiSummary))
+        {
+            lines.Add(aiSummary.Value);
+            lines.Add("");
+            lines.Add("Sources:");
+        }
+
+        foreach (var r in results)
+        {
+            var name = FSharpOption<string>.get_IsSome(r.OriginalName) ? r.OriginalName!.Value : Path.GetFileName(r.SavedPath);
+            var date = FSharpOption<string>.get_IsSome(r.EmailDate) ? r.EmailDate!.Value : "";
+            var amount = FSharpOption<double>.get_IsSome(r.ExtractedAmount) ? $" ${r.ExtractedAmount!.Value:F2}" : "";
+            var snippet = FSharpOption<string>.get_IsSome(r.Snippet) ? r.Snippet!.Value : "";
+            lines.Add($"📄 {name}  [{r.Category}]  {date}{amount}");
+            if (!string.IsNullOrEmpty(snippet))
+                lines.Add($"   {snippet}");
+        }
+
+        return string.Join("\n", lines);
+    }
+
+    private void AddChatBubble(string speaker, string text)
+    {
+        var bubble = new StackPanel { Spacing = 2, Margin = new Avalonia.Thickness(0, 0, 0, 4) };
+
+        bubble.Children.Add(new TextBlock
+        {
+            Text = speaker,
+            FontWeight = Avalonia.Media.FontWeight.Bold,
+            FontSize = 12
+        });
+
+        bubble.Children.Add(new TextBlock
+        {
+            Text = text,
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+            FontSize = 13
+        });
+
+        _chatPanel.Children.Add(bubble);
+        _chatScroller.ScrollToEnd();
+    }
+
+    // ── Sync Now ───────────────────────────────────────────────────────
+
+    private async Task HandleSyncNowAsync()
+    {
+        _syncNowButton.IsEnabled = false;
+        _syncNowButton.Content = "⏳ Syncing...";
+
+        _bridge.RequestSync();
+
+        var startTime = DateTime.UtcNow;
+        for (var i = 0; i < 60; i++)
+        {
+            await Task.Delay(1000);
+            await RefreshStatusAsync();
+
+            if (_bridge.LastStatus is { } s && s.LastSyncAt is not null
+                && FSharpOption<DateTimeOffset>.get_IsSome(s.LastSyncAt)
+                && s.LastSyncAt.Value > startTime.ToUniversalTime())
+            {
+                break;
+            }
+        }
+
+        await RefreshStatusAsync();
+        _syncNowButton.Content = "⟳ Sync Now";
+        _syncNowButton.IsEnabled = true;
+    }
+
+    // ── Pause ──────────────────────────────────────────────────────────
+
+    private void HandlePauseToggle()
+    {
+        _bridge.TogglePause();
+        _pauseButton.Content = _bridge.IsPaused ? "▶ Resume" : "⏸ Pause";
+    }
+
+    // ── Settings dialog ────────────────────────────────────────────────
+
+    private async Task ShowSettingsDialogAsync()
+    {
+        var config = _bridge.Config;
+        var dialog = new Window
+        {
+            Title = "Hermes Settings",
+            Width = 480, Height = 320,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            CanResize = false
+        };
+
+        var archiveBox = new TextBox { Text = config?.ArchiveDir ?? _bridge.ArchiveDir, Margin = new Avalonia.Thickness(16, 4, 16, 8) };
+        var syncBox = new NumericUpDown { Value = config?.SyncIntervalMinutes ?? 15, Minimum = 1, Maximum = 1440, Margin = new Avalonia.Thickness(16, 4, 16, 8) };
+        var sizeBox = new NumericUpDown { Value = (config?.MinAttachmentSize ?? 20480) / 1024, Minimum = 1, Maximum = 10240, Margin = new Avalonia.Thickness(16, 4, 16, 8) };
+        var ollamaBox = new TextBox { Text = config?.Ollama.BaseUrl ?? "http://localhost:11434", Margin = new Avalonia.Thickness(16, 4, 16, 8) };
+        var statusLbl = new TextBlock { Text = "", Margin = new Avalonia.Thickness(16, 4) };
+        var saveBtn = new Button { Content = "Save", Margin = new Avalonia.Thickness(16, 8), HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center };
+
+        saveBtn.Click += async (_, _) =>
+        {
+            try
+            {
+                await _bridge.UpdateConfigAsync(
+                    (int)(syncBox.Value ?? 15),
+                    (int)(sizeBox.Value ?? 20),
+                    ollamaBox.Text ?? "http://localhost:11434");
+                statusLbl.Text = "✅ Settings saved.";
+            }
+            catch (Exception ex)
+            {
+                statusLbl.Text = $"❌ Error: {ex.Message}";
+            }
+        };
+
+        var panel = new StackPanel();
+        panel.Children.Add(new TextBlock { Text = "Settings", FontSize = 16, FontWeight = Avalonia.Media.FontWeight.Bold, Margin = new Avalonia.Thickness(16, 16, 16, 4) });
+        panel.Children.Add(new TextBlock { Text = "Archive path:", Margin = new Avalonia.Thickness(16, 4, 16, 0) });
+        panel.Children.Add(archiveBox);
+        panel.Children.Add(new TextBlock { Text = "Sync interval (minutes):", Margin = new Avalonia.Thickness(16, 4, 16, 0) });
+        panel.Children.Add(syncBox);
+        panel.Children.Add(new TextBlock { Text = "Min attachment size (KB):", Margin = new Avalonia.Thickness(16, 4, 16, 0) });
+        panel.Children.Add(sizeBox);
+        panel.Children.Add(new TextBlock { Text = "Ollama URL:", Margin = new Avalonia.Thickness(16, 4, 16, 0) });
+        panel.Children.Add(ollamaBox);
+        panel.Children.Add(saveBtn);
+        panel.Children.Add(statusLbl);
+        dialog.Content = panel;
+
+        await dialog.ShowDialog(this);
+    }
+
+    // ── Add Gmail account ──────────────────────────────────────────────
 
     private async Task AddGmailAccountAsync()
     {
@@ -334,14 +496,6 @@ public partial class ShellWindow : Window
                     new FileDataStore(tokenDir, true));
 
                 await _bridge.AddGmailAccountToConfigAsync(label);
-
-                var accountsList = this.FindControl<TextBlock>("AccountsList");
-                if (accountsList is not null)
-                {
-                    var existing = accountsList.Text == "No accounts configured." ? "" : accountsList.Text + "\n";
-                    accountsList.Text = existing + label;
-                }
-
                 statusLabel.Text = $"✅ Account '{label}' authenticated successfully!";
             }
             catch (Exception ex)
@@ -365,6 +519,8 @@ public partial class ShellWindow : Window
         await dialog.ShowDialog(this);
     }
 
+    // ── Add watch folder ───────────────────────────────────────────────
+
     private async Task AddWatchFolderAsync()
     {
         try
@@ -379,8 +535,6 @@ public partial class ShellWindow : Window
             if (folderDialog.Count == 0) return;
 
             var folder = folderDialog[0].Path.LocalPath;
-
-            // Pattern dialog
             var patternWindow = new Window
             {
                 Title = "Watch Folder Patterns",
@@ -402,13 +556,6 @@ public partial class ShellWindow : Window
                 try
                 {
                     await _bridge.AddWatchFolderToConfigAsync(folder, patterns);
-
-                    var watchList = this.FindControl<TextBlock>("WatchFoldersList");
-                    if (watchList is not null)
-                    {
-                        var current = watchList.Text == "None configured." ? "" : watchList.Text + "\n";
-                        watchList.Text = current + $"{folder}  [{patterns}]";
-                    }
                     patternWindow.Close();
                 }
                 catch (Exception ex)
@@ -436,9 +583,40 @@ public partial class ShellWindow : Window
         }
     }
 
+    // ── DB helpers ─────────────────────────────────────────────────────
+
+    private static long ScalarInt64(SqliteConnection conn, string sql)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = sql;
+        var result = cmd.ExecuteScalar();
+        return result is long l ? l : 0;
+    }
+
+    private static void ReadAccountMsgCounts(SqliteConnection conn, Dictionary<string, int> counts)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT account, COUNT(*) FROM messages GROUP BY account";
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+            counts[reader.GetString(0)] = reader.GetInt32(1);
+    }
+
+    private static void ReadAccountSyncTimes(SqliteConnection conn, Dictionary<string, string> times)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT account, last_sync_at FROM sync_state";
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+            times[reader.GetString(0)] = reader.IsDBNull(1) ? "Never" : reader.GetString(1);
+    }
+
+    // ── Lifecycle ──────────────────────────────────────────────────────
+
     protected override void OnClosed(EventArgs e)
     {
         _refreshTimer.Stop();
+        _http.Dispose();
         base.OnClosed(e);
     }
 }
