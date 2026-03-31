@@ -239,3 +239,81 @@ let ``Database_InitSchema_CreatesAllIndexes`` () =
         finally
             db.dispose ()
     }
+
+// ─── Schema migration v3 tests ──────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Database_InitSchema_V3_CreatesRemindersTable`` () =
+    task {
+        let db = TestHelpers.createRawDb ()
+        try
+            let! _ = db.initSchema ()
+            let! exists = db.tableExists "reminders"
+            Assert.True(exists, "reminders table should exist")
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Database_InitSchema_V3_SyncStateHasBackfillColumns`` () =
+    task {
+        let db = TestHelpers.createRawDb ()
+        try
+            let! _ = db.initSchema ()
+            let! _ =
+                db.execNonQuery
+                    "INSERT INTO sync_state (account, backfill_scanned, backfill_completed) VALUES (@a, 10, 0)"
+                    ([ ("@a", Database.boxVal "test") ])
+            let! result =
+                db.execScalar
+                    "SELECT backfill_scanned FROM sync_state WHERE account = @a"
+                    ([ ("@a", Database.boxVal "test") ])
+            let scanned = match result with null -> -1L | v -> v :?> int64
+            Assert.Equal(10L, scanned)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Database_InitSchema_V3_SchemaVersionIs3`` () =
+    task {
+        let db = TestHelpers.createRawDb ()
+        try
+            let! _ = db.initSchema ()
+            let! v = db.schemaVersion ()
+            Assert.Equal(3, v)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Database_InitSchema_V3_IdempotentRunTwice`` () =
+    task {
+        let db = TestHelpers.createRawDb ()
+        try
+            let! r1 = db.initSchema ()
+            Assert.True(Result.isOk r1)
+            let! r2 = db.initSchema ()
+            Assert.True(Result.isOk r2)
+            let! v = db.schemaVersion ()
+            Assert.Equal(3, v)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Database_InitSchema_V3_ReminderIndexesExist`` () =
+    task {
+        let db = TestHelpers.createRawDb ()
+        try
+            let! _ = db.initSchema ()
+            for idx in [ "idx_reminder_status"; "idx_reminder_due"; "idx_reminder_doc" ] do
+                let! result =
+                    db.execScalar
+                        "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name=@n"
+                        ([ ("@n", Database.boxVal idx) ])
+                let count = match result with null -> 0L | v -> v :?> int64
+                Assert.True(count > 0L, $"Index {idx} should exist")
+        finally db.dispose ()
+    }

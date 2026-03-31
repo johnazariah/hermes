@@ -323,7 +323,7 @@ let ``Database_SchemaV2_VersionIs2`` () =
         try
             let! _ = db.initSchema ()
             let! version = db.schemaVersion ()
-            Assert.Equal(2, version)
+            Assert.Equal(Database.CurrentSchemaVersion, version)
         finally
             db.dispose ()
     }

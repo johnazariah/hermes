@@ -9,7 +9,7 @@ open Microsoft.Data.Sqlite
 [<RequireQualifiedAccess>]
 module Database =
 
-    let [<Literal>] CurrentSchemaVersion = 2
+    let [<Literal>] CurrentSchemaVersion = 3
 
     // ─── Schema DDL ──────────────────────────────────────────────────
 
@@ -83,12 +83,40 @@ module Database =
 
            """
         CREATE TABLE IF NOT EXISTS sync_state (
-            account         TEXT PRIMARY KEY,
-            last_history_id TEXT,
-            last_sync_at    TEXT,
-            message_count   INTEGER NOT NULL DEFAULT 0
+            account             TEXT PRIMARY KEY,
+            last_history_id     TEXT,
+            last_sync_at        TEXT,
+            message_count       INTEGER NOT NULL DEFAULT 0,
+            backfill_page_token TEXT,
+            backfill_total_estimate INTEGER,
+            backfill_scanned    INTEGER NOT NULL DEFAULT 0,
+            backfill_completed  INTEGER NOT NULL DEFAULT 0,
+            backfill_started_at TEXT
         );
-        """ |]
+        """
+
+           """
+        CREATE TABLE IF NOT EXISTS reminders (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            document_id     INTEGER REFERENCES documents(id),
+            vendor          TEXT,
+            amount          REAL,
+            due_date        TEXT,
+            category        TEXT NOT NULL,
+            status          TEXT NOT NULL DEFAULT 'active',
+            snoozed_until   TEXT,
+            created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+            completed_at    TEXT,
+            dismissed_at    TEXT,
+            trigger_name    TEXT,
+            notes           TEXT
+        );
+        """
+
+           "CREATE INDEX IF NOT EXISTS idx_reminder_status ON reminders(status);"
+           "CREATE INDEX IF NOT EXISTS idx_reminder_due ON reminders(due_date);"
+           "CREATE INDEX IF NOT EXISTS idx_reminder_doc ON reminders(document_id);"
+        |]
 
     let private ftsSql =
         [| """
@@ -230,6 +258,59 @@ module Database =
                 return (toInt64 result) |> int
         }
 
+    // ─── Migrations ─────────────────────────────────────────────────
+
+    let private migrateV2toV3 (conn: SqliteConnection) =
+        let alterStmts =
+            [| "ALTER TABLE sync_state ADD COLUMN backfill_page_token TEXT"
+               "ALTER TABLE sync_state ADD COLUMN backfill_total_estimate INTEGER"
+               "ALTER TABLE sync_state ADD COLUMN backfill_scanned INTEGER NOT NULL DEFAULT 0"
+               "ALTER TABLE sync_state ADD COLUMN backfill_completed INTEGER NOT NULL DEFAULT 0"
+               "ALTER TABLE sync_state ADD COLUMN backfill_started_at TEXT" |]
+        let createStmts =
+            [| """CREATE TABLE IF NOT EXISTS reminders (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    document_id     INTEGER REFERENCES documents(id),
+                    vendor          TEXT,
+                    amount          REAL,
+                    due_date        TEXT,
+                    category        TEXT NOT NULL,
+                    status          TEXT NOT NULL DEFAULT 'active',
+                    snoozed_until   TEXT,
+                    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                    completed_at    TEXT,
+                    dismissed_at    TEXT,
+                    trigger_name    TEXT,
+                    notes           TEXT
+                )"""
+               "CREATE INDEX IF NOT EXISTS idx_reminder_status ON reminders(status)"
+               "CREATE INDEX IF NOT EXISTS idx_reminder_due ON reminders(due_date)"
+               "CREATE INDEX IF NOT EXISTS idx_reminder_doc ON reminders(document_id)" |]
+        task {
+            // ALTER TABLE may fail if column already exists — that's fine
+            for sql in alterStmts do
+                try
+                    let! _ = execNonQuery conn sql []
+                    ()
+                with _ -> ()
+
+            for sql in createStmts do
+                let! _ = execNonQuery conn sql []
+                ()
+
+            let! _ =
+                execNonQuery conn "INSERT OR IGNORE INTO schema_version (version) VALUES (@v)" [ ("@v", boxVal 3) ]
+            ()
+        }
+
+    let private runMigrations (conn: SqliteConnection) =
+        task {
+            let! currentVersion = schemaVersionImpl conn
+
+            if currentVersion < 3 && currentVersion >= 2 then
+                do! migrateV2toV3 conn
+        }
+
     let private initSchemaImpl (conn: SqliteConnection) =
         task {
             try
@@ -241,7 +322,10 @@ module Database =
                     let! _ = execNonQuery conn sql []
                     ()
 
-                // Record schema version if not already present
+                // Run migrations for existing databases
+                do! runMigrations conn
+
+                // Record current schema version if not already present
                 let! count =
                     execScalar
                         conn
