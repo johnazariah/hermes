@@ -23,16 +23,34 @@ module Chat =
     /// Format search results as context for the LLM prompt.
     let private formatResultsForPrompt (results: Search.SearchResult list) : string =
         results
+        |> List.truncate 10
         |> List.mapi (fun i r ->
             let date = r.EmailDate |> Option.defaultValue "unknown date"
             let amount = r.ExtractedAmount |> Option.map (sprintf "$%.2f") |> Option.defaultValue ""
+            let vendor = r.ExtractedVendor |> Option.defaultValue ""
             let snippet = r.Snippet |> Option.defaultValue ""
             let name = r.OriginalName |> Option.defaultValue "unknown"
-            $"{i + 1}. [{r.Category}] {name} ({date}) {amount}\n   {snippet}")
-        |> String.concat "\n"
+            let kind = r.ResultType
+            let sender = r.Sender |> Option.defaultValue ""
+            let subject = r.Subject |> Option.defaultValue ""
+            let lines = ResizeArray<string>()
+            lines.Add($"{i + 1}. [{r.Category}/{kind}] {name}")
+            if sender <> "" then lines.Add($"   From: {sender}")
+            if subject <> "" then lines.Add($"   Subject: {subject}")
+            if date <> "unknown date" then lines.Add($"   Date: {date}")
+            if vendor <> "" then lines.Add($"   Vendor: {vendor}")
+            if amount <> "" then lines.Add($"   Amount: {amount}")
+            if snippet <> "" then lines.Add($"   Content: {snippet}")
+            lines |> String.concat "\n")
+        |> String.concat "\n\n"
 
     /// Build the system prompt.
-    let private systemPrompt = "You are Hermes, a personal document assistant. Answer questions concisely based on the provided documents, referencing document names and dates where relevant."
+    let private systemPrompt =
+        """You are Hermes, a personal document intelligence assistant.
+You have access to the user's indexed archive of emails, invoices, bank statements, receipts, and other documents.
+Answer questions by referencing specific documents with their names, dates, amounts, and vendors.
+Be concise but specific. If multiple documents are relevant, mention the most important ones.
+If the documents don't contain enough information to answer, say so honestly."""
 
     /// Build the user prompt from query + search results.
     let private buildUserPrompt (query: string) (context: string) : string =
@@ -156,11 +174,12 @@ Answer briefly and specifically."""
         (queryText: string)
         : Task<ChatResponse> =
         task {
+            // Use unified keyword search (FTS5 docs + emails)
             let filter : Search.SearchFilter =
                 { Query = queryText
                   Category = None; Sender = None; DateFrom = None
                   DateTo = None; Account = None; SourceType = None
-                  Limit = 10 }
+                  Limit = 20 }
 
             let! results = Search.executeUnified db filter
 
@@ -179,22 +198,22 @@ Answer briefly and specifically."""
             return { Query = queryText; Results = results; AiSummary = aiSummary }
         }
 
-    /// Run a chat query with provider-aware LLM dispatch.
+    /// Run a chat query with provider-aware LLM dispatch + richer context.
     let queryWithProvider
         (db: Algebra.Database)
         (chatConfig: Domain.ChatConfig)
         (ollamaUrl: string)
         (ollamaModel: string)
+        (_embedder: Algebra.EmbeddingClient option)
         (useAi: bool)
         (queryText: string)
         : Task<ChatResponse> =
         task {
+            // Use unified search (keyword FTS5) with generous limit
             let filter : Search.SearchFilter =
-                { Query = queryText
-                  Category = None; Sender = None; DateFrom = None
-                  DateTo = None; Account = None; SourceType = None
-                  Limit = 10 }
-
+                { Query = queryText; Category = None; Sender = None
+                  DateFrom = None; DateTo = None; Account = None
+                  SourceType = None; Limit = 20 }
             let! results = Search.executeUnified db filter
 
             let! aiSummary =

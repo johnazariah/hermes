@@ -319,7 +319,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
                 var model = _bridge.Config?.Ollama.InstructModel ?? "llama3.2";
                 var chatConfig = _bridge.Config?.Chat;
                 var response = chatConfig is not null
-                    ? await Chat.queryWithProvider(db, chatConfig, ollamaUrl, model, AiEnabled, query)
+                    ? await Chat.queryWithProvider(db, chatConfig, ollamaUrl, model, null, AiEnabled, query)
                     : await Chat.query(db, ollamaUrl, model, AiEnabled, query);
 
                 var documents = response.Results
