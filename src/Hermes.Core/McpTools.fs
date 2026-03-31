@@ -337,3 +337,77 @@ module McpTools =
                             result["error"] <- JsonValue.Create($"Failed to read file: {ex.Message}")
                             return result :> JsonNode
         }
+
+    // ─── hermes_list_reminders ───────────────────────────────────────
+
+    let listReminders (db: Algebra.Database) (args: JsonNode) : Task<JsonNode> =
+        task {
+            let now = DateTimeOffset.UtcNow
+            let! active = Reminders.getActive db now
+            let! completed = Reminders.getRecentlyCompleted db
+            let! summary = Reminders.getSummary db now
+
+            let result = JsonObject()
+            let items = JsonArray()
+
+            for (r, path, name) in active do
+                let item = JsonObject()
+                item["id"] <- JsonValue.Create(r.Id)
+                item["status"] <- JsonValue.Create(Domain.ReminderStatus.toString r.Status)
+                item["category"] <- JsonValue.Create(r.Category)
+                r.Vendor |> Option.iter (fun v -> item["vendor"] <- JsonValue.Create(v))
+                r.Amount |> Option.iter (fun a -> item["amount"] <- JsonValue.Create(float a))
+                r.DueDate |> Option.iter (fun d -> item["dueDate"] <- JsonValue.Create(d.ToString("yyyy-MM-dd")))
+                path |> Option.iter (fun p -> item["documentPath"] <- JsonValue.Create(p))
+                name |> Option.iter (fun n -> item["fileName"] <- JsonValue.Create(n))
+                let isOverdue = r.DueDate |> Option.map (fun d -> d < now) |> Option.defaultValue false
+                item["isOverdue"] <- JsonValue.Create(isOverdue)
+                items.Add(item)
+
+            result["reminders"] <- items
+            result["overdueCount"] <- JsonValue.Create(summary.OverdueCount)
+            result["upcomingCount"] <- JsonValue.Create(summary.UpcomingCount)
+            result["totalActiveAmount"] <- JsonValue.Create(float summary.TotalActiveAmount)
+            return result :> JsonNode
+        }
+
+    // ─── hermes_update_reminder ──────────────────────────────────────
+
+    let updateReminder (db: Algebra.Database) (args: JsonNode) : Task<JsonNode> =
+        task {
+            let idOpt = tryGetInt64 args "reminder_id"
+            let actionOpt = tryGetString args "action"
+            let now = DateTimeOffset.UtcNow
+
+            match idOpt, actionOpt with
+            | None, _ | _, None ->
+                let r = JsonObject()
+                r["error"] <- JsonValue.Create("reminder_id and action are required")
+                return r :> JsonNode
+            | Some rid, Some action ->
+                match action.ToLowerInvariant() with
+                | "complete" | "paid" ->
+                    do! Reminders.markCompleted db rid now
+                    let r = JsonObject()
+                    r["status"] <- JsonValue.Create("completed")
+                    r["reminderId"] <- JsonValue.Create(rid)
+                    return r :> JsonNode
+                | "snooze" ->
+                    let days = tryGetInt args "snooze_days" 7
+                    do! Reminders.snooze db rid days now
+                    let r = JsonObject()
+                    r["status"] <- JsonValue.Create("snoozed")
+                    r["reminderId"] <- JsonValue.Create(rid)
+                    r["snoozedDays"] <- JsonValue.Create(days)
+                    return r :> JsonNode
+                | "dismiss" ->
+                    do! Reminders.dismiss db rid now
+                    let r = JsonObject()
+                    r["status"] <- JsonValue.Create("dismissed")
+                    r["reminderId"] <- JsonValue.Create(rid)
+                    return r :> JsonNode
+                | other ->
+                    let r = JsonObject()
+                    r["error"] <- JsonValue.Create($"Unknown action: {other}. Use 'complete', 'snooze', or 'dismiss'.")
+                    return r :> JsonNode
+        }

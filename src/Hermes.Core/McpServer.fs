@@ -94,7 +94,24 @@ module McpServer =
             Description =
                 "Read a text file from the archive. Path is relative to the archive directory."
             InputSchema =
-                mkSchema [ "path", stringProp "Relative path within the archive" ] [ "path" ] } ]
+                mkSchema [ "path", stringProp "Relative path within the archive" ] [ "path" ] }
+          { Name = "hermes_list_reminders"
+            Description =
+                "List active bill reminders and action items with amounts and due dates."
+            InputSchema =
+                mkSchema
+                    [ "status", stringProp "Filter: 'active', 'overdue', 'upcoming', 'completed', 'all' (default: active)"
+                      "limit", intProp "Max results (default 20)" ]
+                    [] }
+          { Name = "hermes_update_reminder"
+            Description =
+                "Mark a reminder as paid, snoozed, or dismissed."
+            InputSchema =
+                mkSchema
+                    [ "reminder_id", intProp "Reminder ID"
+                      "action", stringProp "One of: 'complete', 'snooze', 'dismiss'"
+                      "snooze_days", intProp "Days to snooze (default 7, only for snooze action)" ]
+                    [ "reminder_id"; "action" ] } ]
 
     // ─── Request parsing ─────────────────────────────────────────────
 
@@ -219,6 +236,12 @@ module McpServer =
                 return Ok result
             | "hermes_read_file" ->
                 let! result = McpTools.readFile fs archiveDir toolArgs
+                return Ok result
+            | "hermes_list_reminders" ->
+                let! result = McpTools.listReminders db toolArgs
+                return Ok result
+            | "hermes_update_reminder" ->
+                let! result = McpTools.updateReminder db toolArgs
                 return Ok result
             | unknown ->
                 logger.warn $"Unknown tool: {unknown}"
