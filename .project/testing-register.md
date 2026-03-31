@@ -7,10 +7,10 @@
 
 | Category | Count |
 |----------|-------|
-| Unit     | 18    |
+| Unit     | 250+  |
 | Property | 1     |
-| Integration | 2  |
-| **Total** | **21** |
+| Integration | 7  |
+| **Total** | **258** |
 
 ---
 
@@ -120,3 +120,78 @@
 - **Kind**: Unit
 - **File**: `tests/Hermes.Tests/DatabaseTests.fs`
 - **Intent**: Schema init creates all 11 expected indexes
+
+### Database_InitSchema_V3_CreatesRemindersTable
+- **Kind**: Unit
+- **File**: `tests/Hermes.Tests/DatabaseTests.fs`
+- **Intent**: Schema v3 creates reminders table
+
+### Database_InitSchema_V3_SyncStateHasBackfillColumns
+- **Kind**: Unit
+- **File**: `tests/Hermes.Tests/DatabaseTests.fs`
+- **Intent**: Schema v3 adds backfill columns to sync_state
+
+### Database_InitSchema_V3_SchemaVersionIs3
+- **Kind**: Unit
+- **File**: `tests/Hermes.Tests/DatabaseTests.fs`
+- **Intent**: Schema version is 3 after init
+
+### Database_InitSchema_V3_IdempotentRunTwice
+- **Kind**: Unit
+- **File**: `tests/Hermes.Tests/DatabaseTests.fs`
+- **Intent**: Running initSchema twice is safe
+
+### Database_InitSchema_V3_ReminderIndexesExist
+- **Kind**: Unit
+- **File**: `tests/Hermes.Tests/DatabaseTests.fs`
+- **Intent**: Reminder indexes created correctly
+
+### Reminders_DetectBill_InvoiceWithDueDate_CreatesReminder
+- **Kind**: Unit
+- **File**: `tests/Hermes.Tests/ReminderTests.fs`
+- **Intent**: Invoice with amount + due date in range → creates reminder
+
+### Reminders_DetectBill_WrongCategory_ReturnsNone
+- **Kind**: Unit
+- **File**: `tests/Hermes.Tests/ReminderTests.fs`
+- **Intent**: Non-bill category → no reminder
+
+### Reminders_DetectBill_OldDate_ReturnsNone
+- **Kind**: Unit
+- **File**: `tests/Hermes.Tests/ReminderTests.fs`
+- **Intent**: Due date >30 days ago → no reminder
+
+### Reminders_DetectBill_NoAmount_ReturnsNone
+- **Kind**: Unit
+- **File**: `tests/Hermes.Tests/ReminderTests.fs`
+- **Intent**: No extracted amount → no reminder
+
+### Reminders_EvaluateNew_InsertsReminders
+- **Kind**: Unit
+- **File**: `tests/Hermes.Tests/ReminderTests.fs`
+- **Intent**: Extracted docs with amounts create reminders
+
+### Reminders_EvaluateNew_DeduplicatesExisting
+- **Kind**: Unit
+- **File**: `tests/Hermes.Tests/ReminderTests.fs`
+- **Intent**: Running evaluate twice doesn't duplicate reminders
+
+### Reminders_MarkCompleted_ChangesStatus
+- **Kind**: Unit
+- **File**: `tests/Hermes.Tests/ReminderTests.fs`
+- **Intent**: Mark paid removes from active list
+
+### Reminders_Snooze_HidesUntilExpiry
+- **Kind**: Unit
+- **File**: `tests/Hermes.Tests/ReminderTests.fs`
+- **Intent**: Snoozed reminders hidden until expiry, then reappear
+
+### Reminders_Dismiss_PermanentlyRemoves
+- **Kind**: Unit
+- **File**: `tests/Hermes.Tests/ReminderTests.fs`
+- **Intent**: Dismissed reminders permanently removed from active and completed
+
+### Reminders_GetSummary_CorrectCounts
+- **Kind**: Unit
+- **File**: `tests/Hermes.Tests/ReminderTests.fs`
+- **Intent**: Summary correctly counts overdue, upcoming, and total amount

@@ -1,6 +1,6 @@
 # Hermes — Project Status
 
-**Phase**: All 12 phases complete. UI polish in progress.  
+**Phase**: All phases + features complete. Settings dialog in progress.  
 **Health**: 🟢 Green  
 **Last Updated**: 2026-03-31
 
@@ -11,8 +11,8 @@
 | Documents (design) | 12 |
 | Phase specs | 12 (Phases 0–11) |
 | GitHub issues | 10 |
-| Tests | 200+ |
-| Lines of code | ~10,000+ |
+| Tests | 258 |
+| Lines of code | ~12,000+ |
 
 ## Phase Status
 
@@ -32,8 +32,8 @@
 | 11 | Document-to-Markdown | ✅ Done | — |
 | — | UI Redesign | 📐 Designing | See [09-ui-redesign.md](design/09-ui-redesign.md) |
 | — | Agent Evolution | 📐 Designing | See [10-agent-evolution.md](design/10-agent-evolution.md) |
-| — | Email Backfill | 📐 Designing | See [11-email-backfill.md](design/11-email-backfill.md) |
-| — | Bills & Reminders | 📐 Designing | See [12-bills-and-reminders.md](design/12-bills-and-reminders.md) |
+| — | Email Backfill | ✅ Done | Paginated Gmail sync, resume from page token, progress tracking |
+| — | Bills & Reminders | ✅ Done | Bill detection, reminder lifecycle, MCP tools, CLI reset |
 | — | Azure OpenAI Chat | ✅ Done | Chat provider abstraction + Azure OpenAI implementation |
 
 ## Key Decisions
