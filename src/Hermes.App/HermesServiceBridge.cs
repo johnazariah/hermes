@@ -156,6 +156,137 @@ public sealed class HermesServiceBridge
         RequestSync();
     }
 
+    /// <summary>
+    /// Writes complete config to config.yaml, replacing general and chat settings.
+    /// </summary>
+    public async Task UpdateFullConfigAsync(
+        int syncIntervalMinutes, int minAttachmentSizeKb,
+        string chatProvider, string ollamaUrl, string ollamaModel,
+        string? azureEndpoint, string? azureApiKey, string? azureDeployment)
+    {
+        var configPath = Path.Combine(ConfigDir, "config.yaml");
+        if (!File.Exists(configPath)) return;
+
+        var yaml = await File.ReadAllTextAsync(configPath);
+
+        // Simple field replacements
+        yaml = Regex.Replace(yaml, @"sync_interval_minutes:\s*\d+",
+            $"sync_interval_minutes: {syncIntervalMinutes}");
+        yaml = Regex.Replace(yaml, @"min_attachment_size:\s*\d+",
+            $"min_attachment_size: {minAttachmentSizeKb * 1024}");
+        yaml = Regex.Replace(yaml, @"(base_url:\s*).*",
+            $"${{1}}{ollamaUrl}");
+        yaml = Regex.Replace(yaml, @"(instruct_model:\s*).*",
+            $"${{1}}{ollamaModel}");
+
+        // Remove existing chat section and append updated one
+        yaml = Regex.Replace(yaml, @"\r?\nchat:(?:\r?\n  .+)*", "");
+        var maxTokens = _config?.Chat.AzureOpenAI.MaxTokens ?? 4096;
+        var timeout = _config?.Chat.AzureOpenAI.TimeoutSeconds ?? 300;
+        yaml = yaml.TrimEnd() + "\n\nchat:\n"
+            + $"  provider: {chatProvider}\n"
+            + "  azure_openai:\n"
+            + $"    endpoint: \"{azureEndpoint ?? ""}\"\n"
+            + $"    api_key: \"{azureApiKey ?? ""}\"\n"
+            + $"    deployment: \"{azureDeployment ?? "gpt-4o"}\"\n"
+            + $"    max_tokens: {maxTokens}\n"
+            + $"    timeout_seconds: {timeout}\n";
+
+        await File.WriteAllTextAsync(configPath, yaml);
+        await ReloadConfigAsync();
+    }
+
+    /// <summary>
+    /// Removes an account from config.yaml and optionally deletes its token.
+    /// </summary>
+    public async Task RemoveAccountFromConfigAsync(string label, bool deleteToken)
+    {
+        var configPath = Path.Combine(ConfigDir, "config.yaml");
+        if (!File.Exists(configPath)) return;
+
+        var yaml = await File.ReadAllTextAsync(configPath);
+        var escaped = Regex.Escape(label);
+        yaml = Regex.Replace(yaml, $@"  - label: {escaped}\r?\n(?:    .*\r?\n)*", "");
+
+        // If no accounts remain, normalize to empty list
+        if (!yaml.Contains("  - label:"))
+            yaml = Regex.Replace(yaml, @"accounts:\s*\n", "accounts: []\n");
+
+        await File.WriteAllTextAsync(configPath, yaml);
+
+        if (deleteToken)
+        {
+            var tokenDir = Path.Combine(ConfigDir, "tokens");
+            if (Directory.Exists(tokenDir))
+            {
+                foreach (var file in Directory.GetFiles(tokenDir).Where(f => f.Contains(label)))
+                {
+                    try { File.Delete(file); } catch { /* best effort */ }
+                }
+            }
+        }
+
+        await ReloadConfigAsync();
+    }
+
+    /// <summary>
+    /// Removes a watch folder entry from config.yaml.
+    /// </summary>
+    public async Task RemoveWatchFolderFromConfigAsync(string folderPath)
+    {
+        var configPath = Path.Combine(ConfigDir, "config.yaml");
+        if (!File.Exists(configPath)) return;
+
+        var yaml = await File.ReadAllTextAsync(configPath);
+        var escaped = Regex.Escape(folderPath);
+        yaml = Regex.Replace(yaml, $@"  - path: {escaped}\r?\n(?:    .*\r?\n)*", "");
+
+        if (!yaml.Contains("  - path:"))
+            yaml = Regex.Replace(yaml, @"watch_folders:\s*\n", "watch_folders: []\n");
+
+        await File.WriteAllTextAsync(configPath, yaml);
+        await ReloadConfigAsync();
+        RequestSync();
+    }
+
+    /// <summary>
+    /// Updates per-account backfill settings in config.yaml.
+    /// </summary>
+    public async Task UpdateAccountBackfillAsync(string label, bool enabled, int batchSize)
+    {
+        var configPath = Path.Combine(ConfigDir, "config.yaml");
+        if (!File.Exists(configPath)) return;
+
+        var yaml = await File.ReadAllTextAsync(configPath);
+        var escaped = Regex.Escape(label);
+        var backfillBlock = "    backfill:\n"
+            + $"      enabled: {enabled.ToString().ToLowerInvariant()}\n"
+            + $"      batch_size: {batchSize}\n";
+
+        // Replace existing backfill section or add one after the provider line
+        var withBackfill = $@"(  - label: {escaped}\r?\n    provider: \w+\r?\n)    backfill:\r?\n(?:      .*\r?\n)*";
+        if (Regex.IsMatch(yaml, withBackfill))
+        {
+            yaml = Regex.Replace(yaml, withBackfill, $"$1{backfillBlock}");
+        }
+        else
+        {
+            var noBackfill = $@"(  - label: {escaped}\r?\n    provider: \w+\r?\n)";
+            yaml = Regex.Replace(yaml, noBackfill, $"$1{backfillBlock}");
+        }
+
+        await File.WriteAllTextAsync(configPath, yaml);
+        await ReloadConfigAsync();
+    }
+
+    private async Task ReloadConfigAsync()
+    {
+        var configPath = Path.Combine(ConfigDir, "config.yaml");
+        var fs = Interpreters.realFileSystem;
+        var result = await Core.Config.load(fs, configPath);
+        if (result.IsOk) _config = result.ResultValue;
+    }
+
     public string StatusText
     {
         get

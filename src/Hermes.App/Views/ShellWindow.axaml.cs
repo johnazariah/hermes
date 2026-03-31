@@ -379,50 +379,436 @@ public partial class ShellWindow : Window
     private async Task ShowSettingsDialogAsync()
     {
         var config = _vm.Bridge.Config;
+        if (config is null) return;
+
         var dialog = new Window
         {
             Title = "Hermes Settings",
-            Width = 480,
-            Height = 320,
+            Width = 520,
+            Height = 600,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            CanResize = false
+            CanResize = true
         };
 
-        var syncBox = new NumericUpDown { Value = config?.SyncIntervalMinutes ?? 15, Minimum = 1, Maximum = 1440, Margin = new Thickness(16, 4, 16, 8) };
-        var sizeBox = new NumericUpDown { Value = (config?.MinAttachmentSize ?? 20480) / 1024, Minimum = 1, Maximum = 10240, Margin = new Thickness(16, 4, 16, 8) };
-        var ollamaBox = new TextBox { Text = config?.Ollama.BaseUrl ?? "http://localhost:11434", Margin = new Thickness(16, 4, 16, 8) };
-        var statusLbl = new TextBlock { Text = "", Margin = new Thickness(16, 4) };
-        var saveBtn = new Button { Content = "Save", Margin = new Thickness(16, 8), HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center };
+        var statusLbl = new TextBlock { Text = "", Margin = new Thickness(0, 4, 0, 0), FontSize = 12 };
+        var root = new StackPanel { Spacing = 6, Margin = new Thickness(20) };
 
+        // ── Title ──
+        root.Children.Add(new TextBlock
+        {
+            Text = "⚙ Settings",
+            FontSize = 18,
+            FontWeight = FontWeight.Bold,
+            Margin = new Thickness(0, 0, 0, 8)
+        });
+
+        // ── Section: General ──
+        root.Children.Add(SettingsSectionHeader("General"));
+
+        root.Children.Add(new TextBlock { Text = "Sync interval (minutes):", FontSize = 12 });
+        var syncBox = new NumericUpDown
+        {
+            Value = config.SyncIntervalMinutes,
+            Minimum = 1,
+            Maximum = 1440,
+            Margin = new Thickness(0, 2, 0, 6)
+        };
+        root.Children.Add(syncBox);
+
+        root.Children.Add(new TextBlock { Text = "Min attachment size (KB):", FontSize = 12 });
+        var sizeBox = new NumericUpDown
+        {
+            Value = config.MinAttachmentSize / 1024,
+            Minimum = 0,
+            Maximum = 10240,
+            Margin = new Thickness(0, 2, 0, 6)
+        };
+        root.Children.Add(sizeBox);
+
+        // ── Section: AI / Chat ──
+        root.Children.Add(SettingsSectionHeader("AI / Chat"));
+
+        var isOllama = config.Chat.Provider.IsOllama;
+        var ollamaRadio = new RadioButton
+        {
+            Content = "Ollama",
+            GroupName = "ChatProvider",
+            IsChecked = isOllama
+        };
+        var azureRadio = new RadioButton
+        {
+            Content = "Azure OpenAI",
+            GroupName = "ChatProvider",
+            IsChecked = !isOllama
+        };
+        var radioRow = new StackPanel
+        {
+            Orientation = Avalonia.Layout.Orientation.Horizontal,
+            Spacing = 16,
+            Margin = new Thickness(0, 2, 0, 6)
+        };
+        radioRow.Children.Add(ollamaRadio);
+        radioRow.Children.Add(azureRadio);
+        root.Children.Add(radioRow);
+
+        // Ollama fields
+        var ollamaPanel = new StackPanel { Spacing = 4, IsVisible = isOllama };
+        ollamaPanel.Children.Add(new TextBlock { Text = "Ollama URL:", FontSize = 12 });
+        var ollamaUrlBox = new TextBox { Text = config.Ollama.BaseUrl };
+        ollamaPanel.Children.Add(ollamaUrlBox);
+        ollamaPanel.Children.Add(new TextBlock { Text = "Ollama Model:", FontSize = 12 });
+        var ollamaModelBox = new TextBox { Text = config.Ollama.InstructModel };
+        ollamaPanel.Children.Add(ollamaModelBox);
+        root.Children.Add(ollamaPanel);
+
+        // Azure fields
+        var azurePanel = new StackPanel { Spacing = 4, IsVisible = !isOllama };
+        azurePanel.Children.Add(new TextBlock { Text = "Endpoint:", FontSize = 12 });
+        var azureEndpointBox = new TextBox { Text = config.Chat.AzureOpenAI.Endpoint };
+        azurePanel.Children.Add(azureEndpointBox);
+        azurePanel.Children.Add(new TextBlock { Text = "API Key:", FontSize = 12 });
+        var azureApiKeyBox = new TextBox
+        {
+            Text = config.Chat.AzureOpenAI.ApiKey,
+            PasswordChar = '●'
+        };
+        azurePanel.Children.Add(azureApiKeyBox);
+        azurePanel.Children.Add(new TextBlock { Text = "Deployment:", FontSize = 12 });
+        var azureDeploymentBox = new TextBox { Text = config.Chat.AzureOpenAI.DeploymentName };
+        azurePanel.Children.Add(azureDeploymentBox);
+        root.Children.Add(azurePanel);
+
+        // Toggle visibility on radio change
+        ollamaRadio.IsCheckedChanged += (_, _) =>
+        {
+            ollamaPanel.IsVisible = ollamaRadio.IsChecked == true;
+            azurePanel.IsVisible = ollamaRadio.IsChecked != true;
+        };
+
+        // ── Section: Accounts ──
+        root.Children.Add(SettingsSectionHeader("Accounts"));
+
+        var accountBackfill = new System.Collections.Generic.List<(string Label, CheckBox Enabled, NumericUpDown BatchSize)>();
+        var accountsPanel = new StackPanel { Spacing = 8 };
+
+        foreach (var acct in config.Accounts)
+        {
+            var card = new Border
+            {
+                BorderBrush = new SolidColorBrush(Color.Parse("#20000000")),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(10, 8),
+                Margin = new Thickness(0, 2)
+            };
+
+            var cardContent = new StackPanel { Spacing = 6 };
+
+            // Row 1: label + buttons
+            var headerRow = new StackPanel
+            {
+                Orientation = Avalonia.Layout.Orientation.Horizontal,
+                Spacing = 8
+            };
+            headerRow.Children.Add(new TextBlock
+            {
+                Text = $"● {acct.Label} ({acct.Provider})",
+                FontWeight = FontWeight.SemiBold,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                FontSize = 13
+            });
+
+            var acctLabel = acct.Label;
+
+            var reauthBtn = new Button { Content = "Re-auth", FontSize = 11, Padding = new Thickness(6, 2) };
+            reauthBtn.Click += async (_, _) =>
+            {
+                reauthBtn.IsEnabled = false;
+                statusLbl.Text = "Opening browser for authentication…";
+                var credPath = Path.Combine(_vm.Bridge.ConfigDir, "gmail_credentials.json");
+                if (!File.Exists(credPath))
+                {
+                    statusLbl.Text = $"❌ Missing: {credPath}";
+                    reauthBtn.IsEnabled = true;
+                    return;
+                }
+                try
+                {
+                    ClientSecrets clientSecrets;
+                    await using (var stream = File.OpenRead(credPath))
+                        clientSecrets = (await GoogleClientSecrets.FromStreamAsync(stream)).Secrets;
+
+                    var tokenDir = Path.Combine(_vm.Bridge.ConfigDir, "tokens");
+                    Directory.CreateDirectory(tokenDir);
+                    await GoogleWebAuthorizationBroker.AuthorizeAsync(
+                        clientSecrets,
+                        [GmailService.Scope.GmailReadonly, GmailService.Scope.GmailModify],
+                        acctLabel,
+                        CancellationToken.None,
+                        new FileDataStore(tokenDir, true));
+                    statusLbl.Text = $"✅ Re-authenticated '{acctLabel}'";
+                }
+                catch (Exception ex)
+                {
+                    statusLbl.Text = $"❌ Auth failed: {ex.Message}";
+                }
+                reauthBtn.IsEnabled = true;
+            };
+            headerRow.Children.Add(reauthBtn);
+
+            var removeBtn = new Button
+            {
+                Content = "Remove ×",
+                FontSize = 11,
+                Padding = new Thickness(6, 2),
+                Foreground = new SolidColorBrush(Color.Parse("#F44336"))
+            };
+            removeBtn.Click += async (_, _) =>
+            {
+                var confirmed = await ShowConfirmDialogAsync(dialog, "Remove Account",
+                    $"Remove account '{acctLabel}'?\nThis will delete saved tokens.");
+                if (!confirmed) return;
+                await _vm.Bridge.RemoveAccountFromConfigAsync(acctLabel, true);
+                dialog.Close();
+                await ShowSettingsDialogAsync();
+            };
+            headerRow.Children.Add(removeBtn);
+            cardContent.Children.Add(headerRow);
+
+            // Row 2: backfill controls
+            var backfillRow = new StackPanel
+            {
+                Orientation = Avalonia.Layout.Orientation.Horizontal,
+                Spacing = 8
+            };
+            var bfToggle = new CheckBox
+            {
+                Content = "Backfill",
+                IsChecked = acct.Backfill.Enabled,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                FontSize = 12
+            };
+            backfillRow.Children.Add(bfToggle);
+            backfillRow.Children.Add(new TextBlock
+            {
+                Text = "Batch:",
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                FontSize = 12
+            });
+            var bfBatch = new NumericUpDown
+            {
+                Value = acct.Backfill.BatchSize,
+                Minimum = 1,
+                Maximum = 500,
+                Width = 100,
+                FontSize = 12
+            };
+            backfillRow.Children.Add(bfBatch);
+            cardContent.Children.Add(backfillRow);
+
+            accountBackfill.Add((acct.Label, bfToggle, bfBatch));
+            card.Child = cardContent;
+            accountsPanel.Children.Add(card);
+        }
+
+        if (accountsPanel.Children.Count == 0)
+        {
+            accountsPanel.Children.Add(new TextBlock
+            {
+                Text = "No accounts configured.",
+                FontSize = 12,
+                Foreground = new SolidColorBrush(Color.Parse("#888"))
+            });
+        }
+
+        root.Children.Add(accountsPanel);
+
+        var addAccountBtn = new Button
+        {
+            Content = "+ Add Gmail Account",
+            Margin = new Thickness(0, 4, 0, 0),
+            FontSize = 12
+        };
+        addAccountBtn.Click += async (_, _) =>
+        {
+            dialog.Close();
+            await AddGmailAccountAsync();
+            await ShowSettingsDialogAsync();
+        };
+        root.Children.Add(addAccountBtn);
+
+        // ── Section: Watch Folders ──
+        root.Children.Add(SettingsSectionHeader("Watch Folders"));
+
+        var foldersPanel = new StackPanel { Spacing = 4 };
+        foreach (var folder in config.WatchFolders)
+        {
+            var folderRow = new StackPanel
+            {
+                Orientation = Avalonia.Layout.Orientation.Horizontal,
+                Spacing = 8
+            };
+            var patterns = string.Join(", ", folder.Patterns);
+            folderRow.Children.Add(new TextBlock
+            {
+                Text = $"{folder.Path} [{patterns}]",
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                FontSize = 12,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            });
+
+            var folderPath = folder.Path;
+            var removeFolderBtn = new Button
+            {
+                Content = "Remove ×",
+                FontSize = 11,
+                Padding = new Thickness(6, 2),
+                Foreground = new SolidColorBrush(Color.Parse("#F44336"))
+            };
+            removeFolderBtn.Click += async (_, _) =>
+            {
+                await _vm.Bridge.RemoveWatchFolderFromConfigAsync(folderPath);
+                dialog.Close();
+                await ShowSettingsDialogAsync();
+            };
+            folderRow.Children.Add(removeFolderBtn);
+            foldersPanel.Children.Add(folderRow);
+        }
+
+        if (foldersPanel.Children.Count == 0)
+        {
+            foldersPanel.Children.Add(new TextBlock
+            {
+                Text = "No watch folders configured.",
+                FontSize = 12,
+                Foreground = new SolidColorBrush(Color.Parse("#888"))
+            });
+        }
+
+        root.Children.Add(foldersPanel);
+
+        var addFolderBtn = new Button
+        {
+            Content = "+ Add Folder",
+            Margin = new Thickness(0, 4, 0, 0),
+            FontSize = 12
+        };
+        addFolderBtn.Click += async (_, _) =>
+        {
+            dialog.Close();
+            await AddWatchFolderAsync();
+            await ShowSettingsDialogAsync();
+        };
+        root.Children.Add(addFolderBtn);
+
+        // ── Save ──
+        root.Children.Add(new Border
+        {
+            Height = 1,
+            Background = new SolidColorBrush(Color.Parse("#20000000")),
+            Margin = new Thickness(0, 12, 0, 4)
+        });
+
+        var saveBtn = new Button
+        {
+            Content = "Save",
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+            FontWeight = FontWeight.Bold,
+            Padding = new Thickness(24, 8),
+            FontSize = 14
+        };
         saveBtn.Click += async (_, _) =>
         {
             try
             {
-                await _vm.Bridge.UpdateConfigAsync(
+                saveBtn.IsEnabled = false;
+                var provider = ollamaRadio.IsChecked == true ? "ollama" : "azure-openai";
+                await _vm.Bridge.UpdateFullConfigAsync(
                     (int)(syncBox.Value ?? 15),
                     (int)(sizeBox.Value ?? 20),
-                    ollamaBox.Text ?? "http://localhost:11434");
-                statusLbl.Text = "✅ Settings saved.";
+                    provider,
+                    ollamaUrlBox.Text ?? "http://localhost:11434",
+                    ollamaModelBox.Text ?? "llama3.2",
+                    azureEndpointBox.Text,
+                    azureApiKeyBox.Text,
+                    azureDeploymentBox.Text);
+
+                foreach (var (label, toggle, batch) in accountBackfill)
+                {
+                    await _vm.Bridge.UpdateAccountBackfillAsync(
+                        label,
+                        toggle.IsChecked == true,
+                        (int)(batch.Value ?? 50));
+                }
+
+                statusLbl.Text = "Saved ✓";
+                statusLbl.Foreground = new SolidColorBrush(Color.Parse("#4CAF50"));
             }
             catch (Exception ex)
             {
                 statusLbl.Text = $"❌ Error: {ex.Message}";
+                statusLbl.Foreground = new SolidColorBrush(Color.Parse("#F44336"));
+            }
+            finally
+            {
+                saveBtn.IsEnabled = true;
             }
         };
 
-        var panel = new StackPanel();
-        panel.Children.Add(new TextBlock { Text = "Settings", FontSize = 16, FontWeight = FontWeight.Bold, Margin = new Thickness(16, 16, 16, 4) });
-        panel.Children.Add(new TextBlock { Text = "Sync interval (minutes):", Margin = new Thickness(16, 4, 16, 0) });
-        panel.Children.Add(syncBox);
-        panel.Children.Add(new TextBlock { Text = "Min attachment size (KB):", Margin = new Thickness(16, 4, 16, 0) });
-        panel.Children.Add(sizeBox);
-        panel.Children.Add(new TextBlock { Text = "Ollama URL:", Margin = new Thickness(16, 4, 16, 0) });
-        panel.Children.Add(ollamaBox);
-        panel.Children.Add(saveBtn);
-        panel.Children.Add(statusLbl);
-        dialog.Content = panel;
+        root.Children.Add(saveBtn);
+        root.Children.Add(statusLbl);
+
+        dialog.Content = new ScrollViewer
+        {
+            Content = root,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+        };
 
         await dialog.ShowDialog(this);
+    }
+
+    private static TextBlock SettingsSectionHeader(string text) => new()
+    {
+        Text = text,
+        FontSize = 15,
+        FontWeight = FontWeight.Bold,
+        Margin = new Thickness(0, 12, 0, 4)
+    };
+
+    private static async Task<bool> ShowConfirmDialogAsync(Window owner, string title, string message)
+    {
+        var result = false;
+        var confirmDialog = new Window
+        {
+            Title = title,
+            Width = 360,
+            Height = 160,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            CanResize = false
+        };
+
+        var panel = new StackPanel { Margin = new Thickness(16), Spacing = 12 };
+        panel.Children.Add(new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap, FontSize = 13 });
+
+        var buttons = new StackPanel
+        {
+            Orientation = Avalonia.Layout.Orientation.Horizontal,
+            Spacing = 8,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center
+        };
+        var yesBtn = new Button { Content = "Remove", Foreground = new SolidColorBrush(Color.Parse("#F44336")) };
+        var noBtn = new Button { Content = "Cancel" };
+
+        yesBtn.Click += (_, _) => { result = true; confirmDialog.Close(); };
+        noBtn.Click += (_, _) => { result = false; confirmDialog.Close(); };
+
+        buttons.Children.Add(yesBtn);
+        buttons.Children.Add(noBtn);
+        panel.Children.Add(buttons);
+        confirmDialog.Content = panel;
+
+        await confirmDialog.ShowDialog(owner);
+        return result;
     }
 
     // ── Add Gmail account ──────────────────────────────────────────
