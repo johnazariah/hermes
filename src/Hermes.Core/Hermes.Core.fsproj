@@ -21,6 +21,7 @@
     <Compile Include="Extraction.fs" />
     <Compile Include="Search.fs" />
     <Compile Include="Stats.fs" />
+    <Compile Include="Reminders.fs" />
     <Compile Include="Chat.fs" />
     <Compile Include="ServiceHost.fs" />
     <Compile Include="ServiceInstaller.fs" />

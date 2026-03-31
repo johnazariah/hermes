@@ -187,6 +187,15 @@ module ServiceHost =
                 let! _extractResult =
                     Extraction.extractBatch fs db logger clock extractor config.ArchiveDir None false 50
 
+                // 4.5. Evaluate bill reminders
+                logger.debug "Evaluating bill reminders..."
+                let! newReminders = Reminders.evaluateNewDocuments db logger (clock.utcNow ())
+                if newReminders > 0 then logger.info $"Created {newReminders} new reminder(s)"
+
+                // 4.6. Un-snooze expired reminders
+                let! unsnoozed = Reminders.unsnoozeExpired db (clock.utcNow ())
+                if unsnoozed > 0 then logger.info $"Un-snoozed {unsnoozed} reminder(s)"
+
                 // 5. Embed un-embedded documents
                 logger.debug "Running embedding on backlog..."
                 let ollamaUrl = config.Ollama.BaseUrl.TrimEnd('/')

@@ -351,7 +351,8 @@ let ``EmailSync_SyncAccount_FetchesBodyWhenMissing`` () =
         let provider : Algebra.EmailProvider =
             { listNewMessages = fun _ -> task { return [ msg ] }
               getAttachments = fun _ -> task { return [] }
-              getMessageBody = fun _ -> task { return Some "<p>Hello <b>World</b></p>" } }
+              getMessageBody = fun _ -> task { return Some "<p>Hello <b>World</b></p>" }
+              listMessagePage = fun _ _ _ -> task { return { Algebra.MessagePage.Messages = []; NextPageToken = None; ResultSizeEstimate = 0L } } }
         try
             let! _ = db.initSchema ()
             let! _ = EmailSync.syncAccount m.Fs db logger clock provider config "test-account"
@@ -389,7 +390,8 @@ let ``EmailSync_SyncAccount_SkipsBodyFetchWhenPresent`` () =
               getMessageBody = fun _ -> task {
                   bodyFetched <- true
                   return Some "Should not be called"
-              } }
+              }
+              listMessagePage = fun _ _ _ -> task { return { Algebra.MessagePage.Messages = []; NextPageToken = None; ResultSizeEstimate = 0L } } }
         try
             let! _ = db.initSchema ()
             let! _ = EmailSync.syncAccount m.Fs db logger clock provider config "test-account"
