@@ -426,3 +426,122 @@ module EmailSync =
 
             return items |> Seq.toList
         }
+
+    // ─── Backfill ────────────────────────────────────────────────────
+
+    type BackfillState =
+        { PageToken: string option
+          Scanned: int
+          TotalEstimate: int64
+          Completed: bool
+          StartedAt: DateTimeOffset option }
+
+    let loadBackfillState (db: Algebra.Database) (account: string) : Task<BackfillState> =
+        task {
+            let! rows =
+                db.execReader
+                    "SELECT backfill_page_token, backfill_scanned, backfill_total_estimate, backfill_completed, backfill_started_at FROM sync_state WHERE account = @acc"
+                    [ ("@acc", boxVal account) ]
+            match rows with
+            | [] ->
+                return { PageToken = None; Scanned = 0; TotalEstimate = 0L; Completed = false; StartedAt = None }
+            | row :: _ ->
+                let getStr key = row |> Map.tryFind key |> Option.bind (fun v -> match v with :? System.DBNull -> None | :? string as s -> Some s | _ -> None)
+                let getInt key def = row |> Map.tryFind key |> Option.bind (fun v -> match v with :? int64 as i -> Some (int i) | _ -> None) |> Option.defaultValue def
+                let getInt64 key def = row |> Map.tryFind key |> Option.bind (fun v -> match v with :? int64 as i -> Some i | _ -> None) |> Option.defaultValue def
+                return
+                    { PageToken = getStr "backfill_page_token"
+                      Scanned = getInt "backfill_scanned" 0
+                      TotalEstimate = getInt64 "backfill_total_estimate" 0L
+                      Completed = getInt "backfill_completed" 0 > 0
+                      StartedAt = getStr "backfill_started_at" |> Option.bind (fun s -> match DateTimeOffset.TryParse(s) with true, d -> Some d | _ -> None) }
+        }
+
+    let private saveBackfillState (db: Algebra.Database) (account: string) (state: BackfillState) =
+        task {
+            let! _ =
+                db.execNonQuery
+                    """UPDATE sync_state
+                       SET backfill_page_token = @tok, backfill_scanned = @scanned,
+                           backfill_total_estimate = @est, backfill_completed = @done,
+                           backfill_started_at = @started
+                       WHERE account = @acc"""
+                    [ ("@tok", state.PageToken |> Option.map boxVal |> Option.defaultValue (boxVal System.DBNull.Value))
+                      ("@scanned", boxVal (int64 state.Scanned))
+                      ("@est", boxVal state.TotalEstimate)
+                      ("@done", boxVal (if state.Completed then 1L else 0L))
+                      ("@started", state.StartedAt |> Option.map (fun d -> boxVal (d.ToString("o"))) |> Option.defaultValue (boxVal System.DBNull.Value))
+                      ("@acc", boxVal account) ]
+            ()
+        }
+
+    /// Run one batch of backfill for an account. Returns (newMessages, completed).
+    let backfillAccount
+        (fs: Algebra.FileSystem)
+        (db: Algebra.Database)
+        (logger: Algebra.Logger)
+        (clock: Algebra.Clock)
+        (provider: Algebra.EmailProvider)
+        (config: Domain.HermesConfig)
+        (account: Domain.AccountConfig)
+        : Task<int * bool> =
+        task {
+            let bf = account.Backfill
+            if not bf.Enabled then return (0, true)
+            else
+
+            let! state = loadBackfillState db account.Label
+            if state.Completed then return (0, true)
+            else
+
+            // Ensure sync_state row exists
+            let! _ =
+                db.execNonQuery
+                    "INSERT OR IGNORE INTO sync_state (account) VALUES (@acc)"
+                    [ ("@acc", boxVal account.Label) ]
+
+            let now = clock.utcNow ()
+            let startedAt = state.StartedAt |> Option.defaultValue now
+
+            // Build query
+            let query =
+                let parts = ResizeArray<string>()
+                if bf.AttachmentsOnly then parts.Add("has:attachment")
+                match bf.Since with
+                | Some since -> parts.Add($"after:{since.ToUnixTimeSeconds()}")
+                | None -> ()
+                if parts.Count = 0 then None else Some (parts |> String.concat " ")
+
+            let tokenLabel = state.PageToken |> Option.defaultValue "start"
+            logger.info $"[{account.Label}] Backfill page (scanned: {state.Scanned}, token: {tokenLabel})"
+
+            let! page = provider.listMessagePage state.PageToken query bf.BatchSize
+
+            let mutable newCount = 0
+            for msg in page.Messages do
+                let! exists = messageExists db account.Label msg.ProviderId
+                if not exists then
+                    do! recordMessage db account.Label msg (clock.utcNow ())
+                    let! atts = provider.getAttachments msg.ProviderId
+                    for att in atts do
+                        if int64 att.SizeBytes >= int64 config.MinAttachmentSize then
+                            let name = buildStandardName msg.Date msg.Sender att.FileName
+                            let destPath = IO.Path.Combine(config.ArchiveDir, "unclassified", name)
+                            do! fs.writeAllBytes destPath att.Content
+                            let sidecar = buildSidecar account.Label msg att name (computeSha256 att.Content) (clock.utcNow ())
+                            do! fs.writeAllText (destPath + ".meta.json") (serialiseSidecar sidecar)
+                            newCount <- newCount + 1
+
+            let completed = page.NextPageToken.IsNone
+            let newState =
+                { PageToken = page.NextPageToken
+                  Scanned = state.Scanned + page.Messages.Length
+                  TotalEstimate = if page.ResultSizeEstimate > 0L then page.ResultSizeEstimate else state.TotalEstimate
+                  Completed = completed
+                  StartedAt = Some startedAt }
+
+            do! saveBackfillState db account.Label newState
+            logger.info $"[{account.Label}] Backfill batch: {newCount} new, {page.Messages.Length} scanned, completed={completed}"
+
+            return (newCount, completed)
+        }

@@ -155,9 +155,68 @@ module GmailProvider =
                         return None
                 }
 
+            let listPage (pageToken: string option) (query: string option) (maxResults: int) : Task<Algebra.MessagePage> =
+                task {
+                    try
+                        let req = service.Users.Messages.List("me")
+                        req.MaxResults <- int64 maxResults |> Nullable
+
+                        match query with
+                        | Some q -> req.Q <- q
+                        | None -> req.Q <- "has:attachment"
+
+                        match pageToken with
+                        | Some t -> req.PageToken <- t
+                        | None -> ()
+
+                        let! response = req.ExecuteAsync()
+
+                        if response.Messages = null || response.Messages.Count = 0 then
+                            return ({ Messages = []; NextPageToken = None; ResultSizeEstimate = 0L } : Algebra.MessagePage)
+                        else
+                            let! messages =
+                                response.Messages
+                                |> Seq.map (fun stub ->
+                                    task {
+                                        let getReq = service.Users.Messages.Get("me", stub.Id)
+                                        getReq.Format <- UsersResource.MessagesResource.GetRequest.FormatEnum.Metadata |> Nullable
+                                        let! msg = getReq.ExecuteAsync()
+                                        let headers = msg.Payload.Headers |> Seq.map (fun h -> h.Name, h.Value) |> dict
+                                        let tryHeader key = match headers.TryGetValue(key) with true, v -> Some v | _ -> None
+
+                                        return
+                                            ({ ProviderId = msg.Id
+                                               ThreadId = if msg.ThreadId <> null then msg.ThreadId else ""
+                                               Sender = tryHeader "From"
+                                               Subject = tryHeader "Subject"
+                                               Date =
+                                                 tryHeader "Date"
+                                                 |> Option.bind (fun s -> match DateTimeOffset.TryParse(s) with true, d -> Some d | _ -> None)
+                                               Labels = (if msg.LabelIds <> null then msg.LabelIds |> Seq.toList else [])
+                                               HasAttachments = true
+                                               BodyText = None } : Domain.EmailMessage)
+                                    })
+                                |> Task.WhenAll
+
+                            let nextToken =
+                                match response.NextPageToken with
+                                | null -> None
+                                | t -> Some t
+
+                            let result : Algebra.MessagePage =
+                                { Messages = messages |> Array.toList
+                                  NextPageToken = nextToken
+                                  ResultSizeEstimate = response.ResultSizeEstimate |> Option.ofNullable |> Option.map int64 |> Option.defaultValue 0L }
+                            return result
+                    with ex ->
+                        logger.error $"Gmail listPage failed for {label}: {ex.Message}"
+                        return ({ Messages = []; NextPageToken = None; ResultSizeEstimate = 0L } : Algebra.MessagePage)
+                }
+
             let provider : Algebra.EmailProvider =
                 { listNewMessages = listMessages
                   getAttachments = getAtts
-                  getMessageBody = getBody }
+                  getMessageBody = getBody
+                  listMessagePage = listPage }
             return provider
         }

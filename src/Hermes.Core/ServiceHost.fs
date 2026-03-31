@@ -169,6 +169,16 @@ module ServiceHost =
                         let! _ = Classifier.processFile fs db logger clock rules config.ArchiveDir file
                         ()
 
+                // 3.5. Backfill historical email
+                for account in config.Accounts do
+                    if account.Backfill.Enabled then
+                        try
+                            let! provider = GmailProvider.create configDir account.Label logger
+                            let! _newCount, _completed = EmailSync.backfillAccount fs db logger clock provider config account
+                            ()
+                        with ex ->
+                            logger.warn $"Backfill failed for {account.Label}: {ex.Message}"
+
                 // 4. Extract text from un-extracted documents
                 logger.debug "Running extraction on backlog..."
                 let extractor : Algebra.TextExtractor =

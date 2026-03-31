@@ -112,10 +112,14 @@ let createRawDb () : Algebra.Database =
 
 // ─── Mock email provider ─────────────────────────────────────────────
 
+let private emptyPage : Algebra.MessagePage =
+    { Messages = []; NextPageToken = None; ResultSizeEstimate = 0L }
+
 let emptyProvider : Algebra.EmailProvider =
     { listNewMessages = fun _ -> task { return [] }
       getAttachments = fun _ -> task { return [] }
-      getMessageBody = fun _ -> task { return None } }
+      getMessageBody = fun _ -> task { return None }
+      listMessagePage = fun _ _ _ -> task { return emptyPage } }
 
 let mockProvider
     (messages: Domain.EmailMessage list)
@@ -123,7 +127,8 @@ let mockProvider
     : Algebra.EmailProvider =
     { listNewMessages = fun _ -> task { return messages }
       getAttachments = fun id -> task { return attachments |> Map.tryFind id |> Option.defaultValue [] }
-      getMessageBody = fun _ -> task { return None } }
+      getMessageBody = fun _ -> task { return None }
+      listMessagePage = fun _ _ _ -> task { return emptyPage } }
 
 // ─── Mock embedding client ───────────────────────────────────────────
 

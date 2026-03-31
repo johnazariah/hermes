@@ -52,10 +52,16 @@ module Algebra =
 
     // ─── Email provider ──────────────────────────────────────────────
 
+    type MessagePage =
+        { Messages: Domain.EmailMessage list
+          NextPageToken: string option
+          ResultSizeEstimate: int64 }
+
     type EmailProvider =
         { listNewMessages: DateTimeOffset option -> Task<Domain.EmailMessage list>
           getAttachments: string -> Task<Domain.EmailAttachment list>
-          getMessageBody: string -> Task<string option> }
+          getMessageBody: string -> Task<string option>
+          listMessagePage: string option -> string option -> int -> Task<MessagePage> }
 
     // ─── Rules engine ────────────────────────────────────────────────
 
