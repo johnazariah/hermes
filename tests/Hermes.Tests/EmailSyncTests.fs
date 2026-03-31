@@ -9,7 +9,9 @@ open Hermes.Core
 
 let private emailTestConfig archiveDir : Domain.HermesConfig =
     { TestHelpers.testConfig archiveDir with
-        Accounts = [ { Label = "test-account"; Provider = "gmail" } ]
+        Accounts =
+            [ { Label = "test-account"; Provider = "gmail"
+                Backfill = { Domain.BackfillConfig.Enabled = false; Since = None; BatchSize = 50; AttachmentsOnly = true; IncludeBodies = false } } ]
         MinAttachmentSize = 100 }
 
 let sampleMessage : Domain.EmailMessage =

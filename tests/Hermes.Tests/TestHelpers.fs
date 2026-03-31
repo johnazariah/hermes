@@ -147,7 +147,9 @@ let failingEmbedder : Algebra.EmbeddingClient =
 let testConfig (archiveDir: string) : Domain.HermesConfig =
     { ArchiveDir = archiveDir
       Credentials = "/test/creds.json"
-      Accounts = [ { Label = "test"; Provider = "gmail" } ]
+      Accounts =
+        [ { Label = "test"; Provider = "gmail"
+            Backfill = { Domain.BackfillConfig.Enabled = true; Since = None; BatchSize = 50; AttachmentsOnly = true; IncludeBodies = false } } ]
       SyncIntervalMinutes = 15
       MinAttachmentSize = 20480
       WatchFolders = []

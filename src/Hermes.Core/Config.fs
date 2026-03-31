@@ -14,11 +14,26 @@ module Config =
     // ─── YAML DTO types (mutable, required by YamlDotNet) ────────────
 
     [<CLIMutable>]
+    type BackfillDto =
+        { [<YamlMember(Alias = "enabled")>]
+          Enabled: bool
+          [<YamlMember(Alias = "since")>]
+          Since: string
+          [<YamlMember(Alias = "batch_size")>]
+          BatchSize: int
+          [<YamlMember(Alias = "attachments_only")>]
+          AttachmentsOnly: bool
+          [<YamlMember(Alias = "include_bodies")>]
+          IncludeBodies: bool }
+
+    [<CLIMutable>]
     type AccountDto =
         { [<YamlMember(Alias = "label")>]
           Label: string
           [<YamlMember(Alias = "provider")>]
-          Provider: string }
+          Provider: string
+          [<YamlMember(Alias = "backfill")>]
+          Backfill: BackfillDto }
 
     [<CLIMutable>]
     type WatchFolderDto =
@@ -157,14 +172,29 @@ module Config =
     let private toConfig (dto: HermesConfigDto) : Domain.HermesConfig =
         let def = defaultConfig ()
 
+        let defaultBackfill : Domain.BackfillConfig =
+            { Enabled = true; Since = None; BatchSize = 50; AttachmentsOnly = true; IncludeBodies = false }
+
         let accounts : Domain.AccountConfig list =
             if isNull (box dto.Accounts) || dto.Accounts.Length = 0 then
                 def.Accounts
             else
                 dto.Accounts
                 |> Array.map (fun a ->
+                    let bf =
+                        if isNull (box a.Backfill) then defaultBackfill
+                        else
+                            { Domain.BackfillConfig.Enabled = a.Backfill.Enabled
+                              Since =
+                                let raw = a.Backfill.Since
+                                if System.Object.ReferenceEquals(raw, null) || System.String.IsNullOrWhiteSpace(raw) then None
+                                else match System.DateTimeOffset.TryParse(raw) with true, d -> Some d | _ -> None
+                              BatchSize = if a.Backfill.BatchSize = 0 then 50 else a.Backfill.BatchSize
+                              AttachmentsOnly = a.Backfill.AttachmentsOnly
+                              IncludeBodies = a.Backfill.IncludeBodies }
                     ({ Label = a.Label |> orDefault ""
-                       Provider = a.Provider |> orDefault "gmail" } : Domain.AccountConfig))
+                       Provider = a.Provider |> orDefault "gmail"
+                       Backfill = bf } : Domain.AccountConfig))
                 |> Array.toList
 
         let watchFolders : Domain.WatchFolderConfig list =

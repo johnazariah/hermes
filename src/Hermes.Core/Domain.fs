@@ -76,9 +76,17 @@ module Domain =
     type SchemaVersion = { Version: int; AppliedAt: DateTimeOffset }
 
     /// Gmail account configuration.
+    type BackfillConfig =
+        { Enabled: bool
+          Since: DateTimeOffset option
+          BatchSize: int
+          AttachmentsOnly: bool
+          IncludeBodies: bool }
+
     type AccountConfig =
         { Label: string
-          Provider: string }
+          Provider: string
+          Backfill: BackfillConfig }
 
     /// Watched folder configuration.
     type WatchFolderConfig =
@@ -132,6 +140,45 @@ module Domain =
     type ChatConfig =
         { Provider: ChatProviderKind
           AzureOpenAI: AzureOpenAIConfig }
+
+    // ─── Reminders ───────────────────────────────────────────────────
+
+    type ReminderStatus =
+        | Active
+        | Snoozed
+        | Completed
+        | Dismissed
+
+    module ReminderStatus =
+        let toString = function
+            | Active -> "active"
+            | Snoozed -> "snoozed"
+            | Completed -> "completed"
+            | Dismissed -> "dismissed"
+
+        let fromString = function
+            | "active" -> Active
+            | "snoozed" -> Snoozed
+            | "completed" -> Completed
+            | "dismissed" -> Dismissed
+            | _ -> Active
+
+    type Reminder =
+        { Id: int64
+          DocumentId: int64 option
+          Vendor: string option
+          Amount: decimal option
+          DueDate: DateTimeOffset option
+          Category: string
+          Status: ReminderStatus
+          SnoozedUntil: DateTimeOffset option
+          CreatedAt: DateTimeOffset
+          CompletedAt: DateTimeOffset option }
+
+    type ReminderSummary =
+        { OverdueCount: int
+          UpcomingCount: int
+          TotalActiveAmount: decimal }
 
     /// Root configuration record.
     type HermesConfig =
