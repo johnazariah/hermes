@@ -15,35 +15,35 @@ Extract text from PDFs and images, parse structured fields (date, amount, vendor
 ## Tasks
 
 ### 3.1 — Extraction Pipeline Task
-- [ ] Long-running `BackgroundService` task reading from `Channel<DocumentId>`
-- [ ] Picks up documents posted by the classifier (Phase 2)
-- [ ] Also supports polling: query DB for `extracted_at IS NULL` on startup (catch up on backlog)
-- [ ] Process one document at a time (serialised to limit GPU/CPU contention)
-- [ ] On success: update `documents` row with extracted fields, post to embed channel (Phase 5)
-- [ ] On failure: log error, leave `extracted_at = NULL`, move to next document
+- [x] Long-running `BackgroundService` task reading from `Channel<DocumentId>`
+- [x] Picks up documents posted by the classifier (Phase 2)
+- [x] Also supports polling: query DB for `extracted_at IS NULL` on startup (catch up on backlog)
+- [x] Process one document at a time (serialised to limit GPU/CPU contention)
+- [x] On success: update `documents` row with extracted fields, post to embed channel (Phase 5)
+- [x] On failure: log error, leave `extracted_at = NULL`, move to next document
 
 ### 3.2 — Native PDF Text Extraction
-- [ ] Use **PdfPig** (`UglyToad.PdfPig` NuGet) to extract text from PDFs with embedded text
-- [ ] Detect "scanned PDF" (image-only): if PdfPig returns <50 chars for a multi-page PDF, flag for OCR
-- [ ] Set `extraction_method = "pdfpig"` on the documents row
+- [x] Use **PdfPig** (`UglyToad.PdfPig` NuGet) to extract text from PDFs with embedded text
+- [x] Detect "scanned PDF" (image-only): if PdfPig returns <50 chars for a multi-page PDF, flag for OCR
+- [x] Set `extraction_method = "pdfpig"` on the documents row
 
 ### 3.3 — Ollama Vision OCR
-- [ ] For scanned/image PDFs: convert page to image, send to Ollama vision model (`llava`)
-- [ ] HTTP POST to `http://localhost:11434/api/generate` with base64 image
-- [ ] Prompt: "Extract all text from this document image. Return only the text, preserving layout."
-- [ ] Set `extraction_method = "ollama_vision"`
-- [ ] Graceful degradation: if Ollama unavailable, skip and leave `extracted_at = NULL`
-- [ ] For standalone images (JPEG, PNG, TIFF): same OCR pipeline
+- [x] For scanned/image PDFs: convert page to image, send to Ollama vision model (`llava`)
+- [x] HTTP POST to `http://localhost:11434/api/generate` with base64 image
+- [x] Prompt: "Extract all text from this document image. Return only the text, preserving layout."
+- [x] Set `extraction_method = "ollama_vision"`
+- [x] Graceful degradation: if Ollama unavailable, skip and leave `extracted_at = NULL`
+- [x] For standalone images (JPEG, PNG, TIFF): same OCR pipeline
 
 ### 3.4 — Azure Document Intelligence Fallback
-- [ ] If Ollama is unavailable and Azure credentials are configured:
-- [ ] Use Azure AI Document Intelligence REST API (`prebuilt-read` model)
-- [ ] Configurable endpoint and key in `config.yaml`
-- [ ] Set `extraction_method = "azure_document_intelligence"`
-- [ ] Respect rate limits and pricing awareness (log cost estimate per call)
+- [x] If Ollama is unavailable and Azure credentials are configured:
+- [x] Use Azure AI Document Intelligence REST API (`prebuilt-read` model)
+- [x] Configurable endpoint and key in `config.yaml`
+- [x] Set `extraction_method = "azure_document_intelligence"`
+- [x] Respect rate limits and pricing awareness (log cost estimate per call)
 
 ### 3.5 — Structured Field Parsing (Heuristics)
-- [ ] After text extraction, apply regex heuristics to parse common fields:
+- [x] After text extraction, apply regex heuristics to parse common fields:
 
 #### Date Extraction
 ```
@@ -73,26 +73,26 @@ Store in extracted_abn.
 ```
 
 ### 3.6 — Ollama Instruct for Complex Extraction (Optional)
-- [ ] For documents where regex heuristics fail or return low confidence:
-- [ ] Send extracted text to Ollama instruct model (`llama3.2:3b`)
-- [ ] Prompt: structured extraction template requesting date, amount, vendor, ABN as JSON
-- [ ] Parse the JSON response and populate fields
-- [ ] Only used as a fallback — regex heuristics first
-- [ ] Configurable: can be disabled in config
+- [x] For documents where regex heuristics fail or return low confidence:
+- [x] Send extracted text to Ollama instruct model (`llama3.2:3b`)
+- [x] Prompt: structured extraction template requesting date, amount, vendor, ABN as JSON
+- [x] Parse the JSON response and populate fields
+- [x] Only used as a fallback — regex heuristics first
+- [x] Configurable: can be disabled in config
 
 ### 3.7 — OCR Confidence
-- [ ] For documents processed by OCR (Ollama vision or Azure), estimate confidence:
+- [x] For documents processed by OCR (Ollama vision or Azure), estimate confidence:
   - PdfPig (native text): `ocr_confidence = NULL` (not applicable)
   - Ollama vision: `ocr_confidence` based on response quality heuristics (e.g. ratio of readable words)
   - Azure Document Intelligence: use the confidence score from the API response
-- [ ] Store in `documents.ocr_confidence` (0.0–1.0)
+- [x] Store in `documents.ocr_confidence` (0.0–1.0)
 
 ### 3.8 — CLI Command
-- [ ] `hermes extract` — process backlog of unextracted documents
-- [ ] `hermes extract --category invoices` — only extract files in a specific category
-- [ ] `hermes extract --force` — re-extract even if already extracted
-- [ ] `hermes extract --limit 50` — process at most N documents (for incremental runs)
-- [ ] Progress output: `[12/50] Extracting invoices/2025-03-15_bobplumbing_Invoice-2025-001.pdf...`
+- [x] `hermes extract` — process backlog of unextracted documents
+- [x] `hermes extract --category invoices` — only extract files in a specific category
+- [x] `hermes extract --force` — re-extract even if already extracted
+- [x] `hermes extract --limit 50` — process at most N documents (for incremental runs)
+- [x] Progress output: `[12/50] Extracting invoices/2025-03-15_bobplumbing_Invoice-2025-001.pdf...`
 
 ---
 
@@ -108,11 +108,11 @@ Store in extracted_abn.
 
 ## Acceptance Criteria
 
-- [ ] A PDF with embedded text → PdfPig extracts text, fields parsed via regex, row updated
-- [ ] A scanned PDF (image-only) → Ollama vision extracts text, fields parsed, row updated
-- [ ] If Ollama unavailable and Azure configured → Azure Doc Intelligence extracts text
-- [ ] If neither Ollama nor Azure available → extraction skipped, document still classified and searchable by metadata
-- [ ] Date, amount, vendor, ABN extracted correctly for standard invoices and statements
-- [ ] `hermes extract` processes the backlog and shows progress
-- [ ] `hermes extract --force` re-extracts previously extracted documents
-- [ ] Extraction failures don't block the pipeline — failed documents are logged and skipped
+- [x] A PDF with embedded text → PdfPig extracts text, fields parsed via regex, row updated
+- [x] A scanned PDF (image-only) → Ollama vision extracts text, fields parsed, row updated
+- [x] If Ollama unavailable and Azure configured → Azure Doc Intelligence extracts text
+- [x] If neither Ollama nor Azure available → extraction skipped, document still classified and searchable by metadata
+- [x] Date, amount, vendor, ABN extracted correctly for standard invoices and statements
+- [x] `hermes extract` processes the backlog and shows progress
+- [x] `hermes extract --force` re-extracts previously extracted documents
+- [x] Extraction failures don't block the pipeline — failed documents are logged and skipped

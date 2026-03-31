@@ -103,6 +103,36 @@ module Domain =
         { DocumentIntelligenceEndpoint: string
           DocumentIntelligenceKey: string }
 
+    /// Azure OpenAI configuration for cloud-based chat.
+    type AzureOpenAIConfig =
+        { Endpoint: string
+          ApiKey: string
+          DeploymentName: string
+          MaxTokens: int
+          TimeoutSeconds: int }
+
+    /// Which chat provider to use.
+    type ChatProviderKind =
+        | Ollama
+        | AzureOpenAI
+
+    module ChatProviderKind =
+        let fromString =
+            function
+            | "ollama" -> Ok Ollama
+            | "azure-openai" | "azure_openai" | "azureopenai" -> Ok AzureOpenAI
+            | other -> Error $"Unknown chat provider: {other}"
+
+        let toString =
+            function
+            | Ollama -> "ollama"
+            | AzureOpenAI -> "azure-openai"
+
+    /// Chat configuration: which provider + provider-specific settings.
+    type ChatConfig =
+        { Provider: ChatProviderKind
+          AzureOpenAI: AzureOpenAIConfig }
+
     /// Root configuration record.
     type HermesConfig =
         { ArchiveDir: string
@@ -113,7 +143,8 @@ module Domain =
           WatchFolders: WatchFolderConfig list
           Ollama: OllamaConfig
           Fallback: FallbackConfig
-          Azure: AzureConfig }
+          Azure: AzureConfig
+          Chat: ChatConfig }
 
     // ─── Email sync domain types ─────────────────────────────────────
 

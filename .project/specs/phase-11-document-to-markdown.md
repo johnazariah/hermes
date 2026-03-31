@@ -66,33 +66,33 @@ New:      Classify → Convert (→ .md file + extracted_text column) → Embed 
 ## Tasks
 
 ### 11.1 — Markdown Converter Algebra
-- [ ] Add `MarkdownConverter` to `Algebra.fs`:
+- [x] Add `MarkdownConverter` to `Algebra.fs`:
   ```fsharp
   type MarkdownConverter = {
       convert: string -> byte[] -> Task<Result<string, string>>  // filePath → fileContent → markdown
       supportedExtensions: string list
   }
   ```
-- [ ] The converter is selected based on file extension at the composition root
+- [x] The converter is selected based on file extension at the composition root
 
 ### 11.2 — PDF → Markdown Converter
-- [ ] Use PdfPig to extract text blocks with positions
-- [ ] Infer headings: text blocks with larger font size → `#`, `##`
-- [ ] Detect tables: aligned text blocks with consistent column positions → Markdown tables (best-effort)
-- [ ] Page breaks → `---` horizontal rule
-- [ ] Preserve paragraph structure (blank lines between text blocks)
-- [ ] Fallback: if structure detection fails, output as plain paragraphs (current behaviour wrapped in Markdown)
+- [x] Use PdfPig to extract text blocks with positions
+- [x] Infer headings: text blocks with larger font size → `#`, `##`
+- [x] Detect tables: aligned text blocks with consistent column positions → Markdown tables (best-effort)
+- [x] Page breaks → `---` horizontal rule
+- [x] Preserve paragraph structure (blank lines between text blocks)
+- [x] Fallback: if structure detection fails, output as plain paragraphs (current behaviour wrapped in Markdown)
 
 ### 11.3 — Scanned PDF / Image → Markdown Converter
-- [ ] For scanned/image PDFs and standalone images (JPEG, PNG, TIFF)
-- [ ] **Ollama prompt** (change from current): "Convert this document image to structured Markdown. Preserve any tables as Markdown tables, headings as # headings, and lists as bullet points. Return only the Markdown."
-- [ ] **Azure Document Intelligence fallback**: use `prebuilt-layout` model which returns structured output → convert to Markdown
-- [ ] Set `extraction_method = "ollama_vision_md"` or `"azure_doc_intelligence_md"`
+- [x] For scanned/image PDFs and standalone images (JPEG, PNG, TIFF)
+- [x] **Ollama prompt** (change from current): "Convert this document image to structured Markdown. Preserve any tables as Markdown tables, headings as # headings, and lists as bullet points. Return only the Markdown."
+- [x] **Azure Document Intelligence fallback**: use `prebuilt-layout` model which returns structured output → convert to Markdown
+- [x] Set `extraction_method = "ollama_vision_md"` or `"azure_doc_intelligence_md"`
 
 ### 11.4 — Word (.docx) → Markdown Converter
-- [ ] Add `DocumentFormat.OpenXml` NuGet package to `Hermes.Core`
-- [ ] Walk the document body: `document.MainDocumentPart.Document.Body`
-- [ ] Map elements:
+- [x] Add `DocumentFormat.OpenXml` NuGet package to `Hermes.Core`
+- [x] Walk the document body: `document.MainDocumentPart.Document.Body`
+- [x] Map elements:
   - `Paragraph` with heading style → `#` / `##` / `###` (based on outline level)
   - `Paragraph` with normal style → plain text
   - `Paragraph` with list style → `- ` bullet or `1. ` numbered
@@ -100,52 +100,52 @@ New:      Classify → Convert (→ .md file + extracted_text column) → Embed 
   - *Italic* → `*text*`
   - `Table` → Markdown table (walk rows and cells)
   - `Hyperlink` → `[text](url)`
-- [ ] Handle nested tables (flatten or indent)
-- [ ] Ignore images embedded in the document (or note `[image omitted]`)
-- [ ] Set `extraction_method = "openxml_docx"`
+- [x] Handle nested tables (flatten or indent)
+- [x] Ignore images embedded in the document (or note `[image omitted]`)
+- [x] Set `extraction_method = "openxml_docx"`
 
 ### 11.5 — Excel (.xlsx) → Markdown Converter
-- [ ] Same `DocumentFormat.OpenXml` package
-- [ ] For each sheet in the workbook:
+- [x] Same `DocumentFormat.OpenXml` package
+- [x] For each sheet in the workbook:
   - Output `## Sheet: {sheetName}`
   - Read all rows/cells → Markdown table
   - Resolve formulas to their cached values (don't evaluate)
   - Handle merged cells (duplicate content into each cell)
   - Limit: first 1000 rows per sheet (log warning if truncated)
-- [ ] If workbook has only one sheet, skip the `## Sheet:` heading
-- [ ] Set `extraction_method = "openxml_xlsx"`
+- [x] If workbook has only one sheet, skip the `## Sheet:` heading
+- [x] Set `extraction_method = "openxml_xlsx"`
 
 ### 11.6 — CSV → Markdown Converter
-- [ ] Read all lines via `File.ReadAllLines`
-- [ ] First line → table header
-- [ ] Remaining lines → table rows
-- [ ] Handle quoted fields with commas
-- [ ] Limit: first 1000 rows (log warning if truncated)
-- [ ] Set `extraction_method = "csv"`
+- [x] Read all lines via `File.ReadAllLines`
+- [x] First line → table header
+- [x] Remaining lines → table rows
+- [x] Handle quoted fields with commas
+- [x] Limit: first 1000 rows (log warning if truncated)
+- [x] Set `extraction_method = "csv"`
 
 ### 11.7 — YAML Frontmatter Generation
-- [ ] After conversion, prepend YAML frontmatter block with all known metadata:
+- [x] After conversion, prepend YAML frontmatter block with all known metadata:
   - `source`, `account`, `sender`, `subject`, `date`, `category`
   - `original_name`, `vendor`, `amount`, `abn`
   - `extraction_method`, `extracted_at`
-- [ ] Use the existing structured field parser (regex heuristics) on the Markdown body to populate vendor/amount/date/ABN fields
-- [ ] Ollama instruct model can also be used to extract structured fields from the Markdown
+- [x] Use the existing structured field parser (regex heuristics) on the Markdown body to populate vendor/amount/date/ABN fields
+- [x] Ollama instruct model can also be used to extract structured fields from the Markdown
 
 ### 11.8 — Write Sidecar .md File
-- [ ] After conversion, write `{saved_path}.md` alongside the original document
-- [ ] Store the full Markdown (without frontmatter) in `documents.extracted_text` for FTS5 indexing
-- [ ] Store the frontmatter YAML fields in the existing structured columns (`extracted_date`, `extracted_amount`, `extracted_vendor`, `extracted_abn`)
-- [ ] Update `documents.extraction_method` with the converter used
+- [x] After conversion, write `{saved_path}.md` alongside the original document
+- [x] Store the full Markdown (without frontmatter) in `documents.extracted_text` for FTS5 indexing
+- [x] Store the frontmatter YAML fields in the existing structured columns (`extracted_date`, `extracted_amount`, `extracted_vendor`, `extracted_abn`)
+- [x] Update `documents.extraction_method` with the converter used
 
 ### 11.9 — Heading-Aware Chunker for Embeddings
-- [ ] Refactor `Embeddings.chunkText` to use **heading-aware splitting**:
+- [x] Refactor `Embeddings.chunkText` to use **heading-aware splitting**:
   - Primary split: on `## ` boundaries (each section = one chunk)
   - If a section exceeds 1000 chars: fall back to the existing 500-char overlap splitter within that section
   - If no headings found: fall back entirely to the current char-based splitter
-- [ ] Each chunk inherits the section heading as context prefix: `"## Line Items\n| Description | ..."` → better embedding quality
+- [x] Each chunk inherits the section heading as context prefix: `"## Line Items\n| Description | ..."` → better embedding quality
 
 ### 11.10 — Supported File Types Configuration
-- [ ] Update `config.yaml` to support configurable file type list:
+- [x] Update `config.yaml` to support configurable file type list:
   ```yaml
   supported_types:
     - .pdf
@@ -157,14 +157,14 @@ New:      Classify → Convert (→ .md file + extracted_text column) → Embed 
     - .jpeg
     - .tiff
   ```
-- [ ] Default: all of the above
-- [ ] `min_attachment_size` filter applies to all types
-- [ ] Email sync and folder watcher respect this list
+- [x] Default: all of the above
+- [x] `min_attachment_size` filter applies to all types
+- [x] Email sync and folder watcher respect this list
 
 ### 11.11 — MCP `hermes_read_file` Enhancement
-- [ ] `hermes_read_file` should return the `.md` sidecar content if it exists (structured Markdown)
-- [ ] Fall back to `extracted_text` from DB if no sidecar file
-- [ ] Add a `format` parameter: `"markdown"` (default, returns .md sidecar) or `"raw"` (returns extracted_text from DB)
+- [x] `hermes_read_file` should return the `.md` sidecar content if it exists (structured Markdown)
+- [x] Fall back to `extracted_text` from DB if no sidecar file
+- [x] Add a `format` parameter: `"markdown"` (default, returns .md sidecar) or `"raw"` (returns extracted_text from DB)
 
 ---
 
@@ -180,15 +180,15 @@ New:      Classify → Convert (→ .md file + extracted_text column) → Embed 
 
 ## Acceptance Criteria
 
-- [ ] A PDF document → `.pdf.md` sidecar with structured Markdown + YAML frontmatter
-- [ ] A scanned PDF → Ollama converts to Markdown (structure preserved)
-- [ ] A `.docx` → headings, paragraphs, tables, bold/italic all preserved in Markdown
-- [ ] A `.xlsx` → each sheet as a Markdown table with `## Sheet:` heading
-- [ ] A `.csv` → single Markdown table
-- [ ] YAML frontmatter contains source metadata + extracted fields
-- [ ] FTS5 search still works (extracted_text column populated with Markdown body)
-- [ ] Semantic search uses heading-aware chunks (better relevance for structured docs)
-- [ ] `hermes_read_file` returns `.md` sidecar content
-- [ ] `hermes search "plumber invoice table"` finds results from table content
-- [ ] Existing PDF pipeline still works (this is a refactor, not a rewrite)
-- [ ] Unsupported file types are logged and skipped gracefully
+- [x] A PDF document → `.pdf.md` sidecar with structured Markdown + YAML frontmatter
+- [x] A scanned PDF → Ollama converts to Markdown (structure preserved)
+- [x] A `.docx` → headings, paragraphs, tables, bold/italic all preserved in Markdown
+- [x] A `.xlsx` → each sheet as a Markdown table with `## Sheet:` heading
+- [x] A `.csv` → single Markdown table
+- [x] YAML frontmatter contains source metadata + extracted fields
+- [x] FTS5 search still works (extracted_text column populated with Markdown body)
+- [x] Semantic search uses heading-aware chunks (better relevance for structured docs)
+- [x] `hermes_read_file` returns `.md` sidecar content
+- [x] `hermes search "plumber invoice table"` finds results from table content
+- [x] Existing PDF pipeline still works (this is a refactor, not a rewrite)
+- [x] Unsupported file types are logged and skipped gracefully

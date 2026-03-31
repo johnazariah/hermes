@@ -2,11 +2,13 @@ namespace Hermes.Core
 
 open System
 open System.Net.Http
+open System.Net.Http.Headers
 open System.Text
 open System.Text.Json
 open System.Threading.Tasks
 
-/// Chat interface: query Hermes index, optionally enhance with Ollama LLM.
+/// Chat interface: query Hermes index, optionally enhance with LLM.
+/// Supports Ollama (local) and Azure OpenAI (cloud) as chat providers.
 [<RequireQualifiedAccess>]
 module Chat =
 
@@ -15,6 +17,8 @@ module Chat =
         { Query: string
           Results: Search.SearchResult list
           AiSummary: string option }
+
+    // ─── Shared prompt building ──────────────────────────────────────
 
     /// Format search results as context for the LLM prompt.
     let private formatResultsForPrompt (results: Search.SearchResult list) : string =
@@ -27,16 +31,19 @@ module Chat =
             $"{i + 1}. [{r.Category}] {name} ({date}) {amount}\n   {snippet}")
         |> String.concat "\n"
 
-    /// Build the LLM prompt from query + search results.
-    let private buildPrompt (query: string) (context: string) : string =
-        $"""You are Hermes, a personal document assistant. Based on the following documents from the user's archive, answer their question concisely.
+    /// Build the system prompt.
+    let private systemPrompt = "You are Hermes, a personal document assistant. Answer questions concisely based on the provided documents, referencing document names and dates where relevant."
 
-Documents found:
+    /// Build the user prompt from query + search results.
+    let private buildUserPrompt (query: string) (context: string) : string =
+        $"""Documents found:
 {context}
 
 Question: {query}
 
-Answer briefly and specifically, referencing document names and dates where relevant."""
+Answer briefly and specifically."""
+
+    // ─── Ollama provider ─────────────────────────────────────────────
 
     /// Ask Ollama to summarise search results in natural language.
     let askOllama (ollamaUrl: string) (model: string) (query: string) (results: Search.SearchResult list) : Task<Result<string, string>> =
@@ -46,7 +53,7 @@ Answer briefly and specifically, referencing document names and dates where rele
             else
                 try
                     let context = formatResultsForPrompt results
-                    let prompt = buildPrompt query context
+                    let prompt = $"{systemPrompt}\n\n{buildUserPrompt query context}"
                     use client = new HttpClient(Timeout = TimeSpan.FromSeconds(60.0))
                     let payload = JsonSerializer.Serialize({| model = model; prompt = prompt; stream = false |})
                     let content = new StringContent(payload, Encoding.UTF8, "application/json")
@@ -65,6 +72,80 @@ Answer briefly and specifically, referencing document names and dates where rele
                 with ex ->
                     return Error $"Ollama error: {ex.Message}"
         }
+
+    // ─── Azure OpenAI provider ───────────────────────────────────────
+
+    /// Ask Azure OpenAI to summarise search results in natural language.
+    let askAzureOpenAI (config: Domain.AzureOpenAIConfig) (query: string) (results: Search.SearchResult list) : Task<Result<string, string>> =
+        task {
+            if results.IsEmpty then
+                return Ok "No documents found matching your query."
+            else
+                try
+                    let context = formatResultsForPrompt results
+                    let userMessage = buildUserPrompt query context
+                    let timeout = float (max config.TimeoutSeconds 30)
+                    use client = new HttpClient(Timeout = TimeSpan.FromSeconds(timeout))
+                    let endpoint = config.Endpoint.TrimEnd('/')
+                    let url = $"{endpoint}/openai/deployments/{config.DeploymentName}/chat/completions?api-version=2024-06-01"
+
+                    let payload =
+                        JsonSerializer.Serialize(
+                            {| messages =
+                                [| {| role = "system"; content = systemPrompt |}
+                                   {| role = "user"; content = userMessage |} |]
+                               max_tokens = config.MaxTokens
+                               temperature = 0.3 |})
+
+                    let content = new StringContent(payload, Encoding.UTF8, "application/json")
+                    client.DefaultRequestHeaders.Add("api-key", config.ApiKey)
+
+                    let! response = client.PostAsync(url, content)
+                    let! body = response.Content.ReadAsStringAsync()
+
+                    if not response.IsSuccessStatusCode then
+                        return Error $"Azure OpenAI returned {response.StatusCode}: {body}"
+                    else
+                        let doc = JsonDocument.Parse(body)
+                        let choices = doc.RootElement.GetProperty("choices")
+
+                        if choices.GetArrayLength() = 0 then
+                            return Ok "No answer generated."
+                        else
+                            let messageContent =
+                                choices.[0]
+                                    .GetProperty("message")
+                                    .GetProperty("content")
+                                    .GetString()
+                                |> Option.ofObj
+
+                            match messageContent with
+                            | None -> return Ok "No answer generated."
+                            | Some s when String.IsNullOrWhiteSpace(s) -> return Ok "No answer generated."
+                            | Some s -> return Ok s
+                with ex ->
+                    return Error $"Azure OpenAI error: {ex.Message}"
+        }
+
+    // ─── Provider dispatch ───────────────────────────────────────────
+
+    /// Ask the configured LLM provider to summarise search results.
+    let private askProvider
+        (chatConfig: Domain.ChatConfig)
+        (ollamaUrl: string)
+        (ollamaModel: string)
+        (query: string)
+        (results: Search.SearchResult list)
+        : Task<Result<string, string>> =
+        match chatConfig.Provider with
+        | Domain.ChatProviderKind.AzureOpenAI when
+            not (String.IsNullOrWhiteSpace(chatConfig.AzureOpenAI.Endpoint))
+            && not (String.IsNullOrWhiteSpace(chatConfig.AzureOpenAI.ApiKey)) ->
+            askAzureOpenAI chatConfig.AzureOpenAI query results
+        | _ ->
+            askOllama ollamaUrl ollamaModel query results
+
+    // ─── Public API ──────────────────────────────────────────────────
 
     /// Run a chat query: search the index, optionally enhance with LLM.
     let query
@@ -87,6 +168,39 @@ Answer briefly and specifically, referencing document names and dates where rele
                 if useAi && not results.IsEmpty then
                     task {
                         let! result = askOllama ollamaUrl model queryText results
+                        return
+                            match result with
+                            | Ok s -> Some s
+                            | Error e -> Some $"(AI unavailable: {e})"
+                    }
+                else
+                    task { return None }
+
+            return { Query = queryText; Results = results; AiSummary = aiSummary }
+        }
+
+    /// Run a chat query with provider-aware LLM dispatch.
+    let queryWithProvider
+        (db: Algebra.Database)
+        (chatConfig: Domain.ChatConfig)
+        (ollamaUrl: string)
+        (ollamaModel: string)
+        (useAi: bool)
+        (queryText: string)
+        : Task<ChatResponse> =
+        task {
+            let filter : Search.SearchFilter =
+                { Query = queryText
+                  Category = None; Sender = None; DateFrom = None
+                  DateTo = None; Account = None; SourceType = None
+                  Limit = 10 }
+
+            let! results = Search.executeUnified db filter
+
+            let! aiSummary =
+                if useAi && not results.IsEmpty then
+                    task {
+                        let! result = askProvider chatConfig ollamaUrl ollamaModel queryText results
                         return
                             match result with
                             | Ok s -> Some s

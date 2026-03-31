@@ -1,38 +1,45 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Controls.Shapes;
 using Avalonia.Input;
 using Avalonia.Markup.Xaml;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Google.Apis.Auth.OAuth2;
 using Google.Apis.Gmail.v1;
 using Google.Apis.Util.Store;
+using Hermes.App.ViewModels;
 using Hermes.Core;
-using Microsoft.Data.Sqlite;
-using Microsoft.FSharp.Core;
 using System;
-using System.Collections.Generic;
-using System.IO;
+using System.Collections.Specialized;
+using System.Diagnostics;
 using System.Linq;
-using System.Net.Http;
-using System.Text.Json;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+
+using Path = System.IO.Path;
 
 namespace Hermes.App.Views;
 
 public partial class ShellWindow : Window
 {
-    private readonly HermesServiceBridge _bridge;
+    private readonly ShellViewModel _vm;
     private readonly DispatcherTimer _refreshTimer;
-    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(3) };
 
-    // Named controls (resolved once after InitializeComponent)
-    private TextBlock _ollamaStatus = null!;
-    private TextBlock _ollamaModels = null!;
-    private TextBlock _indexStats = null!;
-    private TextBlock _categorySummary = null!;
-    private TextBlock _accountsList = null!;
-    private TextBlock _watchFoldersList = null!;
+    // Resolved controls
+    private Ellipse _ollamaDot = null!;
+    private TextBlock _ollamaStatusText = null!;
+    private TextBlock _ollamaModelsText = null!;
+    private TextBlock _indexDocCount = null!;
+    private ProgressBar _extractedBar = null!;
+    private TextBlock _extractedCount = null!;
+    private ProgressBar _embeddedBar = null!;
+    private TextBlock _embeddedCount = null!;
+    private TextBlock _categoryText = null!;
+    private TextBlock _accountsText = null!;
+    private TextBlock _watchFoldersText = null!;
     private TextBlock _lastSyncText = null!;
     private Button _syncNowButton = null!;
     private Button _pauseButton = null!;
@@ -40,32 +47,45 @@ public partial class ShellWindow : Window
     private ScrollViewer _chatScroller = null!;
     private TextBox _chatInput = null!;
     private ToggleButton _aiToggle = null!;
+    private WrapPanel _suggestedQueries = null!;
+    private Ellipse _statusDot = null!;
+    private TextBlock _statusBarText = null!;
 
     public ShellWindow(HermesServiceBridge bridge)
     {
-        _bridge = bridge;
+        _vm = new ShellViewModel(bridge);
         InitializeComponent();
         ResolveControls();
-        WireUpButtons();
-        AddChatBubble("Hermes", "Welcome! Ask me anything about your documents.\nToggle 🧠 for AI-enhanced answers.");
+        WireUpEvents();
+
+        _vm.AddWelcomeMessage();
+        _vm.Messages.CollectionChanged += OnMessagesChanged;
+        RenderAllMessages();
+
+        _vm.PropertyChanged += (_, e) => Dispatcher.UIThread.Post(() => OnViewModelChanged(e.PropertyName));
 
         _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
-        _refreshTimer.Tick += async (_, _) => await RefreshStatusAsync();
+        _refreshTimer.Tick += async (_, _) => await _vm.RefreshAsync();
         _refreshTimer.Start();
 
-        _ = RefreshStatusAsync();
+        _ = _vm.RefreshAsync();
     }
 
     private void InitializeComponent() => AvaloniaXamlLoader.Load(this);
 
     private void ResolveControls()
     {
-        _ollamaStatus = this.FindControl<TextBlock>("OllamaStatus")!;
-        _ollamaModels = this.FindControl<TextBlock>("OllamaModels")!;
-        _indexStats = this.FindControl<TextBlock>("IndexStats")!;
-        _categorySummary = this.FindControl<TextBlock>("CategorySummary")!;
-        _accountsList = this.FindControl<TextBlock>("AccountsList")!;
-        _watchFoldersList = this.FindControl<TextBlock>("WatchFoldersList")!;
+        _ollamaDot = this.FindControl<Ellipse>("OllamaDot")!;
+        _ollamaStatusText = this.FindControl<TextBlock>("OllamaStatusText")!;
+        _ollamaModelsText = this.FindControl<TextBlock>("OllamaModelsText")!;
+        _indexDocCount = this.FindControl<TextBlock>("IndexDocCount")!;
+        _extractedBar = this.FindControl<ProgressBar>("ExtractedBar")!;
+        _extractedCount = this.FindControl<TextBlock>("ExtractedCount")!;
+        _embeddedBar = this.FindControl<ProgressBar>("EmbeddedBar")!;
+        _embeddedCount = this.FindControl<TextBlock>("EmbeddedCount")!;
+        _categoryText = this.FindControl<TextBlock>("CategoryText")!;
+        _accountsText = this.FindControl<TextBlock>("AccountsText")!;
+        _watchFoldersText = this.FindControl<TextBlock>("WatchFoldersText")!;
         _lastSyncText = this.FindControl<TextBlock>("LastSyncText")!;
         _syncNowButton = this.FindControl<Button>("SyncNowButton")!;
         _pauseButton = this.FindControl<Button>("PauseButton")!;
@@ -73,202 +93,118 @@ public partial class ShellWindow : Window
         _chatScroller = this.FindControl<ScrollViewer>("ChatScroller")!;
         _chatInput = this.FindControl<TextBox>("ChatInput")!;
         _aiToggle = this.FindControl<ToggleButton>("AiToggle")!;
+        _suggestedQueries = this.FindControl<WrapPanel>("SuggestedQueries")!;
+        _statusDot = this.FindControl<Ellipse>("StatusDot")!;
+        _statusBarText = this.FindControl<TextBlock>("StatusBarText")!;
     }
 
-    private void WireUpButtons()
+    private void WireUpEvents()
     {
-        _syncNowButton.Click += async (_, _) => await HandleSyncNowAsync();
-        _pauseButton.Click += (_, _) => HandlePauseToggle();
+        _syncNowButton.Click += async (_, _) =>
+        {
+            _syncNowButton.IsEnabled = false;
+            _syncNowButton.Content = "⏳ Syncing...";
+            await _vm.SyncNowAsync();
+            _syncNowButton.Content = "⟳ Sync Now";
+            _syncNowButton.IsEnabled = true;
+        };
+
+        _pauseButton.Click += (_, _) =>
+        {
+            _vm.TogglePause();
+            _pauseButton.Content = _vm.IsPaused ? "▶ Resume" : "⏸ Pause";
+        };
+
         this.FindControl<Button>("SettingsButton")!.Click += async (_, _) => await ShowSettingsDialogAsync();
         this.FindControl<Button>("AddAccountButton")!.Click += async (_, _) => await AddGmailAccountAsync();
         this.FindControl<Button>("AddWatchFolderButton")!.Click += async (_, _) => await AddWatchFolderAsync();
         this.FindControl<Button>("SendButton")!.Click += async (_, _) => await HandleSendAsync();
+
         _chatInput.KeyDown += async (_, e) =>
         {
             if (e.Key == Key.Enter) await HandleSendAsync();
         };
-    }
 
-    // ── Status refresh (every 5s) ──────────────────────────────────────
+        _aiToggle.IsCheckedChanged += (_, _) => _vm.AiEnabled = _aiToggle.IsChecked == true;
 
-    private async Task RefreshStatusAsync()
-    {
-        try
+        // Wire up suggested query chips
+        foreach (var child in _suggestedQueries.Children.OfType<Button>())
         {
-            await _bridge.RefreshStatusAsync();
-        }
-        catch
-        {
-            // Service not running yet — that's fine
-        }
-
-        try
-        {
-            await RefreshOllamaStatusAsync();
-            RefreshIndexStats();
-            RefreshCategorySummary();
-            RefreshAccountsList();
-            RefreshWatchFoldersList();
-            RefreshLastSync();
-        }
-        catch
-        {
-            // Never crash the timer
-        }
-    }
-
-    private async Task RefreshOllamaStatusAsync()
-    {
-        var baseUrl = _bridge.Config?.Ollama.BaseUrl ?? "http://localhost:11434";
-        try
-        {
-            var response = await _http.GetAsync($"{baseUrl.TrimEnd('/')}/api/tags");
-            if (response.IsSuccessStatusCode)
+            var chipText = child.Content?.ToString() ?? "";
+            child.Click += async (_, _) =>
             {
-                _ollamaStatus.Text = "✅ Available";
-                var json = await response.Content.ReadAsStringAsync();
-                var doc = JsonDocument.Parse(json);
-                var names = doc.RootElement.GetProperty("models").EnumerateArray()
-                    .Select(m => m.GetProperty("name").GetString())
-                    .Where(n => n is not null);
-                _ollamaModels.Text = string.Join(", ", names);
-            }
-            else
-            {
-                _ollamaStatus.Text = "❌ Unavailable";
-                _ollamaModels.Text = "";
-            }
-        }
-        catch
-        {
-            _ollamaStatus.Text = "❌ Unavailable";
-            _ollamaModels.Text = "";
+                _chatInput.Text = chipText;
+                await HandleSendAsync();
+            };
         }
     }
 
-    private void RefreshIndexStats()
+    // ── ViewModel → View sync ──────────────────────────────────────
+
+    private void OnViewModelChanged(string? propertyName)
     {
-        var status = _bridge.LastStatus;
-        long docCount = status?.DocumentCount ?? 0;
-
-        long extracted = 0, embedded = 0;
-        double sizeMb = 0;
-
-        var dbPath = Path.Combine(_bridge.ArchiveDir, "db.sqlite");
-        if (File.Exists(dbPath))
+        switch (propertyName)
         {
-            try
-            {
-                using var conn = new SqliteConnection($"Data Source={dbPath};Mode=ReadOnly");
-                conn.Open();
-                extracted = ScalarInt64(conn, "SELECT COUNT(*) FROM documents WHERE extracted_text IS NOT NULL");
-                embedded = ScalarInt64(conn, "SELECT COUNT(*) FROM documents WHERE embedded_at IS NOT NULL");
-                sizeMb = new FileInfo(dbPath).Length / (1024.0 * 1024.0);
-            }
-            catch
-            {
-                // DB may not exist yet
-            }
+            case nameof(ShellViewModel.OllamaStatus):
+                var ollama = _vm.OllamaStatus;
+                _ollamaDot.Fill = new SolidColorBrush(ollama.IsAvailable ? Color.Parse("#4CAF50") : Color.Parse("#F44336"));
+                _ollamaStatusText.Text = ollama.IsAvailable ? "Available" : "Unavailable";
+                _ollamaModelsText.Text = ollama.Models.Count > 0 ? string.Join(", ", ollama.Models) : "";
+                break;
+
+            case nameof(ShellViewModel.IndexStats):
+                var stats = _vm.IndexStats;
+                if (stats is null) break;
+                var docs = stats.DocumentCount;
+                _indexDocCount.Text = $"{docs:N0} documents";
+                _extractedBar.Maximum = Math.Max(docs, 1);
+                _extractedBar.Value = stats.ExtractedCount;
+                _extractedCount.Text = $"{stats.ExtractedCount:N0}/{docs:N0}";
+                _embeddedBar.Maximum = Math.Max(docs, 1);
+                _embeddedBar.Value = stats.EmbeddedCount;
+                _embeddedCount.Text = $"{stats.EmbeddedCount:N0}/{docs:N0}";
+                break;
+
+            case nameof(ShellViewModel.Categories):
+                var cats = _vm.Categories;
+                _categoryText.Text = cats.Count == 0 ? "" : string.Join("\n", cats.Select(c => $"{c.Category,-14} {c.Count,4}"));
+                break;
+
+            case nameof(ShellViewModel.Accounts):
+                var accts = _vm.Accounts;
+                _accountsText.Text = accts.Count == 0
+                    ? "No accounts configured."
+                    : string.Join("\n", accts.Select(a => $"● {a.Label}  {a.MessageCount} emails"));
+                break;
+
+            case nameof(ShellViewModel.LastSyncText):
+                _lastSyncText.Text = _vm.LastSyncText;
+                break;
+
+            case nameof(ShellViewModel.StatusBarText):
+                _statusBarText.Text = _vm.StatusBarText;
+                break;
+
+            case nameof(ShellViewModel.IsSyncing):
+                _statusDot.Fill = new SolidColorBrush(_vm.IsSyncing ? Color.Parse("#2196F3") : Color.Parse("#4CAF50"));
+                break;
+
+            case nameof(ShellViewModel.IsSearching):
+                // Could animate the send button or show a spinner
+                break;
         }
 
-        _indexStats.Text = $"{docCount} docs · {extracted} extracted · {embedded} embedded\nDB: {sizeMb:F1} MB";
+        // Update watch folders display
+        if (propertyName == nameof(ShellViewModel.StatusBarText))
+        {
+            var wf = _vm.WatchFolders;
+            _watchFoldersText.Text = wf.Count == 0
+                ? "None configured."
+                : string.Join("\n", wf.Select(f => $"{f.Path}  [{string.Join(", ", f.Patterns)}]"));
+        }
     }
 
-    private void RefreshCategorySummary()
-    {
-        var archiveDir = _bridge.ArchiveDir;
-        if (!Directory.Exists(archiveDir)) { _categorySummary.Text = ""; return; }
-
-        var dirs = Directory.GetDirectories(archiveDir);
-        var lines = new List<string>();
-        foreach (var dir in dirs)
-        {
-            var name = Path.GetFileName(dir);
-            if (name is "unclassified" or ".hermes") continue;
-            var count = Directory.GetFiles(dir, "*", SearchOption.AllDirectories).Length;
-            if (count > 0)
-                lines.Add($"  {name,-14} {count,4}");
-        }
-
-        _categorySummary.Text = lines.Count > 0 ? string.Join("\n", lines) : "";
-    }
-
-    private void RefreshAccountsList()
-    {
-        var config = _bridge.Config;
-        if (config is null || config.Accounts.IsEmpty)
-        {
-            _accountsList.Text = "No accounts configured.";
-            return;
-        }
-
-        var dbPath = Path.Combine(_bridge.ArchiveDir, "db.sqlite");
-        var msgCounts = new Dictionary<string, int>();
-        var syncTimes = new Dictionary<string, string>();
-
-        if (File.Exists(dbPath))
-        {
-            try
-            {
-                using var conn = new SqliteConnection($"Data Source={dbPath};Mode=ReadOnly");
-                conn.Open();
-                ReadAccountMsgCounts(conn, msgCounts);
-                ReadAccountSyncTimes(conn, syncTimes);
-            }
-            catch { /* DB may be locked or missing tables */ }
-        }
-
-        var lines = new List<string>();
-        foreach (var acct in config.Accounts)
-        {
-            var label = acct.Label;
-            var emails = msgCounts.GetValueOrDefault(label, 0);
-            var lastSync = syncTimes.GetValueOrDefault(label, "Never");
-            lines.Add($"  {label}  ✅ {emails} emails  last: {lastSync}");
-        }
-
-        _accountsList.Text = string.Join("\n", lines);
-    }
-
-    private void RefreshWatchFoldersList()
-    {
-        var config = _bridge.Config;
-        if (config is null || config.WatchFolders.IsEmpty)
-        {
-            _watchFoldersList.Text = "None configured.";
-            return;
-        }
-
-        var lines = config.WatchFolders
-            .Select(wf => $"  {wf.Path}  [{string.Join(", ", wf.Patterns)}]");
-        _watchFoldersList.Text = string.Join("\n", lines);
-    }
-
-    private void RefreshLastSync()
-    {
-        var status = _bridge.LastStatus;
-        if (status is null)
-        {
-            _lastSyncText.Text = "Last sync: Never";
-            return;
-        }
-
-        var syncAt = status.LastSyncAt;
-        if (syncAt is null || !FSharpOption<DateTimeOffset>.get_IsSome(syncAt))
-        {
-            _lastSyncText.Text = "Last sync: Never";
-            return;
-        }
-
-        var ago = DateTimeOffset.UtcNow - syncAt.Value;
-        var agoText = ago.TotalMinutes < 1 ? "just now"
-            : ago.TotalMinutes < 60 ? $"{(int)ago.TotalMinutes}m ago"
-            : ago.TotalHours < 24 ? $"{(int)ago.TotalHours}h ago"
-            : $"{(int)ago.TotalDays}d ago";
-        _lastSyncText.Text = $"Last sync: {agoText}";
-    }
-
-    // ── Chat ───────────────────────────────────────────────────────────
+    // ── Chat rendering ─────────────────────────────────────────────
 
     private async Task HandleSendAsync()
     {
@@ -276,146 +212,193 @@ public partial class ShellWindow : Window
         if (string.IsNullOrEmpty(query)) return;
 
         _chatInput.Text = "";
-        AddChatBubble("You", query);
+        _suggestedQueries.IsVisible = false;
 
-        var useAi = _aiToggle.IsChecked == true;
-        var dbPath = Path.Combine(_bridge.ArchiveDir, "db.sqlite");
+        await _vm.SendMessageAsync(query);
+    }
 
-        if (!File.Exists(dbPath))
+    private void OnMessagesChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (e.Action == NotifyCollectionChangedAction.Add && e.NewItems is not null)
         {
-            AddChatBubble("Hermes", "No database found. Run a sync first.");
-            return;
+            foreach (ChatMessage msg in e.NewItems)
+            {
+                Dispatcher.UIThread.Post(() =>
+                {
+                    _chatPanel.Children.Add(CreateMessageBubble(msg));
+                    _chatScroller.ScrollToEnd();
+                });
+            }
         }
-
-        try
+        else if (e.Action == NotifyCollectionChangedAction.Reset)
         {
-            var db = Database.fromPath(dbPath);
-            var ollamaUrl = _bridge.Config?.Ollama.BaseUrl ?? "http://localhost:11434";
-            var response = await Chat.query(db, ollamaUrl, "llama3:8b", useAi, query);
-
-            var text = FormatChatResponse(response, useAi);
-            AddChatBubble("Hermes", text);
-        }
-        catch (Exception ex)
-        {
-            AddChatBubble("Hermes", $"Search error: {ex.Message}");
+            Dispatcher.UIThread.Post(() => _chatPanel.Children.Clear());
         }
     }
 
-    private static string FormatChatResponse(Chat.ChatResponse response, bool useAi)
+    private void RenderAllMessages()
     {
-        var results = response.Results;
-        if (results.IsEmpty)
-            return "No results found.";
-
-        var lines = new List<string>();
-
-        // AI summary first
-        var aiSummary = response.AiSummary;
-        if (useAi && aiSummary is not null && FSharpOption<string>.get_IsSome(aiSummary))
-        {
-            lines.Add(aiSummary.Value);
-            lines.Add("");
-            lines.Add("Sources:");
-        }
-
-        foreach (var r in results)
-        {
-            var name = FSharpOption<string>.get_IsSome(r.OriginalName) ? r.OriginalName!.Value : Path.GetFileName(r.SavedPath);
-            var date = FSharpOption<string>.get_IsSome(r.EmailDate) ? r.EmailDate!.Value : "";
-            var amount = FSharpOption<double>.get_IsSome(r.ExtractedAmount) ? $" ${r.ExtractedAmount!.Value:F2}" : "";
-            var snippet = FSharpOption<string>.get_IsSome(r.Snippet) ? r.Snippet!.Value : "";
-            lines.Add($"📄 {name}  [{r.Category}]  {date}{amount}");
-            if (!string.IsNullOrEmpty(snippet))
-                lines.Add($"   {snippet}");
-        }
-
-        return string.Join("\n", lines);
+        _chatPanel.Children.Clear();
+        foreach (var msg in _vm.Messages)
+            _chatPanel.Children.Add(CreateMessageBubble(msg));
     }
 
-    private void AddChatBubble(string speaker, string text)
+    private static Control CreateMessageBubble(ChatMessage msg)
     {
-        var bubble = new StackPanel { Spacing = 2, Margin = new Avalonia.Thickness(0, 0, 0, 4) };
-
-        bubble.Children.Add(new TextBlock
+        var bubble = new Border
         {
-            Text = speaker,
-            FontWeight = Avalonia.Media.FontWeight.Bold,
-            FontSize = 12
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(12, 8),
+            Margin = msg.IsUser
+                ? new Thickness(60, 0, 0, 0)
+                : new Thickness(0, 0, 60, 0),
+            Background = new SolidColorBrush(msg.IsUser
+                ? Color.Parse("#1A4FC3F7")
+                : Color.Parse("#0A000000")),
+            HorizontalAlignment = msg.IsUser
+                ? Avalonia.Layout.HorizontalAlignment.Right
+                : Avalonia.Layout.HorizontalAlignment.Left,
+        };
+
+        var content = new StackPanel { Spacing = 4 };
+
+        // Speaker label
+        content.Children.Add(new TextBlock
+        {
+            Text = msg.Speaker,
+            FontWeight = FontWeight.SemiBold,
+            FontSize = 11,
+            Foreground = new SolidColorBrush(Color.Parse("#888"))
         });
 
-        bubble.Children.Add(new TextBlock
+        // Message text
+        content.Children.Add(new TextBlock
         {
-            Text = text,
-            TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+            Text = msg.Text,
+            TextWrapping = TextWrapping.Wrap,
             FontSize = 13
         });
 
-        _chatPanel.Children.Add(bubble);
-        _chatScroller.ScrollToEnd();
-    }
-
-    // ── Sync Now ───────────────────────────────────────────────────────
-
-    private async Task HandleSyncNowAsync()
-    {
-        _syncNowButton.IsEnabled = false;
-        _syncNowButton.Content = "⏳ Syncing...";
-
-        _bridge.RequestSync();
-
-        var startTime = DateTime.UtcNow;
-        for (var i = 0; i < 60; i++)
+        // Document cards
+        foreach (var doc in msg.Documents)
         {
-            await Task.Delay(1000);
-            await RefreshStatusAsync();
-
-            if (_bridge.LastStatus is { } s && s.LastSyncAt is not null
-                && FSharpOption<DateTimeOffset>.get_IsSome(s.LastSyncAt)
-                && s.LastSyncAt.Value > startTime.ToUniversalTime())
-            {
-                break;
-            }
+            content.Children.Add(CreateDocumentCard(doc));
         }
 
-        await RefreshStatusAsync();
-        _syncNowButton.Content = "⟳ Sync Now";
-        _syncNowButton.IsEnabled = true;
+        bubble.Child = content;
+        return bubble;
     }
 
-    // ── Pause ──────────────────────────────────────────────────────────
-
-    private void HandlePauseToggle()
+    private static Control CreateDocumentCard(DocumentCard doc)
     {
-        _bridge.TogglePause();
-        _pauseButton.Content = _bridge.IsPaused ? "▶ Resume" : "⏸ Pause";
+        var card = new Border
+        {
+            CornerRadius = new CornerRadius(6),
+            BorderBrush = new SolidColorBrush(Color.Parse("#20000000")),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(10, 8),
+            Margin = new Thickness(0, 4, 0, 0),
+            Background = new SolidColorBrush(Color.Parse("#06000000")),
+            Cursor = new Cursor(StandardCursorType.Hand)
+        };
+
+        var stack = new StackPanel { Spacing = 2 };
+
+        // File name + category
+        var header = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Spacing = 8 };
+        header.Children.Add(new TextBlock
+        {
+            Text = $"📄 {doc.FileName}",
+            FontSize = 12,
+            FontWeight = FontWeight.Medium
+        });
+
+        var categoryBadge = new Border
+        {
+            Background = new SolidColorBrush(Color.Parse("#E3F2FD")),
+            CornerRadius = new CornerRadius(3),
+            Padding = new Thickness(4, 1),
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+        };
+        categoryBadge.Child = new TextBlock
+        {
+            Text = doc.Category,
+            FontSize = 10,
+            Foreground = new SolidColorBrush(Color.Parse("#1565C0"))
+        };
+        header.Children.Add(categoryBadge);
+        stack.Children.Add(header);
+
+        // Date + amount
+        var meta = new System.Collections.Generic.List<string>();
+        if (doc.Date is not null) meta.Add(doc.Date);
+        if (doc.Amount is not null) meta.Add(doc.Amount);
+        if (meta.Count > 0)
+        {
+            stack.Children.Add(new TextBlock
+            {
+                Text = string.Join(" · ", meta),
+                FontSize = 11,
+                Foreground = new SolidColorBrush(Color.Parse("#888"))
+            });
+        }
+
+        // Snippet
+        if (!string.IsNullOrWhiteSpace(doc.Snippet))
+        {
+            stack.Children.Add(new TextBlock
+            {
+                Text = doc.Snippet,
+                FontSize = 11,
+                Foreground = new SolidColorBrush(Color.Parse("#666")),
+                TextWrapping = TextWrapping.Wrap,
+                MaxLines = 2
+            });
+        }
+
+        card.Child = stack;
+
+        // Click to open file
+        card.PointerPressed += (_, _) =>
+        {
+            var fullPath = doc.SavedPath;
+            if (!string.IsNullOrEmpty(fullPath) && File.Exists(fullPath))
+            {
+                if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                    Process.Start(new ProcessStartInfo(fullPath) { UseShellExecute = true });
+                else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+                    Process.Start("open", fullPath);
+            }
+        };
+
+        return card;
     }
 
-    // ── Settings dialog ────────────────────────────────────────────────
+    // ── Settings dialog ────────────────────────────────────────────
 
     private async Task ShowSettingsDialogAsync()
     {
-        var config = _bridge.Config;
+        var config = _vm.Bridge.Config;
         var dialog = new Window
         {
             Title = "Hermes Settings",
-            Width = 480, Height = 320,
+            Width = 480,
+            Height = 320,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             CanResize = false
         };
 
-        var archiveBox = new TextBox { Text = config?.ArchiveDir ?? _bridge.ArchiveDir, Margin = new Avalonia.Thickness(16, 4, 16, 8) };
-        var syncBox = new NumericUpDown { Value = config?.SyncIntervalMinutes ?? 15, Minimum = 1, Maximum = 1440, Margin = new Avalonia.Thickness(16, 4, 16, 8) };
-        var sizeBox = new NumericUpDown { Value = (config?.MinAttachmentSize ?? 20480) / 1024, Minimum = 1, Maximum = 10240, Margin = new Avalonia.Thickness(16, 4, 16, 8) };
-        var ollamaBox = new TextBox { Text = config?.Ollama.BaseUrl ?? "http://localhost:11434", Margin = new Avalonia.Thickness(16, 4, 16, 8) };
-        var statusLbl = new TextBlock { Text = "", Margin = new Avalonia.Thickness(16, 4) };
-        var saveBtn = new Button { Content = "Save", Margin = new Avalonia.Thickness(16, 8), HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center };
+        var syncBox = new NumericUpDown { Value = config?.SyncIntervalMinutes ?? 15, Minimum = 1, Maximum = 1440, Margin = new Thickness(16, 4, 16, 8) };
+        var sizeBox = new NumericUpDown { Value = (config?.MinAttachmentSize ?? 20480) / 1024, Minimum = 1, Maximum = 10240, Margin = new Thickness(16, 4, 16, 8) };
+        var ollamaBox = new TextBox { Text = config?.Ollama.BaseUrl ?? "http://localhost:11434", Margin = new Thickness(16, 4, 16, 8) };
+        var statusLbl = new TextBlock { Text = "", Margin = new Thickness(16, 4) };
+        var saveBtn = new Button { Content = "Save", Margin = new Thickness(16, 8), HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center };
 
         saveBtn.Click += async (_, _) =>
         {
             try
             {
-                await _bridge.UpdateConfigAsync(
+                await _vm.Bridge.UpdateConfigAsync(
                     (int)(syncBox.Value ?? 15),
                     (int)(sizeBox.Value ?? 20),
                     ollamaBox.Text ?? "http://localhost:11434");
@@ -428,14 +411,12 @@ public partial class ShellWindow : Window
         };
 
         var panel = new StackPanel();
-        panel.Children.Add(new TextBlock { Text = "Settings", FontSize = 16, FontWeight = Avalonia.Media.FontWeight.Bold, Margin = new Avalonia.Thickness(16, 16, 16, 4) });
-        panel.Children.Add(new TextBlock { Text = "Archive path:", Margin = new Avalonia.Thickness(16, 4, 16, 0) });
-        panel.Children.Add(archiveBox);
-        panel.Children.Add(new TextBlock { Text = "Sync interval (minutes):", Margin = new Avalonia.Thickness(16, 4, 16, 0) });
+        panel.Children.Add(new TextBlock { Text = "Settings", FontSize = 16, FontWeight = FontWeight.Bold, Margin = new Thickness(16, 16, 16, 4) });
+        panel.Children.Add(new TextBlock { Text = "Sync interval (minutes):", Margin = new Thickness(16, 4, 16, 0) });
         panel.Children.Add(syncBox);
-        panel.Children.Add(new TextBlock { Text = "Min attachment size (KB):", Margin = new Avalonia.Thickness(16, 4, 16, 0) });
+        panel.Children.Add(new TextBlock { Text = "Min attachment size (KB):", Margin = new Thickness(16, 4, 16, 0) });
         panel.Children.Add(sizeBox);
-        panel.Children.Add(new TextBlock { Text = "Ollama URL:", Margin = new Avalonia.Thickness(16, 4, 16, 0) });
+        panel.Children.Add(new TextBlock { Text = "Ollama URL:", Margin = new Thickness(16, 4, 16, 0) });
         panel.Children.Add(ollamaBox);
         panel.Children.Add(saveBtn);
         panel.Children.Add(statusLbl);
@@ -444,21 +425,22 @@ public partial class ShellWindow : Window
         await dialog.ShowDialog(this);
     }
 
-    // ── Add Gmail account ──────────────────────────────────────────────
+    // ── Add Gmail account ──────────────────────────────────────────
 
     private async Task AddGmailAccountAsync()
     {
         var dialog = new Window
         {
             Title = "Add Gmail Account",
-            Width = 440, Height = 260,
+            Width = 440,
+            Height = 260,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             CanResize = false
         };
 
-        var labelBox = new TextBox { Watermark = "Account label (e.g. john-personal)", Margin = new Avalonia.Thickness(16, 16, 16, 8) };
-        var addBtn = new Button { Content = "Authenticate with Google", Margin = new Avalonia.Thickness(16, 8), HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center };
-        var statusLabel = new TextBlock { Text = "", Margin = new Avalonia.Thickness(16, 4), TextWrapping = Avalonia.Media.TextWrapping.Wrap };
+        var labelBox = new TextBox { Watermark = "Account label (e.g. john-personal)", Margin = new Thickness(16, 16, 16, 8) };
+        var addBtn = new Button { Content = "Authenticate with Google", Margin = new Thickness(16, 8), HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center };
+        var statusLabel = new TextBlock { Text = "", Margin = new Thickness(16, 4), TextWrapping = TextWrapping.Wrap };
 
         addBtn.Click += async (_, _) =>
         {
@@ -469,7 +451,7 @@ public partial class ShellWindow : Window
                 return;
             }
 
-            var credPath = Path.Combine(_bridge.ConfigDir, "gmail_credentials.json");
+            var credPath = Path.Combine(_vm.Bridge.ConfigDir, "gmail_credentials.json");
             if (!File.Exists(credPath))
             {
                 statusLabel.Text = $"Missing credentials file:\n{credPath}\n\nDownload from Google Cloud Console → OAuth 2.0 Client IDs and save there.";
@@ -485,17 +467,17 @@ public partial class ShellWindow : Window
                 await using (var stream = File.OpenRead(credPath))
                     clientSecrets = (await GoogleClientSecrets.FromStreamAsync(stream)).Secrets;
 
-                var tokenDir = Path.Combine(_bridge.ConfigDir, "tokens");
+                var tokenDir = Path.Combine(_vm.Bridge.ConfigDir, "tokens");
                 Directory.CreateDirectory(tokenDir);
 
                 await GoogleWebAuthorizationBroker.AuthorizeAsync(
                     clientSecrets,
-                    new[] { GmailService.Scope.GmailReadonly, GmailService.Scope.GmailModify },
+                    [GmailService.Scope.GmailReadonly, GmailService.Scope.GmailModify],
                     label,
                     CancellationToken.None,
                     new FileDataStore(tokenDir, true));
 
-                await _bridge.AddGmailAccountToConfigAsync(label);
+                await _vm.Bridge.AddGmailAccountToConfigAsync(label);
                 statusLabel.Text = $"✅ Account '{label}' authenticated successfully!";
             }
             catch (Exception ex)
@@ -509,8 +491,8 @@ public partial class ShellWindow : Window
         };
 
         var panel = new StackPanel();
-        panel.Children.Add(new TextBlock { Text = "Add Gmail Account", FontSize = 16, FontWeight = Avalonia.Media.FontWeight.Bold, Margin = new Avalonia.Thickness(16, 16, 16, 4) });
-        panel.Children.Add(new TextBlock { Text = "Enter a friendly label for this account:", Margin = new Avalonia.Thickness(16, 0, 16, 0) });
+        panel.Children.Add(new TextBlock { Text = "Add Gmail Account", FontSize = 16, FontWeight = FontWeight.Bold, Margin = new Thickness(16, 16, 16, 4) });
+        panel.Children.Add(new TextBlock { Text = "Enter a friendly label for this account:", Margin = new Thickness(16, 0, 16, 0) });
         panel.Children.Add(labelBox);
         panel.Children.Add(addBtn);
         panel.Children.Add(statusLabel);
@@ -519,7 +501,7 @@ public partial class ShellWindow : Window
         await dialog.ShowDialog(this);
     }
 
-    // ── Add watch folder ───────────────────────────────────────────────
+    // ── Add watch folder ───────────────────────────────────────────
 
     private async Task AddWatchFolderAsync()
     {
@@ -538,14 +520,15 @@ public partial class ShellWindow : Window
             var patternWindow = new Window
             {
                 Title = "Watch Folder Patterns",
-                Width = 420, Height = 220,
+                Width = 420,
+                Height = 220,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
                 CanResize = false
             };
 
-            var patternBox = new TextBox { Text = "*.pdf", Watermark = "Patterns (comma-separated)", Margin = new Avalonia.Thickness(16, 16, 16, 8) };
-            var okBtn = new Button { Content = "Add Watch Folder", Margin = new Avalonia.Thickness(16, 8), HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center };
-            var statusLbl = new TextBlock { Text = "", Margin = new Avalonia.Thickness(16, 4) };
+            var patternBox = new TextBox { Text = "*.pdf", Watermark = "Patterns (comma-separated)", Margin = new Thickness(16, 16, 16, 8) };
+            var okBtn = new Button { Content = "Add Watch Folder", Margin = new Thickness(16, 8), HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center };
+            var statusLbl = new TextBlock { Text = "", Margin = new Thickness(16, 4) };
 
             okBtn.Click += async (_, _) =>
             {
@@ -555,7 +538,7 @@ public partial class ShellWindow : Window
 
                 try
                 {
-                    await _bridge.AddWatchFolderToConfigAsync(folder, patterns);
+                    await _vm.Bridge.AddWatchFolderToConfigAsync(folder, patterns);
                     patternWindow.Close();
                 }
                 catch (Exception ex)
@@ -566,8 +549,8 @@ public partial class ShellWindow : Window
             };
 
             var panel = new StackPanel();
-            panel.Children.Add(new TextBlock { Text = $"Watching: {folder}", FontSize = 14, FontWeight = Avalonia.Media.FontWeight.Bold, Margin = new Avalonia.Thickness(16, 16, 16, 4) });
-            panel.Children.Add(new TextBlock { Text = "Enter file patterns to watch for:", Margin = new Avalonia.Thickness(16, 0) });
+            panel.Children.Add(new TextBlock { Text = $"Watching: {folder}", FontSize = 14, FontWeight = FontWeight.Bold, Margin = new Thickness(16, 16, 16, 4) });
+            panel.Children.Add(new TextBlock { Text = "Enter file patterns to watch for:", Margin = new Thickness(16, 0) });
             panel.Children.Add(patternBox);
             panel.Children.Add(okBtn);
             panel.Children.Add(statusLbl);
@@ -578,45 +561,17 @@ public partial class ShellWindow : Window
         catch (Exception ex)
         {
             var errWin = new Window { Title = "Error", Width = 350, Height = 120, WindowStartupLocation = WindowStartupLocation.CenterOwner };
-            errWin.Content = new TextBlock { Text = $"Could not open folder picker:\n{ex.Message}", Margin = new Avalonia.Thickness(16) };
+            errWin.Content = new TextBlock { Text = $"Could not open folder picker:\n{ex.Message}", Margin = new Thickness(16) };
             await errWin.ShowDialog(this);
         }
     }
 
-    // ── DB helpers ─────────────────────────────────────────────────────
-
-    private static long ScalarInt64(SqliteConnection conn, string sql)
-    {
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = sql;
-        var result = cmd.ExecuteScalar();
-        return result is long l ? l : 0;
-    }
-
-    private static void ReadAccountMsgCounts(SqliteConnection conn, Dictionary<string, int> counts)
-    {
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT account, COUNT(*) FROM messages GROUP BY account";
-        using var reader = cmd.ExecuteReader();
-        while (reader.Read())
-            counts[reader.GetString(0)] = reader.GetInt32(1);
-    }
-
-    private static void ReadAccountSyncTimes(SqliteConnection conn, Dictionary<string, string> times)
-    {
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT account, last_sync_at FROM sync_state";
-        using var reader = cmd.ExecuteReader();
-        while (reader.Read())
-            times[reader.GetString(0)] = reader.IsDBNull(1) ? "Never" : reader.GetString(1);
-    }
-
-    // ── Lifecycle ──────────────────────────────────────────────────────
+    // ── Lifecycle ──────────────────────────────────────────────────
 
     protected override void OnClosed(EventArgs e)
     {
         _refreshTimer.Stop();
-        _http.Dispose();
+        _vm.Dispose();
         base.OnClosed(e);
     }
 }

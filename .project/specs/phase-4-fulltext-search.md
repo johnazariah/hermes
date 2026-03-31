@@ -15,11 +15,11 @@ Enable keyword search across all indexed documents using SQLite FTS5. The FTS5 i
 ## Tasks
 
 ### 4.1 — FTS5 Query Layer
-- [ ] Build a search function in `Hermes.Core` that queries `documents_fts`
-- [ ] Accept parameters: query string, category filter, sender filter, date range, account filter, source_type filter, limit
-- [ ] Use FTS5 `MATCH` syntax with `bm25()` ranking
-- [ ] Join back to `documents` table for full metadata
-- [ ] Return results as typed F# records:
+- [x] Build a search function in `Hermes.Core` that queries `documents_fts`
+- [x] Accept parameters: query string, category filter, sender filter, date range, account filter, source_type filter, limit
+- [x] Use FTS5 `MATCH` syntax with `bm25()` ranking
+- [x] Join back to `documents` table for full metadata
+- [x] Return results as typed F# records:
   ```fsharp
   type SearchResult = {
       DocumentId: int
@@ -37,35 +37,35 @@ Enable keyword search across all indexed documents using SQLite FTS5. The FTS5 i
   ```
 
 ### 4.2 — Snippet Generation
-- [ ] Use FTS5 `snippet()` auxiliary function to generate highlighted excerpts
-- [ ] Show up to 64 tokens of context around matching terms
-- [ ] Strip excessive whitespace from snippets
+- [x] Use FTS5 `snippet()` auxiliary function to generate highlighted excerpts
+- [x] Show up to 64 tokens of context around matching terms
+- [x] Strip excessive whitespace from snippets
 
 ### 4.3 — Query Parsing
-- [ ] Support natural query input: `"CBA statement 2025"` → FTS5 query
-- [ ] Handle quoted phrases: `"bank statement"` → exact phrase match
-- [ ] Handle implicit AND between terms
-- [ ] Handle prefix matching: `invoi*` matches "invoice", "invoices"
-- [ ] Validate and sanitise input to prevent FTS5 syntax errors
+- [x] Support natural query input: `"CBA statement 2025"` → FTS5 query
+- [x] Handle quoted phrases: `"bank statement"` → exact phrase match
+- [x] Handle implicit AND between terms
+- [x] Handle prefix matching: `invoi*` matches "invoice", "invoices"
+- [x] Validate and sanitise input to prevent FTS5 syntax errors
 
 ### 4.4 — CLI Command
-- [ ] `hermes search QUERY` — keyword search, output as formatted table
-- [ ] `hermes search QUERY --category invoices` — filter by category
-- [ ] `hermes search QUERY --from 2025-01-01 --to 2025-12-31` — date range filter
-- [ ] `hermes search QUERY --sender cba.com.au` — filter by sender
-- [ ] `hermes search QUERY --account john-personal` — filter by account
-- [ ] `--limit N` — cap results (default 20)
-- [ ] `--json` — output as JSON for piping/scripting
+- [x] `hermes search QUERY` — keyword search, output as formatted table
+- [x] `hermes search QUERY --category invoices` — filter by category
+- [x] `hermes search QUERY --from 2025-01-01 --to 2025-12-31` — date range filter
+- [x] `hermes search QUERY --sender cba.com.au` — filter by sender
+- [x] `hermes search QUERY --account john-personal` — filter by account
+- [x] `--limit N` — cap results (default 20)
+- [x] `--json` — output as JSON for piping/scripting
 
 ### 4.5 — Result Formatting
-- [ ] Table format (default):
+- [x] Table format (default):
   ```
   Score  Date        Category        Sender            Filename                              Amount
   ─────  ──────────  ──────────────  ────────────────  ────────────────────────────────────  ──────
   12.3   2025-03-15  invoices        bob@plumbing.com  Invoice-2025-001.pdf                  $385.00
   11.8   2025-01-05  bank-statements cba.com.au        Statement-Jan-2025.pdf                —
   ```
-- [ ] JSON format (`--json`):
+- [x] JSON format (`--json`):
   ```json
   [
     {
@@ -85,10 +85,10 @@ Enable keyword search across all indexed documents using SQLite FTS5. The FTS5 i
 
 ## Acceptance Criteria
 
-- [ ] `hermes search "CBA statement"` returns matching documents ranked by relevance
-- [ ] `hermes search "invoice" --category invoices --from 2025-01-01` correctly filters
-- [ ] Snippets show highlighted matching terms in context
-- [ ] Query with no matches returns empty result (not an error)
-- [ ] Invalid FTS5 syntax is caught and a helpful error message shown
-- [ ] Results display in <200ms for a database with 10,000 documents
-- [ ] `--json` output is valid JSON parseable by downstream tools
+- [x] `hermes search "CBA statement"` returns matching documents ranked by relevance
+- [x] `hermes search "invoice" --category invoices --from 2025-01-01` correctly filters
+- [x] Snippets show highlighted matching terms in context
+- [x] Query with no matches returns empty result (not an error)
+- [x] Invalid FTS5 syntax is caught and a helpful error message shown
+- [x] Results display in <200ms for a database with 10,000 documents
+- [x] `--json` output is valid JSON parseable by downstream tools

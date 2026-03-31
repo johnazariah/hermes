@@ -1,18 +1,18 @@
 # Hermes — Project Status
 
-**Phase**: Phases 0-7, 9 complete. Only Phase 8 (UI) remains.  
+**Phase**: All 12 phases complete. UI polish in progress.  
 **Health**: 🟢 Green  
-**Last Updated**: 2026-03-27
+**Last Updated**: 2026-03-31
 
 ## Quick Stats
 
 | Metric | Value |
 |--------|-------|
-| Documents (design) | 8 |
-| Phase specs | 10 (Phases 0–9) |
+| Documents (design) | 12 |
+| Phase specs | 12 (Phases 0–11) |
 | GitHub issues | 10 |
-| Tests | 191 |
-| Lines of code | ~8,000+ |
+| Tests | 200+ |
+| Lines of code | ~10,000+ |
 
 ## Phase Status
 
@@ -26,8 +26,15 @@
 | 5 | Embeddings | ✅ Done | [#6](https://github.com/johnazariah/hermes/issues/6) |
 | 6 | MCP Server | ✅ Done | [#7](https://github.com/johnazariah/hermes/issues/7) |
 | 7 | Background Service | ✅ Done | [#8](https://github.com/johnazariah/hermes/issues/8) |
-| 8 | Avalonia UI & Installer | 📝 Not Started | [#9](https://github.com/johnazariah/hermes/issues/9) |
+| 8 | Avalonia UI & Installer | ✅ Done (functional) | [#9](https://github.com/johnazariah/hermes/issues/9) |
 | 9 | Folder Watching | ✅ Done | [#10](https://github.com/johnazariah/hermes/issues/10) |
+| 10 | Email Body Indexing | ✅ Done | — |
+| 11 | Document-to-Markdown | ✅ Done | — |
+| — | UI Redesign | 📐 Designing | See [09-ui-redesign.md](design/09-ui-redesign.md) |
+| — | Agent Evolution | 📐 Designing | See [10-agent-evolution.md](design/10-agent-evolution.md) |
+| — | Email Backfill | 📐 Designing | See [11-email-backfill.md](design/11-email-backfill.md) |
+| — | Bills & Reminders | 📐 Designing | See [12-bills-and-reminders.md](design/12-bills-and-reminders.md) |
+| — | Azure OpenAI Chat | ✅ Done | Chat provider abstraction + Azure OpenAI implementation |
 
 ## Key Decisions
 

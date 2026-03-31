@@ -155,7 +155,12 @@ let testConfig (archiveDir: string) : Domain.HermesConfig =
         { Domain.OllamaConfig.Enabled = false; BaseUrl = "http://localhost:11434"
           EmbeddingModel = "nomic-embed-text"; VisionModel = "llava"; InstructModel = "llama3.2" }
       Fallback = { Domain.FallbackConfig.Embedding = "onnx"; Ocr = "none" }
-      Azure = { Domain.AzureConfig.DocumentIntelligenceEndpoint = ""; DocumentIntelligenceKey = "" } }
+      Azure = { Domain.AzureConfig.DocumentIntelligenceEndpoint = ""; DocumentIntelligenceKey = "" }
+      Chat =
+        { Domain.ChatConfig.Provider = Domain.ChatProviderKind.Ollama
+          AzureOpenAI =
+            { Domain.AzureOpenAIConfig.Endpoint = ""; ApiKey = ""; DeploymentName = "gpt-4o"
+              MaxTokens = 4096; TimeoutSeconds = 300 } } }
 
 // ─── Default rules YAML ──────────────────────────────────────────────
 

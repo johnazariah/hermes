@@ -45,41 +45,41 @@ hermes/
 ## Tasks
 
 ### 0.1 — Solution & Project Scaffolding
-- [ ] Create `hermes.sln` with projects: `Hermes.Core` (F#), `Hermes.App` (C#/Avalonia), `Hermes.Cli` (F#), `Hermes.Tests` (F#)
-- [ ] `Directory.Build.props` targeting `net10.0`, nullable enabled, warnings as errors
-- [ ] `.gitignore` for .NET, JetBrains, VS Code
+- [x] Create `hermes.sln` with projects: `Hermes.Core` (F#), `Hermes.App` (C#/Avalonia), `Hermes.Cli` (F#), `Hermes.Tests` (F#)
+- [x] `Directory.Build.props` targeting `net10.0`, nullable enabled, warnings as errors
+- [x] `.gitignore` for .NET, JetBrains, VS Code
 
 ### 0.2 — Configuration
-- [ ] Define F# record types for configuration: `HermesConfig`, `AccountConfig`, `OllamaConfig`, `WatchFolderConfig`
-- [ ] Load `config.yaml` via YamlDotNet, with defaults for missing fields
-- [ ] Cross-platform path resolution: `~/.config/hermes/` (macOS), `%APPDATA%\hermes\` (Windows)
-- [ ] `hermes init` command creates default `config.yaml` and `rules.yaml` in the config directory
+- [x] Define F# record types for configuration: `HermesConfig`, `AccountConfig`, `OllamaConfig`, `WatchFolderConfig`
+- [x] Load `config.yaml` via YamlDotNet, with defaults for missing fields
+- [x] Cross-platform path resolution: `~/.config/hermes/` (macOS), `%APPDATA%\hermes\` (Windows)
+- [x] `hermes init` command creates default `config.yaml` and `rules.yaml` in the config directory
 
 ### 0.3 — Database Initialisation
-- [ ] `Microsoft.Data.Sqlite` connection with WAL mode and foreign keys enabled
-- [ ] Schema creation: `messages`, `documents`, `sync_state` tables
-- [ ] FTS5 virtual table: `documents_fts` with triggers
-- [ ] Indexes on category, date, sender, sha256, account, source_type, extracted_at, embedded_at
-- [ ] Schema versioning (store version in a `schema_version` table for future migrations)
-- [ ] `hermes init` creates `db.sqlite` in the archive directory
+- [x] `Microsoft.Data.Sqlite` connection with WAL mode and foreign keys enabled
+- [x] Schema creation: `messages`, `documents`, `sync_state` tables
+- [x] FTS5 virtual table: `documents_fts` with triggers
+- [x] Indexes on category, date, sender, sha256, account, source_type, extracted_at, embedded_at
+- [x] Schema versioning (store version in a `schema_version` table for future migrations)
+- [x] `hermes init` creates `db.sqlite` in the archive directory
 
 ### 0.4 — Logging
-- [ ] Serilog with file + console sinks
-- [ ] Structured JSON log format for file sink
-- [ ] Log directory: `{config_dir}/logs/`
-- [ ] Log rotation (daily, keep 14 days)
+- [x] Serilog with file + console sinks
+- [x] Structured JSON log format for file sink
+- [x] Log directory: `{config_dir}/logs/`
+- [x] Log rotation (daily, keep 14 days)
 
 ### 0.5 — CLI Entry Point
-- [ ] `System.CommandLine` or `Argu` (F#) for CLI parsing
-- [ ] `hermes --version` prints version
-- [ ] `hermes init` subcommand
-- [ ] Skeleton subcommands for future phases (sync, search, etc.) returning "not implemented"
+- [x] `System.CommandLine` or `Argu` (F#) for CLI parsing
+- [x] `hermes --version` prints version
+- [x] `hermes init` subcommand
+- [x] Skeleton subcommands for future phases (sync, search, etc.) returning "not implemented"
 
 ### 0.6 — Testing
-- [ ] xUnit test project with FsCheck for property-based tests
-- [ ] Config loading tests (valid YAML, missing file, defaults)
-- [ ] Database init tests (schema created, tables exist, FTS5 works)
-- [ ] CI: `dotnet build` + `dotnet test` (GitHub Actions for macOS + Windows)
+- [x] xUnit test project with FsCheck for property-based tests
+- [x] Config loading tests (valid YAML, missing file, defaults)
+- [x] Database init tests (schema created, tables exist, FTS5 works)
+- [x] CI: `dotnet build` + `dotnet test` (GitHub Actions for macOS + Windows)
 
 ---
 
@@ -99,9 +99,9 @@ hermes/
 
 ## Acceptance Criteria
 
-- [ ] `dotnet build` succeeds on macOS and Windows
-- [ ] `dotnet test` passes all tests
-- [ ] `hermes --version` prints version string
-- [ ] `hermes init` creates `config.yaml`, `rules.yaml`, `db.sqlite`
-- [ ] Database has all tables, indexes, FTS5 virtual table, and triggers
-- [ ] Config loads correctly from YAML with cross-platform paths
+- [x] `dotnet build` succeeds on macOS and Windows
+- [x] `dotnet test` passes all tests
+- [x] `hermes --version` prints version string
+- [x] `hermes init` creates `config.yaml`, `rules.yaml`, `db.sqlite`
+- [x] Database has all tables, indexes, FTS5 virtual table, and triggers
+- [x] Config loads correctly from YAML with cross-platform paths

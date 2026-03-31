@@ -15,19 +15,19 @@ Run Hermes as a persistent background service that survives reboots, manages all
 ## Tasks
 
 ### 7.1 — Service Host
-- [ ] `Microsoft.Extensions.Hosting` `IHost` orchestrates all components:
+- [x] `Microsoft.Extensions.Hosting` `IHost` orchestrates all components:
   - Email sync task (timer-triggered)
   - FileSystemWatcher + classifier task
   - Extraction task (channel-fed)
   - Embedding task (channel-fed)
   - MCP server (HTTP listener)
-- [ ] Single process — everything runs in one host
-- [ ] Graceful shutdown: `CancellationToken` propagated to all tasks on SIGTERM / SIGINT
-- [ ] All tasks drain their channels on shutdown (process remaining items or save for restart)
-- [ ] Startup logging: log Ollama availability, configured accounts, archive path, sync interval
+- [x] Single process — everything runs in one host
+- [x] Graceful shutdown: `CancellationToken` propagated to all tasks on SIGTERM / SIGINT
+- [x] All tasks drain their channels on shutdown (process remaining items or save for restart)
+- [x] Startup logging: log Ollama availability, configured accounts, archive path, sync interval
 
 ### 7.2 — macOS: launchd LaunchAgent
-- [ ] `hermes service install` writes a LaunchAgent plist to `~/Library/LaunchAgents/com.hermes.service.plist`:
+- [x] `hermes service install` writes a LaunchAgent plist to `~/Library/LaunchAgents/com.hermes.service.plist`:
   ```xml
   <?xml version="1.0" encoding="UTF-8"?>
   <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
@@ -53,39 +53,39 @@ Run Hermes as a persistent background service that survives reboots, manages all
   </dict>
   </plist>
   ```
-- [ ] `hermes service uninstall` removes the plist and unloads the agent
-- [ ] `hermes service start` → `launchctl load` the plist
-- [ ] `hermes service stop` → `launchctl unload` the plist
-- [ ] Auto-restart on crash via `KeepAlive`
+- [x] `hermes service uninstall` removes the plist and unloads the agent
+- [x] `hermes service start` → `launchctl load` the plist
+- [x] `hermes service stop` → `launchctl unload` the plist
+- [x] Auto-restart on crash via `KeepAlive`
 
 ### 7.3 — Windows: Service Registration
-- [ ] `hermes service install` registers a Windows Service or Task Scheduler task:
+- [x] `hermes service install` registers a Windows Service or Task Scheduler task:
   - **Option A (preferred)**: Windows Service via `Microsoft.Extensions.Hosting.WindowsServices`
     - `UseWindowsService()` in the host builder
     - `sc create` / `sc delete` for install/uninstall
   - **Option B (fallback)**: Task Scheduler task triggered "at logon"
-- [ ] `hermes service uninstall` removes the service/task
-- [ ] `hermes service start` → `sc start Hermes` or equivalent
-- [ ] `hermes service stop` → `sc stop Hermes` or equivalent
-- [ ] Auto-restart on failure (service recovery settings: restart after 1 minute)
+- [x] `hermes service uninstall` removes the service/task
+- [x] `hermes service start` → `sc start Hermes` or equivalent
+- [x] `hermes service stop` → `sc stop Hermes` or equivalent
+- [x] Auto-restart on failure (service recovery settings: restart after 1 minute)
 
 ### 7.4 — Service CLI Commands
-- [ ] `hermes service install` — register the service for auto-start
-- [ ] `hermes service uninstall` — remove the service registration
-- [ ] `hermes service start` — start the service now
-- [ ] `hermes service stop` — stop the service now
-- [ ] `hermes service status` — report whether the service is running, last sync, document counts
-- [ ] `hermes service run` — run the service in the foreground (useful for debugging)
+- [x] `hermes service install` — register the service for auto-start
+- [x] `hermes service uninstall` — remove the service registration
+- [x] `hermes service start` — start the service now
+- [x] `hermes service stop` — stop the service now
+- [x] `hermes service status` — report whether the service is running, last sync, document counts
+- [x] `hermes service run` — run the service in the foreground (useful for debugging)
 
 ### 7.5 — Sync Scheduling
-- [ ] Email sync triggered by a `PeriodicTimer` at `sync_interval_minutes` (default 15)
-- [ ] Timer fires even if previous sync is still running → skip (don't overlap)
-- [ ] Filesystem watchers run continuously (real-time)
-- [ ] Extraction and embedding run continuously, consuming from channels
-- [ ] On startup: catch up on any backlog (unclassified files, unextracted docs, un-embedded docs)
+- [x] Email sync triggered by a `PeriodicTimer` at `sync_interval_minutes` (default 15)
+- [x] Timer fires even if previous sync is still running → skip (don't overlap)
+- [x] Filesystem watchers run continuously (real-time)
+- [x] Extraction and embedding run continuously, consuming from channels
+- [x] On startup: catch up on any backlog (unclassified files, unextracted docs, un-embedded docs)
 
 ### 7.6 — Health & Observability
-- [ ] Service writes a heartbeat to a `{config_dir}/hermes.status` file:
+- [x] Service writes a heartbeat to a `{config_dir}/hermes.status` file:
   ```json
   {
     "running": true,
@@ -97,20 +97,20 @@ Run Hermes as a persistent background service that survives reboots, manages all
     "mcp_port": 21740
   }
   ```
-- [ ] Updated every 60 seconds
-- [ ] `hermes service status` reads this file for quick status check
-- [ ] If the file is stale (>5 minutes old), consider service dead
+- [x] Updated every 60 seconds
+- [x] `hermes service status` reads this file for quick status check
+- [x] If the file is stale (>5 minutes old), consider service dead
 
 ---
 
 ## Acceptance Criteria
 
-- [ ] `hermes service install` registers the service (appropriate to OS)
-- [ ] After a reboot, Hermes starts automatically and begins syncing
-- [ ] `hermes service status` correctly reports running/stopped
-- [ ] Service auto-restarts after a crash (tested by killing the process)
-- [ ] Background sync runs on schedule; new emails are picked up automatically
-- [ ] All pipeline stages (classify, extract, embed) run continuously
-- [ ] `hermes service stop` → clean shutdown, all channels drained
-- [ ] `hermes service run` runs in foreground with console logging (for debugging)
-- [ ] Heartbeat file is updated regularly and reflects accurate status
+- [x] `hermes service install` registers the service (appropriate to OS)
+- [x] After a reboot, Hermes starts automatically and begins syncing
+- [x] `hermes service status` correctly reports running/stopped
+- [x] Service auto-restarts after a crash (tested by killing the process)
+- [x] Background sync runs on schedule; new emails are picked up automatically
+- [x] All pipeline stages (classify, extract, embed) run continuously
+- [x] `hermes service stop` → clean shutdown, all channels drained
+- [x] `hermes service run` runs in foreground with console logging (for debugging)
+- [x] Heartbeat file is updated regularly and reflects accurate status

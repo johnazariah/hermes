@@ -138,11 +138,35 @@ All AI-generated code in this project **must** conform to the language idiom sta
 
 For dedicated write/review/refactor workflows, invoke the `@fsharp-dev` or `@csharp-dev` agents.
 
-## Tips for AI Agents
+## Agent Workflow Requirements
 
-1. Read the current phase spec before implementing
-2. Check `.project/design/07-open-questions.md` for resolved decisions
-3. Update the testing register when tests change
-4. Use the commit prompt (`.github/prompts/commit.prompt.md`) for clean commits
-5. Run `dotnet build` and `dotnet test` before committing
-6. Check code against the idiom standards before presenting — fix violations first
+### Language agent delegation (mandatory)
+
+When writing, reviewing, or refactoring code:
+
+- **F# code** (`Hermes.Core`, `Hermes.Tests`): delegate to `@fsharp-dev`. Do not write F# without it.
+- **C# code** (`Hermes.App`): delegate to `@csharp-dev`. Do not write C# without it.
+- The language agents enforce idiom standards, catch anti-patterns, and produce higher quality code than unguided generation.
+
+### UI integration: definition of done
+
+A UI task is **not done** until all of the following are true:
+
+1. **XAML exists** — controls are laid out and styled.
+2. **Code-behind is wired** — every named control (`x:Name`) is referenced in `.axaml.cs` with correct event handlers, data population, and state updates.
+3. **Buttons do something** — every `Button`, `ToggleButton`, and interactive control has a working `Click`/event handler that performs its intended action. No dead buttons.
+4. **Data is live** — status panels, lists, and stats display real data from Core/Bridge, not placeholder text that never updates.
+5. **Build clean** — `dotnet build` with 0 errors, 0 warnings.
+6. **Smoke tested** — `dotnet run --project src/Hermes.App` launches, the window renders, and the agent has verified interactable elements respond (or documented which require external dependencies like Ollama/Gmail).
+
+**Do not mark a UI task as complete if controls exist in XAML but are not connected to behaviour.** A button that does nothing is worse than no button — it erodes user trust. If wiring requires infrastructure not yet built, either stub it with a visible "not yet implemented" message or defer the entire control to a later phase.
+
+### General workflow
+
+1. Read the current phase spec before implementing.
+2. Check `.project/design/07-open-questions.md` for resolved decisions.
+3. Update the testing register when tests change.
+4. Use the commit prompt (`.github/prompts/commit.prompt.md`) for clean commits.
+5. Run `dotnet build` and `dotnet test` before committing.
+6. Check code against the idiom standards before presenting — fix violations first.
+7. When a phase includes UI work, verify the full definition of done above before marking complete.

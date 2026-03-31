@@ -55,6 +55,26 @@ module Config =
           DocumentIntelligenceKey: string }
 
     [<CLIMutable>]
+    type AzureOpenAIDto =
+        { [<YamlMember(Alias = "endpoint")>]
+          Endpoint: string
+          [<YamlMember(Alias = "api_key")>]
+          ApiKey: string
+          [<YamlMember(Alias = "deployment")>]
+          Deployment: string
+          [<YamlMember(Alias = "max_tokens")>]
+          MaxTokens: int
+          [<YamlMember(Alias = "timeout_seconds")>]
+          TimeoutSeconds: int }
+
+    [<CLIMutable>]
+    type ChatDto =
+        { [<YamlMember(Alias = "provider")>]
+          Provider: string
+          [<YamlMember(Alias = "azure_openai")>]
+          AzureOpenAI: AzureOpenAIDto }
+
+    [<CLIMutable>]
     type HermesConfigDto =
         { [<YamlMember(Alias = "archive_dir")>]
           ArchiveDir: string
@@ -73,7 +93,9 @@ module Config =
           [<YamlMember(Alias = "fallback")>]
           Fallback: FallbackDto
           [<YamlMember(Alias = "azure")>]
-          Azure: AzureDto }
+          Azure: AzureDto
+          [<YamlMember(Alias = "chat")>]
+          Chat: ChatDto }
 
     // ─── Path helpers ────────────────────────────────────────────────
 
@@ -115,7 +137,15 @@ module Config =
           Fallback = { Domain.FallbackConfig.Embedding = "onnx"; Ocr = "azure-document-intelligence" }
           Azure =
             { Domain.AzureConfig.DocumentIntelligenceEndpoint = ""
-              DocumentIntelligenceKey = "" } }
+              DocumentIntelligenceKey = "" }
+          Chat =
+            { Domain.ChatConfig.Provider = Domain.ChatProviderKind.Ollama
+              AzureOpenAI =
+                { Domain.AzureOpenAIConfig.Endpoint = ""
+                  ApiKey = ""
+                  DeploymentName = "gpt-4o"
+                  MaxTokens = 4096
+                  TimeoutSeconds = 300 } } }
 
     // ─── DTO → Domain mapping ────────────────────────────────────────
 
@@ -175,6 +205,30 @@ module Config =
                 { DocumentIntelligenceEndpoint = dto.Azure.DocumentIntelligenceEndpoint |> orDefault ""
                   DocumentIntelligenceKey = dto.Azure.DocumentIntelligenceKey |> orDefault "" }
 
+        let chat =
+            if isNull (box dto.Chat) then
+                def.Chat
+            else
+                let providerKind =
+                    dto.Chat.Provider
+                    |> orDefault "ollama"
+                    |> Domain.ChatProviderKind.fromString
+                    |> function Ok k -> k | Error _ -> Domain.ChatProviderKind.Ollama
+
+                let azureOpenAI =
+                    if isNull (box dto.Chat.AzureOpenAI) then
+                        def.Chat.AzureOpenAI
+                    else
+                        let a = dto.Chat.AzureOpenAI
+                        { Domain.AzureOpenAIConfig.Endpoint = a.Endpoint |> orDefault def.Chat.AzureOpenAI.Endpoint
+                          ApiKey = a.ApiKey |> orDefault def.Chat.AzureOpenAI.ApiKey
+                          DeploymentName = a.Deployment |> orDefault def.Chat.AzureOpenAI.DeploymentName
+                          MaxTokens = if a.MaxTokens = 0 then def.Chat.AzureOpenAI.MaxTokens else a.MaxTokens
+                          TimeoutSeconds = if a.TimeoutSeconds = 0 then def.Chat.AzureOpenAI.TimeoutSeconds else a.TimeoutSeconds }
+
+                { Domain.ChatConfig.Provider = providerKind
+                  AzureOpenAI = azureOpenAI }
+
         { ArchiveDir = dto.ArchiveDir |> orDefault def.ArchiveDir |> expandHome
           Credentials = dto.Credentials |> orDefault def.Credentials |> expandHome
           Accounts = accounts
@@ -191,7 +245,8 @@ module Config =
           WatchFolders = watchFolders
           Ollama = ollama
           Fallback = fallback
-          Azure = azure }
+          Azure = azure
+          Chat = chat }
 
     // ─── YAML deserializer ───────────────────────────────────────────
 

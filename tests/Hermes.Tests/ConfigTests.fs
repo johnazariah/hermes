@@ -140,6 +140,66 @@ let ``Config_ExpandHome_AbsolutePath_ReturnsUnchanged`` () =
     let path = "/usr/local/bin"
     Assert.Equal(path, Config.expandHome path)
 
+// ─── Chat provider config tests ──────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Config_ParseYaml_ChatAzureOpenAI_ParsesProvider`` () =
+    let yaml = """
+chat:
+  provider: azure-openai
+  azure_openai:
+    endpoint: https://test.openai.azure.com/
+    api_key: test-key-123
+    deployment: gpt-4o-mini
+    max_tokens: 2048
+    timeout_seconds: 120
+"""
+
+    match Config.parseYaml yaml with
+    | Ok config ->
+        Assert.Equal(Domain.ChatProviderKind.AzureOpenAI, config.Chat.Provider)
+        Assert.Equal("https://test.openai.azure.com/", config.Chat.AzureOpenAI.Endpoint)
+        Assert.Equal("test-key-123", config.Chat.AzureOpenAI.ApiKey)
+        Assert.Equal("gpt-4o-mini", config.Chat.AzureOpenAI.DeploymentName)
+        Assert.Equal(2048, config.Chat.AzureOpenAI.MaxTokens)
+        Assert.Equal(120, config.Chat.AzureOpenAI.TimeoutSeconds)
+    | Error e -> failwith $"Expected Ok, got Error: {e}"
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Config_ParseYaml_ChatOllama_ParsesProvider`` () =
+    let yaml = """
+chat:
+  provider: ollama
+"""
+
+    match Config.parseYaml yaml with
+    | Ok config ->
+        Assert.Equal(Domain.ChatProviderKind.Ollama, config.Chat.Provider)
+    | Error e -> failwith $"Expected Ok, got Error: {e}"
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Config_ParseYaml_NoChatSection_DefaultsToOllama`` () =
+    let yaml = """
+sync_interval_minutes: 15
+"""
+
+    match Config.parseYaml yaml with
+    | Ok config ->
+        Assert.Equal(Domain.ChatProviderKind.Ollama, config.Chat.Provider)
+        Assert.Equal("gpt-4o", config.Chat.AzureOpenAI.DeploymentName)
+    | Error e -> failwith $"Expected Ok, got Error: {e}"
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Config_ChatProviderKind_FromString_ParsesVariants`` () =
+    Assert.Equal(Ok Domain.ChatProviderKind.Ollama, Domain.ChatProviderKind.fromString "ollama")
+    Assert.Equal(Ok Domain.ChatProviderKind.AzureOpenAI, Domain.ChatProviderKind.fromString "azure-openai")
+    Assert.Equal(Ok Domain.ChatProviderKind.AzureOpenAI, Domain.ChatProviderKind.fromString "azure_openai")
+    Assert.True((Domain.ChatProviderKind.fromString "unknown").IsError)
+
 // ─── Property-based tests ────────────────────────────────────────────
 
 [<Property>]

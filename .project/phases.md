@@ -15,7 +15,7 @@
 | 5 | Embeddings & Semantic Search | `feat/5-embeddings` | [phase-5](specs/phase-5-embeddings.md) | 3 | Done |
 | 6 | MCP Server | `feat/6-mcp-server` | [phase-6](specs/phase-6-mcp-server.md) | 4, 5 | Done |
 | 7 | Background Service | `feat/7-background-service` | [phase-7](specs/phase-7-background-service.md) | 1, 2, 3 | Done |
-| 8 | Avalonia UI & Installer | `feat/8-ui-installer` | [phase-8](specs/phase-8-ui-and-installer.md) | 7 | In Progress |
+| 8 | Avalonia UI & Installer | `feat/8-ui-installer` | [phase-8](specs/phase-8-ui-and-installer.md) | 7 | Done |
 | 9 | Folder Watching | `feat/9-folder-watching` | [phase-9](specs/phase-9-folder-watching.md) | 2 | Done |
 | 10 | Email Body Indexing | `feat/10-email-bodies` | [phase-10](specs/phase-10-email-body-indexing.md) | 1, 4 | Done |
 | 11 | Document-to-Markdown | `feat/11-doc-to-markdown` | [phase-11](specs/phase-11-document-to-markdown.md) | 3, 5 | Done |
@@ -33,6 +33,16 @@ Wave 5:  [6]                          ← needs search from 4+5
 Wave 6:  [7]                          ← needs 1+2+3 running
 Wave 7:  [8] [10] [11]               ← UI, email bodies, doc-to-markdown (parallel)
 ```
+
+## Future Work (designed, not yet phased)
+
+| Feature | Design Doc | Depends On | Status |
+|---------|-----------|------------|--------|
+| UI Redesign | [09-ui-redesign.md](design/09-ui-redesign.md) | 8 | Designing |
+| Agent Evolution | [10-agent-evolution.md](design/10-agent-evolution.md) | 6, 8 | Designing |
+| Email Backfill | [11-email-backfill.md](design/11-email-backfill.md) | 1 | Designing |
+| Bills & Reminders | [12-bills-and-reminders.md](design/12-bills-and-reminders.md) | 3, Backfill | Designing |
+| Azure OpenAI Chat | — (in Chat.fs) | — | Done |
 
 ## Agent Instructions
 

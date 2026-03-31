@@ -13,13 +13,16 @@
 |----|------|---------|----------|-------|
 | AI001 | Ollama-powered classification | For ambiguous docs that rules can't classify | Low | 2026-03-27 |
 | AI002 | Near-duplicate detection | Similar but not identical documents | Low | 2026-03-27 |
-| AI003 | Email body indexing | Unified "find me everything about X" across all content | Medium | 2026-03-27 |
+| AI003 | ~~Email body indexing~~ | ✅ Shipped in Phase 10 — email bodies now in FTS5 index | Done | 2026-03-27 |
 
 ## UI
 | ID | Idea | Context | Priority | Added |
 |----|------|---------|----------|-------|
-| UI001 | Built-in chat window | Native conversational interface to the index in Avalonia | Medium | 2026-03-27 |
+| UI001 | ~~Built-in chat window~~ | ✅ Shipped in `f833777` — Chat.fs + ShellWindow chat panel | Done | 2026-03-27 |
 | UI002 | Document preview panel | Preview PDFs/images in the shell window | Low | 2026-03-27 |
+| UI003 | Chat message cards | Render search results as clickable cards, not plain text | Medium | 2026-03-31 |
+| UI004 | MVVM extraction | Move DB queries out of code-behind, extract ViewModels | Medium | 2026-03-31 |
+| UI005 | Status bar | Bottom bar with at-a-glance metrics, replacing text dumps | Medium | 2026-03-31 |
 
 ## Platform
 | ID | Idea | Context | Priority | Added |
