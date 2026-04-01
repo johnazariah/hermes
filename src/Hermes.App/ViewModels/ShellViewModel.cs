@@ -52,6 +52,11 @@ public sealed record ReminderItem(
 public sealed record OllamaStatus(bool IsAvailable, IReadOnlyList<string> Models);
 
 /// <summary>
+/// Which navigator panel is active in the shell.
+/// </summary>
+public enum NavigatorMode { ActionItems, Documents, Threads, Timeline, Activity }
+
+/// <summary>
 /// ViewModel for the shell window. Owns all status and chat state.
 /// UI binds to properties and calls commands — no DB or HTTP in code-behind.
 /// </summary>
@@ -414,6 +419,53 @@ public sealed class ShellViewModel : INotifyPropertyChanged
 
     public void TogglePause() => _bridge.TogglePause();
     public bool IsPaused => _bridge.IsPaused;
+
+    // ── Navigation state ──────────────────────────────────────────
+
+    private NavigatorMode _activeMode = NavigatorMode.ActionItems;
+    public NavigatorMode ActiveMode
+    {
+        get => _activeMode;
+        set => Set(ref _activeMode, value);
+    }
+
+    private bool _isChatPaneVisible = true;
+    public bool IsChatPaneVisible
+    {
+        get => _isChatPaneVisible;
+        set => Set(ref _isChatPaneVisible, value);
+    }
+
+    public void ToggleChatPane() => IsChatPaneVisible = !IsChatPaneVisible;
+
+    // ── Navigation stack ──────────────────────────────────────────
+
+    public sealed record NavigationItem(string Kind, long Id, string Label);
+
+    private readonly Stack<NavigationItem> _navigationStack = new();
+
+    public NavigationItem? CurrentItem => _navigationStack.Count > 0 ? _navigationStack.Peek() : null;
+
+    public bool CanNavigateBack => _navigationStack.Count > 1;
+
+    public IReadOnlyList<NavigationItem> BreadcrumbItems => _navigationStack.Reverse().ToList();
+
+    public void NavigateTo(NavigationItem item)
+    {
+        _navigationStack.Push(item);
+        OnPropertyChanged(nameof(CurrentItem));
+        OnPropertyChanged(nameof(CanNavigateBack));
+        OnPropertyChanged(nameof(BreadcrumbItems));
+    }
+
+    public void NavigateBack()
+    {
+        if (_navigationStack.Count <= 1) return;
+        _navigationStack.Pop();
+        OnPropertyChanged(nameof(CurrentItem));
+        OnPropertyChanged(nameof(CanNavigateBack));
+        OnPropertyChanged(nameof(BreadcrumbItems));
+    }
 
     // ── Reminder actions ───────────────────────────────────────────
 
