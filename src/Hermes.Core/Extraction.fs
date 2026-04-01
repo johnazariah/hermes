@@ -287,42 +287,38 @@ module Extraction =
         (category: string option)
         (force: bool)
         (limit: int)
-        =
+        : Task<(int64 * string) list> =
         task {
-            let baseSql =
-                if force then
-                    "SELECT id FROM documents WHERE 1=1"
-                else
-                    "SELECT id FROM documents WHERE extracted_at IS NULL"
+            let where =
+                if force then "1=1" else "extracted_at IS NULL"
 
-            let catFilter, catParams =
+            let catClause, catParams =
                 match category with
-                | Some cat ->
-                    " AND category = @cat", [ ("@cat", Database.boxVal cat) ]
+                | Some cat -> " AND category = @cat", [ ("@cat", Database.boxVal cat) ]
                 | None -> "", []
 
-            let results = ResizeArray<int64 * string>()
+            let sql =
+                $"SELECT id, saved_path FROM documents WHERE {where}{catClause} ORDER BY id LIMIT @lim"
 
-            for i in 0 .. limit - 1 do
-                let offsetSql = sprintf "%s%s ORDER BY id LIMIT 1 OFFSET %d" baseSql catFilter i
-                let! row = db.execScalar offsetSql catParams
+            let! rows = db.execReader sql (("@lim", Database.boxVal (int64 limit)) :: catParams)
 
-                match row with
-                | null -> ()
-                | v ->
-                    let docId = v :?> int64
-                    let! pathResult =
-                        db.execScalar
-                            "SELECT saved_path FROM documents WHERE id = @id"
-                            [ ("@id", Database.boxVal docId) ]
-                    match pathResult with
-                    | null -> ()
-                    | p ->
-                        match p with
-                        | :? string as s -> results.Add(docId, s)
-                        | _ -> ()
+            return
+                rows
+                |> List.choose (fun row ->
+                    match row |> Map.tryFind "id", row |> Map.tryFind "saved_path" with
+                    | Some (:? int64 as id), Some (:? string as path) -> Some (id, path)
+                    | _ -> None)
+        }
 
-            return results |> Seq.toList
+    type private BatchAccum = { Succeeded: int; Failed: int }
+
+    let private processOne fs db logger clock extractor archiveDir force (accum: BatchAccum) (docId, savedPath) =
+        task {
+            let! result = processDocument fs db logger clock extractor archiveDir docId savedPath force
+            return
+                match result with
+                | Ok _ -> { accum with Succeeded = accum.Succeeded + 1 }
+                | Error _ -> { accum with Failed = accum.Failed + 1 }
         }
 
     /// Run extraction on a batch of documents.
@@ -336,21 +332,21 @@ module Extraction =
         (category: string option)
         (force: bool)
         (limit: int)
-        =
+        : Task<int * int> =
         task {
             let! docs = getDocumentsForExtraction db category force limit
             logger.info $"Found {docs.Length} document(s) for extraction"
 
-            let mutable successCount = 0
-            let mutable errorCount = 0
+            let! accum =
+                docs
+                |> List.fold
+                    (fun stateTask doc ->
+                        task {
+                            let! state = stateTask
+                            return! processOne fs db logger clock extractor archiveDir force state doc
+                        })
+                    (task { return { Succeeded = 0; Failed = 0 } })
 
-            for (docId, savedPath) in docs do
-                let! result = processDocument fs db logger clock extractor archiveDir docId savedPath force
-
-                match result with
-                | Ok _ -> successCount <- successCount + 1
-                | Error _ -> errorCount <- errorCount + 1
-
-            logger.info $"Extraction complete: {successCount} succeeded, {errorCount} failed"
-            return (successCount, errorCount)
+            logger.info $"Extraction complete: {accum.Succeeded} succeeded, {accum.Failed} failed"
+            return (accum.Succeeded, accum.Failed)
         }

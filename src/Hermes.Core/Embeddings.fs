@@ -271,6 +271,19 @@ module Embeddings =
         }
 
     /// Batch-embed documents that have extracted text but no embeddings.
+    type private EmbedAccum = { Completed: int; Failures: int }
+
+    let private embedOne db logger client progress total (accum: EmbedAccum) (docId: int64, text: string) =
+        task {
+            let! result = embedDocument db logger client docId text
+            let accum =
+                match result with
+                | Ok _ -> { accum with Completed = accum.Completed + 1 }
+                | Error _ -> { Completed = accum.Completed + 1; Failures = accum.Failures + 1 }
+            progress |> Option.iter (fun cb -> cb accum.Completed total)
+            return accum
+        }
+
     let batchEmbed
         (db: Algebra.Database)
         (logger: Algebra.Logger)
@@ -283,91 +296,45 @@ module Embeddings =
             do! initSchema db
 
             let! available = client.isAvailable ()
-
             if not available then
                 logger.error "Embedding service is not available"
                 return Error "Embedding service unavailable"
             else
-                // Find documents needing embedding
-                let whereClause =
-                    if force then
-                        "WHERE extracted_text IS NOT NULL AND extracted_text != ''"
-                    else
-                        "WHERE extracted_text IS NOT NULL AND extracted_text != '' AND embedded_at IS NULL"
 
-                let limitClause =
-                    match limit with
-                    | Some n -> $" LIMIT {n}"
-                    | None -> ""
+            let where =
+                if force then "extracted_text IS NOT NULL AND extracted_text != ''"
+                else "extracted_text IS NOT NULL AND extracted_text != '' AND embedded_at IS NULL"
 
-                let sql =
-                    $"SELECT id, extracted_text FROM documents {whereClause} ORDER BY id{limitClause}"
+            let limitClause = limit |> Option.map (sprintf " LIMIT %d") |> Option.defaultValue ""
+            let sql = $"SELECT id, extracted_text FROM documents WHERE {where} ORDER BY id{limitClause}"
 
-                // We need to read rows — use execScalar for count first
-                let! countResult =
-                    db.execScalar
-                        $"SELECT COUNT(*) FROM documents {whereClause}"
-                        []
+            let! rows = db.execReader sql []
 
-                let totalCount =
-                    match countResult with
-                    | null -> 0
-                    | v -> v :?> int64 |> int
+            let docs =
+                rows
+                |> List.choose (fun row ->
+                    match row |> Map.tryFind "id", row |> Map.tryFind "extracted_text" with
+                    | Some (:? int64 as id), Some (:? string as text) when not (String.IsNullOrEmpty(text)) ->
+                        Some (id, text)
+                    | _ -> None)
 
-                let total =
-                    match limit with
-                    | Some n -> min n totalCount
-                    | None -> totalCount
+            if docs.IsEmpty then
+                logger.info "No documents to embed"
+                return Ok 0
+            else
 
-                if total = 0 then
-                    logger.info "No documents to embed"
-                    return Ok 0
-                else
-                    logger.info $"Embedding {total} documents..."
-                    let mutable completed = 0
-                    let mutable failures = 0
+            logger.info $"Embedding {docs.Length} documents..."
 
-                    // Process documents one at a time via scalar queries for id lookup
-                    // Read doc IDs first
-                    let! idsResult =
-                        db.execScalar
-                            $"SELECT GROUP_CONCAT(id) FROM ({sql})"
-                            []
+            let! accum =
+                docs
+                |> List.fold
+                    (fun stateTask doc ->
+                        task {
+                            let! state = stateTask
+                            return! embedOne db logger client progress docs.Length state doc
+                        })
+                    (task { return { Completed = 0; Failures = 0 } })
 
-                    let ids =
-                        match idsResult with
-                        | null -> [||]
-                        | v ->
-                            let s = string v
-                            if String.IsNullOrEmpty(s) then [||]
-                            else s.Split(',') |> Array.map int64
-
-                    for docId in ids do
-                        let! textResult =
-                            db.execScalar
-                                "SELECT extracted_text FROM documents WHERE id = @id"
-                                [ ("@id", Database.boxVal docId) ]
-
-                        let text =
-                            match textResult with
-                            | null -> ""
-                            | v -> string v
-
-                        if String.IsNullOrEmpty(text) then
-                            ()
-                        else
-                            let! result = embedDocument db logger client docId text
-
-                            match result with
-                            | Ok _ -> ()
-                            | Error _ -> failures <- failures + 1
-
-                            completed <- completed + 1
-
-                            match progress with
-                            | Some cb -> cb completed total
-                            | None -> ()
-
-                    logger.info $"Embedding complete: {completed} processed, {failures} with errors"
-                    return Ok completed
+            logger.info $"Embedding complete: {accum.Completed} processed, {accum.Failures} with errors"
+            return Ok accum.Completed
         }

@@ -58,33 +58,45 @@ module Reminders =
                          AND NOT EXISTS (SELECT 1 FROM reminders r WHERE r.document_id = d.id)"""
                     []
 
-            let mutable created = 0
-            for row in rows do
-                let getId = row |> Map.tryFind "id" |> Option.bind (fun v -> match v with :? int64 as i -> Some i | _ -> None)
-                let getCat = row |> Map.tryFind "category" |> Option.bind (fun v -> match v with :? string as s -> Some s | _ -> None)
-                let getAmt = row |> Map.tryFind "extracted_amount" |> Option.bind (fun v -> match v with :? float as f -> Some (decimal f) | :? int64 as i -> Some (decimal i) | _ -> None)
-                let getDate = row |> Map.tryFind "extracted_date" |> Option.bind (fun v -> match v with :? string as s -> Some s | _ -> None)
-                let getVendor = row |> Map.tryFind "extracted_vendor" |> Option.bind (fun v -> match v with :? string as s -> Some s | _ -> None)
+            let insertReminder (docId: int64) (cat: string) (vendor: string option) (reminder: Domain.Reminder) =
+                task {
+                    let! _ =
+                        db.execNonQuery
+                            """INSERT INTO reminders (document_id, vendor, amount, due_date, category, status, created_at)
+                               VALUES (@doc, @vendor, @amt, @due, @cat, 'active', @now)"""
+                            [ ("@doc", Database.boxVal docId)
+                              ("@vendor", vendor |> Option.map Database.boxVal |> Option.defaultValue (Database.boxVal DBNull.Value))
+                              ("@amt", reminder.Amount |> Option.map (fun a -> Database.boxVal (float a)) |> Option.defaultValue (Database.boxVal DBNull.Value))
+                              ("@due", reminder.DueDate |> Option.map (fun d -> Database.boxVal (d.ToString("o"))) |> Option.defaultValue (Database.boxVal DBNull.Value))
+                              ("@cat", Database.boxVal cat)
+                              ("@now", Database.boxVal (now.ToString("o"))) ]
+                    let vendorName = vendor |> Option.defaultValue "unknown"
+                    logger.info $"Created reminder for doc {docId} ({cat}, {vendorName})"
+                }
 
-                match getId, getCat with
-                | Some docId, Some cat ->
-                    match detectBill now cat getAmt getDate docId with
-                    | None -> ()
-                    | Some reminder ->
-                        let! _ =
-                            db.execNonQuery
-                                """INSERT INTO reminders (document_id, vendor, amount, due_date, category, status, created_at)
-                                   VALUES (@doc, @vendor, @amt, @due, @cat, 'active', @now)"""
-                                [ ("@doc", Database.boxVal docId)
-                                  ("@vendor", getVendor |> Option.map Database.boxVal |> Option.defaultValue (Database.boxVal DBNull.Value))
-                                  ("@amt", reminder.Amount |> Option.map (fun a -> Database.boxVal (float a)) |> Option.defaultValue (Database.boxVal DBNull.Value))
-                                  ("@due", reminder.DueDate |> Option.map (fun d -> Database.boxVal (d.ToString("o"))) |> Option.defaultValue (Database.boxVal DBNull.Value))
-                                  ("@cat", Database.boxVal cat)
-                                  ("@now", Database.boxVal (now.ToString("o"))) ]
-                        created <- created + 1
-                        let vendorName = getVendor |> Option.defaultValue "unknown"
-                        logger.info $"Created reminder for doc {docId} ({cat}, {vendorName})"
-                | _ -> ()
+            let processRow (count: int) (row: Map<string, obj>) =
+                task {
+                    let getId = row |> Map.tryFind "id" |> Option.bind (fun v -> match v with :? int64 as i -> Some i | _ -> None)
+                    let getCat = row |> Map.tryFind "category" |> Option.bind (fun v -> match v with :? string as s -> Some s | _ -> None)
+                    let getAmt = row |> Map.tryFind "extracted_amount" |> Option.bind (fun v -> match v with :? float as f -> Some (decimal f) | :? int64 as i -> Some (decimal i) | _ -> None)
+                    let getDate = row |> Map.tryFind "extracted_date" |> Option.bind (fun v -> match v with :? string as s -> Some s | _ -> None)
+                    let getVendor = row |> Map.tryFind "extracted_vendor" |> Option.bind (fun v -> match v with :? string as s -> Some s | _ -> None)
+
+                    match getId, getCat with
+                    | Some docId, Some cat ->
+                        match detectBill now cat getAmt getDate docId with
+                        | None -> return count
+                        | Some reminder ->
+                            do! insertReminder docId cat getVendor reminder
+                            return count + 1
+                    | _ -> return count
+                }
+
+            let! created =
+                rows
+                |> List.fold
+                    (fun stateTask row -> task { let! state = stateTask in return! processRow state row })
+                    (task { return 0 })
 
             return created
         }
