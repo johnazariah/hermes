@@ -57,3 +57,5 @@ logs/
 **/credentials.json
 **/tokens/
 dist/
+
+TestResults/
