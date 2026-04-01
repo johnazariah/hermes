@@ -387,3 +387,78 @@ let ``SemanticSearch_KeywordSearch_FindsMatchingDocuments`` () =
         finally
             db.dispose ()
     }
+
+// ─── Additional chunk tests ──────────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_ChunkText_ShortText_SingleChunk`` () =
+    let chunks = Embeddings.chunkText 500 100 "Short text"
+    Assert.Equal(1, chunks.Length)
+    Assert.Equal(0, chunks.[0].Index)
+    Assert.Equal("Short text", chunks.[0].Text)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_ChunkText_LongText_MultipleChunks`` () =
+    let text = String.replicate 200 "word "
+    let chunks = Embeddings.chunkText 100 20 text
+    Assert.True(chunks.Length > 1)
+    // Indexes should be sequential
+    for i in 0 .. chunks.Length - 1 do
+        Assert.Equal(i, chunks.[i].Index)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_ChunkText_OverlapPresent`` () =
+    let text = String.replicate 100 "word "
+    let chunks = Embeddings.chunkText 50 10 text
+    if chunks.Length >= 2 then
+        // Second chunk should start before first chunk ends
+        let firstEnd = chunks.[0].StartChar + chunks.[0].Text.Length
+        Assert.True(chunks.[1].StartChar < firstEnd)
+
+// ─── Blob round-trip ─────────────────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_BlobRoundTrip_PreservesValues`` () =
+    let original = [| 1.0f; -2.5f; 3.14f; 0.0f |]
+    let blob = Embeddings.embeddingToBlob original
+    let restored = Embeddings.blobToEmbedding blob
+    Assert.Equal(original.Length, restored.Length)
+    for i in 0 .. original.Length - 1 do
+        Assert.Equal(original.[i], restored.[i])
+
+// ─── Store chunk + initSchema ────────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_InitSchema_CreatesChunkTable`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            do! Embeddings.initSchema db
+            let! exists = db.tableExists "document_chunks"
+            Assert.True(exists)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_StoreChunk_InsertsRow`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            do! Embeddings.initSchema db
+            // Need a document row for FK constraint
+            let! _ = db.execNonQuery
+                        "INSERT INTO documents (source_type, saved_path, category, sha256) VALUES ('manual_drop', 'test.pdf', 'invoices', 'sha1')"
+                        []
+            let embedding = [| 1.0f; 2.0f; 3.0f |]
+            do! Embeddings.storeChunk db 1L 0 "test chunk" (Some embedding)
+            let! count = db.execScalar "SELECT COUNT(*) FROM document_chunks WHERE document_id = 1" []
+            let c = match count with null -> 0L | v -> v :?> int64
+            Assert.Equal(1L, c)
+        finally db.dispose ()
+    }

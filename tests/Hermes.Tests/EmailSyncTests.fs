@@ -407,3 +407,63 @@ let ``EmailSync_SyncAccount_UpdatesSyncState`` () =
         finally
             db.dispose ()
     }
+
+// ─── Backfill tests ──────────────────────────────────────────────────
+
+let private backfillConfig : Domain.BackfillConfig =
+    { Enabled = true; Since = None; BatchSize = 10; AttachmentsOnly = true; IncludeBodies = false }
+
+let private backfillAccount (label: string) : Domain.AccountConfig =
+    { Label = label; Provider = "gmail"; Backfill = backfillConfig }
+
+let private backfillTestConfig archiveDir =
+    { TestHelpers.testConfig archiveDir with Accounts = [ backfillAccount "test-backfill" ] }
+
+let private fakePageProvider (messages: Domain.EmailMessage list) (nextToken: string option) : Algebra.EmailProvider =
+    { TestHelpers.emptyProvider with
+        listMessagePage = fun _ _ _ ->
+            task {
+                return
+                    ({ Messages = messages; NextPageToken = nextToken; ResultSizeEstimate = int64 messages.Length } : Algebra.MessagePage)
+            } }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Backfill_DisabledConfig_Skips`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        let disabled : Domain.AccountConfig = { Label = "test"; Provider = "gmail"; Backfill = { backfillConfig with Enabled = false } }
+        try
+            let! (n, c) = EmailSync.backfillAccount m.Fs db TestHelpers.silentLogger TestHelpers.defaultClock TestHelpers.emptyProvider (TestHelpers.testConfig "/archive") disabled
+            Assert.Equal(0, n)
+            Assert.True(c)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Backfill_EmptyPage_CompletesImmediately`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        let provider = fakePageProvider [] None
+        try
+            let! (n, c) = EmailSync.backfillAccount m.Fs db TestHelpers.silentLogger TestHelpers.defaultClock provider (backfillTestConfig "/archive") (backfillAccount "test-bf")
+            Assert.Equal(0, n)
+            Assert.True(c)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Backfill_LoadBackfillState_EmptyDb_ReturnsDefaults`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! state = EmailSync.loadBackfillState db "nonexistent"
+            Assert.False(state.Completed)
+            Assert.Equal(0, state.Scanned)
+            Assert.True(state.PageToken.IsNone)
+        finally db.dispose ()
+    }
