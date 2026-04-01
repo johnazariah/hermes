@@ -290,6 +290,54 @@ let ``PdfStructure_DetectKV_ParagraphText_ReturnsNone`` () =
     | [ (_, None) ] -> ()
     | _ -> failwith $"Expected None (not a KV pair), got {result}"
 
+// ─── CID detection + Confidence scoring tests ────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``PdfStructure_IsCidEncoded_WithCidSequences_ReturnsTrue`` () =
+    let text = "(cid:1) (cid:2) (cid:3) (cid:4) hello"
+    Assert.True(PdfStructure.isCidEncoded text)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``PdfStructure_IsCidEncoded_NormalText_ReturnsFalse`` () =
+    Assert.False(PdfStructure.isCidEncoded "This is normal text with no CID sequences at all.")
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``PdfStructure_CalculateConfidence_FullyDecoded_ReturnsHigh`` () =
+    let tbl : PdfStructure.Table = { Headers = ["A";"B"]; Rows = [["1";"2"]] }
+    let blocks : PdfStructure.Block list =
+        [ PdfStructure.Block.Paragraph "Hello world"
+          PdfStructure.Block.TableBlock tbl ]
+    let pages : PdfStructure.PageContent list =
+        [ { PageNumber = 1; Blocks = blocks } ]
+    let conf = PdfStructure.calculateConfidence pages "Hello world A B 1 2"
+    Assert.True(conf >= 0.8, $"Expected high confidence, got {conf}")
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``PdfStructure_CalculateConfidence_MostlyCid_ReturnsLow`` () =
+    let pages : PdfStructure.PageContent list =
+        [ { PageNumber = 1; Blocks = [] } ]
+    let conf = PdfStructure.calculateConfidence pages "(cid:1) (cid:2) (cid:3) (cid:4) x"
+    Assert.True(conf < 0.5, $"Expected low confidence, got {conf}")
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``PdfStructure_ExtractStructured_GeneratedPdf_ReturnsContent`` () =
+    use builder = new UglyToad.PdfPig.Writer.PdfDocumentBuilder()
+    let font =
+        builder.AddStandard14Font(
+            UglyToad.PdfPig.Fonts.Standard14Fonts.Standard14Font.Helvetica)
+    let page = builder.AddPage(UglyToad.PdfPig.Content.PageSize.A4)
+    page.AddText("Invoice Summary", 16.0, UglyToad.PdfPig.Core.PdfPoint(72.0, 750.0), font) |> ignore
+    page.AddText("Amount: $500.00", 12.0, UglyToad.PdfPig.Core.PdfPoint(72.0, 720.0), font) |> ignore
+    let pdfBytes = builder.Build()
+    let result = PdfStructure.extractStructured pdfBytes
+    Assert.NotEmpty(result.Pages)
+    Assert.True(result.Confidence > 0.0, $"Expected positive confidence, got {result.Confidence}")
+
 // ─── extractLetters edge cases ───────────────────────────────────────
 
 [<Fact>]

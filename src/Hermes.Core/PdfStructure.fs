@@ -360,3 +360,65 @@ module PdfStructure =
     /// Join line texts with newlines for plain-text output.
     let linesToText (lines: Line list) : string =
         lines |> List.map (fun l -> l.Text) |> String.concat "\n"
+
+    // ─── CID detection + Confidence scoring ──────────────────────────
+
+    /// Structured content for a single page.
+    type PageContent = { PageNumber: int; Blocks: Block list }
+
+    /// Full document extraction result with confidence score.
+    type DocumentContent = { Pages: PageContent list; Confidence: float }
+
+    /// Check if text contains CID-encoded sequences (> 30% "(cid:" patterns).
+    let isCidEncoded (text: string) : bool =
+        if String.IsNullOrEmpty(text) then false
+        else
+            let cidCount = System.Text.RegularExpressions.Regex.Matches(text, @"\(cid:").Count
+            let wordCount = max 1 (text.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length)
+            float cidCount / float wordCount > 0.3
+
+    /// Calculate extraction confidence (0.0–1.0).
+    let calculateConfidence (pages: PageContent list) (rawText: string) : float =
+        let textScore =
+            if String.IsNullOrWhiteSpace(rawText) then 0.0
+            elif isCidEncoded rawText then 0.2
+            else 1.0
+        let structureScore =
+            let blockCount =
+                pages |> List.sumBy (fun p -> p.Blocks.Length)
+            let hasTable = pages |> List.exists (fun p -> p.Blocks |> List.exists (function TableBlock _ -> true | _ -> false))
+            let hasKV = pages |> List.exists (fun p -> p.Blocks |> List.exists (function KeyValueBlock _ -> true | _ -> false))
+            let s = if blockCount > 0 then 0.3 else 0.0
+            let s = s + (if hasTable then 0.2 else 0.0)
+            s + (if hasKV then 0.1 else 0.0)
+        min 1.0 (textScore * 0.6 + structureScore + 0.1)
+
+    /// Classify lines into blocks (headings, paragraphs, tables, KV pairs).
+    let private classifyBlocks (lines: Line list) : Block list =
+        let bodySize = detectBodyFontSize lines
+        let tableResult = detectTables lines
+        let tableBlocks = tableResult.Tables |> List.map TableBlock
+        let headingsAndBody =
+            detectHeadings tableResult.NonTableLines bodySize
+            |> List.map (fun (line, level) ->
+                match level with
+                | Some lvl -> Heading (lvl, line.Text)
+                | None -> Paragraph line.Text)
+        let kvResults = detectKeyValues tableResult.NonTableLines
+        let kvBlocks = groupKeyValues kvResults
+        if kvBlocks |> List.exists (function KeyValueBlock _ -> true | _ -> false) then
+            tableBlocks @ kvBlocks
+        else
+            tableBlocks @ headingsAndBody
+
+    /// Main entry: extract structured content from PDF bytes.
+    let extractStructured (pdfBytes: byte[]) : DocumentContent =
+        let pageLines = extractLines pdfBytes
+        let rawText =
+            pageLines |> List.collect snd |> linesToText
+        let pages =
+            pageLines
+            |> List.map (fun (pageNum, lines) ->
+                { PageNumber = pageNum; Blocks = classifyBlocks lines })
+        let confidence = calculateConfidence pages rawText
+        { Pages = pages; Confidence = confidence }
