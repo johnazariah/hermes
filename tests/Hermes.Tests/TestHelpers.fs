@@ -13,7 +13,11 @@ type MemFs =
     { Fs: Algebra.FileSystem
       Files: ConcurrentDictionary<string, string>
       Bytes: ConcurrentDictionary<string, byte array>
-      Dirs: ConcurrentDictionary<string, bool> }
+      Dirs: ConcurrentDictionary<string, bool>
+      /// Store a file using normalized path (forward slashes).
+      Put: string -> string -> unit
+      /// Read a file using normalized path lookup.
+      Get: string -> string option }
 
 let memFs () : MemFs =
     let files = ConcurrentDictionary<string, string>()
@@ -21,59 +25,66 @@ let memFs () : MemFs =
     let dirs = ConcurrentDictionary<string, bool>()
 
     let fs : Algebra.FileSystem =
+        let norm (path: string) = path.Replace('\\', '/')
         { readAllText = fun path ->
             task {
-                match files.TryGetValue(path) with
+                match files.TryGetValue(norm path) with
                 | true, c -> return c
                 | _ -> return failwith $"File not found: {path}"
             }
-          writeAllText = fun path content -> task { files.[path] <- content }
+          writeAllText = fun path content -> task { files.[norm path] <- content }
           writeAllBytes = fun path b ->
             task {
-                bytes.[path] <- b
-                files.[path] <- Text.Encoding.UTF8.GetString(b)
+                let key = norm path
+                bytes.[key] <- b
+                files.[key] <- Text.Encoding.UTF8.GetString(b)
             }
           readAllBytes = fun path ->
             task {
-                match bytes.TryGetValue(path) with
+                let key = norm path
+                match bytes.TryGetValue(key) with
                 | true, b -> return b
                 | _ ->
-                    match files.TryGetValue(path) with
+                    match files.TryGetValue(key) with
                     | true, c -> return Text.Encoding.UTF8.GetBytes(c)
                     | _ -> return failwith $"File not found: {path}"
             }
-          fileExists = fun path -> files.ContainsKey(path) || bytes.ContainsKey(path)
-          directoryExists = fun path -> dirs.ContainsKey(path)
-          createDirectory = fun path -> dirs.[path] <- true
+          fileExists = fun path -> let k = norm path in files.ContainsKey(k) || bytes.ContainsKey(k)
+          directoryExists = fun path -> dirs.ContainsKey(norm path)
+          createDirectory = fun path -> dirs.[norm path] <- true
           deleteFile = fun path ->
-            files.TryRemove(path) |> ignore
-            bytes.TryRemove(path) |> ignore
+            let k = norm path
+            files.TryRemove(k) |> ignore
+            bytes.TryRemove(k) |> ignore
           moveFile = fun src dst ->
-            match files.TryRemove(src) with
-            | true, c -> files.[dst] <- c
+            let ns, nd = norm src, norm dst
+            match files.TryRemove(ns) with
+            | true, c -> files.[nd] <- c
             | _ -> ()
-            match bytes.TryRemove(src) with
-            | true, b -> bytes.[dst] <- b
+            match bytes.TryRemove(ns) with
+            | true, b -> bytes.[nd] <- b
             | _ -> ()
           getFiles = fun dir _pattern ->
-            let pfx = if dir.EndsWith("/") || dir.EndsWith("\\") then dir else dir + "/"
+            let pfx = let d = norm dir in if d.EndsWith("/") then d else d + "/"
             files.Keys
             |> Seq.append bytes.Keys
             |> Seq.distinct
             |> Seq.filter (fun k ->
                 k.StartsWith(pfx, StringComparison.OrdinalIgnoreCase)
-                && not (k.Substring(pfx.Length).Contains("/"))
-                && not (k.Substring(pfx.Length).Contains("\\")))
+                && not (k.Substring(pfx.Length).Contains("/")))
             |> Seq.toArray
           getFileSize = fun path ->
-            match bytes.TryGetValue(path) with
+            let k = norm path
+            match bytes.TryGetValue(k) with
             | true, b -> int64 b.Length
             | _ ->
-                match files.TryGetValue(path) with
+                match files.TryGetValue(k) with
                 | true, c -> int64 (Text.Encoding.UTF8.GetByteCount(c))
                 | _ -> 0L }
 
-    { Fs = fs; Files = files; Bytes = bytes; Dirs = dirs }
+    { Fs = fs; Files = files; Bytes = bytes; Dirs = dirs
+      Put = fun path content -> files.[norm path] <- content
+      Get = fun path -> match files.TryGetValue(norm path) with true, v -> Some v | _ -> None }
 
 // ─── Silent logger ───────────────────────────────────────────────────
 

@@ -135,8 +135,8 @@ let private insertDoc (db: Algebra.Database) (path: string) (cat: string) =
         return match id with null -> 0L | v -> v :?> int64
     }
 
-[<Fact(Skip = "processDocument updateDocumentRow DB update needs investigation")>]
-[<Trait("Category", "Integration")>]
+[<Fact>]
+[<Trait("Category", "Unit")>]
 let ``Extraction_ProcessDocument_PdfFile_ExtractsAndUpdatesDb`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -191,8 +191,8 @@ let ``Extraction_ProcessDocument_ExtractorFails_ReturnsError`` () =
 // Note: extractBatch uses N+1 OFFSET query pattern that has issues with execScalar returning DBNull.
 // These tests validate the contract but may need adjusting when the query is refactored.
 
-[<Fact(Skip = "extractBatch N+1 query returns DBNull for empty scalar — needs refactoring")>]
-[<Trait("Category", "Integration")>]
+[<Fact>]
+[<Trait("Category", "Unit")>]
 let ``Extraction_ExtractBatch_ProcessesUnextractedDocs`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -209,15 +209,15 @@ let ``Extraction_ExtractBatch_ProcessesUnextractedDocs`` () =
         finally db.dispose ()
     }
 
-[<Fact(Skip = "extractBatch N+1 query returns DBNull for empty scalar — needs refactoring")>]
-[<Trait("Category", "Integration")>]
+[<Fact>]
+[<Trait("Category", "Unit")>]
 let ``Extraction_ExtractBatch_RespectsLimit`` () =
     task {
         let db = TestHelpers.createDb ()
         let m = TestHelpers.memFs ()
         for i in 1..5 do
             let path = $"invoices/doc{i}.pdf"
-            m.Files.[$"archive/{path}"] <- "content"
+            m.Files.[$"archive/invoices/doc{i}.pdf"] <- "content"
             let! _ = insertDoc db path "invoices"
             ()
         try
@@ -227,8 +227,8 @@ let ``Extraction_ExtractBatch_RespectsLimit`` () =
         finally db.dispose ()
     }
 
-[<Fact(Skip = "extractBatch N+1 query returns DBNull for empty scalar — needs refactoring")>]
-[<Trait("Category", "Integration")>]
+[<Fact>]
+[<Trait("Category", "Unit")>]
 let ``Extraction_ExtractBatch_CategoryFilter_OnlyProcessesMatching`` () =
     task {
         let db = TestHelpers.createDb ()
