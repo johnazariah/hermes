@@ -76,11 +76,12 @@ module Reminders =
 
             let processRow (count: int) (row: Map<string, obj>) =
                 task {
-                    let getId = row |> Map.tryFind "id" |> Option.bind (fun v -> match v with :? int64 as i -> Some i | _ -> None)
-                    let getCat = row |> Map.tryFind "category" |> Option.bind (fun v -> match v with :? string as s -> Some s | _ -> None)
-                    let getAmt = row |> Map.tryFind "extracted_amount" |> Option.bind (fun v -> match v with :? float as f -> Some (decimal f) | :? int64 as i -> Some (decimal i) | _ -> None)
-                    let getDate = row |> Map.tryFind "extracted_date" |> Option.bind (fun v -> match v with :? string as s -> Some s | _ -> None)
-                    let getVendor = row |> Map.tryFind "extracted_vendor" |> Option.bind (fun v -> match v with :? string as s -> Some s | _ -> None)
+                    let rr = Prelude.RowReader(row)
+                    let getId = rr.OptInt64 "id"
+                    let getCat = rr.OptString "category"
+                    let getAmt = rr.OptFloat "extracted_amount" |> Option.map decimal
+                    let getDate = rr.OptString "extracted_date"
+                    let getVendor = rr.OptString "extracted_vendor"
 
                     match getId, getCat with
                     | Some docId, Some cat ->
@@ -104,19 +105,17 @@ module Reminders =
     // ─── Queries ─────────────────────────────────────────────────────
 
     let private mapReminder (row: Map<string, obj>) : Domain.Reminder =
-        let getStr key = row |> Map.tryFind key |> Option.bind (fun v -> match v with :? string as s -> Some s | _ -> None)
-        let getInt64 key = row |> Map.tryFind key |> Option.bind (fun v -> match v with :? int64 as i -> Some i | _ -> None)
-        let getFloat key = row |> Map.tryFind key |> Option.bind (fun v -> match v with :? float as f -> Some f | _ -> None)
-        { Id = getInt64 "id" |> Option.defaultValue 0L
-          DocumentId = getInt64 "document_id"
-          Vendor = getStr "vendor"
-          Amount = getFloat "amount" |> Option.map decimal
-          DueDate = getStr "due_date" |> Option.bind (fun s -> match DateTimeOffset.TryParse(s) with true, d -> Some d | _ -> None)
-          Category = getStr "category" |> Option.defaultValue ""
-          Status = getStr "status" |> Option.defaultValue "active" |> Domain.ReminderStatus.fromString
-          SnoozedUntil = getStr "snoozed_until" |> Option.bind (fun s -> match DateTimeOffset.TryParse(s) with true, d -> Some d | _ -> None)
-          CreatedAt = getStr "created_at" |> Option.bind (fun s -> match DateTimeOffset.TryParse(s) with true, d -> Some d | _ -> None) |> Option.defaultValue DateTimeOffset.MinValue
-          CompletedAt = getStr "completed_at" |> Option.bind (fun s -> match DateTimeOffset.TryParse(s) with true, d -> Some d | _ -> None) }
+        let r = Prelude.RowReader(row)
+        { Id = r.Int64 "id" 0L
+          DocumentId = r.OptInt64 "document_id"
+          Vendor = r.OptString "vendor"
+          Amount = r.OptFloat "amount" |> Option.map decimal
+          DueDate = r.OptDateTimeOffset "due_date"
+          Category = r.String "category" ""
+          Status = r.String "status" "active" |> Domain.ReminderStatus.fromString
+          SnoozedUntil = r.OptDateTimeOffset "snoozed_until"
+          CreatedAt = r.OptDateTimeOffset "created_at" |> Option.defaultValue DateTimeOffset.MinValue
+          CompletedAt = r.OptDateTimeOffset "completed_at" }
 
     /// Get active + un-snoozed reminders with document info.
     let getActive (db: Algebra.Database) (now: DateTimeOffset) : Task<(Domain.Reminder * string option * string option) list> =
@@ -132,10 +131,8 @@ module Reminders =
                     [ ("@now", Database.boxVal (now.ToString("o"))) ]
             return
                 rows |> List.map (fun row ->
-                    let r = mapReminder row
-                    let path = row |> Map.tryFind "saved_path" |> Option.bind (fun v -> match v with :? string as s -> Some s | _ -> None)
-                    let name = row |> Map.tryFind "original_name" |> Option.bind (fun v -> match v with :? string as s -> Some s | _ -> None)
-                    (r, path, name))
+                    let rr = Prelude.RowReader(row)
+                    (mapReminder row, rr.OptString "saved_path", rr.OptString "original_name"))
         }
 
     /// Get recently completed reminders (last 7 days).

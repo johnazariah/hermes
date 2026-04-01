@@ -152,69 +152,36 @@ module Search =
 
     // ─── Result mapping ──────────────────────────────────────────────
 
-    let private tryString (row: Map<string, obj>) (key: string) : string option =
-        match row |> Map.tryFind key with
-        | Some v ->
-            match v with
-            | :? DBNull -> None
-            | :? string as s when not (String.IsNullOrEmpty(s)) -> Some s
-            | _ -> None
-        | None -> None
-
-    let private getString (row: Map<string, obj>) (key: string) (fallback: string) : string =
-        tryString row key |> Option.defaultValue fallback
-
-    let private tryFloat (row: Map<string, obj>) (key: string) : float option =
-        match row |> Map.tryFind key with
-        | Some v ->
-            match v with
-            | :? DBNull -> None
-            | :? float as f -> Some f
-            | :? int64 as i -> Some (float i)
-            | :? decimal as d -> Some (float d)
-            | _ ->
-                match Double.TryParse(string v) with
-                | true, d -> Some d
-                | _ -> None
-        | None -> None
-
-    let private getInt64 (row: Map<string, obj>) (key: string) : int64 =
-        match row |> Map.tryFind key with
-        | Some v ->
-            match v with
-            | :? int64 as i -> i
-            | :? int as i -> int64 i
-            | _ -> 0L
-        | None -> 0L
-
     /// Map a database row to a SearchResult.
     let mapRow (row: Map<string, obj>) : SearchResult =
-        { DocumentId = getInt64 row "id"
-          SavedPath = getString row "saved_path" ""
-          OriginalName = tryString row "original_name"
-          Category = getString row "category" ""
-          Sender = tryString row "sender"
-          Subject = tryString row "subject"
-          EmailDate = tryString row "email_date"
-          ExtractedVendor = tryString row "extracted_vendor"
-          ExtractedAmount = tryFloat row "extracted_amount"
-          RelevanceScore = tryFloat row "rank" |> Option.defaultValue 0.0
-          Snippet = tryString row "snippet"
+        let r = Prelude.RowReader(row)
+        { DocumentId = r.Int64 "id" 0L
+          SavedPath = r.String "saved_path" ""
+          OriginalName = r.OptString "original_name"
+          Category = r.String "category" ""
+          Sender = r.OptString "sender"
+          Subject = r.OptString "subject"
+          EmailDate = r.OptString "email_date"
+          ExtractedVendor = r.OptString "extracted_vendor"
+          ExtractedAmount = r.OptFloat "extracted_amount"
+          RelevanceScore = r.Float "rank" 0.0
+          Snippet = r.OptString "snippet"
           ResultType = "document" }
 
     /// Map an email row from messages_fts to a SearchResult.
     let private mapEmailRow (row: Map<string, obj>) : SearchResult =
+        let r = Prelude.RowReader(row)
         { DocumentId = 0L
           SavedPath = ""
           OriginalName = None
           Category = "email"
-          Sender = tryString row "sender"
-          Subject = tryString row "subject"
-          EmailDate = tryString row "date"
+          Sender = r.OptString "sender"
+          Subject = r.OptString "subject"
+          EmailDate = r.OptString "date"
           ExtractedVendor = None
           ExtractedAmount = None
-          RelevanceScore = tryFloat row "rank" |> Option.defaultValue 0.0
-          Snippet = tryString row "snippet"
+          RelevanceScore = r.Float "rank" 0.0
+          Snippet = r.OptString "snippet"
           ResultType = "email" }
 
     /// Build the SQL for email body search.
