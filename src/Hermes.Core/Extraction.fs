@@ -30,6 +30,19 @@ module Extraction =
         with ex ->
             Error $"PDF extraction failed: {ex.Message}"
 
+    // ─── Structured PDF extraction (uses PdfStructure) ───────────────
+
+    let extractPdfContent (pdfBytes: byte[]) : Result<string * float, string> =
+        try
+            let structured : PdfStructure.DocumentContent = PdfStructure.extractStructured pdfBytes
+            if structured.Confidence < 0.3 then
+                Error "Low confidence extraction — needs OCR fallback"
+            else
+                let markdown = PdfStructure.toMarkdown structured (Map.empty<string, string>)
+                Ok (markdown, structured.Confidence)
+        with ex ->
+            Error $"Structured PDF extraction failed: {ex.Message}"
+
     // ─── File type detection ─────────────────────────────────────────
 
     let isPdf (path: string) =
@@ -116,11 +129,16 @@ module Extraction =
     let extractFromBytes (extractor: Algebra.TextExtractor) (path: string) (bytes: byte array) =
         task {
             if isPdf path then
-                let! result = extractor.extractPdf bytes
-                return result |> Result.map (fun text ->
-                    let method = if isLikelyScanned text then "ollama_vision" else "pdfpig"
-                    let conf = if isLikelyScanned text then Some 0.7 else None
-                    analyseText text method conf)
+                // Try structured extraction first; fall back to legacy on low confidence
+                match extractPdfContent bytes with
+                | Ok (markdown, confidence) ->
+                    return Ok (analyseText markdown "pdfstructure" (Some confidence))
+                | Error _ ->
+                    let! result = extractor.extractPdf bytes
+                    return result |> Result.map (fun text ->
+                        let method = if isLikelyScanned text then "ollama_vision" else "pdfpig"
+                        let conf = if isLikelyScanned text then Some 0.7 else None
+                        analyseText text method conf)
             elif isImage path then
                 let! result = extractor.extractImage bytes
                 return result |> Result.map (fun text -> analyseText text "ollama_vision" (Some 0.8))
@@ -141,7 +159,8 @@ module Extraction =
                        SET extracted_text = @text, extracted_date = @date,
                            extracted_amount = @amount, extracted_vendor = @vendor,
                            extracted_abn = @abn, extraction_method = @method,
-                           ocr_confidence = @confidence, extracted_at = @now
+                           ocr_confidence = @confidence, extraction_confidence = @extConf,
+                           extracted_at = @now
                        WHERE id = @id"""
                     [ ("@text", Database.boxVal r.Text)
                       ("@date", optVal r.Date)
@@ -150,6 +169,7 @@ module Extraction =
                       ("@abn", optVal r.Abn)
                       ("@method", Database.boxVal r.Method)
                       ("@confidence", r.OcrConfidence |> Option.map Database.boxVal |> Option.defaultValue (Database.boxVal DBNull.Value))
+                      ("@extConf", r.OcrConfidence |> Option.map Database.boxVal |> Option.defaultValue (Database.boxVal DBNull.Value))
                       ("@now", Database.boxVal (clock.utcNow().ToString("o")))
                       ("@id", Database.boxVal docId) ]
             ()

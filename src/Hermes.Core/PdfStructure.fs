@@ -422,3 +422,40 @@ module PdfStructure =
                 { PageNumber = pageNum; Blocks = classifyBlocks lines })
         let confidence = calculateConfidence pages rawText
         { Pages = pages; Confidence = confidence }
+
+    // ─── Markdown rendering ──────────────────────────────────────────
+
+    let private blockToMarkdown (block: Block) : string =
+        match block with
+        | Heading (level, text) ->
+            let prefix = String.replicate level "#"
+            $"{prefix} {text}"
+        | Paragraph text -> text
+        | TableBlock tbl ->
+            let header = "| " + (tbl.Headers |> String.concat " | ") + " |"
+            let sep = "| " + (tbl.Headers |> List.map (fun _ -> "---") |> String.concat " | ") + " |"
+            let rows =
+                tbl.Rows
+                |> List.map (fun row -> "| " + (row |> String.concat " | ") + " |")
+            header :: sep :: rows |> String.concat "\n"
+        | KeyValueBlock kvs ->
+            kvs
+            |> List.map (fun kv -> $"- **{kv.Key}:** {kv.Value}")
+            |> String.concat "\n"
+
+    /// Render DocumentContent to markdown with optional YAML frontmatter.
+    let toMarkdown (doc: DocumentContent) (frontmatter: Map<string, string>) : string =
+        let fm =
+            if frontmatter.IsEmpty then ""
+            else
+                let entries =
+                    frontmatter
+                    |> Map.toList
+                    |> List.map (fun (k, v) -> $"{k}: {v}")
+                    |> String.concat "\n"
+                $"---\n{entries}\n---\n\n"
+        let body =
+            doc.Pages
+            |> List.collect (fun page -> page.Blocks |> List.map blockToMarkdown)
+            |> String.concat "\n\n"
+        fm + body

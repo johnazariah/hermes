@@ -338,6 +338,37 @@ let ``PdfStructure_ExtractStructured_GeneratedPdf_ReturnsContent`` () =
     Assert.NotEmpty(result.Pages)
     Assert.True(result.Confidence > 0.0, $"Expected positive confidence, got {result.Confidence}")
 
+// ─── toMarkdown tests ────────────────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``PdfStructure_ToMarkdown_HeadingsAndTables_WellFormed`` () =
+    let tbl : PdfStructure.Table = { Headers = ["A";"B"]; Rows = [["1";"2"]; ["3";"4"]] }
+    let blocks : PdfStructure.Block list =
+        [ PdfStructure.Block.Heading (1, "Title")
+          PdfStructure.Block.Paragraph "Some text"
+          PdfStructure.Block.TableBlock tbl ]
+    let doc : PdfStructure.DocumentContent =
+        { Pages = [ { PageNumber = 1; Blocks = blocks } ]; Confidence = 0.9 }
+    let md = PdfStructure.toMarkdown doc Map.empty
+    Assert.Contains("# Title", md)
+    Assert.Contains("Some text", md)
+    Assert.Contains("| A | B |", md)
+    Assert.Contains("| --- | --- |", md)
+    Assert.Contains("| 1 | 2 |", md)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``PdfStructure_ToMarkdown_Frontmatter_IncludesMetadata`` () =
+    let doc : PdfStructure.DocumentContent =
+        { Pages = [ { PageNumber = 1; Blocks = [ PdfStructure.Block.Paragraph "content" ] } ]
+          Confidence = 0.85 }
+    let fm = Map.ofList [ ("title", "Test Doc"); ("date", "2024-01-15") ]
+    let md = PdfStructure.toMarkdown doc fm
+    Assert.StartsWith("---", md)
+    Assert.Contains("title: Test Doc", md)
+    Assert.Contains("date: 2024-01-15", md)
+
 // ─── extractLetters edge cases ───────────────────────────────────────
 
 [<Fact>]

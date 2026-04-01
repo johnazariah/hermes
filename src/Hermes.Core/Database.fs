@@ -64,6 +64,7 @@ module Database =
             extracted_abn   TEXT,
             ocr_confidence  REAL,
             extraction_method TEXT,
+            extraction_confidence REAL,
             extracted_at    TEXT,
             embedded_at     TEXT,
             chunk_count     INTEGER,
@@ -266,7 +267,8 @@ module Database =
                "ALTER TABLE sync_state ADD COLUMN backfill_total_estimate INTEGER"
                "ALTER TABLE sync_state ADD COLUMN backfill_scanned INTEGER NOT NULL DEFAULT 0"
                "ALTER TABLE sync_state ADD COLUMN backfill_completed INTEGER NOT NULL DEFAULT 0"
-               "ALTER TABLE sync_state ADD COLUMN backfill_started_at TEXT" |]
+               "ALTER TABLE sync_state ADD COLUMN backfill_started_at TEXT"
+               "ALTER TABLE documents ADD COLUMN extraction_confidence REAL" |]
         let createStmts =
             [| """CREATE TABLE IF NOT EXISTS reminders (
                     id              INTEGER PRIMARY KEY AUTOINCREMENT,
