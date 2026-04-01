@@ -60,40 +60,7 @@ module McpTools =
 
     // ─── Helper: row value extraction ────────────────────────────────
 
-    let private tryStringVal (row: Map<string, obj>) (key: string) : string option =
-        match row |> Map.tryFind key with
-        | Some v ->
-            match v with
-            | :? DBNull -> None
-            | :? string as s when not (String.IsNullOrEmpty(s)) -> Some s
-            | _ -> None
-        | None -> None
-
-    let private getStringVal (row: Map<string, obj>) (key: string) (fallback: string) : string =
-        tryStringVal row key |> Option.defaultValue fallback
-
-    let private getInt64Val (row: Map<string, obj>) (key: string) : int64 =
-        match row |> Map.tryFind key with
-        | Some v ->
-            match v with
-            | :? int64 as i -> i
-            | :? int as i -> int64 i
-            | _ -> 0L
-        | None -> 0L
-
-    let private tryFloatVal (row: Map<string, obj>) (key: string) : float option =
-        match row |> Map.tryFind key with
-        | Some v ->
-            match v with
-            | :? DBNull -> None
-            | :? float as f -> Some f
-            | :? int64 as i -> Some(float i)
-            | :? decimal as d -> Some(float d)
-            | _ ->
-                match Double.TryParse(string v) with
-                | true, d -> Some d
-                | _ -> None
-        | None -> None
+    // Row reading uses Prelude.RowReader — no local boilerplate needed
 
     // ─── hermes_search ───────────────────────────────────────────────
 
@@ -160,15 +127,16 @@ module McpTools =
 
     /// Map a DB row to a JsonObject for document responses. Pure — no async.
     let private mapDocumentRow (row: Map<string, obj>) : JsonObject =
+        let r = Prelude.RowReader(row)
         let doc = JsonObject()
-        doc["id"] <- JsonValue.Create(getInt64Val row "id")
-        doc["sourceType"] <- JsonValue.Create(getStringVal row "source_type" "")
-        doc["savedPath"] <- JsonValue.Create(getStringVal row "saved_path" "")
-        doc["category"] <- JsonValue.Create(getStringVal row "category" "")
-        doc["sha256"] <- JsonValue.Create(getStringVal row "sha256" "")
+        doc["id"] <- JsonValue.Create(r.Int64 "id" 0L)
+        doc["sourceType"] <- JsonValue.Create(r.String "source_type" "")
+        doc["savedPath"] <- JsonValue.Create(r.String "saved_path" "")
+        doc["category"] <- JsonValue.Create(r.String "category" "")
+        doc["sha256"] <- JsonValue.Create(r.String "sha256" "")
 
         let addOpt (jsonKey: string) (dbKey: string) =
-            tryStringVal row dbKey
+            r.OptString dbKey
             |> Option.iter (fun v -> doc[jsonKey] <- JsonValue.Create(v))
 
         addOpt "gmailId" "gmail_id"
@@ -186,10 +154,10 @@ module McpTools =
         addOpt "embeddedAt" "embedded_at"
         addOpt "ingestedAt" "ingested_at"
 
-        tryFloatVal row "size_bytes"
+        r.OptFloat "size_bytes"
         |> Option.iter (fun v -> doc["sizeBytes"] <- JsonValue.Create(int64 v))
 
-        tryFloatVal row "extracted_amount"
+        r.OptFloat "extracted_amount"
         |> Option.iter (fun v -> doc["extractedAmount"] <- JsonValue.Create(v))
 
         doc
@@ -237,9 +205,10 @@ module McpTools =
             let arr = JsonArray()
 
             for row in rows do
+                let rr = Prelude.RowReader(row)
                 let item = JsonObject()
-                item["category"] <- JsonValue.Create(getStringVal row "category" "")
-                item["count"] <- JsonValue.Create(getInt64Val row "doc_count")
+                item["category"] <- JsonValue.Create(rr.String "category" "")
+                item["count"] <- JsonValue.Create(rr.Int64 "doc_count" 0L)
                 arr.Add(item)
 
             let result = JsonObject()
