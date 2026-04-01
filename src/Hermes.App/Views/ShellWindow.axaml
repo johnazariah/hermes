@@ -148,16 +148,31 @@
                     HorizontalAlignment="Stretch"
                     VerticalAlignment="Stretch" />
 
-      <!-- ════════════════════ RIGHT CHAT PANEL ════════════════════ -->
-      <Grid Grid.Column="2" RowDefinitions="*,Auto" Background="{DynamicResource ChatBg}">
+      <!-- ════════════════════ RIGHT MAIN PANEL ════════════════════ -->
+      <Grid Grid.Column="2" RowDefinitions="Auto,*,Auto" Background="{DynamicResource ChatBg}">
 
-        <!-- Messages -->
-        <ScrollViewer x:Name="ChatScroller" Grid.Row="0" Padding="0,8">
+        <!-- Tab toggle bar -->
+        <Border Grid.Row="0" BorderBrush="{DynamicResource SidebarBorder}" BorderThickness="0,0,0,1" Padding="12,6">
+          <StackPanel Orientation="Horizontal" Spacing="4">
+            <ToggleButton x:Name="ChatTabButton" Content="💬 Chat" IsChecked="True"
+                          FontSize="12" Padding="10,4" CornerRadius="4" />
+            <ToggleButton x:Name="TodoTabButton" Content="📋 Action Items"
+                          FontSize="12" Padding="10,4" CornerRadius="4" />
+          </StackPanel>
+        </Border>
+
+        <!-- Chat view -->
+        <ScrollViewer x:Name="ChatScroller" Grid.Row="1" Padding="0,8">
           <StackPanel x:Name="ChatPanel" Margin="20,8" Spacing="12" />
         </ScrollViewer>
 
+        <!-- TODO / Action Items view (hidden by default) -->
+        <ScrollViewer x:Name="TodoScroller" Grid.Row="1" Padding="0,8" IsVisible="False">
+          <StackPanel x:Name="TodoPanel" Margin="20,8" Spacing="12" />
+        </ScrollViewer>
+
         <!-- Input bar -->
-        <Border Grid.Row="1"
+        <Border Grid.Row="2"
                 Background="{DynamicResource ChatBg}"
                 BorderBrush="{DynamicResource SidebarBorder}"
                 BorderThickness="0,1,0,0"

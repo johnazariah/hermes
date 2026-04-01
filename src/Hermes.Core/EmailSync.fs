@@ -524,13 +524,23 @@ module EmailSync =
                     do! recordMessage db account.Label msg (clock.utcNow ())
                     let! atts = provider.getAttachments msg.ProviderId
                     for att in atts do
-                        if int64 att.SizeBytes >= int64 config.MinAttachmentSize then
-                            let name = buildStandardName msg.Date msg.Sender att.FileName
-                            let destPath = IO.Path.Combine(config.ArchiveDir, "unclassified", name)
-                            do! fs.writeAllBytes destPath att.Content
-                            let sidecar = buildSidecar account.Label msg att name (computeSha256 att.Content) (clock.utcNow ())
-                            do! fs.writeAllText (destPath + ".meta.json") (serialiseSidecar sidecar)
-                            newCount <- newCount + 1
+                        try
+                            if int64 att.SizeBytes >= int64 config.MinAttachmentSize then
+                                let sha = computeSha256 att.Content
+                                let! isDuplicate = hashExists db sha
+                                if isDuplicate then
+                                    logger.debug $"[{account.Label}] Backfill skipping duplicate: {att.FileName}"
+                                else
+                                    let name = buildStandardName msg.Date msg.Sender att.FileName
+                                    let destPath = IO.Path.Combine(config.ArchiveDir, "unclassified", name)
+                                    fs.createDirectory (IO.Path.Combine(config.ArchiveDir, "unclassified"))
+                                    do! fs.writeAllBytes destPath att.Content
+                                    let sidecar = buildSidecar account.Label msg att name sha (clock.utcNow ())
+                                    do! fs.writeAllText (destPath + ".meta.json") (serialiseSidecar sidecar)
+                                    do! recordDocument db account.Label msg att name sha (clock.utcNow ())
+                                    newCount <- newCount + 1
+                        with ex ->
+                            logger.warn $"[{account.Label}] Backfill attachment error ({att.FileName}): {ex.Message}"
 
             let completed = page.NextPageToken.IsNone
             let newState =

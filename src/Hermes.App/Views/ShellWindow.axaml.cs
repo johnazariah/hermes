@@ -50,6 +50,10 @@ public partial class ShellWindow : Window
     private WrapPanel _suggestedQueries = null!;
     private Ellipse _statusDot = null!;
     private TextBlock _statusBarText = null!;
+    private ToggleButton _chatTabButton = null!;
+    private ToggleButton _todoTabButton = null!;
+    private ScrollViewer _todoScroller = null!;
+    private StackPanel _todoPanel = null!;
 
     public ShellWindow(HermesServiceBridge bridge)
     {
@@ -96,6 +100,10 @@ public partial class ShellWindow : Window
         _suggestedQueries = this.FindControl<WrapPanel>("SuggestedQueries")!;
         _statusDot = this.FindControl<Ellipse>("StatusDot")!;
         _statusBarText = this.FindControl<TextBlock>("StatusBarText")!;
+        _chatTabButton = this.FindControl<ToggleButton>("ChatTabButton")!;
+        _todoTabButton = this.FindControl<ToggleButton>("TodoTabButton")!;
+        _todoScroller = this.FindControl<ScrollViewer>("TodoScroller")!;
+        _todoPanel = this.FindControl<StackPanel>("TodoPanel")!;
     }
 
     private void WireUpEvents()
@@ -126,6 +134,23 @@ public partial class ShellWindow : Window
         };
 
         _aiToggle.IsCheckedChanged += (_, _) => _vm.AiEnabled = _aiToggle.IsChecked == true;
+
+        // Tab toggle: Chat ↔ TODO
+        _chatTabButton.Click += (_, _) =>
+        {
+            _chatTabButton.IsChecked = true;
+            _todoTabButton.IsChecked = false;
+            _chatScroller.IsVisible = true;
+            _todoScroller.IsVisible = false;
+        };
+        _todoTabButton.Click += (_, _) =>
+        {
+            _todoTabButton.IsChecked = true;
+            _chatTabButton.IsChecked = false;
+            _chatScroller.IsVisible = false;
+            _todoScroller.IsVisible = true;
+            RebuildTodoPanel();
+        };
 
         // Wire up suggested query chips
         foreach (var child in _suggestedQueries.Children.OfType<Button>())
@@ -190,7 +215,13 @@ public partial class ShellWindow : Window
                 break;
 
             case nameof(ShellViewModel.IsSearching):
-                // Could animate the send button or show a spinner
+                break;
+
+            case nameof(ShellViewModel.ActionItemCount):
+                _todoTabButton.Content = _vm.ActionItemCount > 0
+                    ? $"📋 Action Items ({_vm.ActionItemCount})"
+                    : "📋 Action Items";
+                if (_todoScroller.IsVisible) RebuildTodoPanel();
                 break;
         }
 
@@ -371,6 +402,148 @@ public partial class ShellWindow : Window
             }
         };
 
+        return card;
+    }
+
+    // ── TODO / Action Items panel ────────────────────────────────
+
+    private void RebuildTodoPanel()
+    {
+        _todoPanel.Children.Clear();
+
+        if (_vm.OverdueReminders.Count == 0 && _vm.UpcomingReminders.Count == 0)
+        {
+            _todoPanel.Children.Add(new TextBlock
+            {
+                Text = "✅ All clear — no bills or reminders",
+                FontSize = 14,
+                Foreground = new SolidColorBrush(Color.Parse("#888")),
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                Margin = new Thickness(0, 40, 0, 0)
+            });
+            return;
+        }
+
+        if (_vm.OverdueReminders.Count > 0)
+        {
+            _todoPanel.Children.Add(new TextBlock
+            {
+                Text = "⚠ OVERDUE",
+                FontSize = 12,
+                FontWeight = FontWeight.Bold,
+                Foreground = new SolidColorBrush(Color.Parse("#D32F2F")),
+                Margin = new Thickness(0, 0, 0, 4)
+            });
+
+            foreach (var r in _vm.OverdueReminders)
+                _todoPanel.Children.Add(CreateReminderCard(r, "#D32F2F"));
+        }
+
+        if (_vm.UpcomingReminders.Count > 0)
+        {
+            _todoPanel.Children.Add(new TextBlock
+            {
+                Text = "📋 UPCOMING",
+                FontSize = 12,
+                FontWeight = FontWeight.Bold,
+                Foreground = new SolidColorBrush(Color.Parse("#F9A825")),
+                Margin = new Thickness(0, 12, 0, 4)
+            });
+
+            foreach (var r in _vm.UpcomingReminders)
+                _todoPanel.Children.Add(CreateReminderCard(r, "#F9A825"));
+        }
+    }
+
+    private Control CreateReminderCard(ReminderItem item, string accentColor)
+    {
+        var card = new Border
+        {
+            CornerRadius = new CornerRadius(6),
+            BorderBrush = new SolidColorBrush(Color.Parse(accentColor)),
+            BorderThickness = new Thickness(2, 0, 0, 0),
+            Padding = new Thickness(12, 8),
+            Margin = new Thickness(0, 0, 0, 8),
+            Background = new SolidColorBrush(Color.Parse("#06000000"))
+        };
+
+        var stack = new StackPanel { Spacing = 4 };
+
+        // Vendor + Amount header
+        var header = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Spacing = 8 };
+        header.Children.Add(new TextBlock
+        {
+            Text = item.Vendor ?? "Unknown",
+            FontSize = 13,
+            FontWeight = FontWeight.SemiBold
+        });
+        if (item.Amount is not null)
+        {
+            header.Children.Add(new TextBlock
+            {
+                Text = item.Amount,
+                FontSize = 13,
+                FontWeight = FontWeight.Bold,
+                Foreground = new SolidColorBrush(Color.Parse(accentColor))
+            });
+        }
+        stack.Children.Add(header);
+
+        // Due date + relative label
+        if (item.DueDate is not null)
+        {
+            stack.Children.Add(new TextBlock
+            {
+                Text = $"Due: {item.DueDate} ({item.DueLabel})",
+                FontSize = 11,
+                Foreground = new SolidColorBrush(Color.Parse("#888"))
+            });
+        }
+
+        // Document link
+        if (item.FileName is not null)
+        {
+            var docLink = new TextBlock
+            {
+                Text = $"📄 {item.FileName}",
+                FontSize = 11,
+                Foreground = new SolidColorBrush(Color.Parse("#1565C0")),
+                Cursor = new Cursor(StandardCursorType.Hand)
+            };
+            if (item.DocumentPath is not null)
+            {
+                docLink.PointerPressed += (_, _) =>
+                {
+                    if (File.Exists(item.DocumentPath))
+                    {
+                        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                            Process.Start(new ProcessStartInfo(item.DocumentPath) { UseShellExecute = true });
+                        else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+                            Process.Start("open", item.DocumentPath);
+                    }
+                };
+            }
+            stack.Children.Add(docLink);
+        }
+
+        // Action buttons
+        var buttons = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Spacing = 6, Margin = new Thickness(0, 4, 0, 0) };
+
+        var paidBtn = new Button { Content = "Mark Paid ✓", FontSize = 11, Padding = new Thickness(8, 3) };
+        paidBtn.Click += async (_, _) => { paidBtn.IsEnabled = false; await _vm.MarkPaidAsync(item.Id); };
+        buttons.Children.Add(paidBtn);
+
+        var snoozeBtn = new Button { Content = "Snooze 7d ⏰", FontSize = 11, Padding = new Thickness(8, 3) };
+        snoozeBtn.Click += async (_, _) => { snoozeBtn.IsEnabled = false; await _vm.SnoozeAsync(item.Id); };
+        buttons.Children.Add(snoozeBtn);
+
+        var dismissBtn = new Button { Content = "Dismiss ×", FontSize = 11, Padding = new Thickness(8, 3) };
+        dismissBtn.Click += async (_, _) => { dismissBtn.IsEnabled = false; await _vm.DismissAsync(item.Id); };
+        buttons.Children.Add(dismissBtn);
+
+        stack.Children.Add(buttons);
+
+        card.Child = stack;
         return card;
     }
 

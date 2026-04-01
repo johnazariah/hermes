@@ -34,6 +34,19 @@ public sealed record DocumentCard(
     string SavedPath);
 
 /// <summary>
+/// A reminder/action item for display in the TODO panel.
+/// </summary>
+public sealed record ReminderItem(
+    long Id,
+    string? Vendor,
+    string? Amount,
+    string? DueDate,
+    string DueLabel,
+    bool IsOverdue,
+    string? DocumentPath,
+    string? FileName);
+
+/// <summary>
 /// Ollama connection status.
 /// </summary>
 public sealed record OllamaStatus(bool IsAvailable, IReadOnlyList<string> Models);
@@ -155,6 +168,17 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     public IReadOnlyList<Domain.WatchFolderConfig> WatchFolders
         => _bridge.Config?.WatchFolders.ToList() ?? [];
 
+    // Reminder state
+    public ObservableCollection<ReminderItem> OverdueReminders { get; } = [];
+    public ObservableCollection<ReminderItem> UpcomingReminders { get; } = [];
+
+    private int _actionItemCount;
+    public int ActionItemCount
+    {
+        get => _actionItemCount;
+        private set => Set(ref _actionItemCount, value);
+    }
+
     // ── Refresh all status ─────────────────────────────────────────
 
     public async Task RefreshAsync()
@@ -167,6 +191,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             await RefreshIndexStatsAsync();
             RefreshCategories();
             await RefreshAccountsAsync();
+            await RefreshRemindersAsync();
             RefreshLastSync();
             RefreshStatusBar();
         }
@@ -388,6 +413,97 @@ public sealed class ShellViewModel : INotifyPropertyChanged
 
     public void TogglePause() => _bridge.TogglePause();
     public bool IsPaused => _bridge.IsPaused;
+
+    // ── Reminder actions ───────────────────────────────────────────
+
+    public async Task MarkPaidAsync(long reminderId)
+    {
+        var dbPath = Path.Combine(_bridge.ArchiveDir, "db.sqlite");
+        if (!File.Exists(dbPath)) return;
+        var db = Database.fromPath(dbPath);
+        try { await Reminders.markCompleted(db, reminderId, DateTimeOffset.UtcNow); }
+        finally { db.dispose.Invoke(null!); }
+        await RefreshRemindersAsync();
+    }
+
+    public async Task SnoozeAsync(long reminderId, int days = 7)
+    {
+        var dbPath = Path.Combine(_bridge.ArchiveDir, "db.sqlite");
+        if (!File.Exists(dbPath)) return;
+        var db = Database.fromPath(dbPath);
+        try { await Reminders.snooze(db, reminderId, days, DateTimeOffset.UtcNow); }
+        finally { db.dispose.Invoke(null!); }
+        await RefreshRemindersAsync();
+    }
+
+    public async Task DismissAsync(long reminderId)
+    {
+        var dbPath = Path.Combine(_bridge.ArchiveDir, "db.sqlite");
+        if (!File.Exists(dbPath)) return;
+        var db = Database.fromPath(dbPath);
+        try { await Reminders.dismiss(db, reminderId, DateTimeOffset.UtcNow); }
+        finally { db.dispose.Invoke(null!); }
+        await RefreshRemindersAsync();
+    }
+
+    private async Task RefreshRemindersAsync()
+    {
+        var dbPath = Path.Combine(_bridge.ArchiveDir, "db.sqlite");
+        if (!File.Exists(dbPath)) return;
+
+        try
+        {
+            var db = Database.fromPath(dbPath);
+            try
+            {
+                var now = DateTimeOffset.UtcNow;
+                var active = await Reminders.getActive(db, now);
+
+                OverdueReminders.Clear();
+                UpcomingReminders.Clear();
+
+                foreach (var (reminder, savedPath, originalName) in active)
+                {
+                    var dueOpt = reminder.DueDate;
+                    var hasDue = FSharpOption<DateTimeOffset>.get_IsSome(dueOpt);
+                    var dueVal = hasDue ? dueOpt!.Value : DateTimeOffset.MinValue;
+                    var isOverdue = hasDue && dueVal < now;
+                    var dueLabel = hasDue
+                        ? (isOverdue
+                            ? $"{(int)(now - dueVal).TotalDays} days overdue"
+                            : $"in {(int)(dueVal - now).TotalDays} days")
+                        : "no due date";
+
+                    var vendorStr = FSharpOption<string>.get_IsSome(reminder.Vendor) ? reminder.Vendor!.Value : null;
+                    var amountStr = FSharpOption<decimal>.get_IsSome(reminder.Amount) ? $"${reminder.Amount!.Value:F2}" : null;
+                    var pathStr = FSharpOption<string>.get_IsSome(savedPath) ? savedPath!.Value : null;
+                    var nameStr = FSharpOption<string>.get_IsSome(originalName) ? originalName!.Value : null;
+
+                    var item = new ReminderItem(
+                        Id: reminder.Id,
+                        Vendor: vendorStr,
+                        Amount: amountStr,
+                        DueDate: hasDue ? dueVal.ToString("dd MMM yyyy") : null,
+                        DueLabel: dueLabel,
+                        IsOverdue: isOverdue,
+                        DocumentPath: pathStr,
+                        FileName: nameStr);
+
+                    if (isOverdue)
+                        OverdueReminders.Add(item);
+                    else
+                        UpcomingReminders.Add(item);
+                }
+
+                ActionItemCount = OverdueReminders.Count + UpcomingReminders.Count;
+            }
+            finally
+            {
+                db.dispose.Invoke(null!);
+            }
+        }
+        catch { /* DB may not exist */ }
+    }
 
     public void Dispose()
     {

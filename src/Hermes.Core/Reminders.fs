@@ -52,10 +52,10 @@ module Reminders =
         task {
             let! rows =
                 db.execReader
-                    """SELECT id, category, extracted_amount, extracted_date, extracted_vendor
-                       FROM documents
-                       WHERE extracted_at IS NOT NULL
-                         AND id NOT IN (SELECT document_id FROM reminders WHERE document_id IS NOT NULL)"""
+                    """SELECT d.id, d.category, d.extracted_amount, d.extracted_date, d.extracted_vendor
+                       FROM documents d
+                       WHERE d.extracted_at IS NOT NULL
+                         AND NOT EXISTS (SELECT 1 FROM reminders r WHERE r.document_id = d.id)"""
                     []
 
             let mutable created = 0
