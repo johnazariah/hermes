@@ -1,300 +1,592 @@
-# Hermes — Rich UI: Document Browser, Queue & Activity
+# Hermes — Rich UI: VS Code-Style Three-Column Shell
 
-> Design doc for expanding the shell window from chat-only to a full document management interface.  
-> Builds on: doc 09 (UI Redesign), doc 12 (Bills & Reminders — TODO tab).  
-> Created: 2026-04-01
+> Design doc for the Hermes shell window — a VS Code-inspired layout with status bar, navigator, and adaptive content pane.  
+> Supersedes the tab-based design. Builds on: doc 09, doc 12, doc 17, doc 18.  
+> Created: 2026-04-01. Revised: 2026-04-01.
 
 ---
 
 ## 1. Problem
 
-The current UI shows aggregate stats (2,163 documents, 239 invoices) but you can't see **what** those documents are. You can search via chat, but you can't:
-- Browse the archive by category
-- See what's in the processing queue
-- See what failed or needs attention
-- Preview a document's extracted content
-- Understand what happened during the last sync cycle
-- Reclassify a misfiled document
-- See whether extraction captured the right fields
+The current UI shows aggregate stats but you can't see individual documents, email threads, or processing history. The original doc 15 proposed a 4-tab layout (Chat, TODO, Documents, Activity). But tabs force context-switching — "I see a bill reminder, I want to see the document, then check the email thread" means 3 tab switches.
 
-For Hermes to be a trustworthy platform, users need visibility into what it's doing.
+**The real workflow is cross-cutting.** Users navigate between documents, threads, reminders, and chat fluidly. The UI should support this without losing context.
 
 ---
 
-## 2. Main Area Tabs
+## 2. Architecture: Three Columns
 
-The main area expands from 2 tabs to 4:
+Inspired by VS Code (Activity Bar + Side Bar + Editor), Outlook (folders + list + reading pane), and Finder (sidebar + content).
 
 ```
-[💬 Chat]  [📋 Action Items (3)]  [📁 Documents]  [⚡ Activity]
+┌─────────────────────────────────────────────────────────────┐
+│  ⚡ Hermes — Document Intelligence                    ─ □ × │
+├────────┬──────────────────┬─────────────────────────────────┤
+│        │                  │                                  │
+│ STATUS │   NAVIGATOR      │      CONTENT PANE                │
+│  BAR   │                  │                                  │
+│ (left) │  (middle)        │  (right, adaptive)               │
+│        │                  │                                  │
+│ 60px   │  240px           │  fill remaining                  │
+│ fixed  │  resizable       │                                  │
+│        │                  │                                  │
+├────────┴──────────────────┴─────────────────────────────────┤
+│  ●● Ready · 2,163 docs · 3 action items · Backfill 74%     │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-| Tab | Purpose | Primary user need |
-|-----|---------|-------------------|
-| **Chat** | Search + AI conversation | "Find me something" |
-| **Action Items** | Bills, reminders, pending approvals | "What needs my attention?" |
-| **Documents** | Browse, filter, preview, reclassify | "What's in my archive?" |
-| **Activity** | Processing log, sync history, errors | "What just happened?" |
+### 2.1 — Status Bar (left column, narrow)
 
-Chat remains the default tab.
+The existing left panel shrinks to a **VS Code Activity Bar** — icon buttons that switch the navigator's active section, plus at-a-glance health indicators.
+
+```
+┌────────┐
+│  💬    │  ← Chat (default)
+│  📋    │  ← Action Items (badge: 🔴1 🟡2)
+│  📁    │  ← Documents
+│  📧    │  ← Email Threads
+│  ⏰    │  ← Timeline
+│  ⚡    │  ← Activity Log
+│        │
+│  ──── │
+│        │
+│  ● Oll │  ← Ollama status dot
+│  ● DB  │  ← Database status dot
+│  ● MCP │  ← MCP server status dot
+│        │
+│  ──── │
+│        │
+│  ⚙    │  ← Settings
+└────────┘
+```
+
+- Each icon button switches what the Navigator (middle column) shows
+- Active icon is highlighted (accent colour left border, like VS Code)
+- Service health dots are always visible at the bottom
+- Badge overlays on Action Items icon show overdue/upcoming counts
+- Tooltip on each icon shows full label
+
+### 2.2 — Navigator (middle column, resizable)
+
+Shows a context-specific list/tree based on which activity bar icon is selected. `GridSplitter` between navigator and content pane.
+
+**When 💬 Chat is active:**
+```
+┌──────────────────┐
+│ 🔍 [search...]   │
+│                   │
+│ Suggested queries │
+│ [car insurance]   │
+│ [recent invoices] │
+│ [tax documents]   │
+│                   │
+│ Recent            │
+│  "car insurance"  │
+│  "bank statements"│
+│  "allianz renewal"│
+└──────────────────┘
+```
+Input box at top. Suggested query chips when empty. Recent search history below.
+
+**When 📋 Action Items is active:**
+```
+┌──────────────────┐
+│ ACTION ITEMS (3)  │
+│                   │
+│ ⚠ OVERDUE         │
+│  🔴 Allianz $1234 │
+│                   │
+│ 📋 UPCOMING       │
+│  🟡 AGL $287      │
+│  🟡 Telstra $89   │
+│                   │
+│ ✅ COMPLETED       │
+│  (collapsed)      │
+└──────────────────┘
+```
+Click a reminder → content pane shows detail + action buttons.
+
+**When 📁 Documents is active:**
+```
+┌──────────────────┐
+│ 🔍 [filter...]   │
+│                   │
+│ ▾ All (2,163)     │
+│   invoices (239)  │
+│   bank-stmts(104) │
+│   receipts (39)   │
+│   tax (34)        │
+│   payslips (15)   │
+│   insurance (28)  │
+│   ► property      │
+│   unsorted (1736) │
+│                   │
+│ ── invoices ──    │
+│ 📄 Allianz-Pol... │
+│ 📄 AGL-Invoice... │
+│ 📄 Telstra-Feb... │
+│ 📄 ...            │
+└──────────────────┘
+```
+Category tree at top. Click category → document list fills below. Click document → content pane shows detail.
+
+**When 📧 Email Threads is active:**
+```
+┌──────────────────┐
+│ 🔍 [search...]   │
+│                   │
+│ Recent Threads    │
+│ 📧 Allianz Renew  │
+│    5 msgs · 2 att │
+│ 📧 AGL Account    │
+│    3 msgs · 1 att │
+│ 📧 Microsoft HR   │
+│    12 msgs · 4 att│
+│ 📧 Ray White      │
+│    8 msgs · 6 att │
+│                   │
+│ By Account        │
+│ ▾ john-personal   │
+│   📧 thread...    │
+│ ▾ smitha          │
+│   📧 thread...    │
+└──────────────────┘
+```
+Threads grouped by recency or by account. Click thread → content pane shows timeline.
+
+**When ⏰ Timeline is active:**
+```
+┌──────────────────┐
+│ ⏰ Timeline       │
+│                   │
+│ Today (3)         │
+│  📄 AGL invoice   │
+│  📄 Westpac stmt  │
+│  📧 Allianz reply │
+│                   │
+│ Yesterday (5)     │
+│  📄 Telstra bill  │
+│  📄 payslip       │
+│  📧 Microsoft HR  │
+│  📄 receipt       │
+│  📄 receipt       │
+│                   │
+│ This Week (12)    │
+│ Last Week (8)     │
+│ This Month (45)   │
+└──────────────────┘
+```
+Chronological feed of all documents and emails. Click any → content pane shows detail.
+
+**When ⚡ Activity is active:**
+```
+┌──────────────────┐
+│ ⚡ Activity Log   │
+│                   │
+│ 🔵 14:32 Sync     │
+│   3 new, 2 attach │
+│ 🟢 14:32 Classfy  │
+│   3 documents     │
+│ 🟢 14:32 Extract  │
+│   2 documents     │
+│ 🟡 14:32 Backfill │
+│   200 msgs (74%)  │
+│ 🔴 14:31 Error    │
+│   OCR timeout     │
+│ 🟢 14:31 Reminder │
+│   2 new bills     │
+│                   │
+│ [Clear] [Export]  │
+└──────────────────┘
+```
+Scrolling event log. Click an event → content pane shows detail (e.g., click a classification event → shows the document).
+
+### 2.3 — Content Pane (right, adaptive)
+
+Renders whatever's selected in the navigator. The content pane **adapts its layout** based on the item type:
+
+**Document selected:**
+```
+┌─────────────────────────────────────────┐
+│ 📄 Allianz-Policy-2025.pdf              │
+│ Category: insurance  🏷 car             │
+│ Classified by: LLM (92%)               │
+│                                          │
+│ ┌─ Metadata ──────────────────────────┐ │
+│ │ Date:    2025-01-15                 │ │
+│ │ Amount:  $1,234.00                  │ │
+│ │ Vendor:  Allianz Australia          │ │
+│ │ Sender:  noreply@allianz.com.au     │ │
+│ │ Source:  john-personal (email)      │ │
+│ │ Status:  ✅ extracted ✅ embedded   │ │
+│ └─────────────────────────────────────┘ │
+│                                          │
+│ ── Content ─────────────────────────── │
+│                                          │
+│ ## Allianz Car Insurance                │
+│                                          │
+│ - **Policy:** AZ-2025-1234              │
+│ - **Vehicle:** 2020 Toyota Camry        │
+│ - **Premium:** $1,234.00 per annum      │
+│                                          │
+│ | Coverage    | Limit       |           │
+│ |-------------|-------------|           │
+│ | Third Party | $20,000,000 |           │
+│ | Fire/Theft  | $35,000     |           │
+│ | Windscreen  | $500        |           │
+│                                          │
+│ [Open File] [Reclassify ▾] [Re-extract] │
+│ [Show Email Thread]                     │
+└─────────────────────────────────────────┘
+```
+
+**Email thread selected:**
+```
+┌─────────────────────────────────────────┐
+│ 📧 Allianz Car Insurance Renewal        │
+│ 5 messages · 2 attachments · Dec–Jan    │
+│                                          │
+│ ── Summary ─────────────────────────── │
+│ Car insurance renewed with 5% loyalty   │
+│ discount. Premium: $1,172.30.           │
+│                                          │
+│ ── Timeline ────────────────────────── │
+│                                          │
+│ ┌─ 15 Dec 2025 ───── Allianz → John  ┐│
+│ │ Renewal notice. Premium $1,234.00.  ││
+│ │ 📎 Allianz-Renewal-2025.pdf          ││
+│ └─────────────────────────────────────┘│
+│                                          │
+│ ┌─ 28 Dec 2025 ───── John → Allianz  ┐│
+│ │ Requested breakdown of premium      ││
+│ │ increase.                            ││
+│ └─────────────────────────────────────┘│
+│                                          │
+│ ┌─ 5 Jan 2026 ────── Allianz → John  ┐│
+│ │ Increase due to CTP changes.        ││
+│ │ Offered 5% loyalty discount.        ││
+│ └─────────────────────────────────────┘│
+│                                          │
+│ ┌─ 8 Jan 2026 ────── John → Allianz  ┐│
+│ │ Accepted renewal with discount.     ││
+│ └─────────────────────────────────────┘│
+│                                          │
+│ ┌─ 20 Jan 2026 ───── Allianz → John  ┐│
+│ │ Confirmed. New premium $1,172.30.   ││
+│ │ 📎 Allianz-Certificate-2026.pdf      ││
+│ └─────────────────────────────────────┘│
+│                                          │
+│ [Open in Gmail]                         │
+└─────────────────────────────────────────┘
+```
+
+Clicking an attachment link (📎) navigates to that document in the content pane. Clicking a timeline entry expands to show the full message body.
+
+**Action item (reminder) selected:**
+```
+┌─────────────────────────────────────────┐
+│ 🔴 Allianz Car Insurance     $1,234.00 │
+│ Due: 15 Jan 2026 (overdue by 76 days)  │
+│                                          │
+│ 📄 Allianz-Renewal-2025.pdf             │
+│ 📧 Thread: 5 messages                   │
+│                                          │
+│ [Mark Paid ✓] [Snooze 7d ⏰] [Dismiss ×]│
+└─────────────────────────────────────────┘
+```
+
+Clicking the document or thread link navigates to that view in the content pane (without changing the navigator — breadcrumb-style navigation).
+
+**Chat active:**
+```
+┌─────────────────────────────────────────┐
+│ You: find my car insurance documents    │
+│                                          │
+│ Hermes:                                 │
+│ ┌ 📄 Allianz-Policy-2025.pdf ──────── ┐│
+│ │ insurance · 2025-01-15 · $1,234     ││
+│ │ "comprehensive car insurance..."     ││
+│ └─────────────────────────────────────┘│
+│ ┌ 📄 Allianz-Certificate-2026.pdf ─── ┐│
+│ │ insurance · 2026-01-20 · $1,172     ││
+│ └─────────────────────────────────────┘│
+│                                          │
+│ AI: You have two car insurance docs...  │
+│                                          │
+│ ┌──────────────────────────┬──┬──┐     │
+│ │ Ask Hermes...            │AI│→ │     │
+│ └──────────────────────────┴──┴──┘     │
+└─────────────────────────────────────────┘
+```
+
+Clicking a document card in chat results navigates to the document view.
 
 ---
 
-## 3. Documents Tab
+## 3. Cross-Cutting Navigation
 
-### 3.1 — Layout
+The key UX principle: **everything is linked**. The user follows connections without switching modes.
 
+| From | Click | Content pane shows |
+|------|-------|-------------------|
+| Reminder card | Document link (📄) | Document detail + markdown preview |
+| Reminder card | Thread link (📧) | Email thread timeline |
+| Document detail | "Show Email Thread" button | Thread timeline for that document's thread |
+| Thread timeline | Attachment link (📎) | Document detail for that attachment |
+| Chat result | Document card | Document detail |
+| Activity event | Classification entry | Document detail for that document |
+| Timeline entry | Any item | Document detail or thread view |
+| Document detail | Category badge | Navigator switches to Documents, filtered to that category |
+| Document detail | Sender link | Navigator filters to all documents from that sender |
+
+**Breadcrumb navigation**: Content pane has a back button (←) and breadcrumb trail:
 ```
-┌────────────────────────────────────────────────────────┐
-│  [💬 Chat]  [📋 TODO (3)]  [📁 Documents]  [⚡ Activity] │
-├──────────────────────┬─────────────────────────────────┤
-│                      │                                  │
-│  FILTER / BROWSE     │        DOCUMENT DETAIL           │
-│                      │                                  │
-│  🔍 [search...    ]  │  📄 Allianz-Policy-2025.pdf      │
-│                      │  Category: insurance              │
-│  ▾ All (2,163)       │  Source: john-personal (email)    │
-│    invoices (239)    │  Date: 2025-01-15                │
-│    bank-stmts (104)  │  Amount: $1,234.00               │
-│  ► receipts (39)     │  Vendor: Allianz Australia        │
-│  ► tax (34)          │  Status: ✅ extracted ✅ embedded  │
-│  ► payslips (2)      │                                  │
-│  ► unsorted (1,736)  │  ── Extracted Content ──────     │
-│                      │                                  │
-│  ── Documents ──     │  ## Allianz Car Insurance         │
-│  📄 Allianz-Poli...  │  Policy Number: AZ-2025-1234    │
-│  📄 AGL-Invoice...   │  Vehicle: 2020 Toyota Camry      │
-│  📄 Telstra-Feb...   │  Premium: $1,234.00 per annum   │
-│  📄 Westpac-Sta...   │  ...                            │
-│  📄 ...              │                                  │
-│                      │  [Open File] [Reclassify] [Re-extract] │
-└──────────────────────┴─────────────────────────────────┘
+← 📋 Action Items / 🔴 Allianz Renewal / 📄 Allianz-Policy-2025.pdf
 ```
 
-### 3.2 — Left: Category tree + document list
-
-**Category tree** (collapsible):
-- Each category shows document count
-- Click category → filter document list
-- "All" shows everything
-- Nested categories supported (`property/manorwoods`)
-
-**Document list** (below category tree or replacing it when a category is selected):
-- Compact rows: icon + filename + date + status dots
-- Status dots: 🟢 fully processed, 🟡 partially processed, 🔴 error
-- Sorted by date descending (newest first) by default
-- Sortable by: date, name, amount, category
-- Paginated or virtual-scrolled for large lists
-
-**Search bar** at top:
-- Filters the document list (client-side for current category, or FTS5 for global)
-- Searches filename, vendor, sender
-
-### 3.3 — Right: Document detail pane
-
-When a document is selected from the list:
-
-**Header**: filename, category badge, source info (email account or watch folder)
-
-**Metadata grid**:
-| Field | Value |
-|-------|-------|
-| Date | 2025-01-15 |
-| Amount | $1,234.00 |
-| Vendor | Allianz Australia |
-| Sender | noreply@allianz.com.au |
-| Category | insurance |
-| SHA-256 | abc123... (truncated) |
-| Ingested | 2026-03-28 14:30 |
-| Extracted | 2026-03-28 14:31 |
-| Embedded | 2026-03-28 14:32 |
-
-**Content preview**: Extracted text or structured markdown rendered as formatted text. For PDFs: the markdown output from the extraction pipeline. For CSVs: rendered as a table.
-
-**Actions** (bottom of detail pane):
-- **[Open File]** — opens in default app (existing behaviour)
-- **[Reclassify ▾]** — dropdown with category list, moves file + updates DB
-- **[Re-extract]** — queues document for re-extraction on next sync cycle
-- **[Open in Explorer]** — opens the containing folder
-
-### 3.4 — Processing status indicators
-
-Each document shows its pipeline status:
-
-```
-⚙ classify → ⚙ extract → ⚙ embed
-   ✅           ✅          🔄       ← this one is pending embedding
-```
-
-Or as compact dots: `✅✅🔄` (classified, extracted, embedding pending)
-
-For error states: `✅❌—` (classified, extraction failed, embedding skipped)
+This lets the user drill into connected items and navigate back without losing their place.
 
 ---
 
-## 4. Activity Tab
+## 4. Content Type Renderers
 
-### 4.1 — Layout
+The content pane uses a renderer registry — each content type has a builder function:
 
-```
-┌────────────────────────────────────────────────────────┐
-│  [💬 Chat]  [📋 TODO (3)]  [📁 Documents]  [⚡ Activity]│
-├────────────────────────────────────────────────────────┤
-│                                                         │
-│  🔵 14:32:05  Sync cycle completed                     │
-│     john-personal: 3 new messages, 2 attachments       │
-│     smitha: 0 new messages                             │
-│     john-work: 1 new message, 1 attachment             │
-│                                                         │
-│  🟢 14:32:04  Classified 3 documents                   │
-│     2026-04-01_allianz_renewal.pdf → insurance         │
-│     2026-03-30_agl_invoice.pdf → invoices              │
-│     photo_001.jpg → unsorted                           │
-│                                                         │
-│  🟢 14:32:03  Extracted 2 documents                    │
-│     Allianz: $1,234.00, due 15 Apr 2026               │
-│     AGL: $287.50, due 8 Apr 2026                      │
-│                                                         │
-│  🟡 14:32:02  Backfill john-personal                   │
-│     Scanned 200 messages (6,540 / ~8,500 total)       │
-│                                                         │
-│  🔴 14:31:58  Extraction failed                        │
-│     scan_Receipt_2025.pdf — OCR timeout (Ollama)       │
-│                                                         │
-│  🟢 14:31:55  Created 2 reminders                      │
-│     AGL Energy $287.50 due 8 Apr                       │
-│     Allianz $1,234.00 due 15 Apr                       │
-│                                                         │
-│  ─── Earlier today ────────────────────────────────    │
-│  🔵 14:17:05  Sync cycle completed ...                 │
-│                                                         │
-│  [Clear] [Export Log]                                  │
-└────────────────────────────────────────────────────────┘
+```csharp
+// Renderer dispatch
+Control RenderContent(NavigationItem item) => item switch
+{
+    DocumentItem doc => RenderDocumentDetail(doc),
+    ThreadItem thread => RenderThreadTimeline(thread),
+    ReminderItem reminder => RenderReminderDetail(reminder),
+    ChatSession chat => RenderChatView(chat),
+    ActivityEvent evt => RenderActivityDetail(evt),
+    TimelineDay day => RenderTimelineList(day),
+    CategoryView cat => RenderDocumentList(cat),
+    _ => RenderEmptyState()
+};
 ```
 
-### 4.2 — Event types
+### Document renderer
+- Metadata grid (key-value pairs)
+- Classification badge with tier + confidence
+- Structured markdown preview (tables rendered as grids, headings as styled text)
+- Pipeline status dots (classify ✅ → extract ✅ → embed 🔄)
+- Action buttons: Open File, Reclassify, Re-extract, Show Thread
 
-| Icon | Category | Examples |
-|------|----------|----------|
-| 🔵 | Sync | Sync cycle start/complete, email counts, backfill progress |
-| 🟢 | Success | Document classified, extracted, embedded, reminder created |
-| 🟡 | Warning | Low extraction confidence, backfill slow, Ollama unavailable |
-| 🔴 | Error | Extraction failed, Gmail auth expired, disk full |
-| ⚪ | Info | Config reloaded, UI refreshed, MCP tool invoked |
+### Thread renderer
+- LLM-generated summary at top (if available)
+- Chronological message cards with sender, date, preview
+- Attachment links inline (📎 click → document detail)
+- "Summarise Thread" button (triggers LLM summary generation)
 
-### 4.3 — Data source
+### Reminder renderer
+- Same as doc 12 reminder cards but full-width in content pane
+- Connected document preview inline
+- Connected thread link
+- Action buttons: Mark Paid, Snooze, Dismiss
 
-Activity events come from the Serilog logger. Two options:
+### Chat renderer
+- Same as current chat implementation but in the content pane
+- Document result cards are clickable → navigate to document detail
+- Chat input bar at bottom
 
-**Option A (simple)**: Ring buffer in memory — last N events, lost on restart. Populated by hooking into the existing `Algebra.Logger` calls.
+---
 
-**Option B (persistent)**: SQLite `activity_log` table. Survives restarts. Queryable. Adds schema but more useful.
+## 5. Data Model Additions
 
-**Recommendation**: Option B — a lightweight table:
+### Thread grouping
+
+Gmail provides `thread_id` on every message. Group messages by thread:
+
+```sql
+-- Thread summary view
+SELECT 
+    thread_id,
+    MIN(date) as first_date,
+    MAX(date) as last_date,
+    COUNT(*) as message_count,
+    GROUP_CONCAT(DISTINCT sender) as participants,
+    (SELECT subject FROM messages m2 WHERE m2.thread_id = m.thread_id ORDER BY date ASC LIMIT 1) as subject,
+    (SELECT COUNT(*) FROM documents d WHERE d.gmail_id IN 
+        (SELECT gmail_id FROM messages m3 WHERE m3.thread_id = m.thread_id)) as attachment_count
+FROM messages m
+GROUP BY thread_id
+HAVING message_count >= 2
+ORDER BY last_date DESC;
+```
+
+### Thread summaries table
+
+```sql
+CREATE TABLE IF NOT EXISTS thread_summaries (
+    thread_id       TEXT PRIMARY KEY,
+    account         TEXT NOT NULL,
+    subject         TEXT,
+    summary         TEXT,           -- LLM-generated markdown summary
+    timeline_md     TEXT,           -- full chronological timeline markdown
+    message_count   INTEGER,
+    attachment_count INTEGER,
+    first_date      TEXT,
+    last_date       TEXT,
+    participants    TEXT,           -- comma-separated
+    generated_at    TEXT,
+    stale           INTEGER NOT NULL DEFAULT 0  -- set to 1 when new messages arrive
+);
+```
+
+### Activity log table
 
 ```sql
 CREATE TABLE IF NOT EXISTS activity_log (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp   TEXT NOT NULL DEFAULT (datetime('now')),
-    level       TEXT NOT NULL,  -- 'info', 'success', 'warning', 'error'
-    category    TEXT NOT NULL,  -- 'sync', 'classify', 'extract', 'embed', 'reminder', 'config'
+    level       TEXT NOT NULL,
+    category    TEXT NOT NULL,
     message     TEXT NOT NULL,
-    details     TEXT            -- JSON, optional extra data
+    details     TEXT,
+    document_id INTEGER REFERENCES documents(id)
 );
-
 CREATE INDEX IF NOT EXISTS idx_activity_ts ON activity_log(timestamp);
 ```
 
-Auto-purge entries older than 7 days to prevent unbounded growth.
+Auto-purge > 7 days.
 
 ---
 
-## 5. Sidebar Updates
+## 6. ViewModel Architecture
 
-### Processing queue badge
-
-Below the INDEX expander, add a QUEUE section (only visible when items are pending):
-
-```
-▾ QUEUE
-  ⏳ 5 to classify
-  ⏳ 23 to extract
-  ⏳ 156 to embed
-```
-
-Data from `ServiceHost.countUnclassified`, `countUnextracted`, and a new `countUnembedded`.
-
-### Documents tab badge
-
-The Documents tab button shows total count:
-```
-[📁 Documents (2,163)]
-```
-
----
-
-## 6. ViewModel Extension
-
-### New properties on `ShellViewModel`
+### Navigation model
 
 ```csharp
-// Tab state
-public enum MainTab { Chat, Todo, Documents, Activity }
-public MainTab ActiveTab { get; set; }
+// What's selected in the activity bar
+public enum NavigatorMode { Chat, ActionItems, Documents, Threads, Timeline, Activity }
 
-// Documents tab
-public ObservableCollection<CategoryNode> Categories { get; }
-public ObservableCollection<DocumentSummary> DocumentList { get; }
-public DocumentDetail? SelectedDocument { get; set; }
-public string DocumentSearchQuery { get; set; }
-public string SelectedCategory { get; set; }
+// Navigation stack for breadcrumb
+public record NavigationItem(string Type, string Label, long? Id);
 
-// Activity tab
-public ObservableCollection<ActivityEvent> ActivityLog { get; }
-
-// Queue
-public int UnclassifiedCount { get; }
-public int UnextractedCount { get; }
-public int UnembeddedCount { get; }
-
-// Records
-public record CategoryNode(string Name, string FullPath, int Count, bool IsExpanded);
-public record DocumentSummary(long Id, string FileName, string Category, string? Date, 
-    string? Amount, bool IsExtracted, bool IsEmbedded, bool HasError);
-public record DocumentDetail(long Id, string FileName, string Category, string SavedPath,
-    string? Sender, string? Date, string? Amount, string? Vendor,
-    string? ExtractedText, string? MarkdownContent,
-    DateTimeOffset IngestedAt, DateTimeOffset? ExtractedAt, DateTimeOffset? EmbeddedAt);
-public record ActivityEvent(DateTimeOffset Timestamp, string Level, string Category, 
-    string Message, string? Details);
+public class ShellViewModel : INotifyPropertyChanged
+{
+    // Activity bar
+    public NavigatorMode ActiveMode { get; set; }
+    
+    // Navigator content (depends on ActiveMode)
+    public ObservableCollection<CategoryNode> Categories { get; }
+    public ObservableCollection<DocumentSummary> DocumentList { get; }
+    public ObservableCollection<ThreadSummary> ThreadList { get; }
+    public ObservableCollection<TimelineGroup> TimelineGroups { get; }
+    public ObservableCollection<ActivityEvent> ActivityLog { get; }
+    
+    // Content pane
+    public NavigationItem? CurrentItem { get; set; }
+    public Stack<NavigationItem> NavigationStack { get; }  // for back button
+    
+    // Content data (populated when CurrentItem changes)
+    public DocumentDetail? SelectedDocument { get; }
+    public ThreadDetail? SelectedThread { get; }
+    public ReminderItem? SelectedReminder { get; }
+    
+    // Actions
+    public void NavigateTo(NavigationItem item);
+    public void NavigateBack();
+    
+    // Search
+    public string SearchQuery { get; set; }
+    public ObservableCollection<SearchResult> SearchResults { get; }
+}
 ```
 
-### New Core queries needed
+### Records
 
-```fsharp
-// Stats.fs or new DocumentBrowser.fs
-let listDocuments (db: Database) (category: string option) (offset: int) (limit: int) : Task<DocumentSummary list>
-let getDocumentDetail (db: Database) (id: int64) : Task<DocumentDetail option>
-let getActivityLog (db: Database) (limit: int) : Task<ActivityEvent list>
-let logActivity (db: Database) (level: string) (category: string) (message: string) (details: string option) : Task<unit>
-let reclassifyDocument (db: Database) (fs: FileSystem) (id: int64) (newCategory: string) (archiveDir: string) : Task<Result<unit, string>>
-let queueReextract (db: Database) (id: int64) : Task<unit>
+```csharp
+public record ThreadSummary(string ThreadId, string Subject, string? Summary,
+    int MessageCount, int AttachmentCount, string LastDate, string Participants);
+
+public record ThreadDetail(string ThreadId, string Subject, string? Summary,
+    List<ThreadMessage> Messages, List<DocumentSummary> Attachments);
+
+public record ThreadMessage(string Sender, string Date, string Body, 
+    bool IsUser, List<string> AttachmentIds);
+
+public record TimelineGroup(string Label, DateTimeOffset Date, List<TimelineEntry> Entries);
+
+public record TimelineEntry(string Type, string Label, long? DocumentId, 
+    string? ThreadId, DateTimeOffset Timestamp);
 ```
 
 ---
 
-## 7. Implementation Phases
+## 7. Implementation Phases — Silver Thread
 
-Each phase is a silver thread — backend + UI + wired.
+### Phase U1: Three-Column Shell Layout
 
-| Phase | What | Proof |
-|-------|------|-------|
-| **U1** | 4-tab shell layout (Chat, TODO, Documents, Activity). Tab switching works. Empty states for Documents and Activity. | Click each tab → correct panel shows. Documents shows "Select a category to browse." Activity shows "No recent activity." |
-| **U2** | Documents tab: category tree from `Stats.getCategoryCounts` + document list from `listDocuments`. Click category → filtered list. | Click "invoices" → see 239 documents listed. Click "All" → see 2,163. |
-| **U3** | Document detail pane: click document → see metadata + extracted content preview. Open File button works. | Click a document → detail pane shows sender, date, amount, vendor, extracted text. Click Open File → opens in default app. |
-| **U4** | Reclassify + Re-extract actions. Reclassify moves file + updates DB. Re-extract clears extracted_at. | Reclassify a document from "unsorted" to "invoices" → file moves on disk, category updates in list. |
-| **U5** | Activity log: `activity_log` table, `logActivity` calls wired into ServiceHost sync cycle. Activity tab shows recent events. | Run a sync → Activity tab shows sync/classify/extract events with timestamps. |
-| **U6** | Processing queue badge in sidebar. Counts from DB. | Queue section shows pending counts. After sync cycle, counts decrease. |
+**Thread**: Activity bar click → navigator panel switches → empty content pane shows placeholder.
+
+| Layer | What |
+|-------|------|
+| **ShellWindow.axaml** | 3-column Grid: activity bar (60px fixed), navigator (240px + GridSplitter), content pane (fill). Activity bar with 6 icon buttons + 3 service dots + settings button. |
+| **ShellWindow.axaml.cs** | Icon button click → sets `ActiveMode` → navigator panel visibility toggles. Content pane shows empty state per mode. |
+| **ShellViewModel.cs** | `NavigatorMode` enum, `ActiveMode` property with change notification. |
+| **PROOF** | Launch app → see 3 columns → click each activity bar icon → navigator changes, content shows "Select an item" placeholder → service dots show correct status. |
+
+### Phase U2: Documents Navigator + Document Detail
+
+**Thread**: Click Documents icon → see category tree → click category → see document list → click document → see metadata + markdown preview.
+
+| Layer | What |
+|-------|------|
+| **Core: DocumentBrowser.fs** | `listDocuments`, `getDocumentDetail` queries |
+| **ShellViewModel.cs** | `Categories`, `DocumentList`, `SelectedDocument` properties. Category click → load filtered list. Document click → load detail. |
+| **Navigator panel** | Category tree (TreeView or stacked Expanders) + document list (ListBox with virtual scrolling). |
+| **Content pane** | Document renderer: metadata grid + markdown preview (styled TextBlocks) + action buttons. |
+| **PROOF** | Click 📁 → see categories with counts → click "invoices" → see 239 documents → click one → content pane shows metadata, extracted markdown with tables rendered, classification badge. Click "Open File" → opens in default app. |
+
+### Phase U3: Email Threads Navigator + Thread Timeline
+
+**Thread**: Click Threads icon → see thread list → click thread → see chronological timeline with message bodies and attachment links.
+
+| Layer | What |
+|-------|------|
+| **Core: Threads.fs** (new) | `listThreads`, `getThreadDetail`, `generateThreadSummary` (LLM) |
+| **ShellViewModel.cs** | `ThreadList`, `SelectedThread`. Thread click → load detail with messages. |
+| **Navigator panel** | Thread list with subject, message count, date range, participant avatars. |
+| **Content pane** | Thread renderer: summary block + chronological message cards. Attachment links (📎) navigate to document detail. |
+| **PROOF** | Click 📧 → see threads sorted by recency → click "Allianz Renewal" → content pane shows 5 messages chronologically with sender/date/body and 2 attachment links. Click 📎 → content pane switches to document detail. Back button (←) returns to thread. |
+
+### Phase U4: Action Items + Cross-Navigation
+
+**Thread**: Click Action Items → see reminders → click reminder → see detail with document link → click document → see preview → back button returns to reminder.
+
+| Layer | What |
+|-------|------|
+| **ShellViewModel.cs** | `NavigateTo(item)`, `NavigateBack()`, `NavigationStack`. |
+| **Content pane** | Breadcrumb bar at top. Back button. Navigation history. |
+| **Reminder renderer** | Full-width reminder detail with inline document preview link and thread link. |
+| **PROOF** | Click 📋 → see overdue bill → click it → content shows reminder detail + "📄 Allianz-Policy-2025.pdf" link → click link → content shows document detail → breadcrumb shows "Action Items / Allianz / Allianz-Policy-2025.pdf" → click ← → back to reminder. |
+
+### Phase U5: Timeline + Activity Log
+
+**Thread**: Click Timeline → see chronological feed → click Activity → see processing log with clickable entries.
+
+| Layer | What |
+|-------|------|
+| **Core** | `getTimeline` (group documents + emails by day), `getActivityLog`, `logActivity` |
+| **Database.fs** | `activity_log` table schema |
+| **ServiceHost.fs** | Wire `logActivity` calls into sync cycle (sync start/complete, classify, extract, errors) |
+| **Navigator panels** | Timeline: day-grouped entries. Activity: event list with level icons. |
+| **Content pane** | Timeline: list of documents/emails for that day. Activity: event detail. Click document in either → navigates to document detail. |
+| **PROOF** | Click ⏰ → see "Today (3)" with documents → click ⚡ → see processing log → trigger sync → new events appear → click a classification event → navigates to that document. |
+
+### Phase U6: Chat Integration + Search
+
+**Thread**: Click Chat → search + AI conversation → click document card in results → navigate to document detail.
+
+| Layer | What |
+|-------|------|
+| **ShellViewModel.cs** | Chat moved from separate tab to content pane under Chat mode. Search results return NavigationItems. |
+| **Content pane / Chat renderer** | Existing chat UI, but document cards are clickable → `NavigateTo(DocumentItem)`. |
+| **Navigator / Chat panel** | Search bar + suggested queries + recent searches. |
+| **PROOF** | Click 💬 → see search bar + suggestions → type "car insurance" → results in content pane → click document card → document detail loads → back → returns to chat results. |
 
 ---
 
@@ -302,9 +594,11 @@ Each phase is a silver thread — backend + UI + wired.
 
 | # | Question | Leaning |
 |---|----------|---------|
-| 1 | Should the document list use virtual scrolling for 2000+ items? | Yes — Avalonia `ListBox` with `VirtualizationMode="Simple"` handles this |
-| 2 | Should Documents tab have a "grid view" (table) option besides the list? | Future — list view first, add DataGrid later |
-| 3 | Should reclassify support drag-and-drop (drag document to category in tree)? | Future — button dropdown first |
-| 4 | Should activity log stream in real-time or refresh on timer? | Timer (same 5-second refresh as other stats) — simpler than event streaming |
-| 5 | Should document preview render markdown or show raw text? | Rendered markdown (using a simple markdown-to-Avalonia converter or TextBlock with basic formatting) |
-| 6 | Should we show the original PDF inline (embedded viewer)? | No — too complex for v1. "Open File" button is sufficient. |
+| 1 | Should the activity bar be on the left (VS Code) or top (browser tabs)? | Left — matches VS Code, saves vertical space |
+| 2 | Should navigator width persist across sessions? | Yes — save to config.yaml under `ui.navigatorWidth` |
+| 3 | Should the content pane support split view (two documents side by side)? | Future — single pane for v1 |
+| 4 | Should thread summaries be generated eagerly or on demand? | On demand — "Summarise" button in thread view. Cache result. |
+| 5 | Should search work across all content types (docs + threads + reminders)? | Yes — unified search, results grouped by type |
+| 6 | Should the activity bar show unread counts (new docs since last viewed)? | Yes on Documents and Timeline icons — subtle badge |
+| 7 | Dark mode? | Use Avalonia's FluentTheme dark variant — toggle in settings. Not for v1. |
+| 8 | Keyboard navigation? | Arrow keys in navigator, Enter to open in content, Escape to go back. Phase U7 polish. |
