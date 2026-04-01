@@ -93,6 +93,13 @@ module Algebra =
         { generate: string -> string -> byte array option -> Task<Result<string, string>>
           isAvailable: unit -> Task<bool> }
 
+    // ─── Chat provider ───────────────────────────────────────────────
+
+    /// Tagless-Final chat provider — abstracts over Ollama, Azure OpenAI, or fakes.
+    type ChatProvider =
+        { /// Send a system prompt + user message, get a response.
+          complete: string -> string -> Task<Result<string, string>> }
+
 
 /// Production interpreters for the algebras.
 [<RequireQualifiedAccess>]

@@ -147,6 +147,16 @@ let failingEmbedder : Algebra.EmbeddingClient =
       dimensions = 768
       isAvailable = fun () -> task { return false } }
 
+// ─── Test chat providers ─────────────────────────────────────────────
+
+/// A fake chat provider that returns a canned response.
+let fakeChatProvider (response: string) : Algebra.ChatProvider =
+    { complete = fun _sys _user -> task { return Ok response } }
+
+/// A fake chat provider that always fails.
+let failingChatProvider : Algebra.ChatProvider =
+    { complete = fun _sys _user -> task { return Error "chat unavailable" } }
+
 // ─── Test config ─────────────────────────────────────────────────────
 
 let testConfig (archiveDir: string) : Domain.HermesConfig =

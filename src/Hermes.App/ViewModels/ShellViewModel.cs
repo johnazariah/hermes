@@ -343,9 +343,10 @@ public sealed class ShellViewModel : INotifyPropertyChanged
                 var ollamaUrl = _bridge.Config?.Ollama.BaseUrl ?? "http://localhost:11434";
                 var model = _bridge.Config?.Ollama.InstructModel ?? "llama3.2";
                 var chatConfig = _bridge.Config?.Chat;
-                var response = chatConfig is not null
-                    ? await Chat.queryWithProvider(db, chatConfig, ollamaUrl, model, null, AiEnabled, query)
-                    : await Chat.query(db, ollamaUrl, model, AiEnabled, query);
+                var chatProvider = chatConfig is not null
+                    ? Chat.providerFromConfig(chatConfig, ollamaUrl, model)
+                    : Chat.ollamaProvider(ollamaUrl, model);
+                var response = await Chat.query(db, chatProvider, AiEnabled, query);
 
                 var documents = response.Results
                     .Select(r => new DocumentCard(

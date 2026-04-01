@@ -2,13 +2,12 @@ namespace Hermes.Core
 
 open System
 open System.Net.Http
-open System.Net.Http.Headers
 open System.Text
 open System.Text.Json
 open System.Threading.Tasks
 
 /// Chat interface: query Hermes index, optionally enhance with LLM.
-/// Supports Ollama (local) and Azure OpenAI (cloud) as chat providers.
+/// The LLM backend is abstracted via Algebra.ChatProvider (Tagless-Final).
 [<RequireQualifiedAccess>]
 module Chat =
 
@@ -21,7 +20,7 @@ module Chat =
     // ─── Shared prompt building ──────────────────────────────────────
 
     /// Format search results as context for the LLM prompt.
-    let private formatResultsForPrompt (results: Search.SearchResult list) : string =
+    let formatResultsForPrompt (results: Search.SearchResult list) : string =
         results
         |> List.truncate 10
         |> List.mapi (fun i r ->
@@ -44,8 +43,8 @@ module Chat =
             lines |> String.concat "\n")
         |> String.concat "\n\n"
 
-    /// Build the system prompt.
-    let private systemPrompt =
+    /// The system prompt sent to the LLM.
+    let systemPrompt =
         """You are Hermes, a personal document intelligence assistant.
 You have access to the user's indexed archive of emails, invoices, bank statements, receipts, and other documents.
 Answer questions by referencing specific documents with their names, dates, amounts, and vendors.
@@ -53,7 +52,7 @@ Be concise but specific. If multiple documents are relevant, mention the most im
 If the documents don't contain enough information to answer, say so honestly."""
 
     /// Build the user prompt from query + search results.
-    let private buildUserPrompt (query: string) (context: string) : string =
+    let buildUserPrompt (query: string) (context: string) : string =
         $"""Documents found:
 {context}
 
@@ -61,21 +60,18 @@ Question: {query}
 
 Answer briefly and specifically."""
 
-    // ─── Ollama provider ─────────────────────────────────────────────
+    // ─── Provider factories ──────────────────────────────────────────
 
-    /// Ask Ollama to summarise search results in natural language.
-    let askOllama (ollamaUrl: string) (model: string) (query: string) (results: Search.SearchResult list) : Task<Result<string, string>> =
-        task {
-            if results.IsEmpty then
-                return Ok "No documents found matching your query."
-            else
+    /// Create a ChatProvider backed by Ollama's /api/generate endpoint.
+    let ollamaProvider (baseUrl: string) (model: string) : Algebra.ChatProvider =
+        { complete = fun systemMsg userMsg ->
+            task {
                 try
-                    let context = formatResultsForPrompt results
-                    let prompt = $"{systemPrompt}\n\n{buildUserPrompt query context}"
+                    let prompt = $"{systemMsg}\n\n{userMsg}"
                     use client = new HttpClient(Timeout = TimeSpan.FromSeconds(60.0))
                     let payload = JsonSerializer.Serialize({| model = model; prompt = prompt; stream = false |})
                     let content = new StringContent(payload, Encoding.UTF8, "application/json")
-                    let! response = client.PostAsync($"{ollamaUrl.TrimEnd('/')}/api/generate", content)
+                    let! response = client.PostAsync($"{baseUrl.TrimEnd('/')}/api/generate", content)
                     let! body = response.Content.ReadAsStringAsync()
 
                     if not response.IsSuccessStatusCode then
@@ -89,19 +85,13 @@ Answer briefly and specifically."""
                         | Some s -> return Ok s
                 with ex ->
                     return Error $"Ollama error: {ex.Message}"
-        }
+            } }
 
-    // ─── Azure OpenAI provider ───────────────────────────────────────
-
-    /// Ask Azure OpenAI to summarise search results in natural language.
-    let askAzureOpenAI (config: Domain.AzureOpenAIConfig) (query: string) (results: Search.SearchResult list) : Task<Result<string, string>> =
-        task {
-            if results.IsEmpty then
-                return Ok "No documents found matching your query."
-            else
+    /// Create a ChatProvider backed by Azure OpenAI's Chat Completions API.
+    let azureOpenAIProvider (config: Domain.AzureOpenAIConfig) : Algebra.ChatProvider =
+        { complete = fun systemMsg userMsg ->
+            task {
                 try
-                    let context = formatResultsForPrompt results
-                    let userMessage = buildUserPrompt query context
                     let timeout = float (max config.TimeoutSeconds 30)
                     use client = new HttpClient(Timeout = TimeSpan.FromSeconds(timeout))
                     let endpoint = config.Endpoint.TrimEnd('/')
@@ -110,8 +100,8 @@ Answer briefly and specifically."""
                     let payload =
                         JsonSerializer.Serialize(
                             {| messages =
-                                [| {| role = "system"; content = systemPrompt |}
-                                   {| role = "user"; content = userMessage |} |]
+                                [| {| role = "system"; content = systemMsg |}
+                                   {| role = "user"; content = userMsg |} |]
                                max_tokens = config.MaxTokens
                                temperature = 0.3 |})
 
@@ -143,38 +133,28 @@ Answer briefly and specifically."""
                             | Some s -> return Ok s
                 with ex ->
                     return Error $"Azure OpenAI error: {ex.Message}"
-        }
+            } }
 
-    // ─── Provider dispatch ───────────────────────────────────────────
-
-    /// Ask the configured LLM provider to summarise search results.
-    let private askProvider
-        (chatConfig: Domain.ChatConfig)
-        (ollamaUrl: string)
-        (ollamaModel: string)
-        (query: string)
-        (results: Search.SearchResult list)
-        : Task<Result<string, string>> =
+    /// Create the appropriate ChatProvider from config.
+    let providerFromConfig (chatConfig: Domain.ChatConfig) (ollamaUrl: string) (ollamaModel: string) : Algebra.ChatProvider =
         match chatConfig.Provider with
-        | Domain.ChatProviderKind.AzureOpenAI when
-            not (String.IsNullOrWhiteSpace(chatConfig.AzureOpenAI.Endpoint))
-            && not (String.IsNullOrWhiteSpace(chatConfig.AzureOpenAI.ApiKey)) ->
-            askAzureOpenAI chatConfig.AzureOpenAI query results
+        | Domain.ChatProviderKind.AzureOpenAI
+            when not (String.IsNullOrWhiteSpace(chatConfig.AzureOpenAI.Endpoint))
+              && not (String.IsNullOrWhiteSpace(chatConfig.AzureOpenAI.ApiKey)) ->
+            azureOpenAIProvider chatConfig.AzureOpenAI
         | _ ->
-            askOllama ollamaUrl ollamaModel query results
+            ollamaProvider ollamaUrl ollamaModel
 
     // ─── Public API ──────────────────────────────────────────────────
 
-    /// Run a chat query: search the index, optionally enhance with LLM.
+    /// Run a chat query: search the index, optionally enhance with LLM via the provided ChatProvider.
     let query
         (db: Algebra.Database)
-        (ollamaUrl: string)
-        (model: string)
+        (chat: Algebra.ChatProvider)
         (useAi: bool)
         (queryText: string)
         : Task<ChatResponse> =
         task {
-            // Use unified keyword search (FTS5 docs + emails)
             let filter : Search.SearchFilter =
                 { Query = queryText
                   Category = None; Sender = None; DateFrom = None
@@ -186,40 +166,9 @@ Answer briefly and specifically."""
             let! aiSummary =
                 if useAi && not results.IsEmpty then
                     task {
-                        let! result = askOllama ollamaUrl model queryText results
-                        return
-                            match result with
-                            | Ok s -> Some s
-                            | Error e -> Some $"(AI unavailable: {e})"
-                    }
-                else
-                    task { return None }
-
-            return { Query = queryText; Results = results; AiSummary = aiSummary }
-        }
-
-    /// Run a chat query with provider-aware LLM dispatch + richer context.
-    let queryWithProvider
-        (db: Algebra.Database)
-        (chatConfig: Domain.ChatConfig)
-        (ollamaUrl: string)
-        (ollamaModel: string)
-        (_embedder: Algebra.EmbeddingClient option)
-        (useAi: bool)
-        (queryText: string)
-        : Task<ChatResponse> =
-        task {
-            // Use unified search (keyword FTS5) with generous limit
-            let filter : Search.SearchFilter =
-                { Query = queryText; Category = None; Sender = None
-                  DateFrom = None; DateTo = None; Account = None
-                  SourceType = None; Limit = 20 }
-            let! results = Search.executeUnified db filter
-
-            let! aiSummary =
-                if useAi && not results.IsEmpty then
-                    task {
-                        let! result = askProvider chatConfig ollamaUrl ollamaModel queryText results
+                        let context = formatResultsForPrompt results
+                        let userMsg = buildUserPrompt queryText context
+                        let! result = chat.complete systemPrompt userMsg
                         return
                             match result with
                             | Ok s -> Some s

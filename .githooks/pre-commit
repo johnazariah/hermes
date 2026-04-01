@@ -53,18 +53,22 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# 6. Check coverage threshold
-echo "Checking coverage threshold..."
+# 6. Check coverage threshold (85% line + branch)
+COVERAGE_FLOOR=85
+echo "Checking coverage threshold (${COVERAGE_FLOOR}%)..."
 COVERAGE_FILE=$(find "$REPO_ROOT/TestResults" -name "coverage.cobertura.xml" -newer "$REPO_ROOT/.git/index" 2>/dev/null | head -1)
 if [ -n "$COVERAGE_FILE" ]; then
     LINE_RATE=$(grep -oP 'line-rate="\K[^"]+' "$COVERAGE_FILE" | head -1)
     BRANCH_RATE=$(grep -oP 'branch-rate="\K[^"]+' "$COVERAGE_FILE" | head -1)
     LINE_PCT=$(echo "$LINE_RATE * 100" | bc -l 2>/dev/null | cut -d. -f1 || echo "0")
     BRANCH_PCT=$(echo "$BRANCH_RATE * 100" | bc -l 2>/dev/null | cut -d. -f1 || echo "0")
-    echo "  Coverage: ${LINE_PCT}% line / ${BRANCH_PCT}% branch"
-    # Floor: do not allow coverage to drop below current level
-    if [ "$LINE_PCT" -lt 50 ] 2>/dev/null; then
-        echo "ERROR: Line coverage dropped below 50%. Write more tests."
+    echo "  Coverage: ${LINE_PCT}% line / ${BRANCH_PCT}% branch (floor: ${COVERAGE_FLOOR}%)"
+    if [ "$LINE_PCT" -lt "$COVERAGE_FLOOR" ] 2>/dev/null; then
+        echo "ERROR: Line coverage ${LINE_PCT}% is below ${COVERAGE_FLOOR}% floor. Write more tests."
+        exit 1
+    fi
+    if [ "$BRANCH_PCT" -lt "$COVERAGE_FLOOR" ] 2>/dev/null; then
+        echo "ERROR: Branch coverage ${BRANCH_PCT}% is below ${COVERAGE_FLOOR}% floor. Write more tests."
         exit 1
     fi
 fi
