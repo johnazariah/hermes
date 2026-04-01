@@ -5,6 +5,7 @@ open System.IO
 open System.Security.Cryptography
 open System.Text.Json
 open System.Text.RegularExpressions
+open System.Threading.Tasks
 
 /// Folder watching logic: watches configured directories for new files,
 /// filters by glob patterns, deduplicates via SHA256, and copies to unclassified/.
@@ -126,80 +127,53 @@ module FolderWatcher =
         | Skipped of reason: string
         | Failed of error: string
 
+    /// Safe copy to unclassified/ with .hermes_copying temp file.
+    let private safeCopyToUnclassified
+        (fs: Algebra.FileSystem) (logger: Algebra.Logger)
+        (unclassifiedDir: string) (standardName: string) (filePath: string)
+        : Task<string> =
+        task {
+            let finalPath = Path.Combine(unclassifiedDir, standardName)
+            let tempPath = finalPath + ".hermes_copying"
+            let! bytes = fs.readAllBytes filePath
+            do! fs.writeAllBytes tempPath bytes
+            fs.moveFile tempPath finalPath
+            let srcName = Path.GetFileName(filePath) |> Option.ofObj |> Option.defaultValue ""
+            logger.info $"Copied '{srcName}' -> unclassified/{standardName}"
+            return finalPath
+        }
+
     /// Process a single file: hash, dedup, copy to unclassified/ with safe rename.
     let processFile
-        (fs: Algebra.FileSystem)
-        (db: Algebra.Database)
-        (logger: Algebra.Logger)
-        (clock: Algebra.Clock)
-        (archiveDir: string)
-        (watchFolder: Domain.WatchFolderConfig)
-        (filePath: string)
+        (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
+        (clock: Algebra.Clock) (archiveDir: string) (watchFolder: Domain.WatchFolderConfig) (filePath: string)
         =
         task {
-            let fileName =
-                Path.GetFileName(filePath) |> Option.ofObj |> Option.defaultValue ""
-
-            if String.IsNullOrEmpty(fileName) then
-                return Skipped "empty filename"
-            elif not (fs.fileExists filePath) then
-                logger.debug $"File no longer exists, skipping: {filePath}"
-                return Skipped "file no longer exists"
-            else
-
-            // Check glob patterns
-            if not (matchesAnyPattern watchFolder.Patterns fileName) then
-                logger.debug $"File does not match patterns, skipping: {fileName}"
-                return Skipped "pattern mismatch"
+            let fileName = Path.GetFileName(filePath) |> Option.ofObj |> Option.defaultValue ""
+            if String.IsNullOrEmpty(fileName) then return Skipped "empty filename"
+            elif not (fs.fileExists filePath) then return Skipped "file no longer exists"
+            elif not (matchesAnyPattern watchFolder.Patterns fileName) then return Skipped "pattern mismatch"
             else
 
             try
-                // Compute SHA256
                 let! sha256 = computeSha256 fs filePath
-
-                // Dedup check
                 let! isDup = isDuplicate db sha256
-
-                if isDup then
-                    logger.info $"Duplicate detected (sha256={sha256.[..7]}...), skipping: {fileName}"
-                    return Duplicate sha256
+                if isDup then return Duplicate sha256
                 else
 
                 let now = clock.utcNow ()
-                let unclassifiedDir = Path.Combine(archiveDir, "unclassified")
-                fs.createDirectory unclassifiedDir
+                let unclDir = Path.Combine(archiveDir, "unclassified")
+                fs.createDirectory unclDir
+                let folderName = Path.GetFileName(watchFolder.Path) |> Option.ofObj |> Option.defaultValue "watched"
+                let standardName = buildStandardName now folderName fileName
+                let! finalPath = safeCopyToUnclassified fs logger unclDir standardName filePath
 
-                // Build standardised name
-                let sourceFolderName =
-                    Path.GetFileName(watchFolder.Path)
-                    |> Option.ofObj
-                    |> Option.defaultValue "watched"
-
-                let standardName = buildStandardName now sourceFolderName fileName
-
-                // Safe copy: write as .hermes_copying, then rename
-                let finalPath = Path.Combine(unclassifiedDir, standardName)
-                let tempPath = finalPath + ".hermes_copying"
-
-                let! bytes = fs.readAllBytes filePath
-                do! fs.writeAllBytes tempPath bytes
-                fs.moveFile tempPath finalPath
-
-                // Write sidecar
-                let sidecar =
-                    buildSidecar watchFolder.Path filePath fileName standardName sha256 now
-
-                let sidecarJson = serialiseSidecar sidecar
-                let sidecarPath = finalPath + ".meta.json"
-                do! fs.writeAllText sidecarPath sidecarJson
-
-                logger.info $"Copied '{fileName}' -> unclassified/{standardName}"
+                let sidecar = buildSidecar watchFolder.Path filePath fileName standardName sha256 now
+                do! fs.writeAllText (finalPath + ".meta.json") (serialiseSidecar sidecar)
                 return Copied finalPath
-
             with ex ->
-                let msg = $"Failed to process {fileName}: {ex.Message}"
-                logger.error msg
-                return Failed msg
+                logger.error $"Failed to process {fileName}: {ex.Message}"
+                return Failed ex.Message
         }
 
     // ─── Watch folder summary ────────────────────────────────────────

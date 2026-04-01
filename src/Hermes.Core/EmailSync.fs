@@ -476,72 +476,81 @@ module EmailSync =
             ()
         }
 
+    /// Build the Gmail query string for backfill.
+    let private buildBackfillQuery (bf: Domain.BackfillConfig) : string option =
+        let parts = ResizeArray<string>()
+        if bf.AttachmentsOnly then parts.Add("has:attachment")
+        bf.Since |> Option.iter (fun since -> parts.Add($"after:{since.ToUnixTimeSeconds()}"))
+        if parts.Count = 0 then None else Some (parts |> String.concat " ")
+
+    /// Process a single backfill attachment — returns 1 if new, 0 if skipped/error.
+    let private processBackfillAttachment
+        (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger) (clock: Algebra.Clock)
+        (config: Domain.HermesConfig) (account: string) (msg: Domain.EmailMessage)
+        (count: int) (att: Domain.EmailAttachment)
+        : Task<int> =
+        task {
+            try
+                if int64 att.SizeBytes < int64 config.MinAttachmentSize then return count
+                else
+                let sha = computeSha256 att.Content
+                let! isDup = hashExists db sha
+                if isDup then return count
+                else
+                let name = buildStandardName msg.Date msg.Sender att.FileName
+                let unclDir = IO.Path.Combine(config.ArchiveDir, "unclassified")
+                let destPath = IO.Path.Combine(unclDir, name)
+                fs.createDirectory unclDir
+                do! fs.writeAllBytes destPath att.Content
+                let sidecar = buildSidecar account msg att name sha (clock.utcNow ())
+                do! fs.writeAllText (destPath + ".meta.json") (serialiseSidecar sidecar)
+                do! recordDocument db account msg att name sha (clock.utcNow ())
+                return count + 1
+            with ex ->
+                logger.warn $"[{account}] Backfill attachment error ({att.FileName}): {ex.Message}"
+                return count
+        }
+
+    /// Process a single backfill message — returns count of new attachments.
+    let private processBackfillMessage
+        (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger) (clock: Algebra.Clock)
+        (provider: Algebra.EmailProvider) (config: Domain.HermesConfig) (account: string)
+        (count: int) (msg: Domain.EmailMessage)
+        : Task<int> =
+        task {
+            let! exists = messageExists db account msg.ProviderId
+            if exists then return count
+            else
+            do! recordMessage db account msg (clock.utcNow ())
+            let! atts = provider.getAttachments msg.ProviderId
+            return! Prelude.foldTask (processBackfillAttachment fs db logger clock config account msg) count atts
+        }
+
     /// Run one batch of backfill for an account. Returns (newMessages, completed).
     let backfillAccount
-        (fs: Algebra.FileSystem)
-        (db: Algebra.Database)
-        (logger: Algebra.Logger)
-        (clock: Algebra.Clock)
-        (provider: Algebra.EmailProvider)
-        (config: Domain.HermesConfig)
-        (account: Domain.AccountConfig)
+        (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
+        (clock: Algebra.Clock) (provider: Algebra.EmailProvider)
+        (config: Domain.HermesConfig) (account: Domain.AccountConfig)
         : Task<int * bool> =
         task {
-            let bf = account.Backfill
-            if not bf.Enabled then return (0, true)
+            if not account.Backfill.Enabled then return (0, true)
             else
-
             let! state = loadBackfillState db account.Label
             if state.Completed then return (0, true)
             else
 
-            // Ensure sync_state row exists
-            let! _ =
-                db.execNonQuery
-                    "INSERT OR IGNORE INTO sync_state (account) VALUES (@acc)"
-                    [ ("@acc", boxVal account.Label) ]
-
-            let now = clock.utcNow ()
-            let startedAt = state.StartedAt |> Option.defaultValue now
-
-            // Build query
-            let query =
-                let parts = ResizeArray<string>()
-                if bf.AttachmentsOnly then parts.Add("has:attachment")
-                match bf.Since with
-                | Some since -> parts.Add($"after:{since.ToUnixTimeSeconds()}")
-                | None -> ()
-                if parts.Count = 0 then None else Some (parts |> String.concat " ")
-
+            let! _ = db.execNonQuery "INSERT OR IGNORE INTO sync_state (account) VALUES (@acc)" [ ("@acc", boxVal account.Label) ]
+            let startedAt = state.StartedAt |> Option.defaultValue (clock.utcNow ())
+            let query = buildBackfillQuery account.Backfill
             let tokenLabel = state.PageToken |> Option.defaultValue "start"
             logger.info $"[{account.Label}] Backfill page (scanned: {state.Scanned}, token: {tokenLabel})"
 
-            let! page = provider.listMessagePage state.PageToken query bf.BatchSize
-
-            let mutable newCount = 0
-            for msg in page.Messages do
-                let! exists = messageExists db account.Label msg.ProviderId
-                if not exists then
-                    do! recordMessage db account.Label msg (clock.utcNow ())
-                    let! atts = provider.getAttachments msg.ProviderId
-                    for att in atts do
-                        try
-                            if int64 att.SizeBytes >= int64 config.MinAttachmentSize then
-                                let sha = computeSha256 att.Content
-                                let! isDuplicate = hashExists db sha
-                                if isDuplicate then
-                                    logger.debug $"[{account.Label}] Backfill skipping duplicate: {att.FileName}"
-                                else
-                                    let name = buildStandardName msg.Date msg.Sender att.FileName
-                                    let destPath = IO.Path.Combine(config.ArchiveDir, "unclassified", name)
-                                    fs.createDirectory (IO.Path.Combine(config.ArchiveDir, "unclassified"))
-                                    do! fs.writeAllBytes destPath att.Content
-                                    let sidecar = buildSidecar account.Label msg att name sha (clock.utcNow ())
-                                    do! fs.writeAllText (destPath + ".meta.json") (serialiseSidecar sidecar)
-                                    do! recordDocument db account.Label msg att name sha (clock.utcNow ())
-                                    newCount <- newCount + 1
-                        with ex ->
-                            logger.warn $"[{account.Label}] Backfill attachment error ({att.FileName}): {ex.Message}"
+            let! page = provider.listMessagePage state.PageToken query account.Backfill.BatchSize
+            let! newCount =
+                Prelude.foldTask
+                    (processBackfillMessage fs db logger clock provider config account.Label)
+                    0
+                    page.Messages
 
             let completed = page.NextPageToken.IsNone
             let newState =
@@ -552,7 +561,6 @@ module EmailSync =
                   StartedAt = Some startedAt }
 
             do! saveBackfillState db account.Label newState
-            logger.info $"[{account.Label}] Backfill batch: {newCount} new, {page.Messages.Length} scanned, completed={completed}"
-
+            logger.info $"[{account.Label}] Backfill: {newCount} new, {page.Messages.Length} scanned, completed={completed}"
             return (newCount, completed)
         }
