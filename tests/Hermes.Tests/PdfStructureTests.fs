@@ -208,6 +208,43 @@ let ``PdfStructure_DetectTables_BankStatement_ExtractsTransactionTable`` () =
     Assert.Equal(5, tbl.Headers.Length)
     Assert.Equal(3, tbl.Rows.Length)
 
+// ─── Multi-page table continuation tests ─────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``PdfStructure_IsContinuation_SameColumns_ReturnsTrue`` () =
+    let prevTable : PdfStructure.Table =
+        { Headers = [ "Date"; "Amount"; "Balance" ]; Rows = [ [ "01/10"; "$100"; "$5000" ] ] }
+    let lines =
+        [ mkTableLine [ ("02/10", 50.0); ("$200", 200.0); ("$4800", 400.0) ] 700.0
+          mkTableLine [ ("03/10", 50.0); ("$300", 200.0); ("$4500", 400.0) ] 688.0 ]
+    let boundaries = [ 50.0; 200.0; 400.0 ]
+    Assert.True(PdfStructure.isContinuation prevTable lines boundaries)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``PdfStructure_IsContinuation_DifferentColumns_ReturnsFalse`` () =
+    let prevTable : PdfStructure.Table =
+        { Headers = [ "Date"; "Amount"; "Balance" ]; Rows = [] }
+    let lines =
+        [ mkTableLine [ ("Name", 50.0); ("Value", 300.0) ] 700.0
+          mkTableLine [ ("foo", 50.0); ("bar", 300.0) ] 688.0 ]
+    let boundaries = [ 50.0; 300.0 ]
+    Assert.False(PdfStructure.isContinuation prevTable lines boundaries)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``PdfStructure_MergeMultiPageTables_CombinesRows_KeepsSingleHeader`` () =
+    let t1 : PdfStructure.Table =
+        { Headers = [ "Date"; "Amount" ]; Rows = [ [ "01/10"; "$100" ] ] }
+    let t2 : PdfStructure.Table =
+        { Headers = [ "Date"; "Amount" ]; Rows = [ [ "02/10"; "$200" ]; [ "03/10"; "$300" ] ] }
+    let result = PdfStructure.mergeMultiPageTables [ (1, [ t1 ]); (2, [ t2 ]) ]
+    Assert.Equal(1, result.Length)
+    let merged = result.[0]
+    Assert.Equal<string list>([ "Date"; "Amount" ], merged.Headers)
+    Assert.Equal(3, merged.Rows.Length)
+
 // ─── Key-Value detection tests ───────────────────────────────────────
 
 [<Fact>]

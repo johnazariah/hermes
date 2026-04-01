@@ -167,6 +167,27 @@ module PdfStructure =
                     scan (List.tail remaining) (List.head remaining :: nonTable) tables
         scan lines [] []
 
+    // ─── Multi-page table continuation ───────────────────────────────
+
+    /// Check if lines could be a continuation of a previous table.
+    let isContinuation (prevTable: Table) (currentLines: Line list) (colBoundaries: float list) : bool =
+        colBoundaries.Length = prevTable.Headers.Length
+        && currentLines.Length >= 2
+        && currentLines |> List.forall (fun l -> l.Words.Length >= 2)
+
+    /// Merge tables across pages when column boundaries match.
+    let mergeMultiPageTables (pageTables: (int * Table list) list) : Table list =
+        let merge (merged: Table list) (tables: Table list) =
+            tables
+            |> List.fold (fun acc tbl ->
+                match acc with
+                | prev :: rest when prev.Headers.Length = tbl.Headers.Length ->
+                    { prev with Rows = prev.Rows @ tbl.Rows } :: rest
+                | _ -> tbl :: acc) merged
+        pageTables
+        |> List.fold (fun acc (_, tables) -> merge acc tables) []
+        |> List.rev
+
     // ─── Key-Value detection ─────────────────────────────────────────
 
     let private tryParseColonKV (text: string) : KeyValue option =
