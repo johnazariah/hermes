@@ -279,7 +279,7 @@ let private searchCmd (args: ParseResults<SearchArgs>) =
                           Sender = args.TryGetResult Sender
                           DateFrom = args.TryGetResult From
                           DateTo = args.TryGetResult To
-                          Account = args.TryGetResult Account
+                          Account = args.TryGetResult SearchArgs.Account
                           SourceType = None
                           Limit = args.TryGetResult SearchArgs.Limit |> Option.defaultValue 20 }
 
@@ -541,8 +541,8 @@ let main argv =
             serviceCmd (results.GetResult Service)
         elif results.Contains Backfill then
             let args = results.GetResult Backfill
-            if args.Contains BackfillArgs.Reset then
-                let label = args.TryGetResult BackfillArgs.Account
+            if args.Contains <@ BackfillArgs.Reset @> then
+                let label = args.TryGetResult <@ BackfillArgs.Account @>
                 match label with
                 | None ->
                     eprintfn "Error: --account is required for backfill reset"
