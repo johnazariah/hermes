@@ -462,3 +462,50 @@ let ``Embeddings_StoreChunk_InsertsRow`` () =
             Assert.Equal(1L, c)
         finally db.dispose ()
     }
+
+// ─── embedDocument integration ───────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_EmbedDocument_StoresChunksAndUpdatesDoc`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            do! Embeddings.initSchema db
+            let! _ = db.execNonQuery
+                        "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text) VALUES ('manual_drop', 'test.pdf', 'invoices', 'sha1', 'Test doc')"
+                        []
+            let client = TestHelpers.fakeEmbedder 768
+            let! result = Embeddings.embedDocument db TestHelpers.silentLogger client 1L "This is a test document."
+            Assert.True(Result.isOk result)
+            let! count = db.execScalar "SELECT COUNT(*) FROM document_chunks WHERE document_id = 1" []
+            Assert.True((match count with null -> 0L | v -> v :?> int64) > 0L)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_EmbedDocument_EmptyText_ReturnsOkZero`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            do! Embeddings.initSchema db
+            let! result = Embeddings.embedDocument db TestHelpers.silentLogger (TestHelpers.fakeEmbedder 768) 1L ""
+            Assert.Equal(Ok 0, result)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_EmbedDocument_FailingClient_ReturnsError`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            do! Embeddings.initSchema db
+            let! _ = db.execNonQuery
+                        "INSERT INTO documents (source_type, saved_path, category, sha256) VALUES ('manual_drop', 'test.pdf', 'invoices', 'sha2')"
+                        []
+            let! result = Embeddings.embedDocument db TestHelpers.silentLogger TestHelpers.failingEmbedder 1L "Some text"
+            Assert.True(Result.isError result)
+        finally db.dispose ()
+    }
