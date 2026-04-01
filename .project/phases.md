@@ -43,6 +43,12 @@ Wave 7:  [8] [10] [11]               ← UI, email bodies, doc-to-markdown (para
 | Email Backfill | [11-email-backfill.md](design/11-email-backfill.md) | 1 | Designing |
 | Bills & Reminders | [12-bills-and-reminders.md](design/12-bills-and-reminders.md) | 3, Backfill | Designing |
 | Azure OpenAI Chat | — (in Chat.fs) | — | Done |
+| Document Feed & Consumers | [13-document-feed-and-consumers.md](design/13-document-feed-and-consumers.md) | — | Designing |
+| MCP Platform API | [14-mcp-platform-api.md](design/14-mcp-platform-api.md) | 13 | Designing |
+| Rich UI | [15-rich-ui.md](design/15-rich-ui.md) | 14 | Designing |
+| Osprey Integration | [16-osprey-integration.md](design/16-osprey-integration.md) | 13, 14, 17 | Designing |
+| Structured PDF-to-Markdown | [17-pdf-to-markdown.md](design/17-pdf-to-markdown.md) | — | Designing |
+| Smart Classification Pipeline | [18-smart-classification.md](design/18-smart-classification.md) | 17 | Designing |
 
 ## Agent Instructions
 

@@ -8,7 +8,7 @@
 
 | Metric | Value |
 |--------|-------|
-| Documents (design) | 12 |
+| Documents (design) | 18 |
 | Phase specs | 12 (Phases 0–11) |
 | GitHub issues | 10 |
 | Tests | 258 |

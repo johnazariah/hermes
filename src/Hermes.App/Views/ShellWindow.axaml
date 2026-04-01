@@ -65,21 +65,25 @@
               <StackPanel Margin="20,4,12,12" Spacing="5">
                 <TextBlock x:Name="IndexDocCount" Text="0 documents" FontSize="12"
                            Foreground="{DynamicResource PrimaryFg}" />
-                <Grid ColumnDefinitions="62,*,Auto" Margin="0,3,0,0">
-                  <TextBlock Text="Extracted" FontSize="10"
-                             Foreground="{DynamicResource MutedFg}" VerticalAlignment="Center" />
-                  <ProgressBar Grid.Column="1" x:Name="ExtractedBar" Minimum="0" Maximum="100" Value="0"
-                               Height="4" Margin="8,0" CornerRadius="2" />
-                  <TextBlock Grid.Column="2" x:Name="ExtractedCount" Text="0" FontSize="10"
-                             Foreground="{DynamicResource MutedFg}" VerticalAlignment="Center" />
+                <Grid RowDefinitions="Auto,Auto" Margin="0,3,0,0">
+                  <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,2">
+                    <TextBlock Text="Extracted" FontSize="10"
+                               Foreground="{DynamicResource MutedFg}" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="1" x:Name="ExtractedCount" Text="0" FontSize="10"
+                               Foreground="{DynamicResource MutedFg}" VerticalAlignment="Center" />
+                  </Grid>
+                  <ProgressBar Grid.Row="1" x:Name="ExtractedBar" Minimum="0" Maximum="100" Value="0"
+                               Height="4" CornerRadius="2" HorizontalAlignment="Stretch" />
                 </Grid>
-                <Grid ColumnDefinitions="62,*,Auto">
-                  <TextBlock Text="Embedded" FontSize="10"
-                             Foreground="{DynamicResource MutedFg}" VerticalAlignment="Center" />
-                  <ProgressBar Grid.Column="1" x:Name="EmbeddedBar" Minimum="0" Maximum="100" Value="0"
-                               Height="4" Margin="8,0" CornerRadius="2" />
-                  <TextBlock Grid.Column="2" x:Name="EmbeddedCount" Text="0" FontSize="10"
-                             Foreground="{DynamicResource MutedFg}" VerticalAlignment="Center" />
+                <Grid RowDefinitions="Auto,Auto">
+                  <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,2">
+                    <TextBlock Text="Embedded" FontSize="10"
+                               Foreground="{DynamicResource MutedFg}" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="1" x:Name="EmbeddedCount" Text="0" FontSize="10"
+                               Foreground="{DynamicResource MutedFg}" VerticalAlignment="Center" />
+                  </Grid>
+                  <ProgressBar Grid.Row="1" x:Name="EmbeddedBar" Minimum="0" Maximum="100" Value="0"
+                               Height="4" CornerRadius="2" HorizontalAlignment="Stretch" />
                 </Grid>
                 <!-- Category breakdown (monospace, compact) -->
                 <TextBlock x:Name="CategoryText" Text="" FontSize="10"

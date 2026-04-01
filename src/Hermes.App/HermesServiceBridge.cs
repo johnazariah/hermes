@@ -78,6 +78,14 @@ public sealed class HermesServiceBridge
         {
             _lastStatus = result.Value;
         }
+
+        // Reload config from disk so external edits (e.g. config.yaml) take effect without restart
+        var configPath = Path.Combine(ConfigDir, "config.yaml");
+        if (File.Exists(configPath))
+        {
+            var configResult = await Core.Config.load(fs, configPath);
+            if (configResult.IsOk) _config = configResult.ResultValue;
+        }
     }
 
     public void RequestSync()
