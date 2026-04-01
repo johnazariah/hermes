@@ -208,6 +208,51 @@ let ``PdfStructure_DetectTables_BankStatement_ExtractsTransactionTable`` () =
     Assert.Equal(5, tbl.Headers.Length)
     Assert.Equal(3, tbl.Rows.Length)
 
+// ─── Key-Value detection tests ───────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``PdfStructure_DetectKV_ColonSeparated_ReturnsKV`` () =
+    let line : PdfStructure.Line =
+        { Words = [ mkWord "Pay Date: 31.07.2024" 50.0 700.0 200.0 10.0 ]
+          Y = 700.0; Text = "Pay Date: 31.07.2024" }
+    let result = PdfStructure.detectKeyValues [ line ]
+    match result with
+    | [ (_, Some kv) ] ->
+        Assert.Equal("Pay Date", kv.Key)
+        Assert.Equal("31.07.2024", kv.Value)
+    | _ -> failwith $"Expected KV pair, got {result}"
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``PdfStructure_DetectKV_GapSeparated_ReturnsKV`` () =
+    let line : PdfStructure.Line =
+        { Words = [ mkWord "Employee" 50.0 700.0 60.0 10.0
+                    mkWord "#" 115.0 700.0 10.0 10.0
+                    mkWord "12345678" 350.0 700.0 60.0 10.0 ]
+          Y = 700.0; Text = "Employee # 12345678" }
+    let result = PdfStructure.detectKeyValues [ line ]
+    match result with
+    | [ (_, Some kv) ] ->
+        Assert.Equal("Employee #", kv.Key)
+        Assert.Equal("12345678", kv.Value)
+    | _ -> failwith $"Expected KV pair, got {result}"
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``PdfStructure_DetectKV_ParagraphText_ReturnsNone`` () =
+    let line : PdfStructure.Line =
+        { Words = [ mkWord "This" 50.0 700.0 30.0 10.0
+                    mkWord "is" 85.0 700.0 15.0 10.0
+                    mkWord "a" 105.0 700.0 10.0 10.0
+                    mkWord "normal" 120.0 700.0 45.0 10.0
+                    mkWord "sentence." 170.0 700.0 60.0 10.0 ]
+          Y = 700.0; Text = "This is a normal sentence." }
+    let result = PdfStructure.detectKeyValues [ line ]
+    match result with
+    | [ (_, None) ] -> ()
+    | _ -> failwith $"Expected None (not a KV pair), got {result}"
+
 // ─── extractLetters edge cases ───────────────────────────────────────
 
 [<Fact>]

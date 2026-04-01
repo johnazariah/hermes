@@ -167,6 +167,66 @@ module PdfStructure =
                     scan (List.tail remaining) (List.head remaining :: nonTable) tables
         scan lines [] []
 
+    // ─── Key-Value detection ─────────────────────────────────────────
+
+    let private tryParseColonKV (text: string) : KeyValue option =
+        let idx = text.IndexOf(':')
+        if idx > 0 && idx < text.Length - 1 then
+            let key = text.Substring(0, idx).Trim()
+            let value = text.Substring(idx + 1).Trim()
+            if key.Length >= 2 && key.Length <= 40 && value.Length >= 1 then
+                Some { Key = key; Value = value }
+            else None
+        else None
+
+    let private tryParseGapKV (line: Line) : KeyValue option =
+        match line.Words with
+        | [] | [_] -> None
+        | words ->
+            let sorted = words |> List.sortBy (fun w -> w.X)
+            let gaps =
+                sorted
+                |> List.pairwise
+                |> List.map (fun (a, b) -> b.X - (a.X + a.Width))
+            let maxGap = gaps |> List.max
+            let avgWidth = sorted |> List.averageBy (fun w -> w.Width)
+            if maxGap > avgWidth * 2.0 then
+                let splitIdx =
+                    gaps
+                    |> List.indexed
+                    |> List.maxBy snd
+                    |> fst
+                let keyWords = sorted |> List.take (splitIdx + 1)
+                let valWords = sorted |> List.skip (splitIdx + 1)
+                let key = keyWords |> List.map (fun w -> w.Text) |> String.concat " "
+                let value = valWords |> List.map (fun w -> w.Text) |> String.concat " "
+                if key.Length >= 2 && value.Length >= 1 then
+                    Some { Key = key; Value = value }
+                else None
+            else None
+
+    /// Detect key-value pairs from lines (colon-separated or gap-separated).
+    let detectKeyValues (lines: Line list) : (Line * KeyValue option) list =
+        lines
+        |> List.map (fun line ->
+            let kv =
+                tryParseColonKV line.Text
+                |> Option.orElseWith (fun () -> tryParseGapKV line)
+            (line, kv))
+
+    /// Group consecutive KV pairs into Block list.
+    let groupKeyValues (kvPairs: (Line * KeyValue option) list) : Block list =
+        let flush (acc: KeyValue list) (blocks: Block list) =
+            match acc with
+            | [] -> blocks
+            | kvs -> KeyValueBlock (List.rev kvs) :: blocks
+        let folder (acc, blocks) (line, kv) =
+            match kv with
+            | Some k -> (k :: acc, blocks)
+            | None -> ([], Paragraph line.Text :: flush acc blocks)
+        let finalAcc, finalBlocks = kvPairs |> List.fold folder ([], [])
+        flush finalAcc finalBlocks |> List.rev
+
     // ─── Letter extraction ───────────────────────────────────────────
 
     /// Open a PDF from bytes and extract per-page letter lists.
