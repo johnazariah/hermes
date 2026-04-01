@@ -82,6 +82,72 @@ let ``PdfStructure_LinesToText_SingleLine_NoTrailingNewline`` () =
 
 // ─── extractLetters edge cases ───────────────────────────────────────
 
+// ─── detectBodyFontSize tests ────────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``PdfStructure_DetectBodyFontSize_ReturnsMostCommonSize`` () =
+    let words12 = List.replicate 10 (mkWord "body" 10.0 700.0 30.0 12.0)
+    let words18 = List.replicate 2 (mkWord "heading" 10.0 750.0 60.0 18.0)
+    let lines : PdfStructure.Line list =
+        [ { Words = words12; Y = 700.0; Text = "body text" }
+          { Words = words18; Y = 750.0; Text = "heading" } ]
+    let bodySize = PdfStructure.detectBodyFontSize lines
+    Assert.Equal(12.0, bodySize)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``PdfStructure_DetectBodyFontSize_EmptyLines_ReturnsDefault`` () =
+    let bodySize = PdfStructure.detectBodyFontSize []
+    Assert.Equal(12.0, bodySize)
+
+// ─── detectHeadings tests ────────────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``PdfStructure_DetectHeadings_LargeFont_ReturnsH1`` () =
+    let line : PdfStructure.Line =
+        { Words = [ mkWord "Title" 10.0 800.0 50.0 20.0 ]; Y = 800.0; Text = "Title" }
+    let result = PdfStructure.detectHeadings [ line ] 12.0
+    match result with
+    | [ (_, Some 1) ] -> ()
+    | _ -> failwith $"Expected H1, got {result}"
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``PdfStructure_DetectHeadings_BoldFont_ReturnsH2`` () =
+    let line : PdfStructure.Line =
+        { Words = [ mkWord "Section" 10.0 750.0 50.0 12.0 |> fun w -> { w with FontName = "Helvetica-Bold" } ]
+          Y = 750.0; Text = "Section" }
+    let result = PdfStructure.detectHeadings [ line ] 12.0
+    match result with
+    | [ (_, Some 2) ] -> ()
+    | _ -> failwith $"Expected H2, got {result}"
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``PdfStructure_DetectHeadings_AllCaps_ReturnsH3`` () =
+    let line : PdfStructure.Line =
+        { Words = [ mkWord "EARNINGS AND ALLOWANCES" 10.0 700.0 150.0 12.0 ]
+          Y = 700.0; Text = "EARNINGS AND ALLOWANCES" }
+    let result = PdfStructure.detectHeadings [ line ] 12.0
+    match result with
+    | [ (_, Some 3) ] -> ()
+    | _ -> failwith $"Expected H3, got {result}"
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``PdfStructure_DetectHeadings_BodyText_ReturnsNone`` () =
+    let line : PdfStructure.Line =
+        { Words = [ mkWord "Normal paragraph text here." 10.0 700.0 150.0 12.0 ]
+          Y = 700.0; Text = "Normal paragraph text here." }
+    let result = PdfStructure.detectHeadings [ line ] 12.0
+    match result with
+    | [ (_, None) ] -> ()
+    | _ -> failwith $"Expected None (body text), got {result}"
+
+// ─── extractLetters edge cases ───────────────────────────────────────
+
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``PdfStructure_ExtractLetters_InvalidBytes_ReturnsEmptyList`` () =

@@ -26,6 +26,69 @@ module PdfStructure =
           Y: float
           Text: string }
 
+    // ─── Structured block types ──────────────────────────────────────
+
+    /// A table with headers and data rows.
+    type Table = { Headers: string list; Rows: string list list }
+
+    /// A key-value pair extracted from the document.
+    type KeyValue = { Key: string; Value: string }
+
+    /// A classified block of content from a PDF page.
+    type Block =
+        | Heading of level: int * text: string
+        | Paragraph of text: string
+        | TableBlock of Table
+        | KeyValueBlock of KeyValue list
+
+    // ─── Heading detection ───────────────────────────────────────────
+
+    /// Find the most common font size across all words (= body text size).
+    let detectBodyFontSize (lines: Line list) : float =
+        lines
+        |> List.collect (fun l -> l.Words)
+        |> List.map (fun w -> System.Math.Round(w.FontSize, 1))
+        |> List.countBy id
+        |> List.sortByDescending snd
+        |> List.tryHead
+        |> Option.map fst
+        |> Option.defaultValue 12.0
+
+    let private isBoldFont (fontName: string) =
+        let fn = fontName.ToUpperInvariant()
+        fn.Contains("BOLD") || fn.Contains("BLACK") || fn.Contains("HEAVY")
+
+    let private isAllCaps (text: string) =
+        let letters = text |> Seq.filter System.Char.IsLetter |> Seq.toArray
+        letters.Length >= 3 && letters |> Array.forall System.Char.IsUpper
+
+    let private lineAvgFontSize (line: Line) =
+        match line.Words with
+        | [] -> 12.0
+        | ws -> ws |> List.averageBy (fun w -> w.FontSize)
+
+    let private lineMajorityBold (line: Line) =
+        match line.Words with
+        | [] -> false
+        | ws ->
+            let boldCount = ws |> List.filter (fun w -> isBoldFont w.FontName) |> List.length
+            boldCount * 2 > ws.Length
+
+    /// Classify each line as a heading level (Some 1/2/3) or body (None).
+    let detectHeadings (lines: Line list) (bodySize: float) : (Line * int option) list =
+        let classify (line: Line) =
+            let avgSize = lineAvgFontSize line
+            let sizeRatio = avgSize / bodySize
+            let bold = lineMajorityBold line
+            let allCaps = isAllCaps line.Text
+            let level =
+                if sizeRatio >= 1.5 then Some 1
+                elif sizeRatio >= 1.2 || bold then Some 2
+                elif allCaps then Some 3
+                else None
+            (line, level)
+        lines |> List.map classify
+
     // ─── Letter extraction ───────────────────────────────────────────
 
     /// Open a PDF from bytes and extract per-page letter lists.
