@@ -76,3 +76,53 @@ let ``ContentClassifier_Classify_NoRulesMatch_ReturnsNone`` () =
     let markdown = "Nothing special here."
     let result = ContentClassifier.classify markdown [] None [ payslipRule; bankStatementRule ]
     Assert.True(result.IsNone)
+
+// ─── LLM classification tests (Tier 3) ──────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ContentClassifier_BuildPrompt_TruncatesTo2000Chars`` () =
+    let longText = String.replicate 300 "word word "
+    let prompt = ContentClassifier.buildClassificationPrompt longText [ "invoices"; "payslips" ]
+    Assert.Contains("[... truncated]", prompt)
+    Assert.Contains("invoices, payslips", prompt)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ContentClassifier_BuildPrompt_ShortText_NoTruncation`` () =
+    let prompt = ContentClassifier.buildClassificationPrompt "Short doc" [ "tax" ]
+    Assert.DoesNotContain("truncated", prompt)
+    Assert.Contains("Short doc", prompt)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ContentClassifier_ParseResponse_ValidJson_ReturnsCategory`` () =
+    let json = """{"category": "insurance", "confidence": 0.92, "reasoning": "Contains Allianz policy number"}"""
+    let result = ContentClassifier.parseClassificationResponse json
+    match result with
+    | Some ("insurance", conf, reasoning) ->
+        Assert.Equal(0.92, conf)
+        Assert.Contains("Allianz", reasoning)
+    | _ -> failwith $"Expected insurance match, got {result}"
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ContentClassifier_ParseResponse_MarkdownCodeBlock_ExtractsJson`` () =
+    let response = "```json\n{\"category\": \"tax\", \"confidence\": 0.85, \"reasoning\": \"ATO notice\"}\n```"
+    let result = ContentClassifier.parseClassificationResponse response
+    match result with
+    | Some ("tax", 0.85, _) -> ()
+    | _ -> failwith $"Expected tax match, got {result}"
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ContentClassifier_ParseResponse_InvalidJson_ReturnsNone`` () =
+    let result = ContentClassifier.parseClassificationResponse "not json at all"
+    Assert.True(result.IsNone)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ContentClassifier_ParseResponse_MissingCategory_ReturnsNone`` () =
+    let json = """{"confidence": 0.5, "reasoning": "unclear"}"""
+    let result = ContentClassifier.parseClassificationResponse json
+    Assert.True(result.IsNone)

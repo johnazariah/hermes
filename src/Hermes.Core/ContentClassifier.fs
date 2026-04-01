@@ -1,5 +1,7 @@
 namespace Hermes.Core
 
+#nowarn "3261"
+
 open System
 
 /// Content-based classification (Tier 2): match extracted markdown against
@@ -70,3 +72,53 @@ module ContentClassifier =
         |> List.choose (evaluateRule markdown tables amount)
         |> List.sortByDescending snd
         |> List.tryHead
+
+    // ─── Tier 3: LLM classification ──────────────────────────────────
+
+    let private maxPromptChars = 2000
+
+    /// Build a classification prompt with truncated document content.
+    let buildClassificationPrompt (markdown: string) (categories: string list) : string =
+        let truncated =
+            if markdown.Length <= maxPromptChars then markdown
+            else markdown.Substring(0, maxPromptChars) + "\n[... truncated]"
+        let catList = categories |> String.concat ", "
+        $"""Classify this document into one of these categories: {catList}
+
+Respond with ONLY a JSON object:
+{{"category": "<category>", "confidence": <0.0-1.0>, "reasoning": "<brief explanation>"}}
+
+Document content:
+{truncated}"""
+
+    /// Parse LLM JSON response into (category, confidence, reasoning).
+    let parseClassificationResponse (response: string) : (string * float * string) option =
+        try
+            let trimmed = response.Trim()
+            // Extract JSON if wrapped in markdown code block
+            let json =
+                if trimmed.StartsWith("```") then
+                    let startIdx = trimmed.IndexOf('{')
+                    let endIdx = trimmed.LastIndexOf('}')
+                    if startIdx >= 0 && endIdx > startIdx then
+                        trimmed.Substring(startIdx, endIdx - startIdx + 1)
+                    else trimmed
+                else trimmed
+            let doc = System.Text.Json.JsonDocument.Parse(json)
+            let root = doc.RootElement
+            let category =
+                match root.TryGetProperty("category") with
+                | true, v -> Some (v.GetString())
+                | _ -> None
+            let confidence =
+                match root.TryGetProperty("confidence") with
+                | true, v -> Some (v.GetDouble())
+                | _ -> None
+            let reasoning =
+                match root.TryGetProperty("reasoning") with
+                | true, v -> v.GetString() |> Option.ofObj |> Option.defaultValue ""
+                | _ -> ""
+            match category, confidence with
+            | Some cat, Some conf when not (String.IsNullOrEmpty(cat)) -> Some (cat, conf, reasoning)
+            | _ -> None
+        with _ -> None
