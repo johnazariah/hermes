@@ -349,3 +349,56 @@ module Classifier =
 
             return suggestions |> Seq.toList
         }
+
+    // ─── Bulk reclassification ───────────────────────────────────────
+
+    /// Get unsorted documents that have extracted text (candidates for Tier 2).
+    let private getUnsortedWithText (db: Algebra.Database) (limit: int) =
+        task {
+            let! rows =
+                db.execReader
+                    """SELECT id, saved_path, extracted_text, extracted_amount
+                       FROM documents
+                       WHERE (category = 'unsorted' OR category = 'unclassified')
+                         AND extracted_text IS NOT NULL
+                       ORDER BY id ASC LIMIT @lim"""
+                    [ ("@lim", Database.boxVal (int64 limit)) ]
+            return rows |> List.choose (fun row ->
+                let r = Prelude.RowReader(row)
+                match r.OptInt64 "id", r.OptString "saved_path", r.OptString "extracted_text" with
+                | Some id, Some path, Some text ->
+                    Some (id, path, text, r.OptFloat "extracted_amount" |> Option.map decimal)
+                | _ -> None)
+        }
+
+    /// Reclassify a batch of unsorted documents using Tier 2 content rules.
+    let reclassifyUnsortedBatch
+        (db: Algebra.Database) (fs: Algebra.FileSystem)
+        (contentRules: Domain.ContentRule list)
+        (archiveDir: string) (batchSize: int)
+        : Threading.Tasks.Task<int * int> =
+        task {
+            let! candidates = getUnsortedWithText db batchSize
+            let mutable reclassified = 0
+            for (docId, _savedPath, text, amount) in candidates do
+                match ContentClassifier.classify text [] amount contentRules with
+                | Some (category, confidence) ->
+                    let! result = DocumentManagement.reclassify db fs archiveDir docId category
+                    match result with
+                    | Ok () ->
+                        let! _ =
+                            db.execNonQuery
+                                """UPDATE documents SET classification_tier = 'content',
+                                   classification_confidence = @conf WHERE id = @id"""
+                                [ ("@conf", Database.boxVal confidence)
+                                  ("@id", Database.boxVal docId) ]
+                        reclassified <- reclassified + 1
+                    | Error _ -> ()
+                | None -> ()
+            let! remainingObj =
+                db.execScalar
+                    "SELECT COUNT(*) FROM documents WHERE category = 'unsorted' OR category = 'unclassified'"
+                    []
+            let remaining = match remainingObj with :? int64 as i -> int i | _ -> 0
+            return (reclassified, remaining)
+        }
