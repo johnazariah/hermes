@@ -446,15 +446,13 @@ module EmailSync =
             | [] ->
                 return { PageToken = None; Scanned = 0; TotalEstimate = 0L; Completed = false; StartedAt = None }
             | row :: _ ->
-                let getStr key = row |> Map.tryFind key |> Option.bind (fun v -> match v with :? System.DBNull -> None | :? string as s -> Some s | _ -> None)
-                let getInt key def = row |> Map.tryFind key |> Option.bind (fun v -> match v with :? int64 as i -> Some (int i) | _ -> None) |> Option.defaultValue def
-                let getInt64 key def = row |> Map.tryFind key |> Option.bind (fun v -> match v with :? int64 as i -> Some i | _ -> None) |> Option.defaultValue def
+                let r = Prelude.RowReader(row)
                 return
-                    { PageToken = getStr "backfill_page_token"
-                      Scanned = getInt "backfill_scanned" 0
-                      TotalEstimate = getInt64 "backfill_total_estimate" 0L
-                      Completed = getInt "backfill_completed" 0 > 0
-                      StartedAt = getStr "backfill_started_at" |> Option.bind (fun s -> match DateTimeOffset.TryParse(s) with true, d -> Some d | _ -> None) }
+                    { PageToken = r.OptString "backfill_page_token"
+                      Scanned = r.Int64 "backfill_scanned" 0L |> int
+                      TotalEstimate = r.Int64 "backfill_total_estimate" 0L
+                      Completed = r.Int64 "backfill_completed" 0L > 0L
+                      StartedAt = r.OptDateTimeOffset "backfill_started_at" }
         }
 
     let private saveBackfillState (db: Algebra.Database) (account: string) (state: BackfillState) =
