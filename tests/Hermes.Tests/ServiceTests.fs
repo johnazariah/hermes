@@ -27,9 +27,9 @@ let ``ServiceHost_WriteHeartbeat_CreatesStatusFile`` () =
     |> Async.RunSynchronously
 
     let path = ServiceHost.statusFilePath archiveDir
-    Assert.True(m.Files.ContainsKey(path), "Status file should exist")
+    Assert.True((m.Get path).IsSome, "Status file should exist")
 
-    let content = m.Files.[path]
+    let content = (m.Get path).Value
     Assert.Contains("\"running\": true", content)
     Assert.Contains("\"documentCount\": 42", content)
 
@@ -53,7 +53,7 @@ let ``ServiceHost_WriteHeartbeat_StoppedState_WritesRunningFalse`` () =
     |> Async.RunSynchronously
 
     let path = ServiceHost.statusFilePath archiveDir
-    let content = m.Files.[path]
+    let content = (m.Get path).Value
     Assert.Contains("\"running\": false", content)
     Assert.Contains("\"errorMessage\": \"test error\"", content)
 
@@ -75,7 +75,7 @@ let ``ServiceHost_ReadHeartbeat_ValidJson_ReturnsStatus`` () =
   "errorMessage": null
 }"""
 
-    m.Files.[ServiceHost.statusFilePath archiveDir] <- json
+    m.Put (ServiceHost.statusFilePath archiveDir) json
 
     let result =
         ServiceHost.readHeartbeat m.Fs archiveDir
@@ -108,7 +108,7 @@ let ``ServiceHost_ReadHeartbeat_InvalidJson_ReturnsNone`` () =
     let m = TestHelpers.memFs ()
     let archiveDir = "/archive"
 
-    m.Files.[ServiceHost.statusFilePath archiveDir] <- "not valid json{{"
+    m.Put (ServiceHost.statusFilePath archiveDir) "not valid json{{"
 
     let result =
         ServiceHost.readHeartbeat m.Fs archiveDir
@@ -198,14 +198,12 @@ let ``ServiceHost_CountUnclassified_EmptyDir_ReturnsZero`` () =
 let ``ServiceHost_CountUnclassified_WithFiles_CountsCorrectly`` () =
     let m = TestHelpers.memFs ()
     let archiveDir = "/archive"
-    let unclassifiedDir = System.IO.Path.Combine(archiveDir, "unclassified")
-    m.Dirs.[unclassifiedDir] <- true
-    m.Files.[unclassifiedDir + "/doc1.pdf"] <- "pdf content"
-    m.Files.[unclassifiedDir + "/doc2.pdf"] <- "pdf content 2"
-    m.Files.[unclassifiedDir + "/doc1.pdf.meta.json"] <- "{}"
+    m.Fs.createDirectory "/archive/unclassified"
+    m.Put "/archive/unclassified/doc1.pdf" "pdf content"
+    m.Put "/archive/unclassified/doc2.pdf" "pdf content 2"
+    m.Put "/archive/unclassified/doc1.pdf.meta.json" "{}"
 
     let count = ServiceHost.countUnclassified m.Fs archiveDir
-    // Should count 2 PDFs, not the .meta.json
     Assert.Equal(2, count)
 
 [<Fact>]

@@ -152,7 +152,7 @@ let ``Classifier_IsDuplicate_DifferentHash_ReturnsFalse`` () =
 let ``Classifier_ComputeSha256_ReturnsConsistentHash`` () =
     task {
         let m = TestHelpers.memFs ()
-        m.Files.["/test/file.pdf"] <- "hello world"
+        m.Put "/test/file.pdf" "hello world"
 
         let! hash1 = Classifier.computeSha256 m.Fs "/test/file.pdf"
         let! hash2 = Classifier.computeSha256 m.Fs "/test/file.pdf"
@@ -166,8 +166,8 @@ let ``Classifier_ComputeSha256_ReturnsConsistentHash`` () =
 let ``Classifier_ComputeSha256_DifferentContent_DifferentHash`` () =
     task {
         let m = TestHelpers.memFs ()
-        m.Files.["/test/file1.pdf"] <- "hello"
-        m.Files.["/test/file2.pdf"] <- "world"
+        m.Put "/test/file1.pdf" "hello"
+        m.Put "/test/file2.pdf" "world"
 
         let! hash1 = Classifier.computeSha256 m.Fs "/test/file1.pdf"
         let! hash2 = Classifier.computeSha256 m.Fs "/test/file2.pdf"
@@ -219,7 +219,7 @@ let ``Classifier_ProcessFile_ClassifiesAndMovesFile`` () =
         let archiveDir = "/archive"
         m.Dirs.[archiveDir] <- true
         let srcPath = Path.Combine(archiveDir, "unclassified", "Invoice-March.pdf")
-        m.Files.[srcPath] <- "PDF content here"
+        m.Put srcPath "PDF content here"
 
         try
             let! result =
@@ -228,10 +228,10 @@ let ``Classifier_ProcessFile_ClassifiesAndMovesFile`` () =
             Assert.True(Result.isOk result)
 
             // File should have been moved to invoices/
-            Assert.False(m.Files.ContainsKey(srcPath))
+            Assert.False((m.Get(srcPath)).IsSome)
             let destPath = Path.Combine(archiveDir, "invoices", "Invoice-March.pdf")
             let keysStr = String.Join("; ", m.Files.Keys)
-            Assert.True(m.Files.ContainsKey(destPath), $"Expected file at {destPath}. Keys: {keysStr}")
+            Assert.True((m.Get(destPath)).IsSome, $"Expected file at {destPath}. Keys: {keysStr}")
 
             // Document should be in the database
             let! count =
@@ -256,9 +256,9 @@ let ``Classifier_ProcessFile_WithSidecar_UsesMetadataForClassification`` () =
         m.Dirs.[archiveDir] <- true
         let srcPath = Path.Combine(archiveDir, "unclassified", "document.pdf")
         let metaPath = srcPath + ".meta.json"
-        m.Files.[srcPath] <- "PDF content"
+        m.Put srcPath "PDF content"
 
-        m.Files.[metaPath] <-
+        m.Put metaPath
             """{"source_type":"email_attachment","account":"john","gmail_id":"msg1","sender":"bob@plumbing.com.au","subject":"March invoice","original_name":"document.pdf","sha256":"abc"}"""
 
         try
@@ -270,10 +270,10 @@ let ``Classifier_ProcessFile_WithSidecar_UsesMetadataForClassification`` () =
             // Domain rule should have classified to trades (plumbing.com.au)
             let destPath = Path.Combine(archiveDir, "trades", "document.pdf")
             let keysStr = String.Join("; ", m.Files.Keys)
-            Assert.True(m.Files.ContainsKey(destPath), $"Expected file at {destPath}. Keys: {keysStr}")
+            Assert.True((m.Get(destPath)).IsSome, $"Expected file at {destPath}. Keys: {keysStr}")
 
             // Sidecar should have been cleaned up
-            Assert.False(m.Files.ContainsKey(metaPath))
+            Assert.False((m.Get(metaPath)).IsSome)
         finally
             db.dispose ()
     }
@@ -294,7 +294,7 @@ let ``Classifier_ProcessFile_DuplicateHash_SkipsFile`` () =
         // Add a file with known content
         let content = "duplicate content"
         let srcPath = Path.Combine(archiveDir, "unclassified", "dup.pdf")
-        m.Files.[srcPath] <- content
+        m.Put srcPath content
 
         // Pre-insert a document with the same hash
         let! hash = Classifier.computeSha256 m.Fs srcPath
@@ -312,11 +312,11 @@ let ``Classifier_ProcessFile_DuplicateHash_SkipsFile`` () =
             Assert.True(Result.isOk result)
 
             // File should have been deleted (not moved)
-            Assert.False(m.Files.ContainsKey(srcPath))
+            Assert.False((m.Get(srcPath)).IsSome)
 
             // Should NOT have been moved to any category
-            Assert.False(m.Files.ContainsKey(Path.Combine(archiveDir, "invoices", "dup.pdf")))
-            Assert.False(m.Files.ContainsKey(Path.Combine(archiveDir, "unsorted", "dup.pdf")))
+            Assert.False((m.Get(Path.Combine(archiveDir, "invoices", "dup.pdf")).IsSome))
+            Assert.False((m.Get(Path.Combine(archiveDir, "unsorted", "dup.pdf")).IsSome))
         finally
             db.dispose ()
     }
@@ -353,7 +353,7 @@ let ``Classifier_ProcessFile_UnmatchedFile_GoesToUnsorted`` () =
         let archiveDir = "/archive"
         m.Dirs.[archiveDir] <- true
         let srcPath = Path.Combine(archiveDir, "unclassified", "random-file.pdf")
-        m.Files.[srcPath] <- "some content"
+        m.Put srcPath "some content"
 
         try
             let! result =
@@ -362,7 +362,7 @@ let ``Classifier_ProcessFile_UnmatchedFile_GoesToUnsorted`` () =
             Assert.True(Result.isOk result)
             let destPath = Path.Combine(archiveDir, "unsorted", "random-file.pdf")
             let keysStr = String.Join("; ", m.Files.Keys)
-            Assert.True(m.Files.ContainsKey(destPath), $"Expected file at {destPath}. Keys: {keysStr}")
+            Assert.True((m.Get(destPath)).IsSome, $"Expected file at {destPath}. Keys: {keysStr}")
         finally
             db.dispose ()
     }
@@ -380,7 +380,7 @@ let ``Classifier_ProcessFile_InsertsDocumentRecord`` () =
         let archiveDir = "/archive"
         m.Dirs.[archiveDir] <- true
         let srcPath = Path.Combine(archiveDir, "unclassified", "Invoice-Test.pdf")
-        m.Files.[srcPath] <- "invoice content"
+        m.Put srcPath "invoice content"
 
         try
             let! _ =

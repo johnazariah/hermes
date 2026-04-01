@@ -114,14 +114,13 @@ let ``Config_Init_CreatesConfigAndRules`` () =
 let ``Config_Init_SkipsExistingFiles`` () =
     let m = TestHelpers.memFs ()
     let configPath = Path.Combine(Config.configDir (), "config.yaml")
-    m.Files.[configPath] <- "existing content"
+    m.Put configPath "existing content"
     let result = Config.init m.Fs |> Async.AwaitTask |> Async.RunSynchronously
 
     match result with
     | Ok created ->
-        // Only rules.yaml should be created, config.yaml already existed
         Assert.Equal(1, created.Length)
-        Assert.Equal("existing content", m.Files.[configPath])
+        Assert.Equal(Some "existing content", m.Get configPath)
     | Error e -> failwith $"Expected Ok, got Error: {e}"
 
 // ─── Path expansion tests ────────────────────────────────────────────

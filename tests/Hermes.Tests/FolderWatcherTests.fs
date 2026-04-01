@@ -163,7 +163,7 @@ let ``FolderWatcher_ProcessFile_CopiesMatchingFile`` () =
         m.Dirs.["/watch/Downloads"] <- true
 
         let srcPath = "/watch/Downloads/invoice.pdf"
-        m.Files.[srcPath] <- "PDF content here"
+        m.Put srcPath "PDF content here"
 
         let watchFolder : Domain.WatchFolderConfig =
             { Path = "/watch/Downloads"
@@ -179,9 +179,9 @@ let ``FolderWatcher_ProcessFile_CopiesMatchingFile`` () =
                 Assert.Contains("Downloads", savedPath)
                 Assert.Contains("invoice.pdf", savedPath)
                 // Source file should still exist (copy, not move)
-                Assert.True(m.Files.ContainsKey(srcPath))
+                Assert.True((m.Get(srcPath)).IsSome)
                 // Sidecar should exist
-                Assert.True(m.Files.ContainsKey(savedPath + ".meta.json"))
+                Assert.True((m.Get(savedPath + ".meta.json")).IsSome)
             | other -> failwith $"Expected Copied, got {other}"
         finally
             db.dispose ()
@@ -197,7 +197,7 @@ let ``FolderWatcher_ProcessFile_SkipsNonMatchingPattern`` () =
         let logger = Logging.silent
 
         m.Dirs.["/watch"] <- true
-        m.Files.["/watch/readme.txt"] <- "text content"
+        m.Put "/watch/readme.txt" "text content"
 
         let watchFolder : Domain.WatchFolderConfig =
             { Path = "/watch"
@@ -229,7 +229,7 @@ let ``FolderWatcher_ProcessFile_DetectsDuplicate`` () =
         m.Dirs.["/watch"] <- true
 
         let content = "duplicate content"
-        m.Files.["/watch/dup.pdf"] <- content
+        m.Put "/watch/dup.pdf" content
 
         // Compute hash and pre-insert
         let! hash = FolderWatcher.computeSha256 m.Fs "/watch/dup.pdf"
@@ -292,7 +292,7 @@ let ``FolderWatcher_ProcessFile_UsesSafeCopyRename`` () =
         m.Dirs.[archiveDir] <- true
         m.Dirs.["/watch"] <- true
 
-        m.Files.["/watch/test.pdf"] <- "content"
+        m.Put "/watch/test.pdf" "content"
 
         let watchFolder : Domain.WatchFolderConfig =
             { Path = "/watch"
@@ -305,9 +305,9 @@ let ``FolderWatcher_ProcessFile_UsesSafeCopyRename`` () =
             match result with
             | FolderWatcher.Copied savedPath ->
                 // Temp file should NOT exist (renamed away)
-                Assert.False(m.Files.ContainsKey(savedPath + ".hermes_copying"))
+                Assert.False((m.Get(savedPath + ".hermes_copying")).IsSome)
                 // Final file should exist
-                Assert.True(m.Files.ContainsKey(savedPath))
+                Assert.True((m.Get(savedPath)).IsSome)
             | other -> failwith $"Expected Copied, got {other}"
         finally
             db.dispose ()
@@ -405,9 +405,9 @@ let ``FolderWatcher_ScanFolder_ProcessesAllMatchingFiles`` () =
         m.Dirs.[archiveDir] <- true
         m.Dirs.["/watch"] <- true
 
-        m.Files.["/watch/invoice1.pdf"] <- "content1"
-        m.Files.["/watch/invoice2.pdf"] <- "content2"
-        m.Files.["/watch/readme.txt"] <- "text content"
+        m.Put "/watch/invoice1.pdf" "content1"
+        m.Put "/watch/invoice2.pdf" "content2"
+        m.Put "/watch/readme.txt" "text content"
 
         let watchFolder : Domain.WatchFolderConfig =
             { Path = "/watch"

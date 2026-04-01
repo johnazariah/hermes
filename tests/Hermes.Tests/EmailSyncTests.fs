@@ -236,7 +236,7 @@ let ``EmailSync_SyncAccount_WithAttachments_DownloadsAndRecords`` () =
             // Verify sidecar was written
             Assert.True(m.Files.Count > 0, "Should have written at least one sidecar file")
             let sidecarKey = m.Files.Keys |> Seq.find (fun k -> k.EndsWith(".meta.json"))
-            let sidecarJson = m.Files.[sidecarKey]
+            let sidecarJson = (m.Get(sidecarKey)).Value
             Assert.Contains("email_attachment", sidecarJson)
             Assert.Contains("msg-001", sidecarJson)
         finally

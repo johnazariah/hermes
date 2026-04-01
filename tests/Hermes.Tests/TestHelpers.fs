@@ -23,9 +23,9 @@ let memFs () : MemFs =
     let files = ConcurrentDictionary<string, string>()
     let bytes = ConcurrentDictionary<string, byte array>()
     let dirs = ConcurrentDictionary<string, bool>()
+    let norm (path: string) = path.Replace('\\', '/')
 
     let fs : Algebra.FileSystem =
-        let norm (path: string) = path.Replace('\\', '/')
         { readAllText = fun path ->
             task {
                 match files.TryGetValue(norm path) with
