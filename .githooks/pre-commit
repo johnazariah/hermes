@@ -26,7 +26,18 @@ for file in $STAGED; do
     fi
 done
 
-# 3. Build check
+# 3. Fantomas formatting check (F# files only)
+echo "Checking F# formatting..."
+FS_STAGED=$(git diff --cached --name-only --diff-filter=ACM | grep '\.fs$' | grep -v '/obj/' || true)
+if [ -n "$FS_STAGED" ]; then
+    dotnet fantomas --check $FS_STAGED 2>/dev/null
+    if [ $? -ne 0 ]; then
+        echo "ERROR: F# formatting issues detected. Run 'dotnet fantomas .' to fix."
+        exit 1
+    fi
+fi
+
+# 4. Build check
 echo "Running build..."
 dotnet build --nologo -v q 2>&1 | tail -5
 if [ $? -ne 0 ]; then
@@ -34,13 +45,50 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# 4. Testing register check
+# 5. Run tests with coverage
+echo "Running tests with coverage..."
+dotnet test tests/Hermes.Tests/Hermes.Tests.fsproj --nologo --no-build --collect:"XPlat Code Coverage" --results-directory "$REPO_ROOT/TestResults" -v q 2>&1 | tail -3
+if [ $? -ne 0 ]; then
+    echo "ERROR: Tests failed. Fix before committing."
+    exit 1
+fi
+
+# 6. Check coverage threshold
+echo "Checking coverage threshold..."
+COVERAGE_FILE=$(find "$REPO_ROOT/TestResults" -name "coverage.cobertura.xml" -newer "$REPO_ROOT/.git/index" 2>/dev/null | head -1)
+if [ -n "$COVERAGE_FILE" ]; then
+    LINE_RATE=$(grep -oP 'line-rate="\K[^"]+' "$COVERAGE_FILE" | head -1)
+    BRANCH_RATE=$(grep -oP 'branch-rate="\K[^"]+' "$COVERAGE_FILE" | head -1)
+    LINE_PCT=$(echo "$LINE_RATE * 100" | bc -l 2>/dev/null | cut -d. -f1 || echo "0")
+    BRANCH_PCT=$(echo "$BRANCH_RATE * 100" | bc -l 2>/dev/null | cut -d. -f1 || echo "0")
+    echo "  Coverage: ${LINE_PCT}% line / ${BRANCH_PCT}% branch"
+    # Floor: do not allow coverage to drop below current level
+    if [ "$LINE_PCT" -lt 50 ] 2>/dev/null; then
+        echo "ERROR: Line coverage dropped below 50%. Write more tests."
+        exit 1
+    fi
+fi
+
+# 7. Testing register check
 TEST_FILES_CHANGED=$(git diff --cached --name-only | grep -c "Tests/" || true)
 REGISTER_CHANGED=$(git diff --cached --name-only | grep -c "testing-register.md" || true)
 if [ "$TEST_FILES_CHANGED" -gt 0 ] && [ "$REGISTER_CHANGED" -eq 0 ]; then
     echo "WARNING: Test files changed but .project/testing-register.md was not updated."
     echo "Please update the testing register to reflect test changes."
     exit 1
+fi
+
+# 8. README staleness check
+echo "Checking README freshness..."
+# Verify .NET version in README matches Directory.Build.props
+PROPS_TFM=$(grep -oP 'TargetFramework>\K[^<]+' "$REPO_ROOT/Directory.Build.props" 2>/dev/null || echo "")
+if [ -n "$PROPS_TFM" ]; then
+    README_TFM=$(grep -oP '\.NET[ -]\K[0-9]+' "$REPO_ROOT/README.md" | head -1 || echo "")
+    PROPS_VER=$(echo "$PROPS_TFM" | grep -oP '[0-9]+' || echo "")
+    if [ -n "$README_TFM" ] && [ -n "$PROPS_VER" ] && [ "$README_TFM" != "$PROPS_VER" ]; then
+        echo "ERROR: README says .NET $README_TFM but Directory.Build.props targets $PROPS_TFM. Update README."
+        exit 1
+    fi
 fi
 
 echo "Pre-commit checks passed."
