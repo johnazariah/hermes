@@ -5,6 +5,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Hermes.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Include="Domain.fs" />
     <Compile Include="Algebra.fs" />
     <Compile Include="Config.fs" />

@@ -24,6 +24,11 @@
     <Compile Include="EmailBodyTests.fs" />
     <Compile Include="MarkdownTests.fs" />
     <Compile Include="ReminderTests.fs" />
+    <Compile Include="ChatTests.fs" />
+    <Compile Include="StatsTests.fs" />
+    <Compile Include="DomainTests.fs" />
+    <Compile Include="ExtractionFieldTests.fs" />
+    <Compile Include="ServiceHostTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
