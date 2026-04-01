@@ -251,110 +251,113 @@ module EmailSync =
 
     // ─── Core sync logic ─────────────────────────────────────────────
 
+    // ─── Sync: per-attachment processing ─────────────────────────────
+
+    type private SyncAccum =
+        { Downloaded: int; Duplicates: int; Processed: int; Errors: string list }
+
+    let private syncAccumZero =
+        { Downloaded = 0; Duplicates = 0; Processed = 0; Errors = [] }
+
+    let private tryFetchBody (db: Algebra.Database) (provider: Algebra.EmailProvider) (logger: Algebra.Logger) (account: string) (msg: Domain.EmailMessage) =
+        task {
+            if msg.BodyText.IsSome then ()
+            else
+                try
+                    let! body = provider.getMessageBody msg.ProviderId
+                    match body with
+                    | Some raw ->
+                        let clean = stripHtml raw
+                        if not (String.IsNullOrWhiteSpace(clean)) then
+                            let! _ =
+                                db.execNonQuery
+                                    "UPDATE messages SET body_text = @body WHERE account = @acc AND gmail_id = @gid"
+                                    [ ("@body", boxVal clean); ("@acc", boxVal account); ("@gid", boxVal msg.ProviderId) ]
+                            ()
+                    | None -> ()
+                with ex ->
+                    logger.debug $"[{account}] Could not fetch body for {msg.ProviderId}: {ex.Message}"
+        }
+
+    let private processAttachment
+        (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
+        (account: string) (msg: Domain.EmailMessage) (unclassifiedDir: string) (now: DateTimeOffset)
+        (accum: SyncAccum) (att: Domain.EmailAttachment)
+        : Task<SyncAccum> =
+        task {
+            let sha = computeSha256 att.Content
+            let! isDup = hashExists db sha
+            if isDup then
+                return { accum with Duplicates = accum.Duplicates + 1 }
+            else
+                let name = buildStandardName msg.Date msg.Sender att.FileName
+                let savePath = Path.Combine(unclassifiedDir, name)
+                fs.createDirectory unclassifiedDir
+                do! fs.writeAllBytes savePath att.Content
+                let sidecar = buildSidecar account msg att name sha now
+                do! fs.writeAllText (savePath + ".meta.json") (serialiseSidecar sidecar)
+                do! recordDocument db account msg att name sha now
+                logger.info $"[{account}] Downloaded: {name}"
+                return { accum with Downloaded = accum.Downloaded + 1 }
+        }
+
+    let private processMessage
+        (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
+        (provider: Algebra.EmailProvider) (clock: Algebra.Clock) (config: Domain.HermesConfig)
+        (account: string) (unclassifiedDir: string)
+        (accum: SyncAccum) (msg: Domain.EmailMessage)
+        : Task<SyncAccum> =
+        task {
+            try
+                let! exists = messageExists db account msg.ProviderId
+                if exists then return accum
+                else
+                let now = clock.utcNow ()
+                do! recordMessage db account msg now
+                do! tryFetchBody db provider logger account msg
+                let! atts = provider.getAttachments msg.ProviderId
+                let valid = atts |> List.filter (fun a -> a.SizeBytes >= int64 config.MinAttachmentSize)
+                let! attAccum = Prelude.foldTask (processAttachment fs db logger account msg unclassifiedDir now) accum valid
+                return { attAccum with Processed = attAccum.Processed + 1 }
+            with ex ->
+                let err = $"[{account}] Error processing {msg.ProviderId}: {ex.Message}"
+                logger.error err
+                return { accum with Errors = err :: accum.Errors }
+        }
+
     /// Sync one account: list new messages, download attachments, dedup, record.
     let syncAccount
-        (fs: Algebra.FileSystem)
-        (db: Algebra.Database)
-        (logger: Algebra.Logger)
-        (clock: Algebra.Clock)
-        (provider: Algebra.EmailProvider)
-        (config: Domain.HermesConfig)
-        (account: string)
+        (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
+        (clock: Algebra.Clock) (provider: Algebra.EmailProvider)
+        (config: Domain.HermesConfig) (account: string)
         : Task<SyncResult> =
         task {
-            let now = clock.utcNow ()
-            let unclassifiedDir = Path.Combine(config.ArchiveDir, "unclassified")
-
-            let mutable downloaded = 0
-            let mutable duplicates = 0
-            let mutable processed = 0
-            let errors = ResizeArray<string>()
-
             try
                 let! lastSync = loadSyncState db account
                 let sinceStr = lastSync |> Option.map (fun d -> d.ToString("o")) |> Option.defaultValue "beginning"
                 logger.info $"[{account}] Syncing since {sinceStr}"
-
                 let! messages = provider.listNewMessages lastSync
                 logger.info $"[{account}] Found {messages.Length} messages"
 
-                for msg in messages do
-                    try
-                        let! alreadyProcessed = messageExists db account msg.ProviderId
+                let unclassifiedDir = Path.Combine(config.ArchiveDir, "unclassified")
+                let! accum =
+                    Prelude.foldTask
+                        (processMessage fs db logger provider clock config account unclassifiedDir)
+                        syncAccumZero
+                        messages
 
-                        if not alreadyProcessed then
-                            // Record message first (documents table has FK to messages)
-                            do! recordMessage db account msg now
-                            processed <- processed + 1
-
-                            // Fetch and store body text if not already present
-                            if msg.BodyText.IsNone then
-                                try
-                                    let! body = provider.getMessageBody msg.ProviderId
-                                    match body with
-                                    | Some rawBody ->
-                                        let cleanBody = stripHtml rawBody
-                                        if not (String.IsNullOrWhiteSpace(cleanBody)) then
-                                            let! _ =
-                                                db.execNonQuery
-                                                    "UPDATE messages SET body_text = @body WHERE account = @acc AND gmail_id = @gid"
-                                                    [ ("@body", boxVal cleanBody)
-                                                      ("@acc", boxVal account)
-                                                      ("@gid", boxVal msg.ProviderId) ]
-                                            logger.debug $"[{account}] Stored body text for {msg.ProviderId}"
-                                    | None -> ()
-                                with ex ->
-                                    logger.debug $"[{account}] Could not fetch body for {msg.ProviderId}: {ex.Message}"
-
-                            let! attachments = provider.getAttachments msg.ProviderId
-
-                            let validAttachments =
-                                attachments
-                                |> List.filter (fun a -> a.SizeBytes >= int64 config.MinAttachmentSize)
-
-                            if validAttachments.Length > 0 then
-                                for att in validAttachments do
-                                    let sha = computeSha256 att.Content
-                                    let! isDuplicate = hashExists db sha
-
-                                    if isDuplicate then
-                                        let shaPrefix = sha.[..7]
-                                        logger.debug $"[{account}] Skipping duplicate: {att.FileName} (SHA256: {shaPrefix}...)"
-                                        duplicates <- duplicates + 1
-                                    else
-                                        let standardName = buildStandardName msg.Date msg.Sender att.FileName
-                                        let savePath = Path.Combine(unclassifiedDir, standardName)
-
-                                        fs.createDirectory unclassifiedDir
-                                        do! fs.writeAllBytes savePath att.Content
-
-                                        let sidecar = buildSidecar account msg att standardName sha now
-                                        let sidecarJson = serialiseSidecar sidecar
-                                        let sidecarPath = savePath + ".meta.json"
-                                        do! fs.writeAllText sidecarPath sidecarJson
-
-                                        do! recordDocument db account msg att standardName sha now
-                                        downloaded <- downloaded + 1
-                                        logger.info $"[{account}] Downloaded: {standardName}"
-
-                    with ex ->
-                        let errMsg = $"[{account}] Error processing message {msg.ProviderId}: {ex.Message}"
-                        logger.error errMsg
-                        errors.Add(errMsg)
-
-                do! saveSyncState db account processed now
-
+                do! saveSyncState db account accum.Processed (clock.utcNow ())
+                return
+                    { Account = account
+                      MessagesProcessed = accum.Processed
+                      AttachmentsDownloaded = accum.Downloaded
+                      DuplicatesSkipped = accum.Duplicates
+                      Errors = accum.Errors |> List.rev }
             with ex ->
-                let errMsg = $"[{account}] Sync failed: {ex.Message}"
-                logger.error errMsg
-                errors.Add(errMsg)
-
-            return
-                { Account = account
-                  MessagesProcessed = processed
-                  AttachmentsDownloaded = downloaded
-                  DuplicatesSkipped = duplicates
-                  Errors = errors |> Seq.toList }
+                logger.error $"[{account}] Sync failed: {ex.Message}"
+                return
+                    { Account = account; MessagesProcessed = 0; AttachmentsDownloaded = 0
+                      DuplicatesSkipped = 0; Errors = [ ex.Message ] }
         }
 
     /// Dry run: list what would be downloaded without actually downloading.
