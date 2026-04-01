@@ -104,138 +104,96 @@ module Classifier =
     // ─── File classification & archival ──────────────────────────────
 
     /// Process a single file: classify, dedup, move, and record.
+    /// Resolve filename collision by appending timestamp.
+    let private resolveDestPath (fs: Algebra.FileSystem) (clock: Algebra.Clock) (destPath: string) (fileName: string) =
+        if not (fs.fileExists destPath) then destPath
+        else
+            let dir = Path.GetDirectoryName(destPath) |> Option.ofObj |> Option.defaultValue ""
+            let stem = Path.GetFileNameWithoutExtension(fileName) |> Option.ofObj |> Option.defaultValue ""
+            let ext = Path.GetExtension(fileName) |> Option.ofObj |> Option.defaultValue ""
+            let ts = clock.utcNow().ToString("yyyyMMddHHmmss")
+            Path.Combine(dir, $"{stem}_{ts}{ext}")
+
+    /// Build a relative path from archive root.
+    let private buildRelativePath (archiveDir: string) (fullPath: string) =
+        let archiveFull = Path.GetFullPath(archiveDir)
+        let fileFull = Path.GetFullPath(fullPath)
+        if fileFull.StartsWith(archiveFull, StringComparison.OrdinalIgnoreCase) then
+            fileFull.Substring(archiveFull.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+        else fullPath
+
+    /// Build SQL parameters for document insert from sidecar + classification result.
+    let private buildDocParams
+        (sidecar: Domain.SidecarMetadata option) (fileName: string) (relativePath: string)
+        (category: string) (fileSize: int64) (sha256: string) (filePath: string) (now: string)
+        : (string * obj) list =
+        let optVal v = v |> Option.map Database.boxVal |> Option.defaultValue (Database.boxVal DBNull.Value)
+        let sidecarStr f = sidecar |> Option.bind f |> optVal
+        let sourceType = sidecar |> Option.map (fun s -> s.SourceType) |> Option.defaultValue "manual_drop"
+        [ ("@source_type", Database.boxVal sourceType)
+          ("@gmail_id", Database.boxVal DBNull.Value)
+          ("@account", sidecar |> Option.map (fun s -> s.Account) |> Option.filter (String.IsNullOrEmpty >> not) |> optVal)
+          ("@sender", sidecarStr (fun s -> s.Sender))
+          ("@subject", sidecarStr (fun s -> s.Subject))
+          ("@email_date", sidecarStr (fun s -> s.EmailDate))
+          ("@original_name", Database.boxVal fileName)
+          ("@saved_path", Database.boxVal relativePath)
+          ("@category", Database.boxVal category)
+          ("@size_bytes", Database.boxVal fileSize)
+          ("@sha256", Database.boxVal sha256)
+          ("@source_path", Database.boxVal filePath)
+          ("@ingested_at", Database.boxVal now) ]
+
+    let private insertDocSql =
+        """INSERT INTO documents
+           (source_type, gmail_id, account, sender, subject, email_date,
+            original_name, saved_path, category, size_bytes, sha256, source_path, ingested_at)
+           VALUES
+           (@source_type, @gmail_id, @account, @sender, @subject, @email_date,
+            @original_name, @saved_path, @category, @size_bytes, @sha256, @source_path, @ingested_at)"""
+
+    /// Clean up sidecar .meta.json if it exists.
+    let private cleanupSidecar (fs: Algebra.FileSystem) (filePath: string) =
+        let metaPath = filePath + ".meta.json"
+        if fs.fileExists metaPath then fs.deleteFile metaPath
+
     let processFile
-        (fs: Algebra.FileSystem)
-        (db: Algebra.Database)
-        (logger: Algebra.Logger)
-        (clock: Algebra.Clock)
-        (rules: Algebra.RulesEngine)
-        (archiveDir: string)
-        (filePath: string)
+        (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
+        (clock: Algebra.Clock) (rules: Algebra.RulesEngine) (archiveDir: string) (filePath: string)
         =
         task {
             let fileName = Path.GetFileName(filePath) |> Option.ofObj |> Option.defaultValue ""
-
-            if not (fs.fileExists filePath) then
-                logger.debug $"File no longer exists, skipping: {filePath}"
-                return Ok()
+            if not (fs.fileExists filePath) then return Ok()
             else
-
             try
-                // Compute hash
                 let! sha256 = computeSha256 fs filePath
-
-                // Dedup check
                 let! isDup = isDuplicate db sha256
-
                 if isDup then
-                    logger.info $"Duplicate detected (sha256={sha256}), skipping: {fileName}"
+                    logger.info $"Duplicate detected (sha256={sha256.[..7]}), skipping: {fileName}"
                     fs.deleteFile filePath
-                    let metaPath = filePath + ".meta.json"
-
-                    if fs.fileExists metaPath then
-                        fs.deleteFile metaPath
-
+                    cleanupSidecar fs filePath
                     return Ok()
                 else
 
-                // Load sidecar
                 let! sidecar = tryLoadSidecar fs logger filePath
-
-                // Classify
                 let result = rules.classify sidecar fileName
-                let ruleDesc = Domain.ClassificationRule.describe result.MatchedRule
-                logger.info $"Classified '{fileName}' -> {result.Category} ({ruleDesc})"
+                logger.info $"Classified '{fileName}' -> {result.Category}"
 
-                // Move file to archive
                 let categoryDir = Path.Combine(archiveDir, result.Category)
                 fs.createDirectory categoryDir
                 let destPath = Path.Combine(categoryDir, fileName)
-
-                // Handle filename collision
-                let finalDest =
-                    if fs.fileExists destPath then
-                        let stem = Path.GetFileNameWithoutExtension(fileName) |> Option.ofObj |> Option.defaultValue ""
-                        let ext = Path.GetExtension(fileName) |> Option.ofObj |> Option.defaultValue ""
-                        let timestamp = clock.utcNow().ToString("yyyyMMddHHmmss")
-                        Path.Combine(categoryDir, $"{stem}_{timestamp}{ext}")
-                    else
-                        destPath
-
+                let finalDest = resolveDestPath fs clock destPath fileName
                 fs.moveFile filePath finalDest
 
-                // Get file size
-                let fileSize = fs.getFileSize finalDest
-
-                // Determine source type
-                let sourceType =
-                    sidecar
-                    |> Option.map (fun s -> s.SourceType)
-                    |> Option.defaultValue "manual_drop"
-
-                // Relative path for storage
-                let relativePath =
-                    let archiveFull = Path.GetFullPath(archiveDir)
-                    let fileFull = Path.GetFullPath(finalDest)
-
-                    if fileFull.StartsWith(archiveFull, StringComparison.OrdinalIgnoreCase) then
-                        fileFull.Substring(archiveFull.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                    else
-                        finalDest
-
+                let relativePath = buildRelativePath archiveDir finalDest
                 let now = clock.utcNow().ToString("o")
-
-                // Insert document record
-                let! _ =
-                    db.execNonQuery
-                        """INSERT INTO documents
-                           (source_type, gmail_id, account, sender, subject, email_date,
-                            original_name, saved_path, category, size_bytes, sha256, source_path, ingested_at)
-                           VALUES
-                           (@source_type, @gmail_id, @account, @sender, @subject, @email_date,
-                            @original_name, @saved_path, @category, @size_bytes, @sha256, @source_path, @ingested_at)"""
-                        [ ("@source_type", Database.boxVal sourceType)
-                          ("@gmail_id", Database.boxVal DBNull.Value)
-                          ("@account",
-                           sidecar
-                           |> Option.map (fun s -> s.Account)
-                           |> Option.bind (fun a -> if String.IsNullOrEmpty(a) then None else Some a)
-                           |> Option.map Database.boxVal
-                           |> Option.defaultValue (Database.boxVal DBNull.Value))
-                          ("@sender",
-                           sidecar
-                           |> Option.bind (fun s -> s.Sender)
-                           |> Option.map Database.boxVal
-                           |> Option.defaultValue (Database.boxVal DBNull.Value))
-                          ("@subject",
-                           sidecar
-                           |> Option.bind (fun s -> s.Subject)
-                           |> Option.map Database.boxVal
-                           |> Option.defaultValue (Database.boxVal DBNull.Value))
-                          ("@email_date",
-                           sidecar
-                           |> Option.bind (fun s -> s.EmailDate)
-                           |> Option.map Database.boxVal
-                           |> Option.defaultValue (Database.boxVal DBNull.Value))
-                          ("@original_name", Database.boxVal (fileName : string))
-                          ("@saved_path", Database.boxVal relativePath)
-                          ("@category", Database.boxVal result.Category)
-                          ("@size_bytes", Database.boxVal fileSize)
-                          ("@sha256", Database.boxVal sha256)
-                          ("@source_path", Database.boxVal filePath)
-                          ("@ingested_at", Database.boxVal now) ]
-
-                // Cleanup sidecar
-                let metaPath = filePath + ".meta.json"
-
-                if fs.fileExists metaPath then
-                    fs.deleteFile metaPath
-
+                let ps = buildDocParams sidecar fileName relativePath result.Category (fs.getFileSize finalDest) sha256 filePath now
+                let! _ = db.execNonQuery insertDocSql ps
+                cleanupSidecar fs filePath
                 return Ok()
             with ex ->
-                let msg = $"Failed to process {fileName}: {ex.Message}"
-                logger.error msg
-                return Error msg
+                logger.error $"Failed to process {fileName}: {ex.Message}"
+                return Error ex.Message
         }
 
     // ─── Reconcile ───────────────────────────────────────────────────
