@@ -2,6 +2,12 @@
   <PropertyGroup>
     <IsPackable>false</IsPackable>
     <GenerateProgramFile>false</GenerateProgramFile>
+    <!-- Coverage thresholds — enforced by CI -->
+    <CollectCoverage>true</CollectCoverage>
+    <CoverletOutputFormat>cobertura</CoverletOutputFormat>
+    <ThresholdType>line,branch</ThresholdType>
+    <!-- Ratchet toward 85% — raise these as coverage improves -->
+    <Threshold>55</Threshold>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="TestHelpers.fs" />

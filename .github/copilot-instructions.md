@@ -116,6 +116,8 @@ dotnet publish -c Release -r osx-arm64 --self-contained  # publish macOS
 - **Test naming**: `Module_Function_Condition_ExpectedResult`
 - **Test categories**: `[<Trait("Category", "Unit")>]`, `Integration`, `Property`
 - **Update the testing register** (`.project/testing-register.md`) when adding/modifying tests
+- **Coverage target**: 85% line coverage, 85% branch coverage. New code must maintain or improve coverage. Run `dotnet test --collect:"XPlat Code Coverage"` to check.
+- **Coverage is mandatory**: Do not mark a task as complete if it drops coverage below the current level. Write tests for every new function.
 
 ## Key Files
 
@@ -147,6 +149,30 @@ When writing, reviewing, or refactoring code:
 - **F# code** (`Hermes.Core`, `Hermes.Tests`): delegate to `@fsharp-dev`. Do not write F# without it.
 - **C# code** (`Hermes.App`): delegate to `@csharp-dev`. Do not write C# without it.
 - The language agents enforce idiom standards, catch anti-patterns, and produce higher quality code than unguided generation.
+
+### Silver thread principle (mandatory)
+
+Every feature must be implemented as a **silver thread** — an unbroken chain from UI to backend and back:
+
+```
+User action (button click, query, trigger)
+  → Processing (F# Core logic, DB queries, API calls)
+    → State change (database, config, in-memory)
+      → Presentation (ViewModel property update)
+        → UI response (user sees the result)
+```
+
+**Before marking any task complete, trace the full thread:**
+1. **Input**: What triggers this feature? (file drop, button click, sync cycle, MCP call)
+2. **Processing**: What backend code runs? (extraction, classification, DB update)
+3. **Presentation**: What data flows to the UI? (ViewModel property, collection update)
+4. **Output**: What does the user see? (document in list, activity log entry, badge update, chat response)
+
+**If ANY link in this chain is broken, the task is NOT done.** Common failures:
+- XAML exists but code-behind not wired (dead buttons)
+- Backend processes data but UI never reads it (invisible feature)
+- Tests pass but feature doesn't work end-to-end (integration gap)
+- Config saved but never reloaded (settings don't take effect)
 
 ### UI integration: definition of done
 

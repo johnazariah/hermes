@@ -1,8 +1,11 @@
 # Hermes
 
 [![CI](https://github.com/johnazariah/hermes/actions/workflows/ci.yml/badge.svg)](https://github.com/johnazariah/hermes/actions/workflows/ci.yml)
+[![.NET 9](https://img.shields.io/badge/.NET-9.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
+[![Tests](https://img.shields.io/badge/tests-258_passing-brightgreen)](#testing)
+[![Coverage](https://img.shields.io/badge/coverage-55%25_line-yellow)](#testing)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![.NET 10](https://img.shields.io/badge/.NET-10.0-purple.svg)](https://dotnet.microsoft.com/)
+[![Lines of Code](https://img.shields.io/badge/lines-~12k-blue)](#architecture)
 
 **Local-first document intelligence service for macOS and Windows.**
 
@@ -22,7 +25,7 @@ Install it once, forget it's there, and never lose a document again.
 ## Architecture
 
 ```
-Hermes Process (.NET 10 / F#)
+Hermes Process (.NET 9 / F#)
 ├── Producers: Email Sync, Folder Watchers → unclassified/
 ├── Pipeline: Classifier → Extractor → Embedder (Channel<T>)
 ├── Store: db.sqlite (tables + FTS5 + sqlite-vec)
@@ -34,11 +37,11 @@ Hermes Process (.NET 10 / F#)
 
 | Component | Choice |
 |-----------|--------|
-| Runtime | .NET 10, self-contained |
+| Runtime | .NET 9, self-contained |
 | Core Logic | F# |
 | UI | Avalonia (C#) |
 | Database | SQLite + FTS5 + sqlite-vec |
-| AI | Ollama (local GPU) / ONNX Runtime / Azure Document Intelligence |
+| AI | Ollama (local GPU) / Azure OpenAI / ONNX Runtime |
 
 ## Development
 
@@ -49,22 +52,37 @@ dotnet run --project src/Hermes.Cli    # run CLI
 dotnet run --project src/Hermes.App    # run app
 ```
 
+## Testing
+
+```bash
+dotnet test                                           # run all tests
+dotnet test --collect:"XPlat Code Coverage"             # with coverage
+```
+
+| Metric | Current | Target |
+|--------|---------|--------|
+| Tests | 258 | Growing |
+| Line coverage | 55% | **85%** |
+| Branch coverage | 22% | **85%** |
+
+Coverage target is enforced in CI. New code must maintain or improve coverage.
+
 ## Project Status
 
-See [.project/STATUS.md](.project/STATUS.md) for current phase status and [.project/design/](.project/design/) for the full design.
+All 12 core phases complete. Active development on platform evolution.
 
-| Phase | Name | Status |
-|-------|------|--------|
-| 0 | Project Skeleton | Not Started |
-| 1 | Email Sync | Not Started |
-| 2 | Classification | Not Started |
-| 3 | Text Extraction | Not Started |
-| 4 | Full-Text Search | Not Started |
-| 5 | Embeddings | Not Started |
-| 6 | MCP Server | Not Started |
-| 7 | Background Service | Not Started |
-| 8 | UI & Installer | Not Started |
-| 9 | Folder Watching | Not Started |
+See [.project/STATUS.md](.project/STATUS.md) for full details.
+
+| Phase | Status |
+|-------|--------|
+| 0–11 | ✅ All core phases complete |
+| Backfill + Reminders | ✅ Done |
+| Azure OpenAI Chat | ✅ Done |
+| VS Code UI Redesign | 📐 Designing |
+| Document Extraction (PDF/Excel/Word/CSV) | 📐 Designing |
+| Smart Classification (3-tier) | 📐 Designing |
+| Document Feed + Consumer Model | 📐 Designing |
+| Osprey Integration | 📐 Designing |
 
 ## Documentation
 
