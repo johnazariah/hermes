@@ -29,6 +29,7 @@
     <Compile Include="DomainTests.fs" />
     <Compile Include="ExtractionFieldTests.fs" />
     <Compile Include="PdfStructureTests.fs" />
+    <Compile Include="DocumentFeedTests.fs" />
     <Compile Include="ServiceHostTests.fs" />
     <Compile Include="SemanticSearchTests.fs" />
     <Compile Include="Program.fs" />

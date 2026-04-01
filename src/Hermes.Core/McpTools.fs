@@ -411,3 +411,51 @@ module McpTools =
                     r["error"] <- JsonValue.Create($"Unknown action: {other}. Use 'complete', 'snooze', or 'dismiss'.")
                     return r :> JsonNode
         }
+
+    // ─── Feed tools ──────────────────────────────────────────────────
+
+    let listDocumentsFeed (db: Algebra.Database) (args: JsonNode) : Task<JsonNode> =
+        task {
+            let sinceId = tryGetInt64 args "since_id" |> Option.defaultValue 0L
+            let category = tryGetString args "category"
+            let limit = tryGetInt args "limit" 100
+            let! docs = DocumentFeed.listDocuments db sinceId category limit
+            let arr = JsonArray()
+            for doc in docs do
+                arr.Add(DocumentFeed.feedDocToJson doc)
+            return arr :> JsonNode
+        }
+
+    let getFeedStats (db: Algebra.Database) (args: JsonNode) : Task<JsonNode> =
+        task {
+            let! stats = DocumentFeed.getFeedStats db
+            return DocumentFeed.feedStatsToJson stats :> JsonNode
+        }
+
+    let getDocumentContent
+        (db: Algebra.Database) (fs: Algebra.FileSystem) (archiveDir: string)
+        (args: JsonNode) : Task<JsonNode> =
+        task {
+            match tryGetInt64 args "document_id" with
+            | None ->
+                let err = JsonObject()
+                err["error"] <- JsonValue.Create("document_id is required")
+                return err :> JsonNode
+            | Some docId ->
+                let formatStr = tryGetString args "format" |> Option.defaultValue "markdown"
+                let format =
+                    DocumentFeed.parseFormat formatStr
+                    |> Option.defaultValue DocumentFeed.Markdown
+                let! result = DocumentFeed.getDocumentContent db fs archiveDir docId format
+                match result with
+                | Ok content ->
+                    let obj = JsonObject()
+                    obj["document_id"] <- JsonValue.Create(docId)
+                    obj["format"] <- JsonValue.Create(formatStr)
+                    obj["content"] <- JsonValue.Create(content)
+                    return obj :> JsonNode
+                | Error e ->
+                    let err = JsonObject()
+                    err["error"] <- JsonValue.Create(e)
+                    return err :> JsonNode
+        }
