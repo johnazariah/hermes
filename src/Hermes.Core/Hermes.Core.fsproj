@@ -24,6 +24,7 @@
     <Compile Include="EmailSync.fs" />
     <Compile Include="GmailProvider.fs" />
     <Compile Include="Extraction.fs" />
+    <Compile Include="PdfStructure.fs" />
     <Compile Include="Search.fs" />
     <Compile Include="Stats.fs" />
     <Compile Include="Reminders.fs" />
