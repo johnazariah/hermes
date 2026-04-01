@@ -31,6 +31,7 @@
     <Compile Include="DocumentFeed.fs" />
     <Compile Include="DocumentManagement.fs" />
     <Compile Include="Classifier.fs" />
+    <Compile Include="DocumentBrowser.fs" />
     <Compile Include="Search.fs" />
     <Compile Include="Stats.fs" />
     <Compile Include="Reminders.fs" />
