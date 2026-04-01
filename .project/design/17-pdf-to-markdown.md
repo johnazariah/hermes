@@ -1,22 +1,33 @@
-# Hermes — Structured PDF-to-Markdown Extraction
+# Hermes — Structured Document-to-Markdown Extraction
 
-> Design doc for converting machine-generated PDFs into structured markdown that downstream consumers (Osprey, AI agents) can process without needing PDF libraries.  
+> Design doc for converting documents (PDF, Excel, Word, CSV) into structured markdown that downstream consumers (Osprey, AI agents) can process without needing format-specific libraries.  
 > Created: 2026-04-01
 
 ---
 
 ## 1. The Goal
 
-**Hermes is the PDF boundary.** No downstream consumer should ever need a PDF library. Hermes ingests PDFs and serves structured markdown via MCP. Consumers get clean text with tables, headings, key-value pairs, and metadata.
+**Hermes is the format boundary.** No downstream consumer should ever need a PDF, Excel, or Word library. Hermes ingests documents in any supported format and serves structured markdown via MCP. Consumers get clean text with tables, headings, key-value pairs, and metadata.
 
 This transforms:
 ```
-Consumer code: open PDF → parse bytes → extract text → find tables → regex → data
+Consumer code: open PDF/XLSX/DOCX → parse bytes → extract text → find tables → regex → data
 ```
 Into:
 ```
 Consumer code: call hermes_get_document_content(id, "markdown") → parse markdown → data
 ```
+
+### Supported formats
+
+| Format | Extension | Library | Extraction strategy |
+|--------|-----------|---------|--------------------|
+| **PDF** (machine-generated) | `.pdf` | PdfPig (already in project) | Positional text → tables, headings, KV pairs |
+| **PDF** (scanned) | `.pdf` | Azure Doc Intelligence / Ollama llava | OCR → structured text |
+| **Excel** | `.xlsx`, `.xls` | ClosedXML | Each sheet → markdown table, sheet names → headings |
+| **Word** | `.docx` | Open XML SDK | Paragraphs, tables, headings, lists → markdown |
+| **CSV** | `.csv` | Built-in `System.IO` | Raw content preserved + markdown table rendering |
+| **Plain text** | `.txt`, `.md` | Built-in | Pass-through (already markdown or plain text) |
 
 ---
 
@@ -401,12 +412,293 @@ Once this is in place:
 | **Osprey tax** | Needs pdfplumber (Python) to read payslips, rental statements | Gets markdown tables via MCP — pure text parsing |
 | **Chat / AI** | Gets flat text dump, can't see table structure | Gets structured markdown — LLM can read tables |
 | **Document browser (UI)** | Shows raw text blob | Shows formatted preview with headings and tables |
-| **Future consumers** | Each needs its own PDF extraction | All get structured markdown for free |
+| **Future consumers** | Each needs its own PDF/Excel/Word library | All get structured markdown for free |
 | **FTS5 search** | Searches flat text — table cells are concatenated gibberish | Searches markdown — table cells are meaningful |
 
 ---
 
-## 13. Open Questions
+## 13. Excel Extraction (.xlsx)
+
+### Library: ClosedXML
+
+ClosedXML is MIT-licensed, pure .NET, no COM/Office dependency. Already used by Osprey for Excel export — same library for reading.
+
+**NuGet**: `ClosedXML` (add to `Hermes.Core.fsproj`)
+
+### Extraction algorithm
+
+```fsharp
+let extractExcel (bytes: byte[]) : DocumentContent =
+    use stream = new MemoryStream(bytes)
+    use workbook = new XLWorkbook(stream)
+    
+    let pages =
+        workbook.Worksheets
+        |> Seq.mapi (fun i sheet ->
+            let headerRow = 
+                sheet.Row(1).CellsUsed() 
+                |> Seq.map (fun c -> c.GetString()) 
+                |> Seq.toList
+            
+            let dataRows =
+                sheet.RowsUsed()
+                |> Seq.skip 1  // skip header
+                |> Seq.map (fun row ->
+                    headerRow 
+                    |> List.mapi (fun colIdx _ ->
+                        row.Cell(colIdx + 1).GetString())
+                )
+                |> Seq.toList
+            
+            { PageNumber = i + 1
+              Blocks = [
+                  Heading (2, sheet.Name)
+                  TableBlock { Headers = headerRow; Rows = dataRows }
+              ] })
+        |> Seq.toList
+    
+    { Pages = pages; Confidence = 1.0 }  // Excel structure is unambiguous
+```
+
+### Output format
+
+```markdown
+---
+source: email_attachment
+extraction_method: closedxml
+sheets: 3
+---
+
+## Transactions
+
+| Date | Description | Debit | Credit | Balance |
+|------|-------------|-------|--------|--------|
+| 01/10/2024 | Opening Balance | | | $5,000.00 |
+| 02/10/2024 | Salary Deposit | | $2,500.00 | $7,500.00 |
+
+## Summary
+
+| Month | Income | Expenses | Net |
+|-------|--------|----------|-----|
+| Oct 2024 | $2,500.00 | $1,150.00 | $1,350.00 |
+
+## Pivot
+
+| Category | Total |
+|----------|-------|
+| Salary | $30,000.00 |
+| Utilities | $1,800.00 |
+```
+
+### Edge cases
+
+| Case | Handling |
+|------|----------|
+| Empty sheets | Skip — don’t generate a heading for empty sheets |
+| Merged cells | Unmerge and repeat value into each cell |
+| Formulas | Read calculated value (`GetString()`), not formula |
+| Multiple header rows | Treat first non-empty row as header |
+| Sheets with > 10,000 rows | Cap at 10,000 rows, log warning |
+| Named ranges | Ignore — extract by sheet position |
+| Date cells | Format as ISO 8601 (`2024-10-01`) |
+| Currency cells | Preserve formatting (`$1,234.56`) |
+
+---
+
+## 14. Word Extraction (.docx)
+
+### Library: Open XML SDK
+
+Microsoft’s official library for reading/writing Office Open XML. Free, MIT-licensed, no COM dependency.
+
+**NuGet**: `DocumentFormat.OpenXml` (add to `Hermes.Core.fsproj`)
+
+### Extraction algorithm
+
+Word documents have explicit structure — headings, paragraphs, tables, lists. This is **easier** than PDF because the structure is in the XML, not inferred from geometry.
+
+```fsharp
+let extractWord (bytes: byte[]) : DocumentContent =
+    use stream = new MemoryStream(bytes)
+    use doc = WordprocessingDocument.Open(stream, false)
+    let body = doc.MainDocumentPart.Document.Body
+    
+    let blocks =
+        body.Elements()
+        |> Seq.collect (fun element ->
+            match element with
+            | :? Paragraph as para ->
+                let style = para.ParagraphProperties?.ParagraphStyleId?.Val?.Value
+                let text = para.InnerText.Trim()
+                if String.IsNullOrEmpty(text) then Seq.empty
+                else
+                    match style with
+                    | "Heading1" -> seq { Heading (1, text) }
+                    | "Heading2" -> seq { Heading (2, text) }
+                    | "Heading3" -> seq { Heading (3, text) }
+                    | "ListParagraph" -> seq { Paragraph ($"- {text}") }
+                    | _ -> seq { Paragraph text }
+            | :? Table as tbl ->
+                let rows = 
+                    tbl.Elements<TableRow>()
+                    |> Seq.map (fun row ->
+                        row.Elements<TableCell>()
+                        |> Seq.map (fun cell -> cell.InnerText.Trim())
+                        |> Seq.toList)
+                    |> Seq.toList
+                match rows with
+                | headers :: data -> seq { TableBlock { Headers = headers; Rows = data } }
+                | _ -> Seq.empty
+            | _ -> Seq.empty)
+        |> Seq.toList
+    
+    { Pages = [{ PageNumber = 1; Blocks = blocks }]; Confidence = 1.0 }
+```
+
+### Output format
+
+```markdown
+---
+source: email_attachment
+extraction_method: openxml-word
+---
+
+# Employment Contract
+
+## Parties
+
+This agreement is between Microsoft Pty Ltd (ABN 29 002 589 460) and John Azariah.
+
+## Remuneration
+
+| Component | Annual Amount |
+|-----------|---------------|
+| Base Salary | $264,166.08 |
+| Superannuation | $27,500.00 |
+| Total Package | $291,666.08 |
+
+## Leave Entitlements
+
+- Annual leave: 20 days
+- Personal leave: 10 days
+- Long service leave: per applicable legislation
+```
+
+### Edge cases
+
+| Case | Handling |
+|------|----------|
+| Nested tables | Flatten — inner table becomes rows in outer table |
+| Images | Skip — note `[Image omitted]` in markdown |
+| Headers/footers | Extract separately as metadata, not body content |
+| Track changes | Read final (accepted) text only |
+| Password-protected | Fail gracefully with error message |
+| `.doc` (legacy binary) | Not supported in v1 — only `.docx` |
+
+---
+
+## 15. CSV Extraction
+
+### No library needed
+
+CSV parsing is built into .NET. Two outputs:
+
+**Raw content** (for `format="raw"` MCP requests): Return the file content as-is. Osprey’s CSV parsers need original columns.
+
+**Markdown table** (for `format="markdown"` and FTS5 indexing):
+
+```fsharp
+let extractCsv (text: string) : DocumentContent =
+    let lines = text.Split('\n') |> Array.map (fun l -> l.Trim()) |> Array.filter (fun l -> l.Length > 0)
+    match lines with
+    | [||] -> { Pages = []; Confidence = 0.0 }
+    | _ ->
+        let headers = parseCsvLine lines.[0]
+        let rows = lines.[1..] |> Array.map parseCsvLine |> Array.toList
+        { Pages = [{ PageNumber = 1; Blocks = [
+            TableBlock { Headers = headers; Rows = rows }
+          ] }]
+          Confidence = 1.0 }
+```
+
+### Output
+
+```markdown
+---
+extraction_method: csv
+rows: 156
+columns: 5
+---
+
+| Date | Narrative | Debit | Credit | Balance |
+|------|-----------|-------|--------|--------|
+| 01/10/2024 | Opening Balance | | | 5000.00 |
+| 02/10/2024 | Salary Deposit | | 2500.00 | 7500.00 |
+```
+
+### CSV dialect detection
+
+| Signal | Dialect |
+|--------|--------|
+| First line contains `Narrative` + `Balance` | Westpac CSV |
+| First line contains `Amount` + `Description` + `Balance` | CBA CSV |
+| Comma-separated, first row has text, rest has numbers | Generic CSV |
+| Semicolon-separated | European CSV (auto-detect) |
+| Tab-separated | TSV (auto-detect) |
+
+---
+
+## 16. Format Detection + Dispatch
+
+The extraction pipeline dispatches by file extension:
+
+```fsharp
+let extractToMarkdown (fs: FileSystem) (filePath: string) (pdfBytes: byte[] option) : Task<Result<DocumentContent, string>> =
+    task {
+        let ext = Path.GetExtension(filePath).ToLowerInvariant()
+        match ext with
+        | ".pdf" -> return extractPdfStructured (Option.get pdfBytes)
+        | ".xlsx" | ".xls" -> 
+            let! bytes = fs.readAllBytes filePath
+            return Ok (extractExcel bytes)
+        | ".docx" ->
+            let! bytes = fs.readAllBytes filePath
+            return Ok (extractWord bytes)
+        | ".csv" ->
+            let! text = fs.readAllText filePath
+            return Ok (extractCsv text)
+        | ".txt" | ".md" ->
+            let! text = fs.readAllText filePath
+            return Ok { Pages = [{ PageNumber = 1; Blocks = [Paragraph text] }]; Confidence = 1.0 }
+        | _ -> return Error $"Unsupported format: {ext}"
+    }
+```
+
+### NuGet additions to `Hermes.Core.fsproj`
+
+```xml
+<PackageReference Include="ClosedXML" Version="0.104.1" />
+<PackageReference Include="DocumentFormat.OpenXml" Version="3.2.0" />
+```
+
+---
+
+## 17. Implementation Phases (updated)
+
+Phases P1–P6 remain as specified (PDF structural extraction). Additional phases:
+
+| Phase | What | Proof |
+|-------|------|-------|
+| **P9** | Excel extraction: ClosedXML → markdown tables per sheet | Drop a `.xlsx` bank statement → extracted markdown has correct tables → searchable in chat |
+| **P10** | Word extraction: Open XML SDK → markdown with headings/tables/lists | Drop a `.docx` contract → extracted markdown preserves structure → visible in document browser |
+| **P11** | CSV extraction: raw content + markdown table rendering | Drop a `.csv` bank statement → markdown table in preview → `format="raw"` returns original CSV via MCP |
+| **P12** | Format dispatch: extension-based routing in Extraction.fs | All formats handled automatically by pipeline → no manual intervention |
+
+Each phase follows silver-thread: backend extraction + stored in DB + visible in Documents tab preview + searchable in chat + accessible via MCP.
+
+---
+
+## 18. Open Questions
 
 | # | Question | Leaning |
 |---|----------|---------|
