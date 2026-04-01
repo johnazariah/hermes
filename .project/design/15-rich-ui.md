@@ -23,7 +23,7 @@ Inspired by VS Code (Activity Bar + Side Bar + Editor), Outlook (folders + list 
 │  ⚡ Hermes — Document Intelligence                    ─ □ × │
 ├────────┬──────────────────┬─────────────────────────────────┤
 │        │                  │                                  │
-│ STATUS │   NAVIGATOR      │      CONTENT PANE                │
+│ ACTIV  │   NAVIGATOR      │      CONTENT PANE                │
 │  BAR   │                  │                                  │
 │ (left) │  (middle)        │  (right, adaptive)               │
 │        │                  │                                  │
@@ -35,13 +35,66 @@ Inspired by VS Code (Activity Bar + Side Bar + Editor), Outlook (folders + list 
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### 2.1 — Status Bar (left column, narrow)
+**Wide layout (≥ 1200px)**: Chat gets a permanent right-side pane, always visible alongside whatever else you're browsing. You can browse documents, threads, and reminders while maintaining a conversation.
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│  ⚡ Hermes — Document Intelligence                                ─ □ × │
+├────────┬──────────────────┬─────────────────────────┬───────────────────┤
+│        │                  │                          │                   │
+│ ACTIV  │   NAVIGATOR      │    CONTENT PANE          │   CHAT PANE       │
+│  BAR   │                  │                          │                   │
+│        │  📁 Categories   │  📄 Allianz-Policy.pdf   │  You: car ins..  │
+│  💬 ←  │    invoices(239) │  Category: insurance     │                   │
+│  📋    │    bank-st.(104) │  Amount: $1,234.00       │  Hermes:          │
+│  📁 ■  │    ...           │                          │  Found 2 docs...  │
+│  📧    │                  │  ## Policy Details        │  📄 Allianz...   │
+│  ⏰    │  ── invoices ─── │  - Policy: AZ-2025-1234  │  📄 NRMA...      │
+│  ⚡    │  📄 Allianz...   │  - Vehicle: Camry        │                   │
+│        │  📄 AGL...       │                          │  AI: You have     │
+│  ──── │  📄 Telstra...   │  | Coverage | Limit |    │  two car insur... │
+│  ● Oll │                  │  |----------|-------|    │                   │
+│  ● DB  │                  │  | 3rd Pty  | $20M  |   │ ┌───────────┬──┐ │
+│  ● MCP │                  │                          │ │Ask Hermes │→ │ │
+│  ⚙    │                  │  [Open] [Reclassify]     │ └───────────┴──┘ │
+├────────┴──────────────────┴─────────────────────────┴───────────────────┤
+│  ●● Ready · 2,163 docs · 3 action items · Backfill 74%                 │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Responsive behaviour
+
+| Window width | Layout | Chat behaviour |
+|-------------|--------|----------------|
+| **< 1200px** | 3 columns: Activity Bar + Navigator + Content | Chat is a navigator mode (💬 click shows chat in content pane) |
+| **≥ 1200px** | 4 columns: Activity Bar + Navigator + Content + Chat | Chat pane always visible on right. 💬 button toggles chat pane visibility. |
+
+**Implementation**: Avalonia `SizeChanged` event on the window. When `Width >= 1200`:
+- Show chat pane (4th column, `GridSplitter` between content and chat)
+- Remove Chat from navigator modes (content pane never shows chat — it's always in the dedicated pane)
+- Chat pane width: 300px default, resizable via `GridSplitter`, min 250px
+
+When the user resizes below 1200px:
+- Hide chat pane column
+- Re-add Chat to navigator modes
+- Chat conversation is preserved — same `ObservableCollection<ChatMessage>` backing both
+
+**Chat ↔ Content pane interaction** (wide mode):
+- Click a document card in chat results → content pane navigates to that document (chat stays visible)
+- Browse a document in content pane → ask "what is this document about?" in chat → AI answers with context from the viewed document
+- Click "Show in Chat" on a document detail → inserts document reference into chat input
+
+The 💬 icon in the activity bar:
+- **Wide mode**: toggles chat pane visibility (like VS Code's panel toggle)
+- **Narrow mode**: switches navigator to chat (existing behaviour)
+
+### 2.1 — Activity Bar (left column, narrow)
 
 The existing left panel shrinks to a **VS Code Activity Bar** — icon buttons that switch the navigator's active section, plus at-a-glance health indicators.
 
 ```
 ┌────────┐
-│  💬    │  ← Chat (default)
+│  💬    │  ← Chat (narrow: navigator mode / wide: toggle chat pane)
 │  📋    │  ← Action Items (badge: 🔴1 🟡2)
 │  📁    │  ← Documents
 │  📧    │  ← Email Threads
@@ -64,13 +117,17 @@ The existing left panel shrinks to a **VS Code Activity Bar** — icon buttons t
 - Active icon is highlighted (accent colour left border, like VS Code)
 - Service health dots are always visible at the bottom
 - Badge overlays on Action Items icon show overdue/upcoming counts
+- 💬 button: in narrow mode switches navigator to chat; in wide mode toggles the dedicated chat pane
 - Tooltip on each icon shows full label
 
 ### 2.2 — Navigator (middle column, resizable)
 
 Shows a context-specific list/tree based on which activity bar icon is selected. `GridSplitter` between navigator and content pane.
 
-**When 💬 Chat is active:**
+**When 💬 Chat is active (narrow mode only):**
+
+In narrow mode (< 1200px), chat is a navigator mode. The navigator shows search/suggestions and the content pane shows the conversation.
+
 ```
 ┌──────────────────┐
 │ 🔍 [search...]   │
@@ -518,16 +575,16 @@ public record TimelineEntry(string Type, string Label, long? DocumentId,
 
 ## 7. Implementation Phases — Silver Thread
 
-### Phase U1: Three-Column Shell Layout
+### Phase U1: Three-Column Shell Layout + Responsive Chat Pane
 
-**Thread**: Activity bar click → navigator panel switches → empty content pane shows placeholder.
+**Thread**: Activity bar click → navigator panel switches → empty content pane shows placeholder. Wide window → chat pane appears.
 
 | Layer | What |
 |-------|------|
-| **ShellWindow.axaml** | 3-column Grid: activity bar (60px fixed), navigator (240px + GridSplitter), content pane (fill). Activity bar with 6 icon buttons + 3 service dots + settings button. |
-| **ShellWindow.axaml.cs** | Icon button click → sets `ActiveMode` → navigator panel visibility toggles. Content pane shows empty state per mode. |
-| **ShellViewModel.cs** | `NavigatorMode` enum, `ActiveMode` property with change notification. |
-| **PROOF** | Launch app → see 3 columns → click each activity bar icon → navigator changes, content shows "Select an item" placeholder → service dots show correct status. |
+| **ShellWindow.axaml** | Responsive Grid: activity bar (60px fixed), navigator (240px + GridSplitter), content pane (fill), chat pane (300px, conditional). `SizeChanged` handler toggles chat pane column visibility at 1200px threshold. |
+| **ShellWindow.axaml.cs** | Icon button click → sets `ActiveMode` → navigator panel visibility toggles. Content pane shows empty state per mode. Window resize → show/hide chat pane column + toggle 💬 button behaviour. |
+| **ShellViewModel.cs** | `NavigatorMode` enum, `ActiveMode` property. `IsChatPaneVisible` property (driven by window width). Chat conversation `ObservableCollection<ChatMessage>` shared between chat-as-navigator (narrow) and chat pane (wide). |
+| **PROOF** | Launch app → see 3 columns → click each activity bar icon → navigator changes → resize window wider than 1200px → chat pane appears on the right → type a query → results show in chat pane → click document card → content pane shows document (chat stays visible) → resize narrow → chat pane hides, 💬 icon becomes navigator mode → click 💬 → chat shows in content pane. |
 
 ### Phase U2: Documents Navigator + Document Detail
 
@@ -577,16 +634,17 @@ public record TimelineEntry(string Type, string Label, long? DocumentId,
 | **Content pane** | Timeline: list of documents/emails for that day. Activity: event detail. Click document in either → navigates to document detail. |
 | **PROOF** | Click ⏰ → see "Today (3)" with documents → click ⚡ → see processing log → trigger sync → new events appear → click a classification event → navigates to that document. |
 
-### Phase U6: Chat Integration + Search
+### Phase U6: Chat ↔ Content Pane Integration
 
-**Thread**: Click Chat → search + AI conversation → click document card in results → navigate to document detail.
+**Thread**: Chat results link to content pane. In wide mode, browsing + chatting happen simultaneously.
 
 | Layer | What |
 |-------|------|
-| **ShellViewModel.cs** | Chat moved from separate tab to content pane under Chat mode. Search results return NavigationItems. |
-| **Content pane / Chat renderer** | Existing chat UI, but document cards are clickable → `NavigateTo(DocumentItem)`. |
+| **ShellViewModel.cs** | Chat moved from separate tab to either content pane (narrow) or dedicated chat pane (wide). Search results return NavigationItems. Document card click in chat → `NavigateTo(DocumentItem)`. |
+| **Content pane / Chat renderer** | Existing chat UI, but document cards are clickable → navigate to document detail in content pane (chat pane stays visible in wide mode). |
 | **Navigator / Chat panel** | Search bar + suggested queries + recent searches. |
-| **PROOF** | Click 💬 → see search bar + suggestions → type "car insurance" → results in content pane → click document card → document detail loads → back → returns to chat results. |
+| **Chat pane (wide)** | Dedicated right column with chat conversation + input bar. Chat persists across navigator mode switches. `GridSplitter` between content and chat. |
+| **PROOF** | **Narrow**: Click 💬 → see search bar + suggestions → type "car insurance" → results in content pane → click document card → document detail loads → back → returns to chat results. **Wide**: Resize wide → chat pane appears → switch to 📁 Documents → browse invoices → content pane shows document → type "what is this?" in chat pane → AI answers → click document card in chat → content pane updates (chat stays). |
 
 ---
 
