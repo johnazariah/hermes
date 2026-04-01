@@ -229,6 +229,19 @@ module Embeddings =
     type ProgressCallback = int -> int -> unit
 
     /// Embed a single document: chunk text, embed each chunk, store results.
+    let private embedChunk (db: Algebra.Database) (logger: Algebra.Logger) (client: Algebra.EmbeddingClient) (docId: int64) (errors: int) (chunk: TextChunk) =
+        task {
+            let! result = client.embed chunk.Text
+            match result with
+            | Ok embedding ->
+                do! storeChunk db docId chunk.Index chunk.Text (Some embedding)
+                return errors
+            | Error e ->
+                logger.warn $"Document {docId}, chunk {chunk.Index}: embedding failed: {e}"
+                do! storeChunk db docId chunk.Index chunk.Text None
+                return errors + 1
+        }
+
     let embedDocument
         (db: Algebra.Database)
         (logger: Algebra.Logger)
@@ -238,36 +251,23 @@ module Embeddings =
         =
         task {
             let chunks = chunkText 500 100 text
-
             if chunks.IsEmpty then
                 logger.debug $"Document {docId}: no text to embed"
                 return Ok 0
             else
-                let mutable errors = 0
+            let! errors = Prelude.foldTask (embedChunk db logger client docId) 0 chunks
 
-                for chunk in chunks do
-                    let! result = client.embed chunk.Text
+            let! _ =
+                db.execNonQuery
+                    "UPDATE documents SET embedded_at = @at, chunk_count = @cnt WHERE id = @id"
+                    [ ("@at", Database.boxVal (DateTimeOffset.UtcNow.ToString("o")))
+                      ("@cnt", Database.boxVal chunks.Length)
+                      ("@id", Database.boxVal docId) ]
 
-                    match result with
-                    | Ok embedding -> do! storeChunk db docId chunk.Index chunk.Text (Some embedding)
-                    | Error e ->
-                        logger.warn $"Document {docId}, chunk {chunk.Index}: embedding failed: {e}"
-                        do! storeChunk db docId chunk.Index chunk.Text None
-                        errors <- errors + 1
-
-                // Update document metadata
-                let! _ =
-                    db.execNonQuery
-                        "UPDATE documents SET embedded_at = @at, chunk_count = @cnt WHERE id = @id"
-                        [ ("@at", Database.boxVal (DateTimeOffset.UtcNow.ToString("o")))
-                          ("@cnt", Database.boxVal chunks.Length)
-                          ("@id", Database.boxVal docId) ]
-
-                if errors > 0 then
-                    return Error $"{errors} of {chunks.Length} chunks failed"
-                else
-                    logger.debug $"Document {docId}: embedded {chunks.Length} chunks"
-                    return Ok chunks.Length
+            if errors > 0 then return Error $"{errors} of {chunks.Length} chunks failed"
+            else
+                logger.debug $"Document {docId}: embedded {chunks.Length} chunks"
+                return Ok chunks.Length
         }
 
     /// Batch-embed documents that have extracted text but no embeddings.
