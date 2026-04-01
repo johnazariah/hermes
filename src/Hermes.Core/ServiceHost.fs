@@ -156,7 +156,15 @@ module ServiceHost =
                 logger.debug "Scanning watch folders..."
                 let! _watchResults = FolderWatcher.scanAll fs db logger clock config
 
-                // 3. Classify unclassified files → archive categories
+                // 3. Extract text from un-extracted documents (BEFORE classify)
+                logger.debug "Running extraction on backlog (including unclassified)..."
+                let extractor : Algebra.TextExtractor =
+                    { extractPdf = fun bytes -> task { return Extraction.extractPdfText bytes }
+                      extractImage = fun _ -> task { return Error "Ollama not configured" } }
+                let! _extractResult =
+                    Extraction.extractBatch fs db logger clock extractor config.ArchiveDir None false 50
+
+                // 4. Classify unclassified files → archive categories
                 let unclassifiedDir = Path.Combine(config.ArchiveDir, "unclassified")
 
                 if fs.directoryExists unclassifiedDir then
@@ -169,7 +177,7 @@ module ServiceHost =
                         let! _ = Classifier.processFile fs db logger clock rules config.ArchiveDir file
                         ()
 
-                // 3.5. Backfill historical email
+                // 4.5. Backfill historical email
                 for account in config.Accounts do
                     if account.Backfill.Enabled then
                         try
@@ -179,15 +187,7 @@ module ServiceHost =
                         with ex ->
                             logger.warn $"Backfill failed for {account.Label}: {ex.Message}"
 
-                // 4. Extract text from un-extracted documents
-                logger.debug "Running extraction on backlog..."
-                let extractor : Algebra.TextExtractor =
-                    { extractPdf = fun bytes -> task { return Extraction.extractPdfText bytes }
-                      extractImage = fun _ -> task { return Error "Ollama not configured" } }
-                let! _extractResult =
-                    Extraction.extractBatch fs db logger clock extractor config.ArchiveDir None false 50
-
-                // 4.5. Evaluate bill reminders
+                // 4.6. Evaluate bill reminders
                 logger.debug "Evaluating bill reminders..."
                 let! newReminders = Reminders.evaluateNewDocuments db logger (clock.utcNow ())
                 if newReminders > 0 then logger.info $"Created {newReminders} new reminder(s)"
