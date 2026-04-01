@@ -131,7 +131,25 @@ module McpServer =
                 mkSchema
                     [ "document_id", intProp "Document ID (required)"
                       "format", stringProp "Content format: 'text', 'markdown', or 'raw' (default 'markdown')" ]
-                    [ "document_id" ] } ]
+                    [ "document_id" ] }
+          { Name = "hermes_reclassify"
+            Description =
+                "Move a document to a different category. Moves file on disk and updates DB."
+            InputSchema =
+                mkSchema
+                    [ "document_id", intProp "Document ID (required)"
+                      "new_category", stringProp "Target category (required)" ]
+                    [ "document_id"; "new_category" ] }
+          { Name = "hermes_reextract"
+            Description =
+                "Clear extraction fields and re-queue document for extraction on next sync cycle."
+            InputSchema =
+                mkSchema [ "document_id", intProp "Document ID (required)" ] [ "document_id" ] }
+          { Name = "hermes_get_processing_queue"
+            Description =
+                "Get processing queue overview: unclassified, unextracted, and unembedded document counts."
+            InputSchema =
+                mkSchema [ "limit", intProp "Sample IDs per stage (default 10)" ] [] } ]
 
     // ─── Request parsing ─────────────────────────────────────────────
 
@@ -271,6 +289,15 @@ module McpServer =
                 return Ok result
             | "hermes_get_document_content" ->
                 let! result = McpTools.getDocumentContent db fs archiveDir toolArgs
+                return Ok result
+            | "hermes_reclassify" ->
+                let! result = McpTools.reclassifyDocument db fs archiveDir toolArgs
+                return Ok result
+            | "hermes_reextract" ->
+                let! result = McpTools.reextractDocument db toolArgs
+                return Ok result
+            | "hermes_get_processing_queue" ->
+                let! result = McpTools.getProcessingQueue db toolArgs
                 return Ok result
             | unknown ->
                 logger.warn $"Unknown tool: {unknown}"

@@ -30,6 +30,7 @@
     <Compile Include="Extraction.fs" />
     <Compile Include="ContentClassifier.fs" />
     <Compile Include="DocumentFeed.fs" />
+    <Compile Include="DocumentManagement.fs" />
     <Compile Include="Search.fs" />
     <Compile Include="Stats.fs" />
     <Compile Include="Reminders.fs" />
