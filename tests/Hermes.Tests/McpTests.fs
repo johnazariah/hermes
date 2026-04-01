@@ -139,6 +139,9 @@ let ``McpServer_Dispatch_ToolsList_ReturnsAllTools`` () =
             Assert.Contains("hermes_list_categories", toolNames :> seq<string>)
             Assert.Contains("hermes_stats", toolNames :> seq<string>)
             Assert.Contains("hermes_read_file", toolNames :> seq<string>)
+            Assert.Contains("hermes_list_documents", toolNames :> seq<string>)
+            Assert.Contains("hermes_get_feed_stats", toolNames :> seq<string>)
+            Assert.Contains("hermes_get_document_content", toolNames :> seq<string>)
         finally
             db.dispose ()
     }
@@ -493,5 +496,48 @@ let ``MCP_UpdateReminder_MarkComplete_ChangesStatus`` () =
                 failwith $"Expected result, got error: {err}"
             let result = root.GetProperty("result")
             Assert.Equal("completed", result.GetProperty("status").GetString())
+        finally db.dispose ()
+    }
+
+// ─── hermes_get_document_content MCP integration (P8) ────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``McpServer_GetDocumentContent_Markdown_ReturnsStructuredContent`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        try
+            let mdContent = "---\ntitle: Invoice\n---\n\n## Summary\n\n| Item | Amount |\n| --- | --- |\n| Service | $500 |"
+            let! _ =
+                db.execNonQuery
+                    """INSERT INTO documents (source_type, saved_path, category, sha256, original_name, extracted_text)
+                       VALUES ('manual_drop', 'invoices/test.pdf', 'invoices', 'abc', 'test.pdf', @text)"""
+                    [ ("@text", Database.boxVal mdContent) ]
+            let! idObj = db.execScalar "SELECT MAX(id) FROM documents" []
+            let docId = match idObj with :? int64 as i -> i | _ -> 1L
+            let req = JsonObject()
+            req["jsonrpc"] <- JsonValue.Create("2.0")
+            req["id"] <- JsonValue.Create(1)
+            req["method"] <- JsonValue.Create("tools/call")
+            let ps = JsonObject()
+            ps["name"] <- JsonValue.Create("hermes_get_document_content")
+            let args = JsonObject()
+            args["document_id"] <- JsonValue.Create(docId)
+            args["format"] <- JsonValue.Create("markdown")
+            ps["arguments"] <- args
+            req["params"] <- ps
+            let! response = McpServer.processMessage db m.Fs TestHelpers.silentLogger "/archive" (req.ToJsonString())
+            let doc = JsonDocument.Parse(response)
+            let root = doc.RootElement
+            if root.TryGetProperty("error") |> fst then
+                let err = root.GetProperty("error").GetProperty("message").GetString()
+                failwith $"Expected result, got error: {err}"
+            let result = root.GetProperty("result")
+            let content = result.GetProperty("content")
+            Assert.True(content.GetArrayLength() > 0)
+            let textContent = content.[0].GetProperty("text").GetString()
+            Assert.Contains("## Summary", textContent)
+            Assert.Contains("| Item | Amount |", textContent)
         finally db.dispose ()
     }
