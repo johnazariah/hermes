@@ -26,7 +26,7 @@ let ``ServiceHost_WriteHeartbeat_CreatesStatusFile`` () =
     |> Async.AwaitTask
     |> Async.RunSynchronously
 
-    let path = ServiceHost.statusFilePath archiveDir
+    let path = ServiceHost.statusFilePath archiveDir |> m.Norm
     Assert.True(m.Files.ContainsKey(path), "Status file should exist")
 
     let content = m.Files.[path]
@@ -52,7 +52,7 @@ let ``ServiceHost_WriteHeartbeat_StoppedState_WritesRunningFalse`` () =
     |> Async.AwaitTask
     |> Async.RunSynchronously
 
-    let path = ServiceHost.statusFilePath archiveDir
+    let path = ServiceHost.statusFilePath archiveDir |> m.Norm
     let content = m.Files.[path]
     Assert.Contains("\"running\": false", content)
     Assert.Contains("\"errorMessage\": \"test error\"", content)
@@ -75,7 +75,7 @@ let ``ServiceHost_ReadHeartbeat_ValidJson_ReturnsStatus`` () =
   "errorMessage": null
 }"""
 
-    m.Files.[ServiceHost.statusFilePath archiveDir] <- json
+    m.Files.[ServiceHost.statusFilePath archiveDir |> m.Norm] <- json
 
     let result =
         ServiceHost.readHeartbeat m.Fs archiveDir
@@ -108,7 +108,7 @@ let ``ServiceHost_ReadHeartbeat_InvalidJson_ReturnsNone`` () =
     let m = TestHelpers.memFs ()
     let archiveDir = "/archive"
 
-    m.Files.[ServiceHost.statusFilePath archiveDir] <- "not valid json{{"
+    m.Files.[ServiceHost.statusFilePath archiveDir |> m.Norm] <- "not valid json{{"
 
     let result =
         ServiceHost.readHeartbeat m.Fs archiveDir
@@ -188,7 +188,7 @@ let ``ServiceHost_DefaultServiceConfig_CustomInterval_Preserved`` () =
 let ``ServiceHost_CountUnclassified_EmptyDir_ReturnsZero`` () =
     let m = TestHelpers.memFs ()
     let archiveDir = "/archive"
-    let unclassifiedDir = System.IO.Path.Combine(archiveDir, "unclassified")
+    let unclassifiedDir = System.IO.Path.Combine(archiveDir, "unclassified") |> m.Norm
     m.Dirs.[unclassifiedDir] <- true
     let count = ServiceHost.countUnclassified m.Fs archiveDir
     Assert.Equal(0, count)
@@ -198,7 +198,7 @@ let ``ServiceHost_CountUnclassified_EmptyDir_ReturnsZero`` () =
 let ``ServiceHost_CountUnclassified_WithFiles_CountsCorrectly`` () =
     let m = TestHelpers.memFs ()
     let archiveDir = "/archive"
-    let unclassifiedDir = System.IO.Path.Combine(archiveDir, "unclassified")
+    let unclassifiedDir = System.IO.Path.Combine(archiveDir, "unclassified") |> m.Norm
     m.Dirs.[unclassifiedDir] <- true
     m.Files.[unclassifiedDir + "/doc1.pdf"] <- "pdf content"
     m.Files.[unclassifiedDir + "/doc2.pdf"] <- "pdf content 2"

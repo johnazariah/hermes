@@ -113,7 +113,7 @@ let ``Config_Init_CreatesConfigAndRules`` () =
 [<Trait("Category", "Unit")>]
 let ``Config_Init_SkipsExistingFiles`` () =
     let m = TestHelpers.memFs ()
-    let configPath = Path.Combine(Config.configDir (), "config.yaml")
+    let configPath = Path.Combine(Config.configDir (), "config.yaml") |> m.Norm
     m.Files.[configPath] <- "existing content"
     let result = Config.init m.Fs |> Async.AwaitTask |> Async.RunSynchronously
 

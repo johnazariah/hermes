@@ -175,6 +175,7 @@ let ``FolderWatcher_ProcessFile_CopiesMatchingFile`` () =
 
             match result with
             | FolderWatcher.Copied savedPath ->
+                let savedPath = m.Norm savedPath
                 Assert.Contains("unclassified", savedPath)
                 Assert.Contains("Downloads", savedPath)
                 Assert.Contains("invoice.pdf", savedPath)
@@ -304,6 +305,7 @@ let ``FolderWatcher_ProcessFile_UsesSafeCopyRename`` () =
 
             match result with
             | FolderWatcher.Copied savedPath ->
+                let savedPath = m.Norm savedPath
                 // Temp file should NOT exist (renamed away)
                 Assert.False(m.Files.ContainsKey(savedPath + ".hermes_copying"))
                 // Final file should exist

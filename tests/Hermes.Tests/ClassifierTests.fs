@@ -218,7 +218,7 @@ let ``Classifier_ProcessFile_ClassifiesAndMovesFile`` () =
 
         let archiveDir = "/archive"
         m.Dirs.[archiveDir] <- true
-        let srcPath = Path.Combine(archiveDir, "unclassified", "Invoice-March.pdf")
+        let srcPath = Path.Combine(archiveDir, "unclassified", "Invoice-March.pdf") |> m.Norm
         m.Files.[srcPath] <- "PDF content here"
 
         try
@@ -229,7 +229,7 @@ let ``Classifier_ProcessFile_ClassifiesAndMovesFile`` () =
 
             // File should have been moved to invoices/
             Assert.False(m.Files.ContainsKey(srcPath))
-            let destPath = Path.Combine(archiveDir, "invoices", "Invoice-March.pdf")
+            let destPath = Path.Combine(archiveDir, "invoices", "Invoice-March.pdf") |> m.Norm
             let keysStr = String.Join("; ", m.Files.Keys)
             Assert.True(m.Files.ContainsKey(destPath), $"Expected file at {destPath}. Keys: {keysStr}")
 
@@ -254,7 +254,7 @@ let ``Classifier_ProcessFile_WithSidecar_UsesMetadataForClassification`` () =
 
         let archiveDir = "/archive"
         m.Dirs.[archiveDir] <- true
-        let srcPath = Path.Combine(archiveDir, "unclassified", "document.pdf")
+        let srcPath = Path.Combine(archiveDir, "unclassified", "document.pdf") |> m.Norm
         let metaPath = srcPath + ".meta.json"
         m.Files.[srcPath] <- "PDF content"
 
@@ -268,7 +268,7 @@ let ``Classifier_ProcessFile_WithSidecar_UsesMetadataForClassification`` () =
             Assert.True(Result.isOk result, $"Expected Ok but got: {result}")
 
             // Domain rule should have classified to trades (plumbing.com.au)
-            let destPath = Path.Combine(archiveDir, "trades", "document.pdf")
+            let destPath = Path.Combine(archiveDir, "trades", "document.pdf") |> m.Norm
             let keysStr = String.Join("; ", m.Files.Keys)
             Assert.True(m.Files.ContainsKey(destPath), $"Expected file at {destPath}. Keys: {keysStr}")
 
@@ -293,7 +293,7 @@ let ``Classifier_ProcessFile_DuplicateHash_SkipsFile`` () =
 
         // Add a file with known content
         let content = "duplicate content"
-        let srcPath = Path.Combine(archiveDir, "unclassified", "dup.pdf")
+        let srcPath = Path.Combine(archiveDir, "unclassified", "dup.pdf") |> m.Norm
         m.Files.[srcPath] <- content
 
         // Pre-insert a document with the same hash
@@ -315,8 +315,8 @@ let ``Classifier_ProcessFile_DuplicateHash_SkipsFile`` () =
             Assert.False(m.Files.ContainsKey(srcPath))
 
             // Should NOT have been moved to any category
-            Assert.False(m.Files.ContainsKey(Path.Combine(archiveDir, "invoices", "dup.pdf")))
-            Assert.False(m.Files.ContainsKey(Path.Combine(archiveDir, "unsorted", "dup.pdf")))
+            Assert.False(m.Files.ContainsKey(Path.Combine(archiveDir, "invoices", "dup.pdf") |> m.Norm))
+            Assert.False(m.Files.ContainsKey(Path.Combine(archiveDir, "unsorted", "dup.pdf") |> m.Norm))
         finally
             db.dispose ()
     }
@@ -352,7 +352,7 @@ let ``Classifier_ProcessFile_UnmatchedFile_GoesToUnsorted`` () =
 
         let archiveDir = "/archive"
         m.Dirs.[archiveDir] <- true
-        let srcPath = Path.Combine(archiveDir, "unclassified", "random-file.pdf")
+        let srcPath = Path.Combine(archiveDir, "unclassified", "random-file.pdf") |> m.Norm
         m.Files.[srcPath] <- "some content"
 
         try
@@ -360,7 +360,7 @@ let ``Classifier_ProcessFile_UnmatchedFile_GoesToUnsorted`` () =
                 Classifier.processFile m.Fs db logger clock rules archiveDir srcPath
 
             Assert.True(Result.isOk result)
-            let destPath = Path.Combine(archiveDir, "unsorted", "random-file.pdf")
+            let destPath = Path.Combine(archiveDir, "unsorted", "random-file.pdf") |> m.Norm
             let keysStr = String.Join("; ", m.Files.Keys)
             Assert.True(m.Files.ContainsKey(destPath), $"Expected file at {destPath}. Keys: {keysStr}")
         finally
@@ -379,7 +379,7 @@ let ``Classifier_ProcessFile_InsertsDocumentRecord`` () =
 
         let archiveDir = "/archive"
         m.Dirs.[archiveDir] <- true
-        let srcPath = Path.Combine(archiveDir, "unclassified", "Invoice-Test.pdf")
+        let srcPath = Path.Combine(archiveDir, "unclassified", "Invoice-Test.pdf") |> m.Norm
         m.Files.[srcPath] <- "invoice content"
 
         try

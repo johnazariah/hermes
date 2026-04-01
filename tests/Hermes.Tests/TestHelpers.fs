@@ -14,6 +14,8 @@ type MemFs =
       Files: ConcurrentDictionary<string, string>
       Bytes: ConcurrentDictionary<string, byte array>
       Dirs: ConcurrentDictionary<string, bool>
+      /// Normalize a path to forward slashes (matches internal storage).
+      Norm: string -> string
       /// Store a file using normalized path (forward slashes).
       Put: string -> string -> unit
       /// Read a file using normalized path lookup.
@@ -23,9 +25,9 @@ let memFs () : MemFs =
     let files = ConcurrentDictionary<string, string>()
     let bytes = ConcurrentDictionary<string, byte array>()
     let dirs = ConcurrentDictionary<string, bool>()
+    let norm (path: string) = path.Replace('\\', '/')
 
     let fs : Algebra.FileSystem =
-        let norm (path: string) = path.Replace('\\', '/')
         { readAllText = fun path ->
             task {
                 match files.TryGetValue(norm path) with
@@ -83,6 +85,7 @@ let memFs () : MemFs =
                 | _ -> 0L }
 
     { Fs = fs; Files = files; Bytes = bytes; Dirs = dirs
+      Norm = norm
       Put = fun path content -> files.[norm path] <- content
       Get = fun path -> match files.TryGetValue(norm path) with true, v -> Some v | _ -> None }
 
