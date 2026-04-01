@@ -89,6 +89,84 @@ module PdfStructure =
             (line, level)
         lines |> List.map classify
 
+    // ─── Table detection ─────────────────────────────────────────────
+
+    /// Find column boundaries by clustering word X-positions across lines.
+    let findColumnBoundaries (lines: Line list) (gapThreshold: float) : float list =
+        lines
+        |> List.collect (fun l -> l.Words |> List.map (fun w -> w.X))
+        |> List.sort
+        |> List.fold (fun (groups: float list list) x ->
+            match groups with
+            | (last :: _ as grp) :: rest when x - last < gapThreshold ->
+                (x :: grp) :: rest
+            | _ -> [ x ] :: groups) []
+        |> List.map (List.averageBy id)
+        |> List.sort
+
+    /// Check if a set of lines form a table: 3+ columns aligned across 3+ rows.
+    let isTableRegion (lines: Line list) : bool =
+        if lines.Length < 3 then false
+        else
+            let boundaries = findColumnBoundaries lines 15.0
+            let colCount = boundaries.Length
+            colCount >= 3
+            && lines |> List.forall (fun l -> l.Words.Length >= 2)
+
+    /// Assign a word to its nearest column boundary.
+    let private wordToColumn (boundaries: float list) (word: Word) : int =
+        boundaries
+        |> List.mapi (fun i bx -> (i, abs (word.X - bx)))
+        |> List.minBy snd
+        |> fst
+
+    /// Extract cell values from a table region by assigning words to columns.
+    let extractTableCells (lines: Line list) (colBoundaries: float list) : string list list =
+        let colCount = colBoundaries.Length
+        lines
+        |> List.map (fun line ->
+            let cells = Array.create colCount ""
+            line.Words
+            |> List.iter (fun w ->
+                let col = wordToColumn colBoundaries w
+                cells.[col] <-
+                    if cells.[col] = "" then w.Text
+                    else cells.[col] + " " + w.Text)
+            cells |> Array.toList)
+
+    /// Detect table regions in a list of lines.
+    /// Returns: list of (remaining non-table lines, extracted Table).
+    type TableDetection = { NonTableLines: Line list; Tables: Table list }
+
+    let private tryExtractTable (candidate: Line list) : Table option =
+        let boundaries = findColumnBoundaries candidate 15.0
+        if boundaries.Length < 3 || candidate.Length < 3 then None
+        else
+            let rows = extractTableCells candidate boundaries
+            match rows with
+            | headers :: dataRows when dataRows.Length >= 1 ->
+                Some { Headers = headers; Rows = dataRows }
+            | _ -> None
+
+    let detectTables (lines: Line list) : TableDetection =
+        let rec scan (remaining: Line list) (nonTable: Line list) (tables: Table list) =
+            match remaining with
+            | [] -> { NonTableLines = List.rev nonTable; Tables = List.rev tables }
+            | _ ->
+                let candidate =
+                    remaining
+                    |> List.takeWhile (fun l -> l.Words.Length >= 2)
+                if candidate.Length >= 3 then
+                    match tryExtractTable candidate with
+                    | Some tbl ->
+                        let rest = remaining |> List.skip candidate.Length
+                        scan rest nonTable (tbl :: tables)
+                    | None ->
+                        scan (List.tail remaining) (List.head remaining :: nonTable) tables
+                else
+                    scan (List.tail remaining) (List.head remaining :: nonTable) tables
+        scan lines [] []
+
     // ─── Letter extraction ───────────────────────────────────────────
 
     /// Open a PDF from bytes and extract per-page letter lists.

@@ -146,6 +146,68 @@ let ``PdfStructure_DetectHeadings_BodyText_ReturnsNone`` () =
     | [ (_, None) ] -> ()
     | _ -> failwith $"Expected None (body text), got {result}"
 
+// ─── Table detection tests ───────────────────────────────────────────
+
+let private mkTableLine (cells: (string * float) list) y : PdfStructure.Line =
+    let words = cells |> List.map (fun (text, x) -> mkWord text x y 40.0 10.0)
+    { Words = words; Y = y; Text = words |> List.map (fun w -> w.Text) |> String.concat " " }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``PdfStructure_FindColumnBoundaries_ThreeColumns_ReturnsThreeBoundaries`` () =
+    let lines =
+        [ mkTableLine [ ("Date", 50.0); ("Amount", 200.0); ("Balance", 400.0) ] 700.0
+          mkTableLine [ ("01/10", 50.0); ("$100", 200.0); ("$5000", 400.0) ] 688.0
+          mkTableLine [ ("02/10", 50.0); ("$200", 200.0); ("$4800", 400.0) ] 676.0 ]
+    let boundaries = PdfStructure.findColumnBoundaries lines 15.0
+    Assert.Equal(3, boundaries.Length)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``PdfStructure_IsTableRegion_AlignedRows_ReturnsTrue`` () =
+    let lines =
+        [ mkTableLine [ ("Date", 50.0); ("Amount", 200.0); ("Balance", 400.0) ] 700.0
+          mkTableLine [ ("01/10", 50.0); ("$100", 200.0); ("$5000", 400.0) ] 688.0
+          mkTableLine [ ("02/10", 50.0); ("$200", 200.0); ("$4800", 400.0) ] 676.0 ]
+    Assert.True(PdfStructure.isTableRegion lines)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``PdfStructure_IsTableRegion_ParagraphText_ReturnsFalse`` () =
+    let lines : PdfStructure.Line list =
+        [ { Words = [ mkWord "This is a paragraph." 50.0 700.0 200.0 12.0 ]; Y = 700.0; Text = "This is a paragraph." }
+          { Words = [ mkWord "More text here." 50.0 688.0 150.0 12.0 ]; Y = 688.0; Text = "More text here." } ]
+    Assert.False(PdfStructure.isTableRegion lines)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``PdfStructure_ExtractTableCells_AssignsWordsToCorrectColumns`` () =
+    let lines =
+        [ mkTableLine [ ("Date", 50.0); ("Amount", 200.0); ("Balance", 400.0) ] 700.0
+          mkTableLine [ ("01/10", 50.0); ("$100", 200.0); ("$5000", 400.0) ] 688.0 ]
+    let boundaries = PdfStructure.findColumnBoundaries lines 15.0
+    let cells = PdfStructure.extractTableCells lines boundaries
+    Assert.Equal(2, cells.Length)
+    Assert.Equal("Date", cells.[0].[0])
+    Assert.Equal("Amount", cells.[0].[1])
+    Assert.Equal("Balance", cells.[0].[2])
+    Assert.Equal("01/10", cells.[1].[0])
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``PdfStructure_DetectTables_BankStatement_ExtractsTransactionTable`` () =
+    let lines =
+        [ mkTableLine [ ("Date", 50.0); ("Narrative", 150.0); ("Debit", 300.0); ("Credit", 400.0); ("Balance", 500.0) ] 700.0
+          mkTableLine [ ("01/10", 50.0); ("Opening", 150.0); ("", 300.0); ("", 400.0); ("$5000", 500.0) ] 688.0
+          mkTableLine [ ("02/10", 50.0); ("Payment", 150.0); ("$100", 300.0); ("", 400.0); ("$4900", 500.0) ] 676.0
+          mkTableLine [ ("03/10", 50.0); ("Deposit", 150.0); ("", 300.0); ("$200", 400.0); ("$5100", 500.0) ] 664.0 ]
+    let result = PdfStructure.detectTables lines
+    Assert.Equal(1, result.Tables.Length)
+    Assert.Empty(result.NonTableLines)
+    let tbl = result.Tables.[0]
+    Assert.Equal(5, tbl.Headers.Length)
+    Assert.Equal(3, tbl.Rows.Length)
+
 // ─── extractLetters edge cases ───────────────────────────────────────
 
 [<Fact>]
