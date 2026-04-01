@@ -291,7 +291,18 @@ module Database =
                 )"""
                "CREATE INDEX IF NOT EXISTS idx_reminder_status ON reminders(status)"
                "CREATE INDEX IF NOT EXISTS idx_reminder_due ON reminders(due_date)"
-               "CREATE INDEX IF NOT EXISTS idx_reminder_doc ON reminders(document_id)" |]
+               "CREATE INDEX IF NOT EXISTS idx_reminder_doc ON reminders(document_id)"
+               """CREATE TABLE IF NOT EXISTS activity_log (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp   TEXT NOT NULL DEFAULT (datetime('now')),
+                    level       TEXT NOT NULL DEFAULT 'info',
+                    category    TEXT NOT NULL,
+                    message     TEXT NOT NULL,
+                    document_id INTEGER,
+                    details     TEXT,
+                    FOREIGN KEY (document_id) REFERENCES documents(id)
+                )"""
+               "CREATE INDEX IF NOT EXISTS idx_activity_log_ts ON activity_log(timestamp DESC)" |]
         task {
             // ALTER TABLE may fail if column already exists — that's fine
             for sql in alterStmts do
