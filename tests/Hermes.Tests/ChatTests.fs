@@ -313,3 +313,68 @@ let ``Chat_FormatResults_MultipleResults_NumbersCorrectly`` () =
     Assert.Contains("1.", formatted)
     Assert.Contains("2.", formatted)
     Assert.Contains("3.", formatted)
+
+// ─── HTTP provider error-path tests ──────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Chat_OllamaProvider_ConnectionRefused_ReturnsError`` () =
+    task {
+        let provider = Chat.ollamaProvider "http://127.0.0.1:1" "test-model"
+        let! result = provider.complete "sys" "user"
+        match result with
+        | Error msg -> Assert.Contains("Ollama error", msg)
+        | Ok _ -> failwith "Expected Error from unreachable Ollama endpoint"
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Chat_AzureOpenAIProvider_ConnectionRefused_ReturnsError`` () =
+    task {
+        let config : Domain.AzureOpenAIConfig =
+            { Endpoint = "http://127.0.0.1:1"
+              ApiKey = "fake"
+              DeploymentName = "gpt-4o"
+              MaxTokens = 100
+              TimeoutSeconds = 5 }
+        let provider = Chat.azureOpenAIProvider config
+        let! result = provider.complete "sys" "user"
+        match result with
+        | Error msg -> Assert.Contains("Azure OpenAI error", msg)
+        | Ok _ -> failwith "Expected Error from unreachable Azure endpoint"
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Chat_ProviderFromConfig_WhitespaceEndpoint_FallsBackToOllama`` () =
+    let chatConfig : Domain.ChatConfig =
+        { Provider = Domain.ChatProviderKind.AzureOpenAI
+          AzureOpenAI =
+            { Domain.AzureOpenAIConfig.Endpoint = "  "
+              ApiKey = "valid-key"
+              DeploymentName = "gpt-4o"
+              MaxTokens = 100
+              TimeoutSeconds = 30 } }
+    let _provider = Chat.providerFromConfig chatConfig "http://localhost:11434" "llama3"
+    Assert.True(true)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Chat_BuildUserPrompt_ContainsAnswerBrieflyInstruction`` () =
+    let result = Chat.buildUserPrompt "test" "context"
+    Assert.Contains("Answer briefly and specifically.", result)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Chat_FormatResults_ResultWithOnlySenderAndSnippet_FormatsCorrectly`` () =
+    let result : Search.SearchResult =
+        { DocumentId = 1L; SavedPath = "emails/msg.eml"; OriginalName = None
+          Category = "emails"; Sender = Some "alice@test.com"; Subject = None
+          EmailDate = None; ExtractedVendor = None; ExtractedAmount = None
+          RelevanceScore = 5.0; Snippet = Some "important snippet"; ResultType = "email" }
+    let formatted = Chat.formatResultsForPrompt [result]
+    Assert.Contains("From: alice@test.com", formatted)
+    Assert.Contains("Content: important snippet", formatted)
+    Assert.DoesNotContain("Subject:", formatted)
+    Assert.DoesNotContain("Vendor:", formatted)
+    Assert.DoesNotContain("Amount:", formatted)

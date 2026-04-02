@@ -174,3 +174,60 @@ let ``ActivityLog_GetByCategory_NoMatches_ReturnsEmpty`` () =
             Assert.Empty(logs)
         finally db.dispose ()
     }
+
+// ─── Additional ActivityLog tests ────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ActivityLog_LogError_StoresErrorLevel`` () =
+    task {
+        let db = initDb ()
+        try
+            do! ActivityLog.logError db "extraction" "Failed to extract" (Some 42L) "stack trace here"
+            let! recent = ActivityLog.getRecent db 10
+            Assert.Equal(1, recent.Length)
+            Assert.Equal("error", recent.[0].Level)
+            Assert.Equal("extraction", recent.[0].Category)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ActivityLog_GetForDocument_ReturnsMatchingEntries`` () =
+    task {
+        let db = initDb ()
+        try
+            do! ActivityLog.logInfo db "sync" "Doc 1 synced" (Some 1L)
+            do! ActivityLog.logInfo db "sync" "Doc 2 synced" (Some 2L)
+            do! ActivityLog.logInfo db "extraction" "Doc 1 extracted" (Some 1L)
+            let! logs = ActivityLog.getForDocument db 1L 10
+            Assert.Equal(2, logs.Length)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ActivityLog_GetByCategory_ReturnsMatchingCategory`` () =
+    task {
+        let db = initDb ()
+        try
+            do! ActivityLog.logInfo db "sync" "Sync started" None
+            do! ActivityLog.logInfo db "extraction" "Extraction done" None
+            do! ActivityLog.logInfo db "sync" "Sync finished" None
+            let! logs = ActivityLog.getByCategory db "sync" 10
+            Assert.Equal(2, logs.Length)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ActivityLog_GetRecent_RespectsLimit_LargerSet`` () =
+    task {
+        let db = initDb ()
+        try
+            for i in 1..5 do
+                do! ActivityLog.logInfo db "test" $"Message {i}" None
+            let! logs = ActivityLog.getRecent db 3
+            Assert.Equal(3, logs.Length)
+        finally db.dispose ()
+    }

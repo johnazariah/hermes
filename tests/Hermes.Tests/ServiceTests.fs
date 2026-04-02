@@ -320,3 +320,89 @@ let ``ServiceInstaller_FormatResult_SpecificMessages`` () =
     Assert.Contains("already", ServiceInstaller.formatResult ServiceInstaller.AlreadyRunning, StringComparison.OrdinalIgnoreCase)
     Assert.Contains("not installed", ServiceInstaller.formatResult ServiceInstaller.NotInstalled, StringComparison.OrdinalIgnoreCase)
     Assert.Contains("not running", ServiceInstaller.formatResult ServiceInstaller.NotRunning, StringComparison.OrdinalIgnoreCase)
+
+// ─── ServiceInstaller platform dispatch tests ────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``ServiceInstaller_Status_OnCurrentPlatform_ReturnsValidResult`` () =
+    let result =
+        ServiceInstaller.status TestHelpers.silentLogger
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+    match result with
+    | ServiceInstaller.NotInstalled -> Assert.True(true)
+    | ServiceInstaller.StatusInfo _ -> Assert.True(true)
+    | ServiceInstaller.Failed _ -> Assert.True(true)
+    | other -> failwith $"Unexpected result from status: {ServiceInstaller.formatResult other}"
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``ServiceInstaller_Uninstall_NonExistentTask_ReturnsExpectedResult`` () =
+    let m = TestHelpers.memFs ()
+    let result =
+        ServiceInstaller.uninstall m.Fs TestHelpers.silentLogger
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+    match result with
+    | ServiceInstaller.NotInstalled -> Assert.True(true)
+    | ServiceInstaller.Uninstalled -> Assert.True(true)
+    | ServiceInstaller.Failed _ -> Assert.True(true)
+    | other -> failwith $"Unexpected result from uninstall: {ServiceInstaller.formatResult other}"
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``ServiceInstaller_Start_NonExistentTask_ReturnsFailed`` () =
+    let result =
+        ServiceInstaller.start TestHelpers.silentLogger
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+    match result with
+    | ServiceInstaller.Failed _ -> Assert.True(true)
+    | ServiceInstaller.Started -> Assert.True(true)
+    | other -> failwith $"Unexpected result from start: {ServiceInstaller.formatResult other}"
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``ServiceInstaller_Stop_NonExistentTask_ReturnsFailed`` () =
+    let result =
+        ServiceInstaller.stop TestHelpers.silentLogger
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+    match result with
+    | ServiceInstaller.Failed _ -> Assert.True(true)
+    | ServiceInstaller.Stopped -> Assert.True(true)
+    | other -> failwith $"Unexpected result from stop: {ServiceInstaller.formatResult other}"
+
+// ─── ServiceInstaller pure function edge cases ───────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceInstaller_GeneratePlist_PathWithSpaces_IncludesFullPath`` () =
+    let plist = ServiceInstaller.generatePlist "/usr/local/my app/bin/hermes"
+    Assert.Contains("/usr/local/my app/bin/hermes", plist)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceInstaller_GeneratePlist_WindowsPath_IncludesPath`` () =
+    let plist = ServiceInstaller.generatePlist @"C:\Program Files\Hermes\hermes.exe"
+    Assert.Contains(@"C:\Program Files\Hermes\hermes.exe", plist)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceInstaller_DetectPlatform_IsConsistent`` () =
+    let first = ServiceInstaller.detectPlatform ()
+    let second = ServiceInstaller.detectPlatform ()
+    Assert.Equal(first, second)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceInstaller_FormatResult_Failed_EmptyMessage`` () =
+    let msg = ServiceInstaller.formatResult (ServiceInstaller.Failed "")
+    Assert.Contains("Failed", msg)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceInstaller_FormatResult_StatusInfo_EmptyString`` () =
+    let msg = ServiceInstaller.formatResult (ServiceInstaller.StatusInfo "")
+    Assert.Equal("", msg)

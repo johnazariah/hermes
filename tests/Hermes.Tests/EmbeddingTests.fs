@@ -703,6 +703,134 @@ let ``Embeddings_ChunkText_LargeOverlap_StillProgresses`` () =
         Assert.True(chunk.StartChar > lastStart || chunk.StartChar = 0)
         lastStart <- chunk.StartChar
 
+// ─── Additional coverage tests ───────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_BlobRoundTrip_1536Dims_Preserves`` () =
+    let original = Array.init 1536 (fun i -> float32 i * 0.01f)
+    let blob = Embeddings.embeddingToBlob original
+    let result = Embeddings.blobToEmbedding blob
+    Assert.Equal(1536, result.Length)
+    for i in 0 .. 1535 do
+        Assert.Equal(original.[i], result.[i])
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_ChunkText_SingleChar_ReturnsSingleChunk`` () =
+    let chunks = Embeddings.chunkText 500 100 "a"
+    Assert.Equal(1, chunks.Length)
+    Assert.Equal("a", chunks.[0].Text)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_ChunkText_ExactlyAtBoundaryPlusOne_ProducesTwoChunks`` () =
+    let text = String.replicate 501 "x"
+    let chunks = Embeddings.chunkText 500 100 text
+    Assert.True(chunks.Length >= 2, $"Expected >=2 chunks, got {chunks.Length}")
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_BatchEmbed_WithProgressCallback_ReportsCorrectTotal`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            do! Embeddings.initSchema db
+            let! _ =
+                db.execNonQuery
+                    "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha10', 'first document text')"
+                    []
+            let! _ =
+                db.execNonQuery
+                    "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text) VALUES ('manual_drop', 'b.pdf', 'invoices', 'sha11', 'second document text')"
+                    []
+            let client = TestHelpers.fakeEmbedder 4
+            let mutable reportedTotal = 0
+            let progress : Embeddings.ProgressCallback =
+                fun _completed total -> reportedTotal <- total
+            let! _ = Embeddings.batchEmbed db TestHelpers.silentLogger client false None (Some progress)
+            Assert.Equal(2, reportedTotal)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_BatchEmbed_SkipsDocsWithNullText`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            do! Embeddings.initSchema db
+            let! _ =
+                db.execNonQuery
+                    "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha20', NULL)"
+                    []
+            let client = TestHelpers.fakeEmbedder 4
+            let! result = Embeddings.batchEmbed db TestHelpers.silentLogger client false None None
+            Assert.Equal(Ok 0, result)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_BatchEmbed_SkipsDocsWithEmptyText`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            do! Embeddings.initSchema db
+            let! _ =
+                db.execNonQuery
+                    "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha21', '')"
+                    []
+            let client = TestHelpers.fakeEmbedder 4
+            let! result = Embeddings.batchEmbed db TestHelpers.silentLogger client false None None
+            Assert.Equal(Ok 0, result)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_EmbedDocument_WhitespaceOnlyText_ReturnsOkZero`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            do! Embeddings.initSchema db
+            let client = TestHelpers.fakeEmbedder 4
+            let! result = Embeddings.embedDocument db TestHelpers.silentLogger client 1L "   \n\t   "
+            Assert.Equal(Ok 0, result)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_EmbeddingToBlob_ByteLength_IsCorrect`` () =
+    let embedding = [| 1.0f; 2.0f; 3.0f; 4.0f |]
+    let blob = Embeddings.embeddingToBlob embedding
+    Assert.Equal(16, blob.Length)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_StoreChunk_WithEmbedding_SetsEmbeddedAt`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            do! Embeddings.initSchema db
+            let! _ =
+                db.execNonQuery
+                    "INSERT INTO documents (source_type, saved_path, category, sha256) VALUES ('manual_drop', 'test.pdf', 'invoices', 'sha30')"
+                    []
+            let embedding = [| 1.0f; 2.0f; 3.0f; 4.0f |]
+            do! Embeddings.storeChunk db 1L 0 "test chunk text" (Some embedding)
+            let! rows =
+                db.execReader
+                    "SELECT embedded_at FROM document_chunks WHERE document_id = 1 AND chunk_index = 0"
+                    []
+            Assert.Equal(1, rows.Length)
+            let embeddedAt = rows.[0] |> Map.find "embedded_at"
+            Assert.False(embeddedAt :? DBNull, "embedded_at should not be DBNull")
+            Assert.IsType<string>(embeddedAt) |> ignore
+        finally db.dispose ()
+    }
+
 // ─── Additional embed document tests ─────────────────────────────────
 
 [<Fact>]

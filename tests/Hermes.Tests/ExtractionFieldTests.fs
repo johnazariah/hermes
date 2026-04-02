@@ -243,3 +243,77 @@ let ``Extraction_ExtractBatch_CategoryFilter_OnlyProcessesMatching`` () =
             Assert.Equal(1, success)
         finally db.dispose ()
     }
+
+// ─── extractFromBytes for different file types ───────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Extraction_ExtractFromBytes_PlainText_ReturnsOk`` () =
+    task {
+        let bytes = System.Text.Encoding.UTF8.GetBytes("Hello, this is a plain text document with some content.")
+        let! result = Extraction.extractFromBytes fakeExtractor "readme.txt" bytes
+        Assert.True(Result.isOk result)
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Extraction_ExtractFromBytes_Markdown_ReturnsOk`` () =
+    task {
+        let bytes = System.Text.Encoding.UTF8.GetBytes("# Heading\n\nSome markdown content here.")
+        let! result = Extraction.extractFromBytes fakeExtractor "notes.md" bytes
+        Assert.True(Result.isOk result)
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Extraction_ExtractFromBytes_LogFile_ReturnsOk`` () =
+    task {
+        let bytes = System.Text.Encoding.UTF8.GetBytes("2026-01-01 INFO: Application started\n2026-01-01 ERROR: Something broke")
+        let! result = Extraction.extractFromBytes fakeExtractor "app.log" bytes
+        Assert.True(Result.isOk result)
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Extraction_ExtractFromBytes_Csv_ReturnsOk`` () =
+    task {
+        let bytes = System.Text.Encoding.UTF8.GetBytes("name,amount,date\nInvoice 1,500,2026-01-15\nInvoice 2,300,2026-02-20")
+        let! result = Extraction.extractFromBytes fakeExtractor "transactions.csv" bytes
+        Assert.True(Result.isOk result)
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Extraction_ExtractFromBytes_UnsupportedType_ReturnsError`` () =
+    task {
+        let bytes = [| 0uy; 1uy; 2uy; 3uy |]
+        let! result = Extraction.extractFromBytes fakeExtractor "data.xyz" bytes
+        Assert.True(Result.isError result)
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Extraction_ExtractFromBytes_Image_CallsImageExtractor`` () =
+    task {
+        let bytes = [| 0uy; 1uy; 2uy; 3uy |]
+        let! result = Extraction.extractFromBytes fakeExtractor "photo.jpg" bytes
+        Assert.True(Result.isOk result)
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Extraction_ExtractFromBytes_ImagePng_CallsImageExtractor`` () =
+    task {
+        let bytes = [| 0uy; 1uy; 2uy; 3uy |]
+        let! result = Extraction.extractFromBytes fakeExtractor "scan.png" bytes
+        Assert.True(Result.isOk result)
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Extraction_ExtractFromBytes_ImageError_ReturnsError`` () =
+    task {
+        let bytes = [| 0uy; 1uy; 2uy; 3uy |]
+        let! result = Extraction.extractFromBytes failingExtractor "photo.jpg" bytes
+        Assert.True(Result.isError result)
+    }
