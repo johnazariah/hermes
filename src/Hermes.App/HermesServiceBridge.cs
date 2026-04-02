@@ -61,7 +61,7 @@ public sealed class HermesServiceBridge
         var initResult = await db.initSchema.Invoke(null!);
 
         var rulesPath = Path.Combine(ConfigDir, "rules.yaml");
-        var rules = Rules.fromFile(fs, logger, rulesPath);
+        var rules = await Rules.fromFile(fs, logger, rulesPath);
         var serviceConfig = ServiceHost.defaultServiceConfig(_config);
         var deps = ServiceHost.buildProductionDeps(_config, ConfigDir, logger, fs);
 

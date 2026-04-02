@@ -494,7 +494,7 @@ let private serviceCmd (args: ParseResults<ServiceArgs>) =
                 let clock = Interpreters.systemClock
                 let env = Interpreters.systemEnvironment
                 let rulesPath = Path.Combine(Config.configDir env, "rules.yaml")
-                let rules = Rules.fromFile fs logger rulesPath
+                let rules = Rules.fromFile fs logger rulesPath |> Async.AwaitTask |> Async.RunSynchronously
 
                 let serviceConfig = ServiceHost.defaultServiceConfig config
                 let cfgPath = Path.Combine(Config.configDir env, "config.yaml")

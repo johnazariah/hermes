@@ -2,6 +2,7 @@ namespace Hermes.Core
 
 open System
 open System.Text.RegularExpressions
+open System.Threading.Tasks
 open YamlDotNet.Serialization
 open YamlDotNet.Serialization.NamingConventions
 
@@ -291,7 +292,7 @@ module Rules =
     // ─── RulesEngine algebra creation ────────────────────────────────
 
     /// Create a RulesEngine algebra from a FileSystem algebra and rules file path.
-    let fromFile (fs: Algebra.FileSystem) (logger: Algebra.Logger) (rulesPath: string) : Algebra.RulesEngine =
+    let fromFile (fs: Algebra.FileSystem) (logger: Algebra.Logger) (rulesPath: string) : Task<Algebra.RulesEngine> =
         let mutable currentRules: CompiledRule list = []
         let mutable defaultCategory = "unsorted"
 
@@ -321,10 +322,11 @@ module Rules =
                         return Error msg
             }
 
-        // Initial load (synchronous bootstrap)
-        loadRules () |> Async.AwaitTask |> Async.RunSynchronously |> ignore
-
-        { classify =
-            fun sidecar filename ->
-                classifyWithRules currentRules defaultCategory sidecar filename
-          reload = loadRules }
+        task {
+            let! _ = loadRules ()
+            return
+                { Algebra.RulesEngine.classify =
+                    fun sidecar filename ->
+                        classifyWithRules currentRules defaultCategory sidecar filename
+                  Algebra.RulesEngine.reload = loadRules }
+        }

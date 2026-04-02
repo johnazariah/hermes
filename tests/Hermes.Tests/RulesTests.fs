@@ -400,7 +400,7 @@ rules:
 default_category: unsorted
 """
     m.Put "/config/rules.yaml" yaml
-    let engine = Rules.fromFile m.Fs logger "/config/rules.yaml"
+    let engine = Rules.fromFile m.Fs logger "/config/rules.yaml" |> Async.AwaitTask |> Async.RunSynchronously
     let result = engine.classify None "Invoice-March.pdf"
     Assert.Equal("invoices", result.Category)
 
@@ -409,7 +409,7 @@ default_category: unsorted
 let ``Rules_FromFile_MissingFile_UsesDefaults`` () =
     let m = TestHelpers.memFs ()
     let logger = Logging.silent
-    let engine = Rules.fromFile m.Fs logger "/nonexistent/rules.yaml"
+    let engine = Rules.fromFile m.Fs logger "/nonexistent/rules.yaml" |> Async.AwaitTask |> Async.RunSynchronously
     let result = engine.classify None "anything.pdf"
     Assert.Equal("unsorted", result.Category)
     Assert.Equal(Domain.DefaultRule, result.MatchedRule)
@@ -428,7 +428,7 @@ rules:
     category: archive
 default_category: unsorted
 """
-        let engine = Rules.fromFile m.Fs logger "/config/rules.yaml"
+        let! engine = Rules.fromFile m.Fs logger "/config/rules.yaml"
 
         // Initial classification
         let r1 = engine.classify None "old-document.pdf"
@@ -471,3 +471,4 @@ default_category: misc
         Assert.Empty(rules)
         Assert.Equal("misc", defaultCat)
     | Error e -> failwith $"Expected Ok, got Error: {e}"
+
