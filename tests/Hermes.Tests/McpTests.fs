@@ -100,7 +100,7 @@ let ``McpServer_Dispatch_Initialize_ReturnsCapabilities`` () =
             let json =
                 """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"""
 
-            let! response = McpServer.processMessage db m.Fs logger "/archive" json
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" json
             let doc = JsonDocument.Parse(response)
             let root = doc.RootElement
 
@@ -125,7 +125,7 @@ let ``McpServer_Dispatch_ToolsList_ReturnsAllTools`` () =
             let json =
                 """{"jsonrpc":"2.0","id":2,"method":"tools/list","params":null}"""
 
-            let! response = McpServer.processMessage db m.Fs logger "/archive" json
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" json
             let doc = JsonDocument.Parse(response)
             let result = doc.RootElement.GetProperty("result")
             let tools = result.GetProperty("tools")
@@ -159,7 +159,7 @@ let ``McpServer_Dispatch_UnknownMethod_ReturnsError`` () =
             let json =
                 """{"jsonrpc":"2.0","id":3,"method":"unknown/method","params":null}"""
 
-            let! response = McpServer.processMessage db m.Fs logger "/archive" json
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" json
             let doc = JsonDocument.Parse(response)
             let root = doc.RootElement
             Assert.True(root.TryGetProperty("error") |> fst)
@@ -181,7 +181,7 @@ let ``McpServer_Dispatch_ToolsCallUnknownTool_ReturnsError`` () =
             let json =
                 """{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"nonexistent_tool","arguments":{}}}"""
 
-            let! response = McpServer.processMessage db m.Fs logger "/archive" json
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" json
             let doc = JsonDocument.Parse(response)
             let root = doc.RootElement
             Assert.True(root.TryGetProperty("error") |> fst)
@@ -206,7 +206,7 @@ let ``McpServer_Dispatch_ToolsCallSearch_ReturnsContent`` () =
             let json =
                 """{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"hermes_search","arguments":{"query":"invoice"}}}"""
 
-            let! response = McpServer.processMessage db m.Fs logger "/archive" json
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" json
             let doc = JsonDocument.Parse(response)
             let root = doc.RootElement
 
@@ -233,7 +233,7 @@ let ``McpServer_Dispatch_ToolsCallStats_ReturnsStats`` () =
             let json =
                 """{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"hermes_stats","arguments":{}}}"""
 
-            let! response = McpServer.processMessage db m.Fs logger "/archive" json
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" json
             let doc = JsonDocument.Parse(response)
             let result = doc.RootElement.GetProperty("result")
             let content = result.GetProperty("content")
@@ -263,7 +263,7 @@ let ``McpServer_Dispatch_ToolsCallListCategories_ReturnsCategories`` () =
             let json =
                 """{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"hermes_list_categories","arguments":{}}}"""
 
-            let! response = McpServer.processMessage db m.Fs logger "/archive" json
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" json
             let doc = JsonDocument.Parse(response)
             let result = doc.RootElement.GetProperty("result")
             let content = result.GetProperty("content")
@@ -419,7 +419,7 @@ let ``McpServer_ProcessMessage_CompleteRoundTrip_ValidJsonRpc`` () =
             let json =
                 """{"jsonrpc":"2.0","id":42,"method":"initialize","params":{}}"""
 
-            let! response = McpServer.processMessage db m.Fs logger "/archive" json
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" json
             let doc = JsonDocument.Parse(response)
             let root = doc.RootElement
 
@@ -456,7 +456,7 @@ let ``MCP_ListReminders_ReturnsActiveReminders`` () =
             let! _ = db.initSchema ()
             let! _ = insertReminder db "invoices" 500.0 "2026-04-10"
             let json = """{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"hermes_list_reminders","arguments":{}}}"""
-            let! response = McpServer.processMessage db m.Fs TestHelpers.silentLogger "/archive" json
+            let! response = McpServer.processMessage db m.Fs TestHelpers.silentLogger TestHelpers.defaultClock "/archive" json
             let doc = JsonDocument.Parse(response)
             let root = doc.RootElement
             if root.TryGetProperty("error") |> fst then
@@ -491,7 +491,7 @@ let ``MCP_UpdateReminder_MarkComplete_ChangesStatus`` () =
             args["action"] <- JsonValue.Create("complete")
             ps["arguments"] <- args
             req["params"] <- ps
-            let! response = McpServer.processMessage db m.Fs TestHelpers.silentLogger "/archive" (req.ToJsonString())
+            let! response = McpServer.processMessage db m.Fs TestHelpers.silentLogger TestHelpers.defaultClock "/archive" (req.ToJsonString())
             let doc = JsonDocument.Parse(response)
             let root = doc.RootElement
             if root.TryGetProperty("error") |> fst then
@@ -533,7 +533,7 @@ let ``McpServer_GetDocumentContent_Markdown_ReturnsStructuredContent`` () =
             args["format"] <- JsonValue.Create("markdown")
             ps["arguments"] <- args
             req["params"] <- ps
-            let! response = McpServer.processMessage db m.Fs TestHelpers.silentLogger "/archive" (req.ToJsonString())
+            let! response = McpServer.processMessage db m.Fs TestHelpers.silentLogger TestHelpers.defaultClock "/archive" (req.ToJsonString())
             let doc = JsonDocument.Parse(response)
             let root = doc.RootElement
             if root.TryGetProperty("error") |> fst then
@@ -744,7 +744,7 @@ let ``McpTools_UpdateReminder_Snooze_ChangesStatus`` () =
             args["reminder_id"] <- JsonValue.Create(rid)
             args["action"] <- JsonValue.Create("snooze")
             args["snooze_days"] <- JsonValue.Create(5)
-            let! result = McpTools.updateReminder db (args :> JsonNode)
+            let! result = McpTools.updateReminder db TestHelpers.defaultClock (args :> JsonNode)
             let doc = System.Text.Json.JsonDocument.Parse(result.ToJsonString())
             Assert.Equal("snoozed", doc.RootElement.GetProperty("status").GetString())
             Assert.Equal(5, doc.RootElement.GetProperty("snoozedDays").GetInt32())
@@ -761,7 +761,7 @@ let ``McpTools_UpdateReminder_Dismiss_ChangesStatus`` () =
             let args = JsonObject()
             args["reminder_id"] <- JsonValue.Create(rid)
             args["action"] <- JsonValue.Create("dismiss")
-            let! result = McpTools.updateReminder db (args :> JsonNode)
+            let! result = McpTools.updateReminder db TestHelpers.defaultClock (args :> JsonNode)
             let doc = System.Text.Json.JsonDocument.Parse(result.ToJsonString())
             Assert.Equal("dismissed", doc.RootElement.GetProperty("status").GetString())
         finally db.dispose ()
@@ -777,7 +777,7 @@ let ``McpTools_UpdateReminder_UnknownAction_ReturnsError`` () =
             let args = JsonObject()
             args["reminder_id"] <- JsonValue.Create(rid)
             args["action"] <- JsonValue.Create("delete")
-            let! result = McpTools.updateReminder db (args :> JsonNode)
+            let! result = McpTools.updateReminder db TestHelpers.defaultClock (args :> JsonNode)
             let doc = System.Text.Json.JsonDocument.Parse(result.ToJsonString())
             Assert.True(doc.RootElement.TryGetProperty("error") |> fst)
         finally db.dispose ()
@@ -790,7 +790,7 @@ let ``McpTools_UpdateReminder_MissingFields_ReturnsError`` () =
         let db = TestHelpers.createDb ()
         try
             let args = JsonObject()
-            let! result = McpTools.updateReminder db (args :> JsonNode)
+            let! result = McpTools.updateReminder db TestHelpers.defaultClock (args :> JsonNode)
             let doc = System.Text.Json.JsonDocument.Parse(result.ToJsonString())
             Assert.True(doc.RootElement.TryGetProperty("error") |> fst)
         finally db.dispose ()
@@ -806,7 +806,7 @@ let ``McpTools_UpdateReminder_Paid_IsAlias_ForComplete`` () =
             let args = JsonObject()
             args["reminder_id"] <- JsonValue.Create(rid)
             args["action"] <- JsonValue.Create("paid")
-            let! result = McpTools.updateReminder db (args :> JsonNode)
+            let! result = McpTools.updateReminder db TestHelpers.defaultClock (args :> JsonNode)
             let doc = System.Text.Json.JsonDocument.Parse(result.ToJsonString())
             Assert.Equal("completed", doc.RootElement.GetProperty("status").GetString())
         finally db.dispose ()

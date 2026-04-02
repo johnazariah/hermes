@@ -309,9 +309,9 @@ module McpTools =
 
     // ─── hermes_list_reminders ───────────────────────────────────────
 
-    let listReminders (db: Algebra.Database) (args: JsonNode) : Task<JsonNode> =
+    let listReminders (db: Algebra.Database) (clock: Algebra.Clock) (args: JsonNode) : Task<JsonNode> =
         task {
-            let now = DateTimeOffset.UtcNow
+            let now = clock.utcNow ()
             let! active = Reminders.getActive db now
             let! completed = Reminders.getRecentlyCompleted db
             let! summary = Reminders.getSummary db now
@@ -342,11 +342,11 @@ module McpTools =
 
     // ─── hermes_update_reminder ──────────────────────────────────────
 
-    let updateReminder (db: Algebra.Database) (args: JsonNode) : Task<JsonNode> =
+    let updateReminder (db: Algebra.Database) (clock: Algebra.Clock) (args: JsonNode) : Task<JsonNode> =
         task {
             let idOpt = tryGetInt64 args "reminder_id"
             let actionOpt = tryGetString args "action"
-            let now = DateTimeOffset.UtcNow
+            let now = clock.utcNow ()
 
             match idOpt, actionOpt with
             | None, _ | _, None ->

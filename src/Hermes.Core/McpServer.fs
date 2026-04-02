@@ -248,6 +248,7 @@ module McpServer =
         (db: Algebra.Database)
         (fs: Algebra.FileSystem)
         (logger: Algebra.Logger)
+        (clock: Algebra.Clock)
         (archiveDir: string)
         (toolName: string)
         (args: JsonNode option)
@@ -276,10 +277,10 @@ module McpServer =
                 let! result = McpTools.readFile fs archiveDir toolArgs
                 return Ok result
             | "hermes_list_reminders" ->
-                let! result = McpTools.listReminders db toolArgs
+                let! result = McpTools.listReminders db clock toolArgs
                 return Ok result
             | "hermes_update_reminder" ->
-                let! result = McpTools.updateReminder db toolArgs
+                let! result = McpTools.updateReminder db clock toolArgs
                 return Ok result
             | "hermes_list_documents" ->
                 let! result = McpTools.listDocumentsFeed db toolArgs
@@ -311,6 +312,7 @@ module McpServer =
         (db: Algebra.Database)
         (fs: Algebra.FileSystem)
         (logger: Algebra.Logger)
+        (clock: Algebra.Clock)
         (archiveDir: string)
         (request: JsonRpcRequest)
         : Task<JsonRpcResponse> =
@@ -366,7 +368,7 @@ module McpServer =
                         | Some p -> tryGetNode p "arguments"
                         | None -> None
 
-                    let! callResult = handleToolCall db fs logger archiveDir name toolArgs
+                    let! callResult = handleToolCall db fs logger clock archiveDir name toolArgs
 
                     match callResult with
                     | Ok resultNode ->
@@ -394,6 +396,7 @@ module McpServer =
         (db: Algebra.Database)
         (fs: Algebra.FileSystem)
         (logger: Algebra.Logger)
+        (clock: Algebra.Clock)
         (archiveDir: string)
         (message: string)
         : Task<string> =
@@ -403,6 +406,6 @@ module McpServer =
                 let resp = makeError None -32700 msg
                 return serialiseResponse resp
             | Ok request ->
-                let! resp = handleRequest db fs logger archiveDir request
+                let! resp = handleRequest db fs logger clock archiveDir request
                 return serialiseResponse resp
         }

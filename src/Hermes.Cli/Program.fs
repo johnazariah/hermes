@@ -376,6 +376,7 @@ let private mcpCmd () =
     | Some(fs, logger, config, db) ->
         try
             logger.info "MCP server starting (stdio mode)..."
+            let clock = Interpreters.systemClock
             let mutable running = true
 
             while running do
@@ -386,7 +387,7 @@ let private mcpCmd () =
                 | "" -> ()
                 | msg ->
                     let response =
-                        McpServer.processMessage db fs logger config.ArchiveDir msg
+                        McpServer.processMessage db fs logger clock config.ArchiveDir msg
                         |> Async.AwaitTask
                         |> Async.RunSynchronously
 
