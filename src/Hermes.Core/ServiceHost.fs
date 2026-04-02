@@ -364,7 +364,7 @@ module ServiceHost =
                 Some (Embeddings.ollamaClient config.Ollama.BaseUrl config.Ollama.EmbeddingModel 768)
             else None
         let chatProvider =
-            try Some (Chat.providerFromConfig config.Chat config.Ollama.BaseUrl config.Ollama.InstructModel)
+            try Some (Chat.providerFromConfig (new System.Net.Http.HttpClient()) config.Chat config.Ollama.BaseUrl config.Ollama.InstructModel)
             with _ -> None
         let contentRules =
             let rulesPath = Path.Combine(configDir, "rules.yaml")

@@ -125,7 +125,7 @@ let ``Chat_ProviderFromConfig_Ollama_ReturnsOllamaProvider`` () =
         { Provider = Domain.ChatProviderKind.Ollama
           AzureOpenAI = { Domain.AzureOpenAIConfig.Endpoint = ""; ApiKey = ""; DeploymentName = ""; MaxTokens = 100; TimeoutSeconds = 30 } }
     // Just verify it doesn't throw — the provider is a record of functions
-    let _provider = Chat.providerFromConfig chatConfig "http://localhost:11434" "llama3"
+    let _provider = Chat.providerFromConfig (new System.Net.Http.HttpClient()) chatConfig "http://localhost:11434" "llama3"
     Assert.True(true)
 
 [<Fact>]
@@ -211,7 +211,7 @@ let ``Chat_ProviderFromConfig_AzureOpenAI_WithValidConfig_ReturnsAzureProvider``
               DeploymentName = "gpt-4o"
               MaxTokens = 100
               TimeoutSeconds = 30 } }
-    let _provider = Chat.providerFromConfig chatConfig "http://localhost:11434" "llama3"
+    let _provider = Chat.providerFromConfig (new System.Net.Http.HttpClient()) chatConfig "http://localhost:11434" "llama3"
     Assert.True(true)
 
 [<Fact>]
@@ -225,7 +225,7 @@ let ``Chat_ProviderFromConfig_AzureOpenAI_EmptyEndpoint_FallsBackToOllama`` () =
               DeploymentName = "gpt-4o"
               MaxTokens = 100
               TimeoutSeconds = 30 } }
-    let _provider = Chat.providerFromConfig chatConfig "http://localhost:11434" "llama3"
+    let _provider = Chat.providerFromConfig (new System.Net.Http.HttpClient()) chatConfig "http://localhost:11434" "llama3"
     Assert.True(true)
 
 [<Fact>]
@@ -239,7 +239,7 @@ let ``Chat_ProviderFromConfig_AzureOpenAI_EmptyApiKey_FallsBackToOllama`` () =
               DeploymentName = "gpt-4o"
               MaxTokens = 100
               TimeoutSeconds = 30 } }
-    let _provider = Chat.providerFromConfig chatConfig "http://localhost:11434" "llama3"
+    let _provider = Chat.providerFromConfig (new System.Net.Http.HttpClient()) chatConfig "http://localhost:11434" "llama3"
     Assert.True(true)
 
 // ─── buildUserPrompt ─────────────────────────────────────────────────
@@ -320,7 +320,7 @@ let ``Chat_FormatResults_MultipleResults_NumbersCorrectly`` () =
 [<Trait("Category", "Unit")>]
 let ``Chat_OllamaProvider_ConnectionRefused_ReturnsError`` () =
     task {
-        let provider = Chat.ollamaProvider "http://127.0.0.1:1" "test-model"
+        let provider = Chat.ollamaProvider (new System.Net.Http.HttpClient(Timeout = System.TimeSpan.FromSeconds(5.0))) "http://127.0.0.1:1" "test-model"
         let! result = provider.complete "sys" "user"
         match result with
         | Error msg -> Assert.Contains("Ollama error", msg)
@@ -337,7 +337,7 @@ let ``Chat_AzureOpenAIProvider_ConnectionRefused_ReturnsError`` () =
               DeploymentName = "gpt-4o"
               MaxTokens = 100
               TimeoutSeconds = 5 }
-        let provider = Chat.azureOpenAIProvider config
+        let provider = Chat.azureOpenAIProvider (new System.Net.Http.HttpClient(Timeout = System.TimeSpan.FromSeconds(5.0))) config
         let! result = provider.complete "sys" "user"
         match result with
         | Error msg -> Assert.Contains("Azure OpenAI error", msg)
@@ -355,7 +355,7 @@ let ``Chat_ProviderFromConfig_WhitespaceEndpoint_FallsBackToOllama`` () =
               DeploymentName = "gpt-4o"
               MaxTokens = 100
               TimeoutSeconds = 30 } }
-    let _provider = Chat.providerFromConfig chatConfig "http://localhost:11434" "llama3"
+    let _provider = Chat.providerFromConfig (new System.Net.Http.HttpClient()) chatConfig "http://localhost:11434" "llama3"
     Assert.True(true)
 
 [<Fact>]

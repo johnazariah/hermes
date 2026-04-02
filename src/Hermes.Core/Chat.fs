@@ -63,12 +63,11 @@ Answer briefly and specifically."""
     // ─── Provider factories ──────────────────────────────────────────
 
     /// Create a ChatProvider backed by Ollama's /api/generate endpoint.
-    let ollamaProvider (baseUrl: string) (model: string) : Algebra.ChatProvider =
+    let ollamaProvider (client: HttpClient) (baseUrl: string) (model: string) : Algebra.ChatProvider =
         { complete = fun systemMsg userMsg ->
             task {
                 try
                     let prompt = $"{systemMsg}\n\n{userMsg}"
-                    use client = new HttpClient(Timeout = TimeSpan.FromSeconds(60.0))
                     let payload = JsonSerializer.Serialize({| model = model; prompt = prompt; stream = false |})
                     let content = new StringContent(payload, Encoding.UTF8, "application/json")
                     let! response = client.PostAsync($"{baseUrl.TrimEnd('/')}/api/generate", content)
@@ -88,12 +87,10 @@ Answer briefly and specifically."""
             } }
 
     /// Create a ChatProvider backed by Azure OpenAI's Chat Completions API.
-    let azureOpenAIProvider (config: Domain.AzureOpenAIConfig) : Algebra.ChatProvider =
+    let azureOpenAIProvider (client: HttpClient) (config: Domain.AzureOpenAIConfig) : Algebra.ChatProvider =
         { complete = fun systemMsg userMsg ->
             task {
                 try
-                    let timeout = float (max config.TimeoutSeconds 30)
-                    use client = new HttpClient(Timeout = TimeSpan.FromSeconds(timeout))
                     let endpoint = config.Endpoint.TrimEnd('/')
                     let url = $"{endpoint}/openai/deployments/{config.DeploymentName}/chat/completions?api-version=2024-06-01"
 
@@ -136,14 +133,14 @@ Answer briefly and specifically."""
             } }
 
     /// Create the appropriate ChatProvider from config.
-    let providerFromConfig (chatConfig: Domain.ChatConfig) (ollamaUrl: string) (ollamaModel: string) : Algebra.ChatProvider =
+    let providerFromConfig (client: HttpClient) (chatConfig: Domain.ChatConfig) (ollamaUrl: string) (ollamaModel: string) : Algebra.ChatProvider =
         match chatConfig.Provider with
         | Domain.ChatProviderKind.AzureOpenAI
             when not (String.IsNullOrWhiteSpace(chatConfig.AzureOpenAI.Endpoint))
               && not (String.IsNullOrWhiteSpace(chatConfig.AzureOpenAI.ApiKey)) ->
-            azureOpenAIProvider chatConfig.AzureOpenAI
+            azureOpenAIProvider client chatConfig.AzureOpenAI
         | _ ->
-            ollamaProvider ollamaUrl ollamaModel
+            ollamaProvider client ollamaUrl ollamaModel
 
     // ─── Public API ──────────────────────────────────────────────────
 
