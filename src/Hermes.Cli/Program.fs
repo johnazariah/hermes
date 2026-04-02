@@ -350,7 +350,7 @@ let private embedCmd (args: ParseResults<EmbedArgs>) =
                     printf $"\rEmbedding: {completed}/{total}"
 
             let result =
-                Embeddings.batchEmbed db logger client force limit (Some progress)
+                Embeddings.batchEmbed db logger Interpreters.systemClock client force limit (Some progress)
                 |> Async.AwaitTask
                 |> Async.RunSynchronously
 

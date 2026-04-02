@@ -144,6 +144,7 @@ module Embeddings =
     /// Store a chunk with its embedding in the database.
     let storeChunk
         (db: Algebra.Database)
+        (clock: Algebra.Clock)
         (docId: int64)
         (chunkIndex: int)
         (chunkText: string)
@@ -165,7 +166,7 @@ module Embeddings =
                       ("@emb", embeddingBlob)
                       ("@at",
                        (if embedding.IsSome then
-                            Database.boxVal (DateTimeOffset.UtcNow.ToString("o"))
+                            Database.boxVal ((clock.utcNow ()).ToString("o"))
                         else
                             Database.boxVal DBNull.Value)) ]
 
@@ -229,22 +230,23 @@ module Embeddings =
     type ProgressCallback = int -> int -> unit
 
     /// Embed a single document: chunk text, embed each chunk, store results.
-    let private embedChunk (db: Algebra.Database) (logger: Algebra.Logger) (client: Algebra.EmbeddingClient) (docId: int64) (errors: int) (chunk: TextChunk) =
+    let private embedChunk (db: Algebra.Database) (logger: Algebra.Logger) (clock: Algebra.Clock) (client: Algebra.EmbeddingClient) (docId: int64) (errors: int) (chunk: TextChunk) =
         task {
             let! result = client.embed chunk.Text
             match result with
             | Ok embedding ->
-                do! storeChunk db docId chunk.Index chunk.Text (Some embedding)
+                do! storeChunk db clock docId chunk.Index chunk.Text (Some embedding)
                 return errors
             | Error e ->
                 logger.warn $"Document {docId}, chunk {chunk.Index}: embedding failed: {e}"
-                do! storeChunk db docId chunk.Index chunk.Text None
+                do! storeChunk db clock docId chunk.Index chunk.Text None
                 return errors + 1
         }
 
     let embedDocument
         (db: Algebra.Database)
         (logger: Algebra.Logger)
+        (clock: Algebra.Clock)
         (client: Algebra.EmbeddingClient)
         (docId: int64)
         (text: string)
@@ -255,12 +257,12 @@ module Embeddings =
                 logger.debug $"Document {docId}: no text to embed"
                 return Ok 0
             else
-            let! errors = Prelude.foldTask (embedChunk db logger client docId) 0 chunks
+            let! errors = Prelude.foldTask (embedChunk db logger clock client docId) 0 chunks
 
             let! _ =
                 db.execNonQuery
                     "UPDATE documents SET embedded_at = @at, chunk_count = @cnt WHERE id = @id"
-                    [ ("@at", Database.boxVal (DateTimeOffset.UtcNow.ToString("o")))
+                    [ ("@at", Database.boxVal ((clock.utcNow ()).ToString("o")))
                       ("@cnt", Database.boxVal chunks.Length)
                       ("@id", Database.boxVal docId) ]
 
@@ -273,9 +275,9 @@ module Embeddings =
     /// Batch-embed documents that have extracted text but no embeddings.
     type private EmbedAccum = { Completed: int; Failures: int }
 
-    let private embedOne db logger client progress total (accum: EmbedAccum) (docId: int64, text: string) =
+    let private embedOne db logger clock client progress total (accum: EmbedAccum) (docId: int64, text: string) =
         task {
-            let! result = embedDocument db logger client docId text
+            let! result = embedDocument db logger clock client docId text
             let accum =
                 match result with
                 | Ok _ -> { accum with Completed = accum.Completed + 1 }
@@ -287,6 +289,7 @@ module Embeddings =
     let batchEmbed
         (db: Algebra.Database)
         (logger: Algebra.Logger)
+        (clock: Algebra.Clock)
         (client: Algebra.EmbeddingClient)
         (force: bool)
         (limit: int option)
@@ -331,7 +334,7 @@ module Embeddings =
                     (fun stateTask doc ->
                         task {
                             let! state = stateTask
-                            return! embedOne db logger client progress docs.Length state doc
+                            return! embedOne db logger clock client progress docs.Length state doc
                         })
                     (task { return { Completed = 0; Failures = 0 } })
 

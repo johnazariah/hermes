@@ -268,7 +268,7 @@ let ``SemanticSearch_SemanticSearch_WithChunks_ReturnsResults`` () =
             do! insertSearchDoc db "invoices" "plumber.pdf" "plumbing services invoice"
             // Store a chunk with embedding for doc 1
             let embedding = [| 0.1f; 0.2f; 0.3f; 0.4f |]
-            do! Embeddings.storeChunk db 1L 0 "plumbing services invoice" (Some embedding)
+            do! Embeddings.storeChunk db TestHelpers.defaultClock 1L 0 "plumbing services invoice" (Some embedding)
             let embedder = TestHelpers.fakeEmbedder 4
             let! result = SemanticSearch.semanticSearch db embedder "plumbing" 10
             match result with
@@ -301,7 +301,7 @@ let ``SemanticSearch_HybridSearch_WithChunks_CombinesResults`` () =
             do! Embeddings.initSchema db
             do! insertSearchDoc db "invoices" "plumber.pdf" "plumbing services invoice"
             let embedding = [| 0.1f; 0.2f; 0.3f; 0.4f |]
-            do! Embeddings.storeChunk db 1L 0 "plumbing services invoice" (Some embedding)
+            do! Embeddings.storeChunk db TestHelpers.defaultClock 1L 0 "plumbing services invoice" (Some embedding)
             let embedder = TestHelpers.fakeEmbedder 4
             let! results = SemanticSearch.hybridSearch db embedder "plumbing" 10
             Assert.True(results.Length > 0, "Hybrid search should return results")
@@ -317,7 +317,7 @@ let ``SemanticSearch_Search_HybridMode_ReturnsResults`` () =
             do! Embeddings.initSchema db
             do! insertSearchDoc db "invoices" "plumber.pdf" "plumbing repair receipt"
             let embedding = [| 0.5f; 0.5f; 0.5f; 0.5f |]
-            do! Embeddings.storeChunk db 1L 0 "plumbing repair receipt" (Some embedding)
+            do! Embeddings.storeChunk db TestHelpers.defaultClock 1L 0 "plumbing repair receipt" (Some embedding)
             let embedder = TestHelpers.fakeEmbedder 4
             let! results = SemanticSearch.search db embedder TestHelpers.silentLogger SemanticSearch.SearchMode.Hybrid "plumbing" 10
             Assert.True(results.Length > 0, "Hybrid search should find doc")
@@ -333,7 +333,7 @@ let ``SemanticSearch_Search_SemanticMode_WithChunks_ReturnsResults`` () =
             do! Embeddings.initSchema db
             do! insertSearchDoc db "invoices" "plumber.pdf" "plumbing service"
             let embedding = [| 0.3f; 0.4f; 0.5f; 0.6f |]
-            do! Embeddings.storeChunk db 1L 0 "plumbing service" (Some embedding)
+            do! Embeddings.storeChunk db TestHelpers.defaultClock 1L 0 "plumbing service" (Some embedding)
             let embedder = TestHelpers.fakeEmbedder 4
             let! results = SemanticSearch.search db embedder TestHelpers.silentLogger SemanticSearch.SearchMode.Semantic "plumbing" 10
             Assert.True(results.Length > 0, "Semantic search should find doc")

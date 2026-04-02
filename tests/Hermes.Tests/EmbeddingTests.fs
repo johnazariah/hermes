@@ -270,7 +270,7 @@ let ``Embeddings_EmbedDocument_ChunksAndStores`` () =
                        VALUES ('manual_drop', 'test/doc.pdf', 'invoices', 'sha1', 'Short text for embedding test.')"""
                     []
 
-            let! result = Embeddings.embedDocument db Logging.silent client 1L "Short text for embedding test."
+            let! result = Embeddings.embedDocument db Logging.silent TestHelpers.defaultClock client 1L "Short text for embedding test."
 
             match result with
             | Ok count ->
@@ -303,7 +303,7 @@ let ``Embeddings_EmbedDocument_UpdatesDocumentMetadata`` () =
                        VALUES ('manual_drop', 'test/doc.pdf', 'invoices', 'sha2', 'Some text here.')"""
                     []
 
-            let! _ = Embeddings.embedDocument db Logging.silent client 1L "Some text here."
+            let! _ = Embeddings.embedDocument db Logging.silent TestHelpers.defaultClock client 1L "Some text here."
 
             let! embeddedAt =
                 db.execScalar "SELECT embedded_at FROM documents WHERE id = 1" []
@@ -328,7 +328,7 @@ let ``Embeddings_EmbedDocument_EmptyText_ReturnsZero`` () =
 
         try
             let client = TestHelpers.fakeEmbedder 4
-            let! result = Embeddings.embedDocument db Logging.silent client 1L ""
+            let! result = Embeddings.embedDocument db Logging.silent TestHelpers.defaultClock client 1L ""
 
             match result with
             | Ok count -> Assert.Equal(0, count)
@@ -350,7 +350,7 @@ let ``Embeddings_EmbedDocument_FailingClient_ReportsErrors`` () =
                        VALUES ('manual_drop', 'test/doc.pdf', 'invoices', 'sha3', 'Some text.')"""
                     []
 
-            let! result = Embeddings.embedDocument db Logging.silent TestHelpers.failingEmbedder 1L "Some text."
+            let! result = Embeddings.embedDocument db Logging.silent TestHelpers.defaultClock TestHelpers.failingEmbedder 1L "Some text."
 
             match result with
             | Error msg -> Assert.Contains("failed", msg)
@@ -456,7 +456,7 @@ let ``Embeddings_StoreChunk_InsertsRow`` () =
                         "INSERT INTO documents (source_type, saved_path, category, sha256) VALUES ('manual_drop', 'test.pdf', 'invoices', 'sha1')"
                         []
             let embedding = [| 1.0f; 2.0f; 3.0f |]
-            do! Embeddings.storeChunk db 1L 0 "test chunk" (Some embedding)
+            do! Embeddings.storeChunk db TestHelpers.defaultClock 1L 0 "test chunk" (Some embedding)
             let! count = db.execScalar "SELECT COUNT(*) FROM document_chunks WHERE document_id = 1" []
             let c = match count with null -> 0L | v -> v :?> int64
             Assert.Equal(1L, c)
@@ -476,7 +476,7 @@ let ``Embeddings_EmbedDocument_StoresChunksAndUpdatesDoc`` () =
                         "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text) VALUES ('manual_drop', 'test.pdf', 'invoices', 'sha1', 'Test doc')"
                         []
             let client = TestHelpers.fakeEmbedder 768
-            let! result = Embeddings.embedDocument db TestHelpers.silentLogger client 1L "This is a test document."
+            let! result = Embeddings.embedDocument db TestHelpers.silentLogger TestHelpers.defaultClock client 1L "This is a test document."
             Assert.True(Result.isOk result)
             let! count = db.execScalar "SELECT COUNT(*) FROM document_chunks WHERE document_id = 1" []
             Assert.True((match count with null -> 0L | v -> v :?> int64) > 0L)
@@ -490,7 +490,7 @@ let ``Embeddings_EmbedDocument_EmptyText_ReturnsOkZero`` () =
         let db = TestHelpers.createDb ()
         try
             do! Embeddings.initSchema db
-            let! result = Embeddings.embedDocument db TestHelpers.silentLogger (TestHelpers.fakeEmbedder 768) 1L ""
+            let! result = Embeddings.embedDocument db TestHelpers.silentLogger TestHelpers.defaultClock (TestHelpers.fakeEmbedder 768) 1L ""
             Assert.Equal(Ok 0, result)
         finally db.dispose ()
     }
@@ -505,7 +505,7 @@ let ``Embeddings_EmbedDocument_FailingClient_ReturnsError`` () =
             let! _ = db.execNonQuery
                         "INSERT INTO documents (source_type, saved_path, category, sha256) VALUES ('manual_drop', 'test.pdf', 'invoices', 'sha2')"
                         []
-            let! result = Embeddings.embedDocument db TestHelpers.silentLogger TestHelpers.failingEmbedder 1L "Some text"
+            let! result = Embeddings.embedDocument db TestHelpers.silentLogger TestHelpers.defaultClock TestHelpers.failingEmbedder 1L "Some text"
             Assert.True(Result.isError result)
         finally db.dispose ()
     }
@@ -519,7 +519,7 @@ let ``Embeddings_BatchEmbed_UnavailableClient_ReturnsError`` () =
         let db = TestHelpers.createDb ()
         try
             do! Embeddings.initSchema db
-            let! result = Embeddings.batchEmbed db TestHelpers.silentLogger TestHelpers.failingEmbedder false None None
+            let! result = Embeddings.batchEmbed db TestHelpers.silentLogger TestHelpers.defaultClock TestHelpers.failingEmbedder false None None
             Assert.True(Result.isError result)
         finally db.dispose ()
     }
@@ -532,7 +532,7 @@ let ``Embeddings_BatchEmbed_NoDocs_ReturnsOkZero`` () =
         try
             do! Embeddings.initSchema db
             let client = TestHelpers.fakeEmbedder 768
-            let! result = Embeddings.batchEmbed db TestHelpers.silentLogger client false None None
+            let! result = Embeddings.batchEmbed db TestHelpers.silentLogger TestHelpers.defaultClock client false None None
             Assert.Equal(Ok 0, result)
         finally db.dispose ()
     }
@@ -548,7 +548,7 @@ let ``Embeddings_BatchEmbed_WithDocs_EmbedsSuccessfully`` () =
                         "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha1', 'test document content for embedding')"
                         []
             let client = TestHelpers.fakeEmbedder 4
-            let! result = Embeddings.batchEmbed db TestHelpers.silentLogger client false None None
+            let! result = Embeddings.batchEmbed db TestHelpers.silentLogger TestHelpers.defaultClock client false None None
             match result with
             | Ok count -> Assert.True(count > 0, $"Expected >0, got {count}")
             | Error e -> failwith $"Expected Ok, got Error: {e}"
@@ -569,7 +569,7 @@ let ``Embeddings_BatchEmbed_WithLimit_RespectsLimit`` () =
                         "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text) VALUES ('manual_drop', 'b.pdf', 'invoices', 'sha2', 'second document')"
                         []
             let client = TestHelpers.fakeEmbedder 4
-            let! result = Embeddings.batchEmbed db TestHelpers.silentLogger client false (Some 1) None
+            let! result = Embeddings.batchEmbed db TestHelpers.silentLogger TestHelpers.defaultClock client false (Some 1) None
             match result with
             | Ok count -> Assert.Equal(1, count)
             | Error e -> failwith $"Expected Ok, got Error: {e}"
@@ -588,10 +588,10 @@ let ``Embeddings_BatchEmbed_Force_ReEmbedsAlreadyEmbedded`` () =
                         []
             let client = TestHelpers.fakeEmbedder 4
             // Without force: should find 0 docs (already embedded)
-            let! resultNoForce = Embeddings.batchEmbed db TestHelpers.silentLogger client false None None
+            let! resultNoForce = Embeddings.batchEmbed db TestHelpers.silentLogger TestHelpers.defaultClock client false None None
             Assert.Equal(Ok 0, resultNoForce)
             // With force: should re-embed
-            let! resultForce = Embeddings.batchEmbed db TestHelpers.silentLogger client true None None
+            let! resultForce = Embeddings.batchEmbed db TestHelpers.silentLogger TestHelpers.defaultClock client true None None
             match resultForce with
             | Ok count -> Assert.True(count > 0, "Force should re-embed already embedded docs")
             | Error e -> failwith $"Expected Ok, got Error: {e}"
@@ -611,7 +611,7 @@ let ``Embeddings_BatchEmbed_ProgressCallback_Called`` () =
             let client = TestHelpers.fakeEmbedder 4
             let mutable callCount = 0
             let progress : Embeddings.ProgressCallback = fun _completed _total -> callCount <- callCount + 1
-            let! _ = Embeddings.batchEmbed db TestHelpers.silentLogger client false None (Some progress)
+            let! _ = Embeddings.batchEmbed db TestHelpers.silentLogger TestHelpers.defaultClock client false None (Some progress)
             Assert.True(callCount > 0, "Progress callback should have been called")
         finally db.dispose ()
     }
@@ -628,7 +628,7 @@ let ``Embeddings_StoreChunk_NoEmbedding_InsertsNullBlob`` () =
             let! _ = db.execNonQuery
                         "INSERT INTO documents (source_type, saved_path, category, sha256) VALUES ('manual_drop', 'test.pdf', 'invoices', 'sha1')"
                         []
-            do! Embeddings.storeChunk db 1L 0 "test chunk no embedding" None
+            do! Embeddings.storeChunk db TestHelpers.defaultClock 1L 0 "test chunk no embedding" None
             let! count = db.execScalar "SELECT COUNT(*) FROM document_chunks WHERE document_id = 1" []
             Assert.Equal(1L, count :?> int64)
             let! embResult = db.execScalar "SELECT embedding FROM document_chunks WHERE document_id = 1" []
@@ -748,7 +748,7 @@ let ``Embeddings_BatchEmbed_WithProgressCallback_ReportsCorrectTotal`` () =
             let mutable reportedTotal = 0
             let progress : Embeddings.ProgressCallback =
                 fun _completed total -> reportedTotal <- total
-            let! _ = Embeddings.batchEmbed db TestHelpers.silentLogger client false None (Some progress)
+            let! _ = Embeddings.batchEmbed db TestHelpers.silentLogger TestHelpers.defaultClock client false None (Some progress)
             Assert.Equal(2, reportedTotal)
         finally db.dispose ()
     }
@@ -765,7 +765,7 @@ let ``Embeddings_BatchEmbed_SkipsDocsWithNullText`` () =
                     "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha20', NULL)"
                     []
             let client = TestHelpers.fakeEmbedder 4
-            let! result = Embeddings.batchEmbed db TestHelpers.silentLogger client false None None
+            let! result = Embeddings.batchEmbed db TestHelpers.silentLogger TestHelpers.defaultClock client false None None
             Assert.Equal(Ok 0, result)
         finally db.dispose ()
     }
@@ -782,7 +782,7 @@ let ``Embeddings_BatchEmbed_SkipsDocsWithEmptyText`` () =
                     "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha21', '')"
                     []
             let client = TestHelpers.fakeEmbedder 4
-            let! result = Embeddings.batchEmbed db TestHelpers.silentLogger client false None None
+            let! result = Embeddings.batchEmbed db TestHelpers.silentLogger TestHelpers.defaultClock client false None None
             Assert.Equal(Ok 0, result)
         finally db.dispose ()
     }
@@ -795,7 +795,7 @@ let ``Embeddings_EmbedDocument_WhitespaceOnlyText_ReturnsOkZero`` () =
         try
             do! Embeddings.initSchema db
             let client = TestHelpers.fakeEmbedder 4
-            let! result = Embeddings.embedDocument db TestHelpers.silentLogger client 1L "   \n\t   "
+            let! result = Embeddings.embedDocument db TestHelpers.silentLogger TestHelpers.defaultClock client 1L "   \n\t   "
             Assert.Equal(Ok 0, result)
         finally db.dispose ()
     }
@@ -819,7 +819,7 @@ let ``Embeddings_StoreChunk_WithEmbedding_SetsEmbeddedAt`` () =
                     "INSERT INTO documents (source_type, saved_path, category, sha256) VALUES ('manual_drop', 'test.pdf', 'invoices', 'sha30')"
                     []
             let embedding = [| 1.0f; 2.0f; 3.0f; 4.0f |]
-            do! Embeddings.storeChunk db 1L 0 "test chunk text" (Some embedding)
+            do! Embeddings.storeChunk db TestHelpers.defaultClock 1L 0 "test chunk text" (Some embedding)
             let! rows =
                 db.execReader
                     "SELECT embedded_at FROM document_chunks WHERE document_id = 1 AND chunk_index = 0"
@@ -842,7 +842,7 @@ let ``Embeddings_EmbedDocument_ShortText_SingleChunk`` () =
             do! Embeddings.initSchema db
             let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha1')" []
             let client = TestHelpers.fakeEmbedder 4
-            let! result = Embeddings.embedDocument db TestHelpers.silentLogger client 1L "Short text"
+            let! result = Embeddings.embedDocument db TestHelpers.silentLogger TestHelpers.defaultClock client 1L "Short text"
             match result with
             | Ok count -> Assert.Equal(1, count)
             | Error e -> failwith $"Unexpected error: {e}"
@@ -858,7 +858,7 @@ let ``Embeddings_StoreChunk_WithEmbedding_StoresBlob`` () =
             do! Embeddings.initSchema db
             let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256) VALUES ('manual_drop', 'test.pdf', 'invoices', 'sha1')" []
             let embedding = [| 1.0f; 2.0f; 3.0f; 4.0f |]
-            do! Embeddings.storeChunk db 1L 0 "test chunk with embedding" (Some embedding)
+            do! Embeddings.storeChunk db TestHelpers.defaultClock 1L 0 "test chunk with embedding" (Some embedding)
             let! rows = db.execReader "SELECT embedding FROM document_chunks WHERE document_id = 1" []
             Assert.Equal(1, rows.Length)
             let emb = rows.[0] |> Map.tryFind "embedding"

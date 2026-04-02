@@ -213,7 +213,7 @@ module ServiceHost =
                 do! ActivityLog.logInfo db "reminder" $"Un-snoozed {u} reminder(s)" None
         }
 
-    let private runEmbedding (db: Algebra.Database) (logger: Algebra.Logger) (embedder: Algebra.EmbeddingClient option) =
+    let private runEmbedding (db: Algebra.Database) (logger: Algebra.Logger) (clock: Algebra.Clock) (embedder: Algebra.EmbeddingClient option) =
         task {
             match embedder with
             | None -> ()
@@ -221,7 +221,7 @@ module ServiceHost =
                 let! avail = client.isAvailable ()
                 if avail then
                     logger.info "Embedding service available — embedding..."
-                    let! _ = Embeddings.batchEmbed db logger client false (Some 50) None
+                    let! _ = Embeddings.batchEmbed db logger clock client false (Some 50) None
                     ()
         }
 
@@ -242,7 +242,7 @@ module ServiceHost =
                 do! reclassifyUnsorted fs db logger deps.ChatProvider deps.ContentRules config.ArchiveDir
                 do! runBackfill fs db logger clock deps.CreateEmailProvider config configDir
                 do! evaluateReminders db logger clock
-                do! runEmbedding db logger deps.Embedder
+                do! runEmbedding db logger clock deps.Embedder
                 do! ActivityLog.logInfo db "sync" "Sync cycle completed" None
                 logger.debug "Sync cycle completed."
                 return Ok()
