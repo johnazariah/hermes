@@ -189,9 +189,13 @@ module ServiceHost =
     let private evaluateReminders (db: Algebra.Database) (logger: Algebra.Logger) (clock: Algebra.Clock) =
         task {
             let! n = Reminders.evaluateNewDocuments db logger (clock.utcNow ())
-            if n > 0 then logger.info $"Created {n} new reminder(s)"
+            if n > 0 then
+                logger.info $"Created {n} new reminder(s)"
+                do! ActivityLog.logInfo db "reminder" $"Created {n} new reminder(s)" None
             let! u = Reminders.unsnoozeExpired db (clock.utcNow ())
-            if u > 0 then logger.info $"Un-snoozed {u} reminder(s)"
+            if u > 0 then
+                logger.info $"Un-snoozed {u} reminder(s)"
+                do! ActivityLog.logInfo db "reminder" $"Un-snoozed {u} reminder(s)" None
         }
 
     let private runEmbedding (db: Algebra.Database) (logger: Algebra.Logger) (config: Domain.HermesConfig) =
@@ -241,6 +245,7 @@ module ServiceHost =
         : Task<Result<unit, string>> =
         task {
             try
+                do! ActivityLog.logInfo db "sync" "Sync cycle started" None
                 do! syncEmails fs db logger clock config configDir
                 do! syncWatchFolders fs db logger clock config
                 do! runExtraction fs db logger clock config.ArchiveDir
@@ -256,9 +261,11 @@ module ServiceHost =
                 do! runBackfill fs db logger clock config configDir
                 do! evaluateReminders db logger clock
                 do! runEmbedding db logger config
+                do! ActivityLog.logInfo db "sync" "Sync cycle completed" None
                 logger.debug "Sync cycle completed."
                 return Ok()
             with ex ->
+                do! ActivityLog.logError db "sync" $"Sync cycle failed: {ex.Message}" None ex.Message
                 logger.error $"Sync cycle failed: {ex.Message}"
                 return Error ex.Message
         }
