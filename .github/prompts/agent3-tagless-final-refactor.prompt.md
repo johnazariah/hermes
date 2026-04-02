@@ -7,6 +7,7 @@ description: "Surgical refactor: fix 8 Tagless-Final violations — move all I/O
 **Branch**: `feat/tagless-final-cleanup`
 
 **IMPORTANT: Use a git worktree — do NOT work in the main checkout.**
+
 ```
 cd c:\work\hermes
 git worktree add ..\hermes-tagless feat/tagless-final-cleanup 2>/dev/null || git worktree add ..\hermes-tagless -b feat/tagless-final-cleanup
@@ -16,6 +17,7 @@ cd c:\work\hermes-tagless
 All commands run in `c:\work\hermes-tagless`.
 
 **Rules**:
+
 - Read `.github/copilot-instructions.md` — especially idiomatic F# standards and Tagless-Final architecture
 - Use `@fsharp-dev` for ALL F# code. Do not write F# without it.
 - Build + test after EVERY file: `dotnet build hermes.slnx --nologo && dotnet test tests/Hermes.Tests/Hermes.Tests.fsproj --nologo --no-build`
@@ -42,7 +44,7 @@ type Environment =
       configDirectory: unit -> string
       documentsDirectory: unit -> string }
 
-// After the existing OllamaClient type  
+// After the existing OllamaClient type
 type TokenStore =
     { save: string -> string -> Task<unit>
       load: string -> Task<string option>
@@ -50,10 +52,11 @@ type TokenStore =
 ```
 
 Add production interpreters to `Interpreters` module:
+
 ```fsharp
 let systemEnvironment : Algebra.Environment =
     { homeDirectory = fun () -> System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile)
-      configDirectory = fun () -> 
+      configDirectory = fun () ->
           if RuntimeInformation.IsOSPlatform(OSPlatform.Windows) then
               Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData), "hermes")
           else
@@ -62,6 +65,7 @@ let systemEnvironment : Algebra.Environment =
 ```
 
 Add fakes to `tests/Hermes.Tests/TestHelpers.fs`:
+
 ```fsharp
 let fakeEnvironment (home: string) (config: string) (docs: string) : Algebra.Environment =
     { homeDirectory = fun () -> home
@@ -78,6 +82,7 @@ let fakeEnvironment (home: string) (config: string) (docs: string) : Algebra.Env
 **Current**: `File.Exists`, `Directory.Exists`, `Directory.GetDirectories`, `Directory.GetFiles` called directly.
 
 **Fix**: Add `fs: Algebra.FileSystem` parameter to functions that do I/O:
+
 - `getCategoryCounts` needs `fs` parameter — replace `Directory.Exists` → `fs.directoryExists`, `Directory.GetDirectories` → needs new `getDirectories` on FileSystem algebra (add it: `getDirectories: string -> string array`).
 - `getIndexStats` needs `fs.fileExists` instead of `File.Exists` for `dbPath`.
 
@@ -93,7 +98,8 @@ Update all callers (ShellViewModel.cs, ServiceHost.fs) to pass `fs`.
 
 **Current**: 5× `Environment.GetFolderPath(SpecialFolder.*)` hardcoded in `configDir`, `defaultArchiveDir`, `expandHome`.
 
-**Fix**: 
+**Fix**:
+
 - `configDir` becomes `configDir (env: Algebra.Environment) = env.configDirectory()`
 - `defaultArchiveDir` becomes `defaultArchiveDir (env: Algebra.Environment) = Path.Combine(env.documentsDirectory(), "hermes")`
 - `expandHome` takes `env` parameter for home directory lookup
@@ -111,6 +117,7 @@ Update all callers to pass `env` (or use `Interpreters.systemEnvironment` at com
 **Current**: `DateTimeOffset.UtcNow` on lines 168, 263. `new HttpClient()` on line 179.
 
 **Fix**:
+
 - Add `clock: Algebra.Clock` parameter to functions that use `UtcNow`. Replace `DateTimeOffset.UtcNow` → `clock.utcNow()`.
 - The `HttpClient` construction is inside the `EmbeddingClient` factory. This is OK at the composition root level — but verify the factory is only called once (not per-request). If it creates a new client per call, refactor to capture a shared client.
 
@@ -141,7 +148,7 @@ Update callers to pass `clock`.
 **Fix**: Make `fromFile` return `Task<Algebra.RulesEngine>` instead of doing sync initialization. The caller (`ServiceHost` or `HermesServiceBridge`) awaits it during async startup.
 
 ```fsharp
-// Before: 
+// Before:
 let fromFile (fs: Algebra.FileSystem) (logger: Algebra.Logger) (rulesPath: string) : Algebra.RulesEngine =
     // ...sync load...
 
@@ -200,7 +207,8 @@ Create the shared `HttpClient` at the composition root and pass it to the factor
 
 **Current**: `buildProductionDeps` constructs algebras by pattern-matching on config (embedder based on `config.Ollama.Enabled`, HttpClient creation, etc.). This is composition logic living inside Core.
 
-**Fix**: 
+**Fix**:
+
 - Delete `buildProductionDeps` from ServiceHost.fs
 - Move all algebra construction to `HermesServiceBridge.cs` (App) and `Program.fs` (CLI)
 - `ServiceHost.runSyncCycle` and `createServiceHost` receive fully-constructed algebras as parameters — they never see `HermesConfig` except for domain values (archive dir, sync interval)
@@ -221,6 +229,7 @@ dotnet test --nologo --no-build       # 418+ tests, 0 failures
 ```
 
 Verify no Tagless-Final violations remain:
+
 ```
 grep -rn "Environment.GetFolderPath\|DateTimeOffset.UtcNow\|DateTime.Now\|new HttpClient\|File.Exists\|Directory.Exists\|Async.RunSynchronously\|eprintfn" src/Hermes.Core/ --include="*.fs" | grep -v "Algebra.fs\|Interpreters\|Prelude.fs"
 ```

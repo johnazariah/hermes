@@ -126,3 +126,50 @@ let ``ContentClassifier_ParseResponse_MissingCategory_ReturnsNone`` () =
     let json = """{"confidence": 0.5, "reasoning": "unclear"}"""
     let result = ContentClassifier.parseClassificationResponse json
     Assert.True(result.IsNone)
+
+// ─── Additional ContentClassifier tests ──────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ContentClassifier_ParseResponse_EmptyCategory_ReturnsNone`` () =
+    let json = """{"category":"","confidence":0.5,"reasoning":"test"}"""
+    let result = ContentClassifier.parseClassificationResponse json
+    Assert.True(result.IsNone)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ContentClassifier_ParseResponse_ValidJson_ReturnsValues`` () =
+    let json = """{"category":"invoices","confidence":0.95,"reasoning":"Looks like an invoice"}"""
+    let result = ContentClassifier.parseClassificationResponse json
+    match result with
+    | Some (cat, conf, reasoning) ->
+        Assert.Equal("invoices", cat)
+        Assert.InRange(conf, 0.94, 0.96)
+        Assert.Contains("invoice", reasoning)
+    | None -> failwith "Expected Some"
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ContentClassifier_ParseResponse_NoReasoning_DefaultsToEmpty`` () =
+    let json = """{"category":"tax","confidence":0.7}"""
+    let result = ContentClassifier.parseClassificationResponse json
+    match result with
+    | Some ("tax", _, reasoning) -> Assert.Equal("", reasoning)
+    | _ -> failwith "Expected tax match"
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ContentClassifier_BuildPrompt_IncludesCategoriesAndContent`` () =
+    let prompt = ContentClassifier.buildClassificationPrompt "Invoice from ACME" ["invoices"; "receipts"; "tax"]
+    Assert.Contains("invoices", prompt)
+    Assert.Contains("receipts", prompt)
+    Assert.Contains("Invoice from ACME", prompt)
+    Assert.Contains("category", prompt)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ContentClassifier_BuildPrompt_LongText_Truncates`` () =
+    let longText = String.replicate 10000 "word "
+    let prompt = ContentClassifier.buildClassificationPrompt longText ["invoices"]
+    Assert.True(prompt.Length < longText.Length)
+    Assert.Contains("truncated", prompt)

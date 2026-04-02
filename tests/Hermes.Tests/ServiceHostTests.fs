@@ -629,3 +629,96 @@ let ``ServiceHost_CreateServiceHost_PreCancelledToken_UpdatesSyncState`` () =
             Assert.True(status.Value.LastSyncOk)
         finally db.dispose ()
     }
+
+// ─── LLM reclassification path ──────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceHost_RunSyncCycle_WithChatProvider_RunsLlmClassification`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        m.Fs.createDirectory "/archive"
+        m.Fs.createDirectory "/archive/unclassified"
+        m.Fs.createDirectory "/archive/unsorted"
+        m.Fs.createDirectory "/archive/invoices"
+        let! _ = db.execNonQuery
+                    "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text, extracted_at) VALUES ('manual_drop', 'invoices/existing.pdf', 'invoices', 'sha-exist', 'existing invoice', datetime('now'))"
+                    []
+        let! _ = db.execNonQuery
+                    "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text, extracted_at) VALUES ('manual_drop', 'unsorted/mystery.pdf', 'unsorted', 'sha-unsorted', 'INVOICE Total $500 from ACME Corp', datetime('now'))"
+                    []
+        m.Put "/archive/unsorted/mystery.pdf" "content"
+        let chatProvider = TestHelpers.fakeChatProvider """{"category":"invoices","confidence":0.92,"reasoning":"Contains invoice markers"}"""
+        let deps = { testDeps with ChatProvider = Some chatProvider }
+        let rules : Algebra.RulesEngine =
+            { classify = fun _ _ -> { Domain.ClassificationResult.Category = "unsorted"; MatchedRule = Domain.ClassificationRule.DefaultRule }
+              reload = fun () -> task { return Ok () } }
+        let config = TestHelpers.testConfig "/archive"
+        try
+            let! result = ServiceHost.runSyncCycle m.Fs db TestHelpers.silentLogger TestHelpers.defaultClock rules deps config "/config"
+            Assert.True(Result.isOk result)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceHost_RunSyncCycle_ChatProviderError_ContinuesGracefully`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        m.Fs.createDirectory "/archive"
+        m.Fs.createDirectory "/archive/unclassified"
+        m.Fs.createDirectory "/archive/unsorted"
+        m.Fs.createDirectory "/archive/invoices"
+        let! _ = db.execNonQuery
+                    "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text, extracted_at) VALUES ('manual_drop', 'invoices/existing.pdf', 'invoices', 'sha-exist', 'existing invoice', datetime('now'))"
+                    []
+        let! _ = db.execNonQuery
+                    "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text, extracted_at) VALUES ('manual_drop', 'unsorted/test.pdf', 'unsorted', 'sha-unsorted2', 'some text', datetime('now'))"
+                    []
+        m.Put "/archive/unsorted/test.pdf" "content"
+        let deps = { testDeps with ChatProvider = Some TestHelpers.failingChatProvider }
+        let rules : Algebra.RulesEngine =
+            { classify = fun _ _ -> { Domain.ClassificationResult.Category = "unsorted"; MatchedRule = Domain.ClassificationRule.DefaultRule }
+              reload = fun () -> task { return Ok () } }
+        let config = TestHelpers.testConfig "/archive"
+        try
+            let! result = ServiceHost.runSyncCycle m.Fs db TestHelpers.silentLogger TestHelpers.defaultClock rules deps config "/config"
+            Assert.True(Result.isOk result)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceHost_RunSyncCycle_LowConfidence_NoReclassification`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        m.Fs.createDirectory "/archive"
+        m.Fs.createDirectory "/archive/unclassified"
+        m.Fs.createDirectory "/archive/unsorted"
+        m.Fs.createDirectory "/archive/invoices"
+        let! _ = db.execNonQuery
+                    "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text, extracted_at) VALUES ('manual_drop', 'invoices/existing.pdf', 'invoices', 'sha-exist', 'existing invoice', datetime('now'))"
+                    []
+        let! _ = db.execNonQuery
+                    "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text, extracted_at) VALUES ('manual_drop', 'unsorted/unclear.pdf', 'unsorted', 'sha-unclear', 'unclear text', datetime('now'))"
+                    []
+        m.Put "/archive/unsorted/unclear.pdf" "content"
+        let chatProvider = TestHelpers.fakeChatProvider """{"category":"invoices","confidence":0.2,"reasoning":"Not sure"}"""
+        let deps = { testDeps with ChatProvider = Some chatProvider }
+        let rules : Algebra.RulesEngine =
+            { classify = fun _ _ -> { Domain.ClassificationResult.Category = "unsorted"; MatchedRule = Domain.ClassificationRule.DefaultRule }
+              reload = fun () -> task { return Ok () } }
+        let config = TestHelpers.testConfig "/archive"
+        try
+            let! result = ServiceHost.runSyncCycle m.Fs db TestHelpers.silentLogger TestHelpers.defaultClock rules deps config "/config"
+            Assert.True(Result.isOk result)
+            // Doc should still be unsorted (confidence too low)
+            let! rows = db.execReader "SELECT category FROM documents WHERE sha256 = 'sha-unclear'" []
+            match rows with
+            | [row] -> Assert.Equal(Some "unsorted", Prelude.RowReader(row).OptString "category")
+            | _ -> ()
+        finally db.dispose ()
+    }

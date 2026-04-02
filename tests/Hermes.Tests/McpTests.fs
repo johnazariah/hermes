@@ -730,3 +730,108 @@ let ``McpTools_ListDocumentsFeed_WithCategory_FiltersCorrectly`` () =
             Assert.Equal(1, arr.Count)
         finally db.dispose ()
     }
+
+// ─── McpTools.updateReminder additional branches ─────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``McpTools_UpdateReminder_Snooze_ChangesStatus`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! rid = insertReminder db "invoices" 100.0 "2026-04-05"
+            let args = JsonObject()
+            args["reminder_id"] <- JsonValue.Create(rid)
+            args["action"] <- JsonValue.Create("snooze")
+            args["snooze_days"] <- JsonValue.Create(5)
+            let! result = McpTools.updateReminder db (args :> JsonNode)
+            let doc = System.Text.Json.JsonDocument.Parse(result.ToJsonString())
+            Assert.Equal("snoozed", doc.RootElement.GetProperty("status").GetString())
+            Assert.Equal(5, doc.RootElement.GetProperty("snoozedDays").GetInt32())
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``McpTools_UpdateReminder_Dismiss_ChangesStatus`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! rid = insertReminder db "invoices" 100.0 "2026-04-05"
+            let args = JsonObject()
+            args["reminder_id"] <- JsonValue.Create(rid)
+            args["action"] <- JsonValue.Create("dismiss")
+            let! result = McpTools.updateReminder db (args :> JsonNode)
+            let doc = System.Text.Json.JsonDocument.Parse(result.ToJsonString())
+            Assert.Equal("dismissed", doc.RootElement.GetProperty("status").GetString())
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``McpTools_UpdateReminder_UnknownAction_ReturnsError`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! rid = insertReminder db "invoices" 100.0 "2026-04-05"
+            let args = JsonObject()
+            args["reminder_id"] <- JsonValue.Create(rid)
+            args["action"] <- JsonValue.Create("delete")
+            let! result = McpTools.updateReminder db (args :> JsonNode)
+            let doc = System.Text.Json.JsonDocument.Parse(result.ToJsonString())
+            Assert.True(doc.RootElement.TryGetProperty("error") |> fst)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``McpTools_UpdateReminder_MissingFields_ReturnsError`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let args = JsonObject()
+            let! result = McpTools.updateReminder db (args :> JsonNode)
+            let doc = System.Text.Json.JsonDocument.Parse(result.ToJsonString())
+            Assert.True(doc.RootElement.TryGetProperty("error") |> fst)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``McpTools_UpdateReminder_Paid_IsAlias_ForComplete`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! rid = insertReminder db "invoices" 100.0 "2026-04-05"
+            let args = JsonObject()
+            args["reminder_id"] <- JsonValue.Create(rid)
+            args["action"] <- JsonValue.Create("paid")
+            let! result = McpTools.updateReminder db (args :> JsonNode)
+            let doc = System.Text.Json.JsonDocument.Parse(result.ToJsonString())
+            Assert.Equal("completed", doc.RootElement.GetProperty("status").GetString())
+        finally db.dispose ()
+    }
+
+// ─── McpTools.reclassifyDocument ─────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``McpTools_ReclassifyDocument_ValidDoc_Reclassifies`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        m.Fs.createDirectory "/archive/unsorted"
+        m.Fs.createDirectory "/archive/invoices"
+        let! _ = db.execNonQuery
+                    "INSERT INTO documents (source_type, saved_path, category, sha256) VALUES ('manual_drop', 'unsorted/test.pdf', 'unsorted', 'sha1')"
+                    []
+        m.Put "/archive/unsorted/test.pdf" "content"
+        try
+            let args = JsonObject()
+            args["document_id"] <- JsonValue.Create(1L)
+            args["new_category"] <- JsonValue.Create("invoices")
+            let! result = McpTools.reclassifyDocument db m.Fs "/archive" (args :> JsonNode)
+            let doc = System.Text.Json.JsonDocument.Parse(result.ToJsonString())
+            Assert.Equal("reclassified", doc.RootElement.GetProperty("status").GetString())
+        finally db.dispose ()
+    }
