@@ -29,6 +29,7 @@ module Algebra =
           deleteFile: string -> unit
           moveFile: string -> string -> unit
           getFiles: string -> string -> string array
+          getDirectories: string -> string array
           getFileSize: string -> int64 }
 
     // ─── Environment ────────────────────────────────────────────────
@@ -134,6 +135,7 @@ module Interpreters =
           deleteFile = File.Delete
           moveFile = fun src dst -> File.Move(src, dst)
           getFiles = fun dir pattern -> Directory.GetFiles(dir, pattern)
+          getDirectories = fun path -> Directory.GetDirectories(path)
           getFileSize = fun path -> FileInfo(path).Length }
 
     let systemEnvironment : Algebra.Environment =

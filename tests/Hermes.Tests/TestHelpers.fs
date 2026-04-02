@@ -75,6 +75,14 @@ let memFs () : MemFs =
                 k.StartsWith(pfx, StringComparison.OrdinalIgnoreCase)
                 && not (k.Substring(pfx.Length).Contains("/")))
             |> Seq.toArray
+          getDirectories = fun dir ->
+            let pfx = let d = norm dir in if d.EndsWith("/") then d else d + "/"
+            dirs.Keys
+            |> Seq.filter (fun k ->
+                k.StartsWith(pfx, StringComparison.OrdinalIgnoreCase)
+                && k.Length > pfx.Length
+                && not (k.Substring(pfx.Length).Contains("/")))
+            |> Seq.toArray
           getFileSize = fun path ->
             let k = norm path
             match bytes.TryGetValue(k) with

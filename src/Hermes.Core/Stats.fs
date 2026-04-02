@@ -28,7 +28,7 @@ module Stats =
           LastSyncAt: string option }
 
     /// Query index stats from the database.
-    let getIndexStats (db: Algebra.Database) (dbPath: string) : Task<IndexStats> =
+    let getIndexStats (db: Algebra.Database) (fs: Algebra.FileSystem) (dbPath: string) : Task<IndexStats> =
         task {
             let! docCount = db.execScalar "SELECT COUNT(*) FROM documents" []
             let! extractedCount = db.execScalar "SELECT COUNT(*) FROM documents WHERE extracted_text IS NOT NULL" []
@@ -41,8 +41,8 @@ module Stats =
                 | _ -> 0L
 
             let sizeMb =
-                if File.Exists(dbPath) then
-                    float (FileInfo(dbPath).Length) / (1024.0 * 1024.0)
+                if fs.fileExists dbPath then
+                    float (fs.getFileSize dbPath) / (1024.0 * 1024.0)
                 else
                     0.0
 
@@ -54,17 +54,17 @@ module Stats =
         }
 
     /// Query document counts per category from the archive directory.
-    let getCategoryCounts (archiveDir: string) : CategoryCount list =
-        if not (Directory.Exists(archiveDir)) then
+    let getCategoryCounts (fs: Algebra.FileSystem) (archiveDir: string) : CategoryCount list =
+        if not (fs.directoryExists archiveDir) then
             []
         else
-            Directory.GetDirectories(archiveDir)
+            fs.getDirectories archiveDir
             |> Array.choose (fun dir ->
                 let name = Path.GetFileName(dir) |> Option.ofObj |> Option.defaultValue ""
                 if name = "unclassified" || name = ".hermes" || name = "" then
                     None
                 else
-                    let count = Directory.GetFiles(dir, "*", SearchOption.AllDirectories).Length
+                    let count = fs.getFiles dir "*" |> Array.length
                     if count > 0 then Some { Category = name; Count = count }
                     else None)
             |> Array.sortByDescending (fun c -> c.Count)

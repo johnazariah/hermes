@@ -243,7 +243,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             var db = Database.fromPath(dbPath);
             try
             {
-                IndexStats = await Stats.getIndexStats(db, dbPath);
+                IndexStats = await Stats.getIndexStats(db, Interpreters.realFileSystem, dbPath);
             }
             finally
             {
@@ -255,7 +255,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
 
     private void RefreshCategories()
     {
-        var counts = Stats.getCategoryCounts(_bridge.ArchiveDir);
+        var counts = Stats.getCategoryCounts(Interpreters.realFileSystem, _bridge.ArchiveDir);
         Categories = counts.ToList();
     }
 

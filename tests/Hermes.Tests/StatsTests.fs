@@ -13,7 +13,7 @@ let ``Stats_GetIndexStats_EmptyDb_ReturnsZeros`` () =
     task {
         let db = TestHelpers.createDb ()
         try
-            let! stats = Stats.getIndexStats db ""
+            let! stats = Stats.getIndexStats db (TestHelpers.memFs().Fs) ""
             Assert.Equal(0L, stats.DocumentCount)
             Assert.Equal(0L, stats.ExtractedCount)
             Assert.Equal(0L, stats.EmbeddedCount)
@@ -32,7 +32,7 @@ let ``Stats_GetIndexStats_WithDocuments_ReturnsCorrectCounts`` () =
             let! _ = db.execNonQuery
                         "INSERT INTO documents (source_type, saved_path, category, sha256) VALUES ('manual_drop', 'b.pdf', 'invoices', 'bbb')"
                         []
-            let! stats = Stats.getIndexStats db ""
+            let! stats = Stats.getIndexStats db (TestHelpers.memFs().Fs) ""
             Assert.Equal(2L, stats.DocumentCount)
             Assert.Equal(1L, stats.ExtractedCount)
             Assert.Equal(0L, stats.EmbeddedCount)
@@ -44,7 +44,7 @@ let ``Stats_GetIndexStats_WithDocuments_ReturnsCorrectCounts`` () =
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``Stats_GetCategoryCounts_NonexistentDir_ReturnsEmpty`` () =
-    let counts = Stats.getCategoryCounts "/nonexistent/dir"
+    let counts = Stats.getCategoryCounts (TestHelpers.memFs().Fs) "/nonexistent/dir"
     Assert.Empty(counts)
 
 // ─── getAccountStats ─────────────────────────────────────────────────
@@ -87,7 +87,7 @@ let ``Stats_GetIndexStats_WithExtractedAndEmbedded_CountsCorrectly`` () =
             let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha1')" []
             let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text, extracted_at) VALUES ('manual_drop', 'b.pdf', 'invoices', 'sha2', 'text', datetime('now'))" []
             let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text, extracted_at, embedded_at) VALUES ('manual_drop', 'c.pdf', 'invoices', 'sha3', 'text', datetime('now'), datetime('now'))" []
-            let! stats = Stats.getIndexStats db ":memory:"
+            let! stats = Stats.getIndexStats db (TestHelpers.memFs().Fs) ":memory:"
             Assert.Equal(3L, stats.DocumentCount)
             Assert.Equal(2L, stats.ExtractedCount)
             Assert.Equal(1L, stats.EmbeddedCount)
@@ -100,7 +100,7 @@ let ``Stats_GetIndexStats_NonExistentDbPath_SizeIsZero`` () =
     task {
         let db = TestHelpers.createDb ()
         try
-            let! stats = Stats.getIndexStats db "/nonexistent/path/db.sqlite"
+            let! stats = Stats.getIndexStats db (TestHelpers.memFs().Fs) "/nonexistent/path/db.sqlite"
             Assert.Equal(0.0, stats.DatabaseSizeMb)
         finally db.dispose ()
     }
@@ -140,7 +140,7 @@ let ``Stats_GetCategoryCounts_WithRealDir_ReturnsCounts`` () =
         Directory.CreateDirectory(hermesDir) |> ignore
         File.WriteAllText(Path.Combine(hermesDir, "config"), "data")
 
-        let counts = Stats.getCategoryCounts tempDir
+        let counts = Stats.getCategoryCounts Interpreters.realFileSystem tempDir
         Assert.True(counts.Length >= 2, $"Expected >= 2 categories, got {counts.Length}")
         Assert.True(counts |> List.exists (fun c -> c.Category = "invoices" && c.Count = 2))
         Assert.True(counts |> List.exists (fun c -> c.Category = "tax" && c.Count = 1))
@@ -161,7 +161,7 @@ let ``Stats_GetCategoryCounts_EmptySubdirs_ExcludesEmpty`` () =
         Directory.CreateDirectory(withFiles) |> ignore
         File.WriteAllText(Path.Combine(withFiles, "a.pdf"), "content")
 
-        let counts = Stats.getCategoryCounts tempDir
+        let counts = Stats.getCategoryCounts Interpreters.realFileSystem tempDir
         Assert.Equal(1, counts.Length)
         Assert.Equal("has-files", counts.[0].Category)
     finally
@@ -180,3 +180,4 @@ let ``Stats_GetAccountStats_NullSyncAt_ReturnsNone`` () =
             Assert.True(stats.[0].LastSyncAt.IsNone || stats.[0].LastSyncAt = Some "")
         finally db.dispose ()
     }
+
