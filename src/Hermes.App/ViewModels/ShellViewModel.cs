@@ -179,6 +179,13 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         private set => Set(ref _actionItemCount, value);
     }
 
+    private NavigatorMode _activeMode = NavigatorMode.ActionItems;
+    public NavigatorMode ActiveMode
+    {
+        get => _activeMode;
+        set => Set(ref _activeMode, value);
+    }
+
     // ── Refresh all status ─────────────────────────────────────────
 
     public async Task RefreshAsync()
