@@ -54,6 +54,14 @@ public partial class ShellWindow : Window
     private ToggleButton _todoTabButton = null!;
     private ScrollViewer _todoScroller = null!;
     private StackPanel _todoPanel = null!;
+    // Activity bar + navigator
+    private Button _navActionItems = null!;
+    private Button _navDocuments = null!;
+    private Button _navThreads = null!;
+    private Button _navTimeline = null!;
+    private Button _navActivity = null!;
+    private Button _navSettingsBtn = null!;
+    private TextBlock _navigatorTitle = null!;
 
     public ShellWindow(HermesServiceBridge bridge)
     {
@@ -104,6 +112,14 @@ public partial class ShellWindow : Window
         _todoTabButton = this.FindControl<ToggleButton>("TodoTabButton")!;
         _todoScroller = this.FindControl<ScrollViewer>("TodoScroller")!;
         _todoPanel = this.FindControl<StackPanel>("TodoPanel")!;
+        // Activity bar + navigator
+        _navActionItems = this.FindControl<Button>("NavActionItems")!;
+        _navDocuments = this.FindControl<Button>("NavDocuments")!;
+        _navThreads = this.FindControl<Button>("NavThreads")!;
+        _navTimeline = this.FindControl<Button>("NavTimeline")!;
+        _navActivity = this.FindControl<Button>("NavActivity")!;
+        _navSettingsBtn = this.FindControl<Button>("NavSettingsBtn")!;
+        _navigatorTitle = this.FindControl<TextBlock>("NavigatorTitle")!;
     }
 
     private void WireUpEvents()
@@ -162,6 +178,28 @@ public partial class ShellWindow : Window
                 await HandleSendAsync();
             };
         }
+
+        // Activity bar navigation
+        _navActionItems.Click += (_, _) => SetActiveMode(NavigatorMode.ActionItems);
+        _navDocuments.Click += (_, _) => SetActiveMode(NavigatorMode.Documents);
+        _navThreads.Click += (_, _) => SetActiveMode(NavigatorMode.Threads);
+        _navTimeline.Click += (_, _) => SetActiveMode(NavigatorMode.Timeline);
+        _navActivity.Click += (_, _) => SetActiveMode(NavigatorMode.Activity);
+        _navSettingsBtn.Click += async (_, _) => await ShowSettingsDialogAsync();
+    }
+
+    private void SetActiveMode(NavigatorMode mode)
+    {
+        _vm.ActiveMode = mode;
+        _navigatorTitle.Text = mode switch
+        {
+            NavigatorMode.ActionItems => "ACTION ITEMS",
+            NavigatorMode.Documents => "DOCUMENTS",
+            NavigatorMode.Threads => "EMAIL THREADS",
+            NavigatorMode.Timeline => "TIMELINE",
+            NavigatorMode.Activity => "ACTIVITY",
+            _ => "HERMES",
+        };
     }
 
     // ── ViewModel → View sync ──────────────────────────────────────
