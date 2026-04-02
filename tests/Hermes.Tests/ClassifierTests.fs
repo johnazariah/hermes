@@ -402,3 +402,265 @@ let ``Classifier_ProcessFile_InsertsDocumentRecord`` () =
         finally
             db.dispose ()
     }
+
+// ─── Subject-based classification ────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Classifier_ProcessFile_SubjectBasedClassification`` () =
+    task {
+        let m = TestHelpers.memFs ()
+        let db = TestHelpers.createDb ()
+        let logger = Logging.silent
+        let clock = TestHelpers.defaultClock
+        let rules = testRulesEngine ()
+
+        let archiveDir = "/archive"
+        m.Dirs.[archiveDir] <- true
+        let srcPath = Path.Combine(archiveDir, "unclassified", "document.pdf") |> m.Norm
+        let metaPath = srcPath + ".meta.json"
+        m.Put srcPath "PDF content"
+
+        m.Put metaPath
+            """{"source_type":"email_attachment","account":"test","gmail_id":"msg1","sender":"noreply@ato.gov.au","subject":"Your ATO notice","original_name":"document.pdf","sha256":"abc"}"""
+
+        try
+            let! result =
+                Classifier.processFile m.Fs db logger clock rules archiveDir srcPath
+
+            Assert.True(Result.isOk result, $"Expected Ok but got: {result}")
+
+            let destPath = Path.Combine(archiveDir, "tax", "document.pdf") |> m.Norm
+            let keysStr = String.Join("; ", m.Files.Keys)
+            Assert.True((m.Get(destPath)).IsSome, $"Expected file at {destPath}. Keys: {keysStr}")
+
+            let! catResult =
+                db.execScalar
+                    "SELECT category FROM documents WHERE original_name = 'document.pdf'"
+                    []
+
+            match catResult with
+            | null -> failwith "Expected a category value"
+            | v -> Assert.Equal("tax", v :?> string)
+        finally
+            db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Classifier_ProcessFile_SidecarEmailDate_StoredInDb`` () =
+    task {
+        let m = TestHelpers.memFs ()
+        let db = TestHelpers.createDb ()
+        let logger = Logging.silent
+        let clock = TestHelpers.defaultClock
+        let rules = testRulesEngine ()
+
+        let archiveDir = "/archive"
+        m.Dirs.[archiveDir] <- true
+        let srcPath = Path.Combine(archiveDir, "unclassified", "doc.pdf") |> m.Norm
+        let metaPath = srcPath + ".meta.json"
+        m.Put srcPath "tax doc"
+
+        m.Put metaPath
+            """{"source_type":"email_attachment","account":"test","gmail_id":"msg2","sender":"someone@example.com","subject":"Your Tax Return","date":"2025-06-15T09:00:00+10:00","original_name":"doc.pdf","sha256":"xyz"}"""
+
+        try
+            let! result =
+                Classifier.processFile m.Fs db logger clock rules archiveDir srcPath
+
+            Assert.True(Result.isOk result, $"Expected Ok but got: {result}")
+
+            let! emailDateResult =
+                db.execScalar
+                    "SELECT email_date FROM documents WHERE category = 'tax'"
+                    []
+
+            Assert.NotNull(emailDateResult)
+
+            match emailDateResult with
+            | null -> failwith "Expected email_date to be populated, got null"
+            | :? DBNull -> failwith "Expected email_date to be populated, got DBNull"
+            | :? string as s -> Assert.Contains("2025-06-15", s)
+            | v -> failwith $"Unexpected email_date type: {v.GetType().Name}"
+        finally
+            db.dispose ()
+    }
+
+// ─── suggestRules tests ──────────────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Classifier_SuggestRules_FindsUnsortedMatchInCategory`` () =
+    task {
+        let m = TestHelpers.memFs ()
+        let db = TestHelpers.createDb ()
+        let logger = Logging.silent
+
+        let archiveDir = "/archive"
+        m.Dirs.[Path.Combine(archiveDir, "invoices") |> m.Norm] <- true
+        m.Put (Path.Combine(archiveDir, "invoices", "report.pdf") |> m.Norm) "invoice content"
+
+        let! _ =
+            db.execNonQuery
+                """INSERT INTO documents (source_type, saved_path, category, sha256, original_name)
+                   VALUES ('manual_drop', 'unsorted/report.pdf', 'unsorted', 'hash123', 'report.pdf')"""
+                []
+
+        try
+            let! suggestions =
+                Classifier.suggestRules m.Fs db logger archiveDir
+
+            Assert.True(suggestions.Length >= 1, $"Expected at least 1 suggestion, got {suggestions.Length}")
+
+            let invoiceSuggestion =
+                suggestions |> List.find (fun s -> s.Category = "invoices")
+
+            Assert.Equal("invoices", invoiceSuggestion.Category)
+            Assert.Equal("filename", invoiceSuggestion.MatchType)
+        finally
+            db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Classifier_SuggestRules_NoUnsortedDocs_ReturnsEmpty`` () =
+    task {
+        let m = TestHelpers.memFs ()
+        let db = TestHelpers.createDb ()
+        let logger = Logging.silent
+
+        let archiveDir = "/archive"
+        m.Dirs.[Path.Combine(archiveDir, "invoices") |> m.Norm] <- true
+        m.Put (Path.Combine(archiveDir, "invoices", "report.pdf") |> m.Norm) "invoice content"
+
+        try
+            let! suggestions =
+                Classifier.suggestRules m.Fs db logger archiveDir
+
+            Assert.Empty(suggestions)
+        finally
+            db.dispose ()
+    }
+
+// ─── reclassifyUnsortedBatch tests ───────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Classifier_ReclassifyUnsortedBatch_ContentRuleMatch`` () =
+    task {
+        let m = TestHelpers.memFs ()
+        let db = TestHelpers.createDb ()
+
+        let archiveDir = "/archive"
+        m.Dirs.[archiveDir] <- true
+        m.Put (Path.Combine(archiveDir, "unsorted", "invoice.pdf") |> m.Norm) "invoice file"
+
+        let! _ =
+            db.execNonQuery
+                """INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text)
+                   VALUES ('manual_drop', 'unsorted/invoice.pdf', 'unsorted', 'hash456',
+                           'Amount due: $500. Invoice number 12345.')"""
+                []
+
+        let contentRules : Domain.ContentRule list =
+            [ { Name = "invoice-content"
+                Conditions = [ Domain.ContentAny [ "invoice"; "amount due" ] ]
+                Category = "invoices"
+                Confidence = 0.8 } ]
+
+        try
+            let! (reclassified, _remaining) =
+                Classifier.reclassifyUnsortedBatch db m.Fs contentRules archiveDir 10
+
+            Assert.True(reclassified >= 1, $"Expected at least 1 reclassified, got {reclassified}")
+
+            let! catResult =
+                db.execScalar
+                    "SELECT category FROM documents WHERE sha256 = 'hash456'"
+                    []
+
+            match catResult with
+            | null -> failwith "Expected a category value after reclassification"
+            | v -> Assert.Equal("invoices", v :?> string)
+        finally
+            db.dispose ()
+    }
+
+// ─── reconcile tests ─────────────────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Classifier_Reconcile_NewFileOnDisk_DetectedAsNewOnDisk`` () =
+    task {
+        let m = TestHelpers.memFs ()
+        let db = TestHelpers.createDb ()
+        let logger = Logging.silent
+
+        let archiveDir = "/archive"
+        m.Dirs.[Path.Combine(archiveDir, "invoices") |> m.Norm] <- true
+        m.Put (Path.Combine(archiveDir, "invoices", "new-file.pdf") |> m.Norm) "content"
+
+        try
+            let! actions = Classifier.reconcile m.Fs db logger archiveDir true
+            Assert.True(actions.Length >= 1, $"Expected >= 1 action, got {actions.Length}")
+            let hasNew = actions |> List.exists (fun a -> match a with Classifier.NewOnDisk _ -> true | _ -> false)
+            Assert.True(hasNew, "Expected NewOnDisk action")
+        finally
+            db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Classifier_Reconcile_FileInDb_NoAction`` () =
+    task {
+        let m = TestHelpers.memFs ()
+        let db = TestHelpers.createDb ()
+        let logger = Logging.silent
+
+        let archiveDir = "/archive"
+        let relPath = Path.Combine("invoices", "existing.pdf")
+        let fullPath = Path.Combine(archiveDir, relPath) |> m.Norm
+        m.Dirs.[Path.Combine(archiveDir, "invoices") |> m.Norm] <- true
+        m.Put fullPath "content"
+
+        let! _ =
+            db.execNonQuery
+                """INSERT INTO documents (source_type, saved_path, category, sha256)
+                   VALUES ('manual_drop', @path, 'invoices', 'sha1')"""
+                [ ("@path", Database.boxVal relPath) ]
+
+        try
+            let! actions = Classifier.reconcile m.Fs db logger archiveDir true
+            let newOnDisk = actions |> List.filter (fun a -> match a with Classifier.NewOnDisk _ -> true | _ -> false)
+            Assert.Empty(newOnDisk)
+        finally
+            db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Classifier_Reconcile_EmptyArchive_ReturnsEmpty`` () =
+    task {
+        let m = TestHelpers.memFs ()
+        let db = TestHelpers.createDb ()
+        let logger = Logging.silent
+        try
+            let! actions = Classifier.reconcile m.Fs db logger "/archive" true
+            Assert.Empty(actions)
+        finally
+            db.dispose ()
+    }
+
+// ─── tryLoadSidecar error paths ──────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Classifier_TryLoadSidecar_InvalidJson_ReturnsNone`` () =
+    task {
+        let m = TestHelpers.memFs ()
+        let logger = Logging.silent
+        m.Put "/test/file.pdf.meta.json" "not valid json{{"
+        let! result = Classifier.tryLoadSidecar m.Fs logger "/test/file.pdf"
+        Assert.True(result.IsNone)
+    }

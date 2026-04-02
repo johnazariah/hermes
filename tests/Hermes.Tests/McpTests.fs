@@ -1,6 +1,7 @@
 module Hermes.Tests.McpTests
 
 #nowarn "3261"
+#nowarn "3264"
 
 open System
 open System.Text.Json
@@ -544,5 +545,188 @@ let ``McpServer_GetDocumentContent_Markdown_ReturnsStructuredContent`` () =
             let textContent = content.[0].GetProperty("text").GetString()
             Assert.Contains("## Summary", textContent)
             Assert.Contains("| Item | Amount |", textContent)
+        finally db.dispose ()
+    }
+
+// ─── McpTools direct function tests ──────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``McpTools_ListDocumentsFeed_ReturnsDocuments`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            do! insertTestDocument db "invoices" "test.pdf"
+            let args = JsonObject() :> JsonNode
+            let! result = McpTools.listDocumentsFeed db args
+            let arr = result :?> JsonArray
+            Assert.True(arr.Count > 0)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``McpTools_ListDocumentsFeed_EmptyDb_ReturnsEmptyArray`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let args = JsonObject() :> JsonNode
+            let! result = McpTools.listDocumentsFeed db args
+            let arr = result :?> JsonArray
+            Assert.Equal(0, arr.Count)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``McpTools_GetFeedStats_ReturnsStats`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            do! insertTestDocument db "invoices" "a.pdf"
+            do! insertTestDocument db "tax" "b.pdf"
+            let args = JsonObject() :> JsonNode
+            let! result = McpTools.getFeedStats db args
+            let obj = result :?> JsonObject
+            Assert.Equal(2, obj["total_documents"].GetValue<int>())
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``McpTools_GetProcessingQueue_ReturnsQueueInfo`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256) VALUES ('manual_drop', 'a.pdf', 'unsorted', 'sha1')" []
+            let args = JsonObject() :> JsonNode
+            let! result = McpTools.getProcessingQueue db args
+            let obj = result :?> JsonObject
+            Assert.True(obj.ContainsKey("unclassified"))
+            Assert.True(obj.ContainsKey("unextracted"))
+            Assert.True(obj.ContainsKey("unembedded"))
+            let unclassified = obj["unclassified"] :?> JsonObject
+            Assert.True(unclassified["count"].GetValue<int>() >= 1)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``McpTools_ReextractDocument_ValidId_ReturnsSuccess`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text, extracted_at) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha1', 'text', datetime('now'))" []
+            let args = JsonObject()
+            args["document_id"] <- JsonValue.Create(1L)
+            let! result = McpTools.reextractDocument db (args :> JsonNode)
+            let obj = result :?> JsonObject
+            Assert.Equal("queued_for_reextraction", obj["status"].GetValue<string>())
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``McpTools_ReextractDocument_MissingId_ReturnsError`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let args = JsonObject() :> JsonNode
+            let! result = McpTools.reextractDocument db args
+            let obj = result :?> JsonObject
+            Assert.True(obj.ContainsKey("error"))
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``McpTools_ReclassifyDocument_MissingId_ReturnsError`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let args = JsonObject()
+            args["new_category"] <- JsonValue.Create("tax")
+            let! result = McpTools.reclassifyDocument db (TestHelpers.memFs().Fs) "/archive" (args :> JsonNode)
+            let obj = result :?> JsonObject
+            Assert.True(obj.ContainsKey("error"))
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``McpTools_ReclassifyDocument_MissingCategory_ReturnsError`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let args = JsonObject()
+            args["document_id"] <- JsonValue.Create(1L)
+            let! result = McpTools.reclassifyDocument db (TestHelpers.memFs().Fs) "/archive" (args :> JsonNode)
+            let obj = result :?> JsonObject
+            Assert.True(obj.ContainsKey("error"))
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``McpTools_GetDocumentContent_MissingId_ReturnsError`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let args = JsonObject() :> JsonNode
+            let! result = McpTools.getDocumentContent db (TestHelpers.memFs().Fs) "/archive" args
+            let obj = result :?> JsonObject
+            Assert.True(obj.ContainsKey("error"))
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``McpTools_GetDocumentContent_ValidId_ReturnsContent`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text) VALUES ('manual_drop', 'inv/a.pdf', 'invoices', 'sha1', 'Hello world')" []
+            let args = JsonObject()
+            args["document_id"] <- JsonValue.Create(1L)
+            args["format"] <- JsonValue.Create("markdown")
+            let! result = McpTools.getDocumentContent db (TestHelpers.memFs().Fs) "/archive" (args :> JsonNode)
+            let obj = result :?> JsonObject
+            Assert.Equal("Hello world", obj["content"].GetValue<string>())
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``McpTools_ReadFile_ValidPath_ReturnsContent`` () =
+    task {
+        let m = TestHelpers.memFs ()
+        let archiveDir = IO.Path.GetFullPath("testarchive_read")
+        let filePath = IO.Path.Combine(archiveDir, "invoices", "test.txt")
+        m.Put (m.Norm filePath) "file contents here"
+        let args = JsonObject()
+        args["path"] <- JsonValue.Create("invoices/test.txt")
+        let! result = McpTools.readFile m.Fs archiveDir (args :> JsonNode)
+        let doc = JsonDocument.Parse(result.ToJsonString())
+        let root = doc.RootElement
+        match root.TryGetProperty("content") with
+        | true, contentProp -> Assert.Contains("file contents here", contentProp.GetString())
+        | _ ->
+            let errMsg = match root.TryGetProperty("error") with true, e -> e.GetString() | _ -> "unknown"
+            failwith $"Expected content, got error: {errMsg}"
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``McpTools_ListDocumentsFeed_WithCategory_FiltersCorrectly`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            do! insertTestDocument db "invoices" "a.pdf"
+            do! insertTestDocument db "tax" "b.pdf"
+            let args = JsonObject()
+            args["category"] <- JsonValue.Create("invoices")
+            let! result = McpTools.listDocumentsFeed db (args :> JsonNode)
+            let arr = result :?> JsonArray
+            Assert.Equal(1, arr.Count)
         finally db.dispose ()
     }

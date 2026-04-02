@@ -509,3 +509,129 @@ let ``Embeddings_EmbedDocument_FailingClient_ReturnsError`` () =
             Assert.True(Result.isError result)
         finally db.dispose ()
     }
+
+// ─── batchEmbed tests ────────────────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_BatchEmbed_UnavailableClient_ReturnsError`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            do! Embeddings.initSchema db
+            let! result = Embeddings.batchEmbed db TestHelpers.silentLogger TestHelpers.failingEmbedder false None None
+            Assert.True(Result.isError result)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_BatchEmbed_NoDocs_ReturnsOkZero`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            do! Embeddings.initSchema db
+            let client = TestHelpers.fakeEmbedder 768
+            let! result = Embeddings.batchEmbed db TestHelpers.silentLogger client false None None
+            Assert.Equal(Ok 0, result)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_BatchEmbed_WithDocs_EmbedsSuccessfully`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            do! Embeddings.initSchema db
+            let! _ = db.execNonQuery
+                        "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha1', 'test document content for embedding')"
+                        []
+            let client = TestHelpers.fakeEmbedder 4
+            let! result = Embeddings.batchEmbed db TestHelpers.silentLogger client false None None
+            match result with
+            | Ok count -> Assert.True(count > 0, $"Expected >0, got {count}")
+            | Error e -> failwith $"Expected Ok, got Error: {e}"
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_BatchEmbed_WithLimit_RespectsLimit`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            do! Embeddings.initSchema db
+            let! _ = db.execNonQuery
+                        "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha1', 'first document')"
+                        []
+            let! _ = db.execNonQuery
+                        "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text) VALUES ('manual_drop', 'b.pdf', 'invoices', 'sha2', 'second document')"
+                        []
+            let client = TestHelpers.fakeEmbedder 4
+            let! result = Embeddings.batchEmbed db TestHelpers.silentLogger client false (Some 1) None
+            match result with
+            | Ok count -> Assert.Equal(1, count)
+            | Error e -> failwith $"Expected Ok, got Error: {e}"
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_BatchEmbed_Force_ReEmbedsAlreadyEmbedded`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            do! Embeddings.initSchema db
+            let! _ = db.execNonQuery
+                        "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text, embedded_at) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha1', 'already embedded doc', datetime('now'))"
+                        []
+            let client = TestHelpers.fakeEmbedder 4
+            // Without force: should find 0 docs (already embedded)
+            let! resultNoForce = Embeddings.batchEmbed db TestHelpers.silentLogger client false None None
+            Assert.Equal(Ok 0, resultNoForce)
+            // With force: should re-embed
+            let! resultForce = Embeddings.batchEmbed db TestHelpers.silentLogger client true None None
+            match resultForce with
+            | Ok count -> Assert.True(count > 0, "Force should re-embed already embedded docs")
+            | Error e -> failwith $"Expected Ok, got Error: {e}"
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_BatchEmbed_ProgressCallback_Called`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            do! Embeddings.initSchema db
+            let! _ = db.execNonQuery
+                        "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha1', 'test doc for progress')"
+                        []
+            let client = TestHelpers.fakeEmbedder 4
+            let mutable callCount = 0
+            let progress : Embeddings.ProgressCallback = fun _completed _total -> callCount <- callCount + 1
+            let! _ = Embeddings.batchEmbed db TestHelpers.silentLogger client false None (Some progress)
+            Assert.True(callCount > 0, "Progress callback should have been called")
+        finally db.dispose ()
+    }
+
+// ─── storeChunk edge cases ───────────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_StoreChunk_NoEmbedding_InsertsNullBlob`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            do! Embeddings.initSchema db
+            let! _ = db.execNonQuery
+                        "INSERT INTO documents (source_type, saved_path, category, sha256) VALUES ('manual_drop', 'test.pdf', 'invoices', 'sha1')"
+                        []
+            do! Embeddings.storeChunk db 1L 0 "test chunk no embedding" None
+            let! count = db.execScalar "SELECT COUNT(*) FROM document_chunks WHERE document_id = 1" []
+            Assert.Equal(1L, count :?> int64)
+            let! embResult = db.execScalar "SELECT embedding FROM document_chunks WHERE document_id = 1" []
+            Assert.True(embResult = null || embResult :? DBNull, "Expected null embedding")
+        finally db.dispose ()
+    }

@@ -1,5 +1,8 @@
 module Hermes.Tests.DocumentFeedTests
 
+#nowarn "3261"
+#nowarn "3264"
+
 open System.Threading.Tasks
 open Xunit
 open Hermes.Core
@@ -172,6 +175,165 @@ let ``DocumentFeed_GetContent_InvalidId_ReturnsError`` () =
             match result with
             | Error e -> Assert.Contains("not found", e)
             | Ok _ -> failwith "Expected Error for invalid ID"
+        finally
+            db.dispose ()
+    }
+
+// ─── getDocumentContent Raw ──────────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``DocumentFeed_GetContent_Raw_ReturnsFileContent`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        try
+            do! insertDocWithText db "invoices" "inv.pdf" "extracted text"
+            m.Put "/archive/invoices/inv.pdf" "Raw PDF file content here"
+            let! docs = DocumentFeed.listDocuments db 0L None 1
+            let docId = docs.[0].Id
+            let! result = DocumentFeed.getDocumentContent db m.Fs "/archive" docId DocumentFeed.Raw
+            match result with
+            | Ok content -> Assert.Equal("Raw PDF file content here", content)
+            | Error e -> failwith $"Expected Ok, got Error: {e}"
+        finally
+            db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``DocumentFeed_GetContent_Raw_MissingFile_ReturnsError`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        try
+            do! insertDocWithText db "invoices" "missing.pdf" "text"
+            let! docs = DocumentFeed.listDocuments db 0L None 1
+            let docId = docs.[0].Id
+            let! result = DocumentFeed.getDocumentContent db m.Fs "/archive" docId DocumentFeed.Raw
+            match result with
+            | Error e -> Assert.Contains("not found", e)
+            | Ok _ -> failwith "Expected Error for missing file"
+        finally
+            db.dispose ()
+    }
+
+// ─── parseFormat tests ───────────────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``DocumentFeed_ParseFormat_Text_ReturnsSome`` () =
+    Assert.Equal(Some DocumentFeed.Text, DocumentFeed.parseFormat "text")
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``DocumentFeed_ParseFormat_Markdown_ReturnsSome`` () =
+    Assert.Equal(Some DocumentFeed.Markdown, DocumentFeed.parseFormat "markdown")
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``DocumentFeed_ParseFormat_Raw_ReturnsSome`` () =
+    Assert.Equal(Some DocumentFeed.Raw, DocumentFeed.parseFormat "raw")
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``DocumentFeed_ParseFormat_CaseInsensitive`` () =
+    Assert.Equal(Some DocumentFeed.Text, DocumentFeed.parseFormat "TEXT")
+    Assert.Equal(Some DocumentFeed.Markdown, DocumentFeed.parseFormat "MARKDOWN")
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``DocumentFeed_ParseFormat_Unknown_ReturnsNone`` () =
+    Assert.True((DocumentFeed.parseFormat "pdf").IsNone)
+
+// ─── feedDocToJson tests ─────────────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``DocumentFeed_FeedDocToJson_IncludesAllFields`` () =
+    let doc : DocumentFeed.FeedDocument =
+        { Id = 42L; OriginalName = "test.pdf"; Category = "invoices"
+          FilePath = "invoices/test.pdf"; Sender = Some "alice@co.com"
+          Subject = Some "Invoice"; Account = Some "test-account"
+          ExtractedDate = Some "2025-03-15"; ExtractedAmount = Some 500.0
+          ExtractedVendor = Some "ACME"; IngestedAt = "2025-03-15T00:00:00Z"
+          ExtractedAt = Some "2025-03-15T01:00:00Z" }
+    let json = DocumentFeed.feedDocToJson doc
+    Assert.Equal(42L, json["id"].GetValue<int64>())
+    Assert.Equal("test.pdf", json["original_name"].GetValue<string>())
+    Assert.Equal("invoices", json["category"].GetValue<string>())
+    Assert.Equal("alice@co.com", json["sender"].GetValue<string>())
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``DocumentFeed_FeedDocToJson_OmitsNoneFields`` () =
+    let doc : DocumentFeed.FeedDocument =
+        { Id = 1L; OriginalName = "test.pdf"; Category = "invoices"
+          FilePath = "invoices/test.pdf"; Sender = None; Subject = None
+          Account = None; ExtractedDate = None; ExtractedAmount = None
+          ExtractedVendor = None; IngestedAt = ""; ExtractedAt = None }
+    let json = DocumentFeed.feedDocToJson doc
+    Assert.False(json.ContainsKey("sender"))
+    Assert.False(json.ContainsKey("subject"))
+
+// ─── feedStatsToJson tests ───────────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``DocumentFeed_FeedStatsToJson_IncludesFields`` () =
+    let stats : DocumentFeed.FeedStats =
+        { TotalDocuments = 10; MaxDocumentId = 42L
+          ByCategory = Map.ofList [ ("invoices", 5); ("tax", 3) ] }
+    let json = DocumentFeed.feedStatsToJson stats
+    Assert.Equal(10, json["total_documents"].GetValue<int>())
+    Assert.Equal(42L, json["max_document_id"].GetValue<int64>())
+    let cats = json["by_category"] :?> System.Text.Json.Nodes.JsonObject
+    Assert.Equal(5, cats["invoices"].GetValue<int>())
+
+// ─── getDocumentContent Markdown no text ─────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``DocumentFeed_GetContent_Markdown_NoExtractedText_ReturnsError`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        try
+            do! insertDoc db "invoices" "no-text.pdf"
+            let! docs = DocumentFeed.listDocuments db 0L None 1
+            let docId = docs.[0].Id
+            let! result = DocumentFeed.getDocumentContent db m.Fs "/archive" docId DocumentFeed.Markdown
+            match result with
+            | Error e -> Assert.Contains("No extracted text", e)
+            | Ok _ -> failwith "Expected Error when no extracted text"
+        finally
+            db.dispose ()
+    }
+
+// ─── listDocuments empty DB ──────────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``DocumentFeed_ListDocuments_EmptyDb_ReturnsEmpty`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! docs = DocumentFeed.listDocuments db 0L None 10
+            Assert.Empty(docs)
+        finally
+            db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``DocumentFeed_GetFeedStats_EmptyDb_ReturnsZeros`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! stats = DocumentFeed.getFeedStats db
+            Assert.Equal(0, stats.TotalDocuments)
+            Assert.Equal(0L, stats.MaxDocumentId)
+            Assert.Empty(stats.ByCategory)
         finally
             db.dispose ()
     }

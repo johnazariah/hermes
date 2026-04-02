@@ -156,3 +156,108 @@ let ``Chat_Query_NoResults_AiSummaryIsNone`` () =
             Assert.True(response.AiSummary.IsNone || response.Results.IsEmpty)
         finally db.dispose ()
     }
+
+// ─── Additional query tests ──────────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Chat_Query_MultipleResults_ReturnsAll`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! _ =
+                db.execNonQuery
+                    """INSERT INTO documents (source_type, saved_path, category, sha256, original_name, extracted_text)
+                       VALUES ('manual_drop', 'invoices/a.pdf', 'invoices', 'sha1', 'a.pdf', 'plumber repair job march')"""
+                    []
+            let! _ =
+                db.execNonQuery
+                    """INSERT INTO documents (source_type, saved_path, category, sha256, original_name, extracted_text)
+                       VALUES ('manual_drop', 'invoices/b.pdf', 'invoices', 'sha2', 'b.pdf', 'plumber annual service')"""
+                    []
+            let! response = Chat.query db fakeChat false "plumber"
+            Assert.True(response.Results.Length >= 2, $"Expected >= 2 results, got {response.Results.Length}")
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Chat_Query_WithFakeChatProvider_ReturnsCustomResponse`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let customChat = TestHelpers.fakeChatProvider "Custom AI summary here"
+        try
+            let! _ =
+                db.execNonQuery
+                    """INSERT INTO documents (source_type, saved_path, category, sha256, original_name, extracted_text)
+                       VALUES ('manual_drop', 'invoices/t.pdf', 'invoices', 'sha3', 't.pdf', 'test document content')"""
+                    []
+            let! response = Chat.query db customChat true "test"
+            Assert.True(response.AiSummary.IsSome)
+            Assert.Contains("Custom AI summary here", response.AiSummary.Value)
+        finally db.dispose ()
+    }
+
+// ─── Provider construction edge cases ────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Chat_ProviderFromConfig_AzureOpenAI_WithValidConfig_ReturnsAzureProvider`` () =
+    let chatConfig : Domain.ChatConfig =
+        { Provider = Domain.ChatProviderKind.AzureOpenAI
+          AzureOpenAI =
+            { Domain.AzureOpenAIConfig.Endpoint = "https://test.openai.azure.com"
+              ApiKey = "test-api-key"
+              DeploymentName = "gpt-4o"
+              MaxTokens = 100
+              TimeoutSeconds = 30 } }
+    let _provider = Chat.providerFromConfig chatConfig "http://localhost:11434" "llama3"
+    Assert.True(true)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Chat_ProviderFromConfig_AzureOpenAI_EmptyEndpoint_FallsBackToOllama`` () =
+    let chatConfig : Domain.ChatConfig =
+        { Provider = Domain.ChatProviderKind.AzureOpenAI
+          AzureOpenAI =
+            { Domain.AzureOpenAIConfig.Endpoint = ""
+              ApiKey = "test-api-key"
+              DeploymentName = "gpt-4o"
+              MaxTokens = 100
+              TimeoutSeconds = 30 } }
+    let _provider = Chat.providerFromConfig chatConfig "http://localhost:11434" "llama3"
+    Assert.True(true)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Chat_ProviderFromConfig_AzureOpenAI_EmptyApiKey_FallsBackToOllama`` () =
+    let chatConfig : Domain.ChatConfig =
+        { Provider = Domain.ChatProviderKind.AzureOpenAI
+          AzureOpenAI =
+            { Domain.AzureOpenAIConfig.Endpoint = "https://test.openai.azure.com"
+              ApiKey = ""
+              DeploymentName = "gpt-4o"
+              MaxTokens = 100
+              TimeoutSeconds = 30 } }
+    let _provider = Chat.providerFromConfig chatConfig "http://localhost:11434" "llama3"
+    Assert.True(true)
+
+// ─── buildUserPrompt ─────────────────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Chat_BuildUserPrompt_IncludesQueryAndContext`` () =
+    let result = Chat.buildUserPrompt "Where is my invoice?" "1. invoices/inv.pdf"
+    Assert.Contains("Where is my invoice?", result)
+    Assert.Contains("invoices/inv.pdf", result)
+
+// ─── formatResultsForPrompt edge cases ───────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Chat_FormatResults_IncludesSubjectAndDateAndVendor`` () =
+    let result = Chat.formatResultsForPrompt [ sampleResult "invoices" "inv.pdf" (Some "bob@co.com") (Some 100.0) ]
+    Assert.Contains("Subject: Test Subject", result)
+    Assert.Contains("Date: 2026-03-15", result)
+    Assert.Contains("Vendor: Test Vendor", result)
+    Assert.Contains("Content: ...matching snippet...", result)

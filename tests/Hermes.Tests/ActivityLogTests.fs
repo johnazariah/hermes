@@ -120,3 +120,57 @@ let ``ActivityLog_GetByCategory_FiltersCorrectly`` () =
             Assert.Equal("sync", syncLogs.[0].Category)
         finally db.dispose ()
     }
+
+// ─── Additional ActivityLog tests ────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ActivityLog_LogError_WithDocumentId_LinksToDocument`` () =
+    task {
+        let db = initDb ()
+        try
+            do! ActivityLog.logError db "extraction" "Failed to extract" (Some 42L) "Timeout"
+            let! logs = ActivityLog.getForDocument db 42L 10
+            Assert.Equal(1, logs.Length)
+            Assert.Equal("error", logs.[0].Level)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ActivityLog_GetRecent_MultipleEntries_RespectsOrder`` () =
+    task {
+        let db = initDb ()
+        try
+            do! ActivityLog.logInfo db "sync" "First" None
+            do! ActivityLog.logInfo db "sync" "Second" None
+            do! ActivityLog.logInfo db "sync" "Third" None
+            let! recent = ActivityLog.getRecent db 2
+            Assert.Equal(2, recent.Length)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ActivityLog_LogWarning_SetsWarningLevel`` () =
+    task {
+        let db = initDb ()
+        try
+            do! ActivityLog.logWarning db "sync" "Something might be wrong" None "warning detail"
+            let! recent = ActivityLog.getRecent db 10
+            Assert.Equal(1, recent.Length)
+            Assert.Equal("warning", recent.[0].Level)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ActivityLog_GetByCategory_NoMatches_ReturnsEmpty`` () =
+    task {
+        let db = initDb ()
+        try
+            do! ActivityLog.logInfo db "sync" "test" None
+            let! logs = ActivityLog.getByCategory db "nonexistent" 10
+            Assert.Empty(logs)
+        finally db.dispose ()
+    }

@@ -198,3 +198,87 @@ let ``ServiceHost_EvaluateReminders_CreatesRemindersForBills`` () =
             Assert.True(summary.TotalActiveAmount > 0m)
         finally db.dispose ()
     }
+
+// ─── countUnextracted tests ──────────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceHost_CountUnextracted_AllExtracted_ReturnsZero`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! _ = db.execNonQuery
+                        "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text, extracted_at) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha1', 'text', datetime('now'))"
+                        []
+            let! count = ServiceHost.countUnextracted db
+            Assert.Equal(0L, count)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceHost_CountUnextracted_EmptyDb_ReturnsZero`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! count = ServiceHost.countUnextracted db
+            Assert.Equal(0L, count)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceHost_CountUnextracted_MixedDocs_CountsCorrectly`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha1')" []
+            let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256) VALUES ('manual_drop', 'b.pdf', 'invoices', 'sha2')" []
+            let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text, extracted_at) VALUES ('manual_drop', 'c.pdf', 'invoices', 'sha3', 'text', datetime('now'))" []
+            let! count = ServiceHost.countUnextracted db
+            Assert.Equal(2L, count)
+        finally db.dispose ()
+    }
+
+// ─── defaultServiceConfig tests ──────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceHost_DefaultServiceConfig_ArchiveDirFromConfig`` () =
+    let config = TestHelpers.testConfig "/my/archive"
+    let sc = ServiceHost.defaultServiceConfig config
+    Assert.Equal("/my/archive", sc.ArchiveDir)
+    Assert.Equal(config.SyncIntervalMinutes, sc.SyncIntervalMinutes)
+    Assert.Equal(60, sc.HeartbeatIntervalSeconds)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceHost_DefaultServiceConfig_ConfigPreserved`` () =
+    let config = TestHelpers.testConfig "/test"
+    let sc = ServiceHost.defaultServiceConfig config
+    Assert.Equal(config, sc.Config)
+
+// ─── Heartbeat with all fields ───────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceHost_WriteAndReadHeartbeat_AllFields_RoundTrip`` () =
+    task {
+        let m = TestHelpers.memFs ()
+        let status : ServiceHost.ServiceStatus =
+            { Running = true
+              StartedAt = Some (DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero))
+              LastSyncAt = Some (DateTimeOffset(2026, 1, 1, 1, 0, 0, TimeSpan.Zero))
+              LastSyncOk = false
+              DocumentCount = 100L
+              UnclassifiedCount = 5
+              ErrorMessage = Some "sync failed" }
+        do! ServiceHost.writeHeartbeat m.Fs "/archive" status
+        let! read = ServiceHost.readHeartbeat m.Fs "/archive"
+        Assert.True(read.IsSome)
+        Assert.True(read.Value.Running)
+        Assert.False(read.Value.LastSyncOk)
+        Assert.Equal(100L, read.Value.DocumentCount)
+        Assert.Equal(5, read.Value.UnclassifiedCount)
+        Assert.True(read.Value.ErrorMessage.IsSome)
+    }
