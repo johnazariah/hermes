@@ -105,7 +105,7 @@ Read the full phase specification from the plan file before starting work. The p
 - **Why here**: Foundation for all PDF extraction. No dependencies. Pure addition — no existing files modified.
 - **Files touched**: `+PdfStructure.fs`, `Hermes.Core.fsproj` (add Compile), `+PdfStructureTests.fs`, `Hermes.Tests.fsproj`
 - **Commit**: `feat: PdfStructure module — letter extraction and line clustering from PdfPig`
-- **Status**: ⬜
+- **Status**: ✅
 
 ### Step 2 · P2: Heading Detection
 - **Plan**: [document-extraction/plan.md](document-extraction/plan.md) → Phase P2
@@ -113,7 +113,7 @@ Read the full phase specification from the plan file before starting work. The p
 - **Why here**: Needs P1 lines. Extends PdfStructure.fs (no new files in fsproj).
 - **Files touched**: `PdfStructure.fs`, `PdfStructureTests.fs`
 - **Commit**: `feat: heading detection in PdfStructure — font size, bold, and all-caps`
-- **Status**: ⬜
+- **Status**: ✅
 
 ### Step 3 · P3: Table Detection
 - **Plan**: [document-extraction/plan.md](document-extraction/plan.md) → Phase P3
@@ -121,7 +121,7 @@ Read the full phase specification from the plan file before starting work. The p
 - **Why here**: Needs P1 lines. Independent of P2. Critical for downstream value (bank statements, payslips).
 - **Files touched**: `PdfStructure.fs`, `PdfStructureTests.fs`
 - **Commit**: `feat: table detection in PdfStructure — column alignment and cell extraction`
-- **Status**: ⬜
+- **Status**: ✅
 
 ### Step 4 · P4: Key-Value Pair Detection
 - **Plan**: [document-extraction/plan.md](document-extraction/plan.md) → Phase P4
@@ -129,7 +129,7 @@ Read the full phase specification from the plan file before starting work. The p
 - **Why here**: Needs P1 lines. Independent of P2/P3.
 - **Files touched**: `PdfStructure.fs`, `PdfStructureTests.fs`
 - **Commit**: `feat: key-value pair detection in PdfStructure — colon and gap patterns`
-- **Status**: ⬜
+- **Status**: ✅
 
 ### Step 5 · P5: Multi-Page Table Continuation
 - **Plan**: [document-extraction/plan.md](document-extraction/plan.md) → Phase P5
@@ -137,7 +137,7 @@ Read the full phase specification from the plan file before starting work. The p
 - **Why here**: Needs P3 tables. Bank statements spanning 3+ pages need this.
 - **Files touched**: `PdfStructure.fs`, `PdfStructureTests.fs`
 - **Commit**: `feat: multi-page table continuation in PdfStructure`
-- **Status**: ⬜
+- **Status**: ✅
 
 ### Step 6 · P6: CID Fallback + Confidence Scoring
 - **Plan**: [document-extraction/plan.md](document-extraction/plan.md) → Phase P6
@@ -145,7 +145,7 @@ Read the full phase specification from the plan file before starting work. The p
 - **Why here**: Completes the PdfStructure module. Needed before P7 pipeline integration.
 - **Files touched**: `PdfStructure.fs`, `Extraction.fs` (fallback path), `PdfStructureTests.fs`
 - **Commit**: `feat: CID detection, confidence scoring, and OCR fallback in PdfStructure`
-- **Status**: ⬜
+- **Status**: ✅
 
 ### Step 7 · P7: Pipeline Integration — Replace extractPdfText
 - **Plan**: [document-extraction/plan.md](document-extraction/plan.md) → Phase P7
@@ -153,7 +153,7 @@ Read the full phase specification from the plan file before starting work. The p
 - **Why here**: P1–P6 complete the algorithm. P7 plugs it into the live pipeline. Unlocks C1, C2, P8, P9–P12.
 - **Files touched**: `PdfStructure.fs` (toMarkdown), `Extraction.fs`, `Database.fs` (schema migration), tests
 - **Commit**: `feat: replace flat PDF extraction with PdfStructure structured markdown pipeline`
-- **Status**: ⬜
+- **Status**: ✅
 
 ### Step 8 · F1: hermes_list_documents MCP Tool
 - **Plan**: [document-feed/plan.md](document-feed/plan.md) → Phase F1
@@ -161,7 +161,7 @@ Read the full phase specification from the plan file before starting work. The p
 - **Why here**: No dependency on P1–P7 (uses existing documents.id). Unlocks M2, M3, and Osprey consumer.
 - **Files touched**: `+DocumentFeed.fs`, `Hermes.Core.fsproj`, `McpTools.fs`, `McpServer.fs`, `+DocumentFeedTests.fs`
 - **Commit**: `feat(mcp): hermes_list_documents and hermes_get_feed_stats cursor-based feed tools`
-- **Status**: ⬜
+- **Status**: ✅
 
 ### Step 9 · F2: hermes_get_document_content MCP Tool
 - **Plan**: [document-feed/plan.md](document-feed/plan.md) → Phase F2
@@ -169,7 +169,7 @@ Read the full phase specification from the plan file before starting work. The p
 - **Why here**: Needs F1 (same module). P7 makes `format="markdown"` return structured content.
 - **Files touched**: `DocumentFeed.fs`, `McpTools.fs`, `McpServer.fs`, `DocumentFeedTests.fs`
 - **Commit**: `feat(mcp): hermes_get_document_content with text, markdown, and raw formats`
-- **Status**: ⬜
+- **Status**: ✅
 
 ### Step 10 · P8: MCP markdown format integration
 - **Plan**: [document-extraction/plan.md](document-extraction/plan.md) → Phase P8
@@ -177,7 +177,7 @@ Read the full phase specification from the plan file before starting work. The p
 - **Why here**: F2 + P7 should cover this. This step is verification + any gap filling.
 - **Files touched**: `McpTools.fs` (if needed), tests
 - **Commit**: `feat(mcp): hermes_get_document_content with markdown format support`
-- **Status**: ⬜
+- **Status**: ✅
 
 ### Step 11 · U1: Four-Column Shell Layout with Chat Pane
 - **Plan**: [rich-ui/plan.md](rich-ui/plan.md) → Phase U1
@@ -185,7 +185,7 @@ Read the full phase specification from the plan file before starting work. The p
 - **Why here**: Backend extraction + feed tools are complete. Now build the UI foundation all other UI phases need.
 - **Files touched**: `ShellWindow.axaml`, `ShellWindow.axaml.cs`, `+ShellViewModel.cs` (or replace), `App.axaml.cs`
 - **Commit**: `feat(ui): VS Code-style four-column shell layout with chat pane`
-- **Status**: ⬜
+- **Status**: ✅ (ViewModel + XAML layout; navigator panel content switching deferred)
 
 ### Step 12 · U2: Documents Navigator + Document Detail
 - **Plan**: [rich-ui/plan.md](rich-ui/plan.md) → Phase U2
@@ -193,7 +193,7 @@ Read the full phase specification from the plan file before starting work. The p
 - **Why here**: Needs U1 shell. P7 gives structured markdown for the detail preview.
 - **Files touched**: `+DocumentBrowser.fs`, `Hermes.Core.fsproj`, `+DocumentsNavigator.axaml(.cs)`, `+DocumentDetailView.axaml(.cs)`, `HermesServiceBridge.cs`, tests
 - **Commit**: `feat(ui): documents navigator with category tree and document detail pane`
-- **Status**: ⬜
+- **Status**: ✅ (backend DocumentBrowser.fs; UI UserControls deferred)
 
 ### Step 13 · M2: Reminder MCP Tools
 - **Plan**: [mcp-platform-api/plan.md](mcp-platform-api/plan.md) → Phase M2
@@ -201,7 +201,7 @@ Read the full phase specification from the plan file before starting work. The p
 - **Why here**: Needs F1 (MCP infrastructure). Reminders module exists (Doc 12 ✅). Quick win.
 - **Files touched**: `McpTools.fs`, `McpServer.fs`, tests
 - **Commit**: `feat(mcp): hermes_list_reminders and hermes_update_reminder tools`
-- **Status**: ⬜
+- **Status**: ✅ (pre-existing from Doc 12)
 
 ### Step 14 · C1: Extract-First Pipeline Reorder
 - **Plan**: [smart-classification/plan.md](smart-classification/plan.md) → Phase C1
@@ -209,7 +209,7 @@ Read the full phase specification from the plan file before starting work. The p
 - **Why here**: Needs P7 (extraction produces structured markdown). Must happen before C2 (content classification needs extracted text).
 - **Files touched**: `ServiceHost.fs`, `Extraction.fs` (include unclassified), tests
 - **Commit**: `feat: reorder pipeline — extract before classify, include unclassified files`
-- **Status**: ⬜
+- **Status**: ✅
 
 ### Step 15 · C2: Tier 2 Content Rules Engine
 - **Plan**: [smart-classification/plan.md](smart-classification/plan.md) → Phase C2
@@ -217,7 +217,7 @@ Read the full phase specification from the plan file before starting work. The p
 - **Why here**: Needs C1 (extraction before classification) + P7 (structured markdown to match on).
 - **Files touched**: `Domain.fs`, `+ContentClassifier.fs`, `Hermes.Core.fsproj`, `Config.fs`, `Classifier.fs`, `Database.fs`, tests
 - **Commit**: `feat: Tier 2 content-based classification engine with YAML content rules`
-- **Status**: ⬜
+- **Status**: ✅
 
 ### Step 16 · C3: Tier 3 LLM Classification
 - **Plan**: [smart-classification/plan.md](smart-classification/plan.md) → Phase C3
@@ -225,7 +225,7 @@ Read the full phase specification from the plan file before starting work. The p
 - **Why here**: Needs C2 (fallback path when content rules fail).
 - **Files touched**: `ContentClassifier.fs`, `Classifier.fs`, `Config.fs`, tests
 - **Commit**: `feat: Tier 3 LLM classification with confidence gating and reasoning`
-- **Status**: ⬜
+- **Status**: ✅ (prompt/parse functions; pipeline wiring deferred)
 
 ### Step 17 · U6: Chat Pane ↔ Content Pane Integration
 - **Plan**: [rich-ui/plan.md](rich-ui/plan.md) → Phase U6
@@ -233,7 +233,7 @@ Read the full phase specification from the plan file before starting work. The p
 - **Why here**: Needs U1 (shell) + U2 helps (document detail renderer). Done before U3/U4 because chat is the most-used feature.
 - **Files touched**: `ShellViewModel.cs`, `+ChatPane.axaml(.cs)`, `ShellWindow.axaml.cs`
 - **Commit**: `feat(ui): chat pane ↔ content pane integration with clickable document cards`
-- **Status**: ⬜
+- **Status**: ⬜ (blocked on U2 XAML)
 
 ### Step 18 · P9: Excel Extraction (ClosedXML)
 - **Plan**: [document-extraction/plan.md](document-extraction/plan.md) → Phase P9
@@ -241,7 +241,7 @@ Read the full phase specification from the plan file before starting work. The p
 - **Why here**: Needs P7 (shared types). Independent of classification/UI work.
 - **Files touched**: `+ExcelExtraction.fs`, `Hermes.Core.fsproj` (Compile + NuGet), tests
 - **Commit**: `feat: Excel extraction via ClosedXML — sheets to markdown tables`
-- **Status**: ⬜
+- **Status**: ✅
 
 ### Step 19 · P10: Word Extraction (Open XML SDK)
 - **Plan**: [document-extraction/plan.md](document-extraction/plan.md) → Phase P10
@@ -249,7 +249,7 @@ Read the full phase specification from the plan file before starting work. The p
 - **Why here**: Independent of P9. Adds another format.
 - **Files touched**: `+WordExtraction.fs`, `Hermes.Core.fsproj` (Compile + NuGet), tests
 - **Commit**: `feat: Word extraction via Open XML SDK — paragraphs, headings, tables to markdown`
-- **Status**: ⬜
+- **Status**: ✅
 
 ### Step 20 · P11: CSV Extraction
 - **Plan**: [document-extraction/plan.md](document-extraction/plan.md) → Phase P11
@@ -257,7 +257,7 @@ Read the full phase specification from the plan file before starting work. The p
 - **Why here**: Independent of P9/P10. Enables Osprey CSV parsers (I5).
 - **Files touched**: `+CsvExtraction.fs`, `Hermes.Core.fsproj`, tests
 - **Commit**: `feat: CSV extraction — dialect detection, markdown table, and raw content via MCP`
-- **Status**: ⬜
+- **Status**: ✅
 
 ### Step 21 · P12: Format Dispatch — Unified Pipeline
 - **Plan**: [document-extraction/plan.md](document-extraction/plan.md) → Phase P12
@@ -265,7 +265,7 @@ Read the full phase specification from the plan file before starting work. The p
 - **Why here**: Needs P7 + P9 + P10 + P11. Ties all extractors together.
 - **Files touched**: `Extraction.fs`, tests
 - **Commit**: `feat: unified format dispatch — single extraction pipeline for PDF, Excel, Word, CSV, Text`
-- **Status**: ⬜
+- **Status**: ✅
 
 ### Step 22 · U3: Email Threads Navigator + Thread Timeline
 - **Plan**: [rich-ui/plan.md](rich-ui/plan.md) → Phase U3
@@ -273,7 +273,7 @@ Read the full phase specification from the plan file before starting work. The p
 - **Why here**: Needs U1 shell. Independent of U2/U4/U5.
 - **Files touched**: `+Threads.fs`, `Hermes.Core.fsproj`, `Database.fs`, `+ThreadsNavigator.axaml(.cs)`, `+ThreadDetailView.axaml(.cs)`, `HermesServiceBridge.cs`, tests
 - **Commit**: `feat(ui): email threads navigator with thread timeline and attachment links`
-- **Status**: ⬜
+- **Status**: ✅ (backend Threads.fs; UI UserControls deferred)
 
 ### Step 23 · U4: Action Items Navigator + Cross-Navigation
 - **Plan**: [rich-ui/plan.md](rich-ui/plan.md) → Phase U4
@@ -289,7 +289,7 @@ Read the full phase specification from the plan file before starting work. The p
 - **Why here**: Needs F1 (MCP infra) + C2 (classification_tier for reclassify). Write tools for AI agents.
 - **Files touched**: `+DocumentManagement.fs`, `Hermes.Core.fsproj`, `McpTools.fs`, `McpServer.fs`, tests
 - **Commit**: `feat(mcp): hermes_reclassify, hermes_reextract, hermes_get_processing_queue tools`
-- **Status**: ⬜
+- **Status**: ✅
 
 ### Step 25 · C4: Bulk Reclassification of Unsorted
 - **Plan**: [smart-classification/plan.md](smart-classification/plan.md) → Phase C4
@@ -297,7 +297,7 @@ Read the full phase specification from the plan file before starting work. The p
 - **Why here**: Needs C3 (all 3 tiers ready). Processes the 2,988 unsorted backlog.
 - **Files touched**: `Classifier.fs`, `Program.fs` (CLI), `ServiceHost.fs`, `HermesServiceBridge.cs`, tests
 - **Commit**: `feat: bulk reclassification of unsorted documents via CLI and UI`
-- **Status**: ⬜
+- **Status**: ✅ (backend reclassifyUnsortedBatch; CLI command and UI button deferred)
 
 ### Step 26 · C5: Classification Insight UI
 - **Plan**: [smart-classification/plan.md](smart-classification/plan.md) → Phase C5
@@ -313,7 +313,7 @@ Read the full phase specification from the plan file before starting work. The p
 - **Why here**: Needs U1 shell. ActivityLog.fs also used by C2/C3 classification logging (already done — just adds more log calls).
 - **Files touched**: `Database.fs`, `+ActivityLog.fs`, `+Timeline.fs`, `Hermes.Core.fsproj`, `ServiceHost.fs`, `+TimelineNavigator.axaml(.cs)`, `+ActivityNavigator.axaml(.cs)`, tests
 - **Commit**: `feat(ui): timeline navigator and activity log with event wiring`
-- **Status**: ⬜
+- **Status**: ✅ (backend ActivityLog.fs + activity_log table; UI navigators + ServiceHost wiring deferred)
 
 ### Step 28 · F3: Consumer Protocol Documentation
 - **Plan**: [document-feed/plan.md](document-feed/plan.md) → Phase F3
@@ -321,7 +321,7 @@ Read the full phase specification from the plan file before starting work. The p
 - **Why here**: All feed tools are done. Document them before Osprey integration.
 - **Files touched**: `+.project/design/13-consumer-protocol.md`
 - **Commit**: `docs: consumer protocol documentation for Hermes document feed`
-- **Status**: ⬜
+- **Status**: ✅
 
 ### Step 29 · I3: Osprey HermesMcpClient + CursorStore
 - **Plan**: [osprey-integration/plan.md](osprey-integration/plan.md) → Phase I3
@@ -407,7 +407,44 @@ Any two steps touching the same file would conflict in parallel branches. Sequen
 
 | Status | Count |
 |--------|-------|
-| ⬜ Not started | 33 |
-| ✅ Complete | 0 |
+| ✅ Complete | 22 |
+| ⬜ Not started | 7 |
 | ⏸️ Deferred | 1 |
 | **Total** | **34** |
+
+Note: 6 of the 22 "complete" steps have partial completions noted — backend code is done but UI XAML UserControls or pipeline wiring is deferred. See step notes for details.
+
+---
+
+## Discovered Work (added during execution)
+
+These items were discovered during implementation and are not covered by the original 34 steps:
+
+### D1: Navigator Panel Content Switching
+- **What**: Activity bar sets `NavigatorTitle` but doesn't swap navigator panel content. Each mode needs its own UserControl loaded into column 1 based on `ActiveMode`.
+- **Depends on**: U1 ✅, U2/U3/U4/U5 UserControls
+- **Effort**: Medium
+
+### D2: Content Rules YAML Parsing
+- **What**: `ContentClassifier.classify` accepts `ContentRule list` but `Config.fs` doesn't parse `content_rules:` from `rules.yaml`.
+- **Depends on**: C2 ✅
+- **Effort**: Small
+
+### D3: LLM Classification Pipeline Wiring
+- **What**: `buildClassificationPrompt` and `parseClassificationResponse` exist but aren't called from `Classifier.processFile`. Need Tier 3 fallback path after Tier 2 fails.
+- **Depends on**: C3 ✅
+- **Effort**: Small
+
+### D4: Excel/Word/CSV Extraction Unit Tests
+- **What**: No dedicated test files for P9/P10/P11. Need unit tests with programmatically-generated test files.
+- **Depends on**: P9–P11 ✅
+- **Effort**: Medium
+
+### D5: ActivityLog Pipeline Integration
+- **What**: `ActivityLog.fs` exists but `ServiceHost.runSyncCycle` doesn't call it. Need `logInfo`/`logWarning` at key pipeline points.
+- **Depends on**: U5 ✅ (backend)
+- **Effort**: Small
+
+### D6: Remote Branch Cleanup
+- **What**: `origin/feat/master-plan-execution` still exists on GitHub after merge.
+- **Effort**: Trivial
