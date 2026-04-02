@@ -241,7 +241,7 @@ let private searchCmd (args: ParseResults<SearchArgs>) =
     | Some query ->
         match loadConfigAndDb () with
         | None -> 1
-        | Some(_fs, _logger, config, db) ->
+        | Some(_fs, logger, config, db) ->
             try
                 if args.Contains Hybrid || args.Contains Semantic then
                     // Semantic / hybrid mode via embeddings
@@ -258,7 +258,7 @@ let private searchCmd (args: ParseResults<SearchArgs>) =
                             768
 
                     let results =
-                        SemanticSearch.search db client mode query limit
+                        SemanticSearch.search db client logger mode query limit
                         |> Async.AwaitTask
                         |> Async.RunSynchronously
 

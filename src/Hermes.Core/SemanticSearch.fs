@@ -261,6 +261,7 @@ module SemanticSearch =
     let search
         (db: Algebra.Database)
         (client: Algebra.EmbeddingClient)
+        (logger: Algebra.Logger)
         (mode: SearchMode)
         (query: string)
         (limit: int)
@@ -276,7 +277,7 @@ module SemanticSearch =
                         match result with
                         | Ok results -> return results
                         | Error e ->
-                            eprintfn $"Semantic search failed: {e}"
+                            logger.error $"Semantic search failed: {e}"
                             return []
                     }
                 | Hybrid -> hybridSearch db client query limit

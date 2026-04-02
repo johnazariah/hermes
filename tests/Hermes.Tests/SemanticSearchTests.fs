@@ -157,7 +157,7 @@ let ``SemanticSearch_Search_KeywordMode_ReturnsResults`` () =
         try
             do! insertSearchDoc db "invoices" "plumber.pdf" "plumbing repair receipt"
             let embedder = TestHelpers.fakeEmbedder 768
-            let! results = SemanticSearch.search db embedder SemanticSearch.SearchMode.Keyword "plumbing" 10
+            let! results = SemanticSearch.search db embedder TestHelpers.silentLogger SemanticSearch.SearchMode.Keyword "plumbing" 10
             Assert.True(results.Length > 0)
             Assert.Equal("invoices", results.[0].Category)
         finally db.dispose ()
@@ -173,7 +173,7 @@ let ``SemanticSearch_Search_KeywordMode_NoResults_ReturnsEmpty`` () =
         try
             do! insertSearchDoc db "invoices" "test.pdf" "some invoice content"
             let embedder = TestHelpers.fakeEmbedder 768
-            let! results = SemanticSearch.search db embedder SemanticSearch.SearchMode.Keyword "xyznonexistent" 10
+            let! results = SemanticSearch.search db embedder TestHelpers.silentLogger SemanticSearch.SearchMode.Keyword "xyznonexistent" 10
             Assert.Empty(results)
         finally db.dispose ()
     }
@@ -185,7 +185,7 @@ let ``SemanticSearch_Search_KeywordMode_EmptyQuery_ReturnsEmpty`` () =
         let db = TestHelpers.createDb ()
         try
             let embedder = TestHelpers.fakeEmbedder 768
-            let! results = SemanticSearch.search db embedder SemanticSearch.SearchMode.Keyword "" 10
+            let! results = SemanticSearch.search db embedder TestHelpers.silentLogger SemanticSearch.SearchMode.Keyword "" 10
             Assert.Empty(results)
         finally db.dispose ()
     }
@@ -238,7 +238,7 @@ let ``SemanticSearch_Search_SemanticMode_FailingEmbedder_ReturnsEmpty`` () =
         try
             do! insertSearchDoc db "invoices" "test.pdf" "some content"
             let embedder = TestHelpers.failingEmbedder
-            let! results = SemanticSearch.search db embedder SemanticSearch.SearchMode.Semantic "test" 10
+            let! results = SemanticSearch.search db embedder TestHelpers.silentLogger SemanticSearch.SearchMode.Semantic "test" 10
             Assert.Empty(results)
         finally db.dispose ()
     }
@@ -319,7 +319,7 @@ let ``SemanticSearch_Search_HybridMode_ReturnsResults`` () =
             let embedding = [| 0.5f; 0.5f; 0.5f; 0.5f |]
             do! Embeddings.storeChunk db 1L 0 "plumbing repair receipt" (Some embedding)
             let embedder = TestHelpers.fakeEmbedder 4
-            let! results = SemanticSearch.search db embedder SemanticSearch.SearchMode.Hybrid "plumbing" 10
+            let! results = SemanticSearch.search db embedder TestHelpers.silentLogger SemanticSearch.SearchMode.Hybrid "plumbing" 10
             Assert.True(results.Length > 0, "Hybrid search should find doc")
         finally db.dispose ()
     }
@@ -335,7 +335,7 @@ let ``SemanticSearch_Search_SemanticMode_WithChunks_ReturnsResults`` () =
             let embedding = [| 0.3f; 0.4f; 0.5f; 0.6f |]
             do! Embeddings.storeChunk db 1L 0 "plumbing service" (Some embedding)
             let embedder = TestHelpers.fakeEmbedder 4
-            let! results = SemanticSearch.search db embedder SemanticSearch.SearchMode.Semantic "plumbing" 10
+            let! results = SemanticSearch.search db embedder TestHelpers.silentLogger SemanticSearch.SearchMode.Semantic "plumbing" 10
             Assert.True(results.Length > 0, "Semantic search should find doc")
         finally db.dispose ()
     }
