@@ -10,11 +10,52 @@
 
   <Grid RowDefinitions="*,Auto">
 
-    <!-- ── Main: sidebar (left) + chat (right) ── -->
-    <Grid Grid.Row="0" ColumnDefinitions="280,4,*">
+    <!-- ── Main: ActivityBar + Navigator + Splitter + Content ── -->
+    <Grid Grid.Row="0" ColumnDefinitions="48,260,4,*">
 
-      <!-- ════════════════════ LEFT SIDEBAR ════════════════════ -->
+      <!-- ════════════════════ COLUMN 0: ACTIVITY BAR ════════════════════ -->
       <Border Grid.Column="0"
+              Background="{DynamicResource SidebarBg}"
+              BorderBrush="{DynamicResource SidebarBorder}"
+              BorderThickness="0,0,1,0">
+        <DockPanel LastChildFill="False">
+          <!-- Top icons -->
+          <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,8,0,0"
+                      HorizontalAlignment="Center">
+            <Button x:Name="NavActionItems" Content="📋" FontSize="18"
+                    Width="36" Height="36" Padding="0"
+                    ToolTip.Tip="Action Items" Classes="activityIcon"
+                    Background="Transparent" HorizontalContentAlignment="Center" />
+            <Button x:Name="NavDocuments" Content="📁" FontSize="18"
+                    Width="36" Height="36" Padding="0"
+                    ToolTip.Tip="Documents" Classes="activityIcon"
+                    Background="Transparent" HorizontalContentAlignment="Center" />
+            <Button x:Name="NavThreads" Content="📧" FontSize="18"
+                    Width="36" Height="36" Padding="0"
+                    ToolTip.Tip="Email Threads" Classes="activityIcon"
+                    Background="Transparent" HorizontalContentAlignment="Center" />
+            <Button x:Name="NavTimeline" Content="⏰" FontSize="18"
+                    Width="36" Height="36" Padding="0"
+                    ToolTip.Tip="Timeline" Classes="activityIcon"
+                    Background="Transparent" HorizontalContentAlignment="Center" />
+            <Button x:Name="NavActivity" Content="⚡" FontSize="18"
+                    Width="36" Height="36" Padding="0"
+                    ToolTip.Tip="Activity Log" Classes="activityIcon"
+                    Background="Transparent" HorizontalContentAlignment="Center" />
+          </StackPanel>
+          <!-- Bottom icons -->
+          <StackPanel DockPanel.Dock="Bottom" Spacing="4" Margin="0,0,0,8"
+                      HorizontalAlignment="Center">
+            <Button x:Name="NavSettings" Content="⚙" FontSize="18"
+                    Width="36" Height="36" Padding="0"
+                    ToolTip.Tip="Settings" Classes="activityIcon"
+                    Background="Transparent" HorizontalContentAlignment="Center" />
+          </StackPanel>
+        </DockPanel>
+      </Border>
+
+      <!-- ════════════════════ COLUMN 1: NAVIGATOR PANEL ════════════════════ -->
+      <Border Grid.Column="1"
               Background="{DynamicResource SidebarBg}"
               BorderBrush="{DynamicResource SidebarBorder}"
               BorderThickness="0,0,1,0">
@@ -22,13 +63,13 @@
                       VerticalScrollBarVisibility="Auto">
           <StackPanel>
 
-            <!-- App header -->
+            <!-- Navigator heading -->
             <Border Padding="16,14,12,12"
                     BorderBrush="{DynamicResource SidebarBorder}"
                     BorderThickness="0,0,0,1">
               <StackPanel Orientation="Horizontal" Spacing="8">
                 <TextBlock Text="⚡" FontSize="15" VerticalAlignment="Center" />
-                <TextBlock Text="HERMES" FontWeight="Bold" FontSize="13"
+                <TextBlock x:Name="NavigatorTitle" Text="HERMES" FontWeight="Bold" FontSize="13"
                            LetterSpacing="2" VerticalAlignment="Center"
                            Foreground="{DynamicResource PrimaryFg}"
                            FontFamily="Inter,Segoe UI,sans-serif" />
@@ -142,14 +183,14 @@
         </ScrollViewer>
       </Border>
 
-      <!-- ════════════════════ SPLITTER ════════════════════ -->
-      <GridSplitter Grid.Column="1"
+      <!-- ════════════════════ COLUMN 2: SPLITTER ════════════════════ -->
+      <GridSplitter Grid.Column="2"
                     Background="{DynamicResource SidebarBorder}"
                     HorizontalAlignment="Stretch"
                     VerticalAlignment="Stretch" />
 
-      <!-- ════════════════════ RIGHT MAIN PANEL ════════════════════ -->
-      <Grid Grid.Column="2" RowDefinitions="Auto,*,Auto" Background="{DynamicResource ChatBg}">
+      <!-- ════════════════════ COLUMN 3: CONTENT AREA ════════════════════ -->
+      <Grid Grid.Column="3" RowDefinitions="Auto,*,Auto" Background="{DynamicResource ChatBg}">
 
         <!-- Tab toggle bar -->
         <Border Grid.Row="0" BorderBrush="{DynamicResource SidebarBorder}" BorderThickness="0,0,0,1" Padding="12,6">

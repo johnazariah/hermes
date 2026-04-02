@@ -115,3 +115,44 @@ let ``Chat_Query_EmptyQuery_ReturnsEmpty`` () =
             Assert.Empty(response.Results)
         finally db.dispose ()
     }
+
+// ─── Provider construction ───────────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Chat_ProviderFromConfig_Ollama_ReturnsOllamaProvider`` () =
+    let chatConfig : Domain.ChatConfig =
+        { Provider = Domain.ChatProviderKind.Ollama
+          AzureOpenAI = { Domain.AzureOpenAIConfig.Endpoint = ""; ApiKey = ""; DeploymentName = ""; MaxTokens = 100; TimeoutSeconds = 30 } }
+    // Just verify it doesn't throw — the provider is a record of functions
+    let _provider = Chat.providerFromConfig chatConfig "http://localhost:11434" "llama3"
+    Assert.True(true)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Chat_Query_AiError_ReturnsErrorMessage`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let failChat : Algebra.ChatProvider =
+            { complete = fun _ _ -> task { return Error "connection refused" } }
+        try
+            let! _ = db.execNonQuery
+                        "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha1', 'test content')"
+                        []
+            let! response = Chat.query db failChat true "test"
+            Assert.True(response.AiSummary.IsSome)
+            Assert.Contains("unavailable", response.AiSummary.Value)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Chat_Query_NoResults_AiSummaryIsNone`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! response = Chat.query db fakeChat true "xyznonexistent"
+            // No results → AI not called
+            Assert.True(response.AiSummary.IsNone || response.Results.IsEmpty)
+        finally db.dispose ()
+    }

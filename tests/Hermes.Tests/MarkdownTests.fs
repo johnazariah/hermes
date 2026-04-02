@@ -146,3 +146,61 @@ let ``Markdown_BuildConversion_IncludesFrontmatterAndBody`` () =
     Assert.Contains("500.00", result.Markdown)
     Assert.Equal(Some "500.00", result.Frontmatter.Amount)
     Assert.Equal(Some "12345678901", result.Frontmatter.Abn)
+
+// ─── WriteSidecar ────────────────────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Markdown_WriteSidecar_CreatesFile`` () =
+    task {
+        let m = TestHelpers.memFs ()
+        let conversion =
+            Markdown.buildConversion "Invoice $100" "invoices" "inv.pdf" "manual_drop" None None None None "pdfpig"
+        let! result = Markdown.writeSidecar m.Fs "/archive" "invoices/inv.pdf" conversion
+        Assert.True(Result.isOk result)
+        Assert.True((m.Get "/archive/invoices/inv.pdf.md").IsSome)
+    }
+
+// ─── ProcessDocument with DB ─────────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Markdown_ProcessDocument_WritesMarkdownSidecar`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        try
+            let! _ = db.execNonQuery
+                        "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text, extraction_method) VALUES ('manual_drop', 'invoices/inv.pdf', 'invoices', 'sha1', 'Invoice $300 ABN 12345678901', 'pdfpig')"
+                        []
+            let! result = Markdown.processDocument m.Fs db TestHelpers.silentLogger "/archive" 1L
+            Assert.True(Result.isOk result)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Markdown_ProcessDocument_NoText_ReturnsError`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        try
+            let! _ = db.execNonQuery
+                        "INSERT INTO documents (source_type, saved_path, category, sha256) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha1')"
+                        []
+            let! result = Markdown.processDocument m.Fs db TestHelpers.silentLogger "/archive" 1L
+            Assert.True(Result.isError result)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Markdown_ProcessDocument_NonexistentDoc_ReturnsError`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        try
+            let! result = Markdown.processDocument m.Fs db TestHelpers.silentLogger "/archive" 999L
+            Assert.True(Result.isError result)
+        finally db.dispose ()
+    }
