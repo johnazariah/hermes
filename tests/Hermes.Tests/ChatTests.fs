@@ -261,3 +261,55 @@ let ``Chat_FormatResults_IncludesSubjectAndDateAndVendor`` () =
     Assert.Contains("Date: 2026-03-15", result)
     Assert.Contains("Vendor: Test Vendor", result)
     Assert.Contains("Content: ...matching snippet...", result)
+
+// ─── Additional Chat edge cases ──────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Chat_BuildUserPrompt_EmptyContext_StillIncludesQuery`` () =
+    let result = Chat.buildUserPrompt "How much did I pay?" ""
+    Assert.Contains("How much did I pay?", result)
+    Assert.Contains("Answer briefly", result)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Chat_FormatResults_NoOptionalFields_FormatsCleanly`` () =
+    let result : Search.SearchResult =
+        { DocumentId = 1L; SavedPath = "misc/doc.pdf"; OriginalName = None
+          Category = "misc"; Sender = None; Subject = None; EmailDate = None
+          ExtractedVendor = None; ExtractedAmount = None; RelevanceScore = 1.0
+          Snippet = None; ResultType = "document" }
+    let formatted = Chat.formatResultsForPrompt [result]
+    Assert.Contains("[misc/document]", formatted)
+    Assert.DoesNotContain("From:", formatted)
+    Assert.DoesNotContain("Vendor:", formatted)
+    Assert.DoesNotContain("Amount:", formatted)
+    Assert.DoesNotContain("Subject:", formatted)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Chat_Query_AiEnabled_NoResults_SkipsAiCall`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! response = Chat.query db fakeChat true "xyznonexistent12345"
+            Assert.True(response.Results.IsEmpty)
+            Assert.True(response.AiSummary.IsNone)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Chat_SystemPrompt_ContainsDocumentTypes`` () =
+    Assert.Contains("emails", Chat.systemPrompt)
+    Assert.Contains("invoices", Chat.systemPrompt)
+    Assert.Contains("receipts", Chat.systemPrompt)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Chat_FormatResults_MultipleResults_NumbersCorrectly`` () =
+    let results = [ for i in 1..3 -> sampleResult "invoices" $"file{i}.pdf" None (Some (float i * 100.0)) ]
+    let formatted = Chat.formatResultsForPrompt results
+    Assert.Contains("1.", formatted)
+    Assert.Contains("2.", formatted)
+    Assert.Contains("3.", formatted)

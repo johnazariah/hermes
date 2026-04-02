@@ -160,3 +160,55 @@ let ``Reminders_GetSummary_CorrectCounts`` () =
             Assert.Equal(300m, summary.TotalActiveAmount)
         finally db.dispose ()
     }
+
+// ─── unsnoozeExpired ─────────────────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Reminders_UnsnoozeExpired_WithExpiredSnooze_UnsnoozesReminder`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! _docId = insertTestDoc db "invoices" (Some 100.0) (Some "2026-04-05")
+            let! _ = Reminders.evaluateNewDocuments db TestHelpers.silentLogger now
+            let! active = Reminders.getActive db now
+            Assert.True(active.Length > 0)
+            let rid = active.[0] |> fun (r, _, _) -> r.Id
+            do! Reminders.snooze db rid 3 now
+            let! afterSnooze = Reminders.getActive db now
+            Assert.Equal(0, afterSnooze.Length)
+            let afterExpiry = now.AddDays(4.0)
+            let! unsnoozed = Reminders.unsnoozeExpired db afterExpiry
+            Assert.True(unsnoozed > 0)
+            let! afterUnsnooze = Reminders.getActive db afterExpiry
+            Assert.True(afterUnsnooze.Length > 0)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Reminders_UnsnoozeExpired_NoSnoozedReminders_ReturnsZero`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! count = Reminders.unsnoozeExpired db now
+            Assert.Equal(0, count)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Reminders_UnsnoozeExpired_BeforeExpiry_ReturnsZero`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! _docId = insertTestDoc db "invoices" (Some 100.0) (Some "2026-04-05")
+            let! _ = Reminders.evaluateNewDocuments db TestHelpers.silentLogger now
+            let! active = Reminders.getActive db now
+            let rid = active.[0] |> fun (r, _, _) -> r.Id
+            do! Reminders.snooze db rid 7 now
+            let beforeExpiry = now.AddDays(3.0)
+            let! count = Reminders.unsnoozeExpired db beforeExpiry
+            Assert.Equal(0, count)
+        finally db.dispose ()
+    }

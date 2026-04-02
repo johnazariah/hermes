@@ -467,3 +467,55 @@ let ``Backfill_LoadBackfillState_EmptyDb_ReturnsDefaults`` () =
             Assert.True(state.PageToken.IsNone)
         finally db.dispose ()
     }
+
+// ─── syncAll and dryRunAll ───────────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``EmailSync_SyncAll_EmptyMessages_ReturnsResultPerAccount`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        m.Fs.createDirectory "/archive"
+        m.Fs.createDirectory "/archive/unclassified"
+        let config = emailTestConfig "/archive"
+        try
+            let makeProvider _ = TestHelpers.emptyProvider
+            let! results = EmailSync.syncAll m.Fs db TestHelpers.silentLogger TestHelpers.defaultClock makeProvider config
+            Assert.Equal(config.Accounts.Length, results.Length)
+            Assert.Equal(0, results.[0].AttachmentsDownloaded)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``EmailSync_SyncAll_MultipleAccounts_SyncsEach`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        m.Fs.createDirectory "/archive"
+        m.Fs.createDirectory "/archive/unclassified"
+        let config =
+            { emailTestConfig "/archive" with
+                Accounts =
+                    [ { Label = "acct1"; Provider = "gmail"; Backfill = { Domain.BackfillConfig.Enabled = false; Since = None; BatchSize = 50; AttachmentsOnly = true; IncludeBodies = false } }
+                      { Label = "acct2"; Provider = "gmail"; Backfill = { Domain.BackfillConfig.Enabled = false; Since = None; BatchSize = 50; AttachmentsOnly = true; IncludeBodies = false } } ] }
+        try
+            let makeProvider _ = TestHelpers.emptyProvider
+            let! results = EmailSync.syncAll m.Fs db TestHelpers.silentLogger TestHelpers.defaultClock makeProvider config
+            Assert.Equal(2, results.Length)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``EmailSync_DryRunAll_EmptyMessages_ReturnsEmpty`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let config = emailTestConfig "/archive"
+        try
+            let makeProvider _ = TestHelpers.emptyProvider
+            let! items = EmailSync.dryRunAll db TestHelpers.silentLogger makeProvider config
+            Assert.Empty(items)
+        finally db.dispose ()
+    }

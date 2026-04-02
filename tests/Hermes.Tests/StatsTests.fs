@@ -1,6 +1,7 @@
 module Hermes.Tests.StatsTests
 
 open System
+open System.IO
 open Xunit
 open Hermes.Core
 
@@ -114,5 +115,68 @@ let ``Stats_GetAccountStats_MultipleAccounts_ReturnsAll`` () =
             let! _ = db.execNonQuery "INSERT INTO sync_state (account, last_sync_at, message_count) VALUES ('acct2@gmail.com', '2026-02-01T00:00:00Z', 20)" []
             let! stats = Stats.getAccountStats db
             Assert.Equal(2, stats.Length)
+        finally db.dispose ()
+    }
+
+// ─── getCategoryCounts with real dirs ────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``Stats_GetCategoryCounts_WithRealDir_ReturnsCounts`` () =
+    let tempDir = Path.Combine(Path.GetTempPath(), $"hermes-test-stats-{Guid.NewGuid():N}")
+    try
+        Directory.CreateDirectory(tempDir) |> ignore
+        let invoicesDir = Path.Combine(tempDir, "invoices")
+        Directory.CreateDirectory(invoicesDir) |> ignore
+        File.WriteAllText(Path.Combine(invoicesDir, "test.pdf"), "content")
+        File.WriteAllText(Path.Combine(invoicesDir, "test2.pdf"), "content2")
+        let taxDir = Path.Combine(tempDir, "tax")
+        Directory.CreateDirectory(taxDir) |> ignore
+        File.WriteAllText(Path.Combine(taxDir, "return.pdf"), "content")
+        let unDir = Path.Combine(tempDir, "unclassified")
+        Directory.CreateDirectory(unDir) |> ignore
+        File.WriteAllText(Path.Combine(unDir, "doc.pdf"), "content")
+        let hermesDir = Path.Combine(tempDir, ".hermes")
+        Directory.CreateDirectory(hermesDir) |> ignore
+        File.WriteAllText(Path.Combine(hermesDir, "config"), "data")
+
+        let counts = Stats.getCategoryCounts tempDir
+        Assert.True(counts.Length >= 2, $"Expected >= 2 categories, got {counts.Length}")
+        Assert.True(counts |> List.exists (fun c -> c.Category = "invoices" && c.Count = 2))
+        Assert.True(counts |> List.exists (fun c -> c.Category = "tax" && c.Count = 1))
+        Assert.False(counts |> List.exists (fun c -> c.Category = "unclassified"))
+        Assert.False(counts |> List.exists (fun c -> c.Category = ".hermes"))
+        Assert.Equal("invoices", counts.[0].Category)
+    finally
+        try Directory.Delete(tempDir, true) with _ -> ()
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``Stats_GetCategoryCounts_EmptySubdirs_ExcludesEmpty`` () =
+    let tempDir = Path.Combine(Path.GetTempPath(), $"hermes-test-stats2-{Guid.NewGuid():N}")
+    try
+        Directory.CreateDirectory(tempDir) |> ignore
+        Directory.CreateDirectory(Path.Combine(tempDir, "empty-category")) |> ignore
+        let withFiles = Path.Combine(tempDir, "has-files")
+        Directory.CreateDirectory(withFiles) |> ignore
+        File.WriteAllText(Path.Combine(withFiles, "a.pdf"), "content")
+
+        let counts = Stats.getCategoryCounts tempDir
+        Assert.Equal(1, counts.Length)
+        Assert.Equal("has-files", counts.[0].Category)
+    finally
+        try Directory.Delete(tempDir, true) with _ -> ()
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Stats_GetAccountStats_NullSyncAt_ReturnsNone`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! _ = db.execNonQuery "INSERT INTO sync_state (account, message_count) VALUES ('nodate@gmail.com', 5)" []
+            let! stats = Stats.getAccountStats db
+            Assert.Equal(1, stats.Length)
+            Assert.Equal("nodate@gmail.com", stats.[0].Label)
+            Assert.True(stats.[0].LastSyncAt.IsNone || stats.[0].LastSyncAt = Some "")
         finally db.dispose ()
     }

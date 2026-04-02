@@ -635,3 +635,105 @@ let ``Embeddings_StoreChunk_NoEmbedding_InsertsNullBlob`` () =
             Assert.True(embResult = null || embResult :? DBNull, "Expected null embedding")
         finally db.dispose ()
     }
+
+// ─── Additional blob roundtrip tests ─────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_BlobRoundTrip_SingleElement_Preserves`` () =
+    let original = [| 3.14f |]
+    let blob = Embeddings.embeddingToBlob original
+    let result = Embeddings.blobToEmbedding blob
+    Assert.Equal(1, result.Length)
+    Assert.Equal(original.[0], result.[0])
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_BlobRoundTrip_768Dims_Preserves`` () =
+    let original = Array.init 768 (fun i -> float32 i / 100.0f)
+    let blob = Embeddings.embeddingToBlob original
+    let result = Embeddings.blobToEmbedding blob
+    Assert.Equal(768, result.Length)
+    for i in 0 .. 767 do
+        Assert.Equal(original.[i], result.[i])
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_BlobRoundTrip_NegativeValues_Preserves`` () =
+    let original = [| -1.5f; 0.0f; 1.5f; -0.001f |]
+    let blob = Embeddings.embeddingToBlob original
+    let result = Embeddings.blobToEmbedding blob
+    Assert.Equal(original.Length, result.Length)
+    for i in 0 .. original.Length - 1 do
+        Assert.Equal(original.[i], result.[i])
+
+// ─── Additional chunking tests ───────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_ChunkText_OnlyWhitespace_ReturnsEmpty`` () =
+    let chunks = Embeddings.chunkText 100 20 "   \t\n   "
+    Assert.Empty(chunks)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_ChunkText_VerySmallChunkSize_Works`` () =
+    let chunks = Embeddings.chunkText 5 2 "Hello world, this is a test"
+    Assert.True(chunks.Length > 1)
+    for chunk in chunks do
+        Assert.True(chunk.Text.Length > 0)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_ChunkText_ZeroOverlap_NoOverlap`` () =
+    let text = String.replicate 10 "abcdefghij "
+    let chunks = Embeddings.chunkText 20 0 text
+    Assert.True(chunks.Length > 1)
+    for i in 0 .. chunks.Length - 1 do
+        Assert.Equal(i, chunks.[i].Index)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_ChunkText_LargeOverlap_StillProgresses`` () =
+    let text = String.replicate 20 "word "
+    let chunks = Embeddings.chunkText 20 15 text
+    Assert.True(chunks.Length > 1)
+    let mutable lastStart = -1
+    for chunk in chunks do
+        Assert.True(chunk.StartChar > lastStart || chunk.StartChar = 0)
+        lastStart <- chunk.StartChar
+
+// ─── Additional embed document tests ─────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_EmbedDocument_ShortText_SingleChunk`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            do! Embeddings.initSchema db
+            let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha1')" []
+            let client = TestHelpers.fakeEmbedder 4
+            let! result = Embeddings.embedDocument db TestHelpers.silentLogger client 1L "Short text"
+            match result with
+            | Ok count -> Assert.Equal(1, count)
+            | Error e -> failwith $"Unexpected error: {e}"
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Embeddings_StoreChunk_WithEmbedding_StoresBlob`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            do! Embeddings.initSchema db
+            let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256) VALUES ('manual_drop', 'test.pdf', 'invoices', 'sha1')" []
+            let embedding = [| 1.0f; 2.0f; 3.0f; 4.0f |]
+            do! Embeddings.storeChunk db 1L 0 "test chunk with embedding" (Some embedding)
+            let! rows = db.execReader "SELECT embedding FROM document_chunks WHERE document_id = 1" []
+            Assert.Equal(1, rows.Length)
+            let emb = rows.[0] |> Map.tryFind "embedding"
+            Assert.True(emb.IsSome)
+        finally db.dispose ()
+    }

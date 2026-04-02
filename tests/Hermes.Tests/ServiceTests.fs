@@ -252,3 +252,71 @@ let ``ServiceInstaller_DetectPlatform_ReturnsKnownPlatform`` () =
     | ServiceInstaller.Windows -> Assert.True(true)
     | ServiceInstaller.MacOS -> Assert.True(true)
     | ServiceInstaller.Unsupported -> Assert.True(true) // Linux CI
+
+// ─── Additional ServiceInstaller tests ───────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceInstaller_GeneratePlist_ContainsRunAtLoadAndKeepAlive`` () =
+    let plist = ServiceInstaller.generatePlist "/usr/local/bin/hermes"
+    Assert.Contains("<key>RunAtLoad</key>", plist)
+    Assert.Contains("<true/>", plist)
+    Assert.Contains("<key>KeepAlive</key>", plist)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceInstaller_GeneratePlist_DifferentPath_ReflectsPath`` () =
+    let plist = ServiceInstaller.generatePlist "/opt/hermes/bin/hermes-cli"
+    Assert.Contains("/opt/hermes/bin/hermes-cli", plist)
+    Assert.Contains("com.hermes.service", plist)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceInstaller_GeneratePlist_ContainsPlistXmlHeader`` () =
+    let plist = ServiceInstaller.generatePlist "/usr/local/bin/hermes"
+    Assert.StartsWith("<?xml version=", plist.TrimStart())
+    Assert.Contains("<!DOCTYPE plist", plist)
+    Assert.Contains("<plist version=\"1.0\">", plist)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceInstaller_GeneratePlist_ContainsLogPaths`` () =
+    let plist = ServiceInstaller.generatePlist "/usr/local/bin/hermes"
+    Assert.Contains("<key>StandardOutPath</key>", plist)
+    Assert.Contains("<key>StandardErrorPath</key>", plist)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceInstaller_GeneratePlist_ContainsProgramArguments`` () =
+    let plist = ServiceInstaller.generatePlist "/usr/local/bin/hermes"
+    Assert.Contains("<key>ProgramArguments</key>", plist)
+    Assert.Contains("<array>", plist)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceInstaller_FormatResult_Installed_ContainsSuccessMsg`` () =
+    let msg = ServiceInstaller.formatResult ServiceInstaller.Installed
+    Assert.Contains("success", msg, StringComparison.OrdinalIgnoreCase)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceInstaller_FormatResult_Failed_ContainsMessage`` () =
+    let msg = ServiceInstaller.formatResult (ServiceInstaller.Failed "disk full")
+    Assert.Contains("disk full", msg)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceInstaller_FormatResult_StatusInfo_ReturnsExactInfo`` () =
+    let msg = ServiceInstaller.formatResult (ServiceInstaller.StatusInfo "Running since 2026-01-01")
+    Assert.Equal("Running since 2026-01-01", msg)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceInstaller_FormatResult_SpecificMessages`` () =
+    Assert.Contains("uninstalled", ServiceInstaller.formatResult ServiceInstaller.Uninstalled, StringComparison.OrdinalIgnoreCase)
+    Assert.Contains("started", ServiceInstaller.formatResult ServiceInstaller.Started, StringComparison.OrdinalIgnoreCase)
+    Assert.Contains("stopped", ServiceInstaller.formatResult ServiceInstaller.Stopped, StringComparison.OrdinalIgnoreCase)
+    Assert.Contains("already", ServiceInstaller.formatResult ServiceInstaller.AlreadyInstalled, StringComparison.OrdinalIgnoreCase)
+    Assert.Contains("already", ServiceInstaller.formatResult ServiceInstaller.AlreadyRunning, StringComparison.OrdinalIgnoreCase)
+    Assert.Contains("not installed", ServiceInstaller.formatResult ServiceInstaller.NotInstalled, StringComparison.OrdinalIgnoreCase)
+    Assert.Contains("not running", ServiceInstaller.formatResult ServiceInstaller.NotRunning, StringComparison.OrdinalIgnoreCase)

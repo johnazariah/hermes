@@ -1,6 +1,7 @@
 module Hermes.Tests.ServiceHostTests
 
 open System
+open System.Threading
 open Xunit
 open Hermes.Core
 
@@ -494,7 +495,10 @@ let ``ServiceHost_RunSyncCycle_WithContentRules_AppliesReclassification`` () =
                     []
         m.Put "/archive/unsorted/test.pdf" "content"
         let contentRules : Domain.ContentRule list =
-            [ { Domain.ContentRule.Pattern = "(?i)invoice"; Category = "invoices"; Priority = 1 } ]
+            [ { Domain.ContentRule.Name = "invoice-rule"
+                Conditions = [ Domain.ContentMatch.ContentAny [ "invoice" ] ]
+                Category = "invoices"
+                Confidence = 0.8 } ]
         let deps = { testDeps with ContentRules = contentRules }
         let rules : Algebra.RulesEngine =
             { classify = fun _ _ -> { Domain.ClassificationResult.Category = "unsorted"; MatchedRule = Domain.ClassificationRule.DefaultRule }
@@ -530,9 +534,11 @@ let ``ServiceHost_BuildProductionDeps_WithRulesFile_ParsesContentRules`` () =
     let config = TestHelpers.testConfig "/archive"
     let m = TestHelpers.memFs ()
     let rulesYaml = """content_rules:
-  - pattern: "(?i)invoice"
+  - name: invoice-rule
+    match:
+      content_any: ["invoice"]
     category: invoices
-    priority: 1"""
+    confidence: 0.8"""
     m.Put "/config/rules.yaml" rulesYaml
     let deps = ServiceHost.buildProductionDeps config "/config" TestHelpers.silentLogger m.Fs
     Assert.NotEmpty(deps.ContentRules)
@@ -553,3 +559,73 @@ let ``ServiceHost_BuildProductionDeps_CreateEmailProviderIsConfigured`` () =
     let m = TestHelpers.memFs ()
     let deps = ServiceHost.buildProductionDeps config "/config" TestHelpers.silentLogger m.Fs
     Assert.NotNull(deps.CreateEmailProvider)
+
+// ─── createServiceHost tests ─────────────────────────────────────────
+
+let private minimalRules : Algebra.RulesEngine =
+    { classify = fun _ _ ->
+        { Domain.ClassificationResult.Category = "unsorted"
+          MatchedRule = Domain.ClassificationRule.DefaultRule }
+      reload = fun () -> task { return Ok () } }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceHost_CreateServiceHost_PreCancelledToken_WritesStoppedStatus`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        m.Fs.createDirectory "/archive"
+        m.Fs.createDirectory "/archive/unclassified"
+        let config = TestHelpers.testConfig "/archive"
+        let serviceConfig = ServiceHost.defaultServiceConfig config
+        use cts = new CancellationTokenSource()
+        cts.Cancel()
+        try
+            do! ServiceHost.createServiceHost m.Fs db TestHelpers.silentLogger TestHelpers.defaultClock minimalRules testDeps serviceConfig "/test/config.yaml" cts.Token
+            let! status = ServiceHost.readHeartbeat m.Fs "/archive"
+            Assert.True(status.IsSome)
+            Assert.False(status.Value.Running)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceHost_CreateServiceHost_PreCancelledToken_ReportsDocCount`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        m.Fs.createDirectory "/archive"
+        m.Fs.createDirectory "/archive/unclassified"
+        let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha1')" []
+        let config = TestHelpers.testConfig "/archive"
+        let serviceConfig = ServiceHost.defaultServiceConfig config
+        use cts = new CancellationTokenSource()
+        cts.Cancel()
+        try
+            do! ServiceHost.createServiceHost m.Fs db TestHelpers.silentLogger TestHelpers.defaultClock minimalRules testDeps serviceConfig "/test/config.yaml" cts.Token
+            let! status = ServiceHost.readHeartbeat m.Fs "/archive"
+            Assert.True(status.IsSome)
+            Assert.Equal(1L, status.Value.DocumentCount)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceHost_CreateServiceHost_PreCancelledToken_UpdatesSyncState`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        m.Fs.createDirectory "/archive"
+        m.Fs.createDirectory "/archive/unclassified"
+        let config = TestHelpers.testConfig "/archive"
+        let serviceConfig = ServiceHost.defaultServiceConfig config
+        use cts = new CancellationTokenSource()
+        cts.Cancel()
+        try
+            do! ServiceHost.createServiceHost m.Fs db TestHelpers.silentLogger TestHelpers.defaultClock minimalRules testDeps serviceConfig "/test/config.yaml" cts.Token
+            let! status = ServiceHost.readHeartbeat m.Fs "/archive"
+            Assert.True(status.IsSome)
+            // Should have run at least one sync cycle
+            Assert.True(status.Value.LastSyncOk)
+        finally db.dispose ()
+    }
