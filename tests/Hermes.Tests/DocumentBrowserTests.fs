@@ -56,7 +56,7 @@ let ``DocumentBrowser_ListCategories_MultipleCats_ReturnsAll`` () =
 
 // ─── listDocuments ───────────────────────────────────────────────────
 
-[<Fact(Skip = "listDocuments returns empty — needs investigation of query internals")>]
+[<Fact>]
 [<Trait("Category", "Unit")>]
 let ``DocumentBrowser_ListDocuments_FiltersByCategory`` () =
     task {
@@ -64,20 +64,20 @@ let ``DocumentBrowser_ListDocuments_FiltersByCategory`` () =
         try
             do! insertDoc db "invoices" "a.pdf"
             do! insertDoc db "receipts" "b.pdf"
-            let! docs = DocumentBrowser.listDocuments db "invoices" 10 0
+            let! docs = DocumentBrowser.listDocuments db "invoices" 0 10
             Assert.Equal(1, docs.Length)
             Assert.Equal("invoices", docs.[0].Category)
         finally db.dispose ()
     }
 
-[<Fact(Skip = "listDocuments returns empty — needs investigation of query internals")>]
+[<Fact>]
 [<Trait("Category", "Unit")>]
 let ``DocumentBrowser_ListDocuments_RespectsLimit`` () =
     task {
         let db = TestHelpers.createDb ()
         try
             for i in 1..5 do do! insertDoc db "invoices" $"doc{i}.pdf"
-            let! docs = DocumentBrowser.listDocuments db "invoices" 2 0
+            let! docs = DocumentBrowser.listDocuments db "invoices" 0 2
             Assert.Equal(2, docs.Length)
         finally db.dispose ()
     }

@@ -22,12 +22,12 @@ let ``Threads_ListThreads_EmptyDb_ReturnsEmpty`` () =
     task {
         let db = TestHelpers.createDb ()
         try
-            let! threads = Threads.listThreads db 10 0
+            let! threads = Threads.listThreads db 0 10
             Assert.Empty(threads)
         finally db.dispose ()
     }
 
-[<Fact(Skip = "GROUP BY query returns empty — needs investigation")>]
+[<Fact>]
 [<Trait("Category", "Unit")>]
 let ``Threads_ListThreads_GroupsByThreadId`` () =
     task {
@@ -36,14 +36,14 @@ let ``Threads_ListThreads_GroupsByThreadId`` () =
             do! insertMsg db "t1" "m1" "alice@co.com" "Hello" "2026-03-15" "john"
             do! insertMsg db "t1" "m2" "bob@co.com" "Re: Hello" "2026-03-16" "john"
             do! insertMsg db "t2" "m3" "carol@co.com" "Other" "2026-03-17" "john"
-            let! threads = Threads.listThreads db 10 0
+            let! threads = Threads.listThreads db 0 10
             Assert.Equal(2, threads.Length)
             let t1 = threads |> List.find (fun t -> t.ThreadId = "t1")
             Assert.Equal(2, t1.MessageCount)
         finally db.dispose ()
     }
 
-[<Fact(Skip = "GROUP BY query returns empty")>]
+[<Fact>]
 [<Trait("Category", "Unit")>]
 let ``Threads_ListThreads_RespectsLimit`` () =
     task {
@@ -51,14 +51,14 @@ let ``Threads_ListThreads_RespectsLimit`` () =
         try
             for i in 1..5 do
                 do! insertMsg db $"t{i}" $"m{i}" "sender@co.com" $"Thread {i}" "2026-03-15" "john"
-            let! threads = Threads.listThreads db 2 0
+            let! threads = Threads.listThreads db 0 2
             Assert.Equal(2, threads.Length)
         finally db.dispose ()
     }
 
 // ─── listThreadsByAccount ────────────────────────────────────────────
 
-[<Fact(Skip = "GROUP BY query returns empty")>]
+[<Fact>]
 [<Trait("Category", "Unit")>]
 let ``Threads_ListThreadsByAccount_FiltersCorrectly`` () =
     task {
@@ -66,7 +66,7 @@ let ``Threads_ListThreadsByAccount_FiltersCorrectly`` () =
         try
             do! insertMsg db "t1" "m1" "alice@co.com" "Hello" "2026-03-15" "john"
             do! insertMsg db "t2" "m2" "bob@co.com" "Other" "2026-03-16" "smitha"
-            let! johnThreads = Threads.listThreadsByAccount db "john" 10 0
+            let! johnThreads = Threads.listThreadsByAccount db "john" 0 10
             Assert.Equal(1, johnThreads.Length)
             Assert.Equal("t1", johnThreads.[0].ThreadId)
         finally db.dispose ()
@@ -101,7 +101,7 @@ let ``Threads_GetThreadDetail_Missing_ReturnsNone`` () =
         finally db.dispose ()
     }
 
-[<Fact(Skip = "GROUP BY query returns empty")>]
+[<Fact>]
 [<Trait("Category", "Unit")>]
 let ``Threads_ListThreads_IncludesParticipants`` () =
     task {
@@ -109,7 +109,7 @@ let ``Threads_ListThreads_IncludesParticipants`` () =
         try
             do! insertMsg db "t1" "m1" "alice@co.com" "Hello" "2026-03-15" "john"
             do! insertMsg db "t1" "m2" "bob@co.com" "Re: Hello" "2026-03-16" "john"
-            let! threads = Threads.listThreads db 10 0
+            let! threads = Threads.listThreads db 0 10
             let t1 = threads.[0]
             Assert.True(t1.Participants.Length >= 2)
         finally db.dispose ()
