@@ -29,7 +29,7 @@ let ``DocumentManagement_Reclassify_ChangesCategoryInDb`` () =
             let! result = DocumentManagement.reclassify db m.Fs "" docId "receipts"
             Assert.True(Result.isOk result)
             let! catResult = db.execScalar "SELECT category FROM documents WHERE id = @id" ([ ("@id", Database.boxVal docId) ])
-            Assert.Equal("receipts", catResult :?> string)
+            Assert.Equal("receipts", string catResult)
         finally db.dispose ()
     }
 

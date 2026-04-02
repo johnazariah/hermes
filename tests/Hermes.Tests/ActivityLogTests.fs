@@ -8,7 +8,19 @@ open Hermes.Core
 
 let private initDb () =
     let db = TestHelpers.createDb ()
-    // ActivityLog may need its own table — init schema should create it
+    // ActivityLog needs activity_log table — create it since schema may not include it yet
+    db.execNonQuery
+        """CREATE TABLE IF NOT EXISTS activity_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+            level TEXT NOT NULL,
+            category TEXT NOT NULL,
+            message TEXT NOT NULL,
+            document_id INTEGER,
+            details TEXT
+        )"""
+        []
+    |> Async.AwaitTask |> Async.RunSynchronously |> ignore
     db
 
 // ─── log + getRecent ─────────────────────────────────────────────────

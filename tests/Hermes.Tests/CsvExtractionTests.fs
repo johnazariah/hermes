@@ -52,20 +52,19 @@ let ``CsvExtraction_DetectDelimiter_DefaultsToComma`` () =
 
 [<Fact>]
 [<Trait("Category", "Unit")>]
-let ``CsvExtraction_ExtractCsv_ProducesTable`` () =
+let ``CsvExtraction_ExtractCsv_ProducesContent`` () =
     let csv = "Name,Amount\nAlice,100\nBob,200"
     let result = CsvExtraction.extractCsv csv
-    Assert.True(result.Tables.Length > 0)
+    Assert.True(result.Pages.Length > 0)
 
 [<Fact>]
 [<Trait("Category", "Unit")>]
-let ``CsvExtraction_ExtractCsv_EmptyString_EmptyContent`` () =
+let ``CsvExtraction_ExtractCsv_EmptyString_EmptyPages`` () =
     let result = CsvExtraction.extractCsv ""
-    Assert.True(result.Tables.Length = 0 || result.Paragraphs.Length = 0)
+    Assert.True(result.Pages.Length = 0 || result.Pages.[0].Blocks.Length = 0)
 
 [<Fact>]
 [<Trait("Category", "Unit")>]
-let ``CsvExtraction_ExtractCsv_HeaderOnly_NoDataRows`` () =
+let ``CsvExtraction_ExtractCsv_HeaderOnly`` () =
     let result = CsvExtraction.extractCsv "Name,Amount"
-    // Should still have a table (just header, no data)
     Assert.NotNull(result)
