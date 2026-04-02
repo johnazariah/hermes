@@ -445,7 +445,7 @@ let private insertReminder (db: Algebra.Database) (cat: string) (amount: float) 
         return match id with null -> 0L | v -> v :?> int64
     }
 
-[<Fact(Skip = "MCP response structure needs debugging — neither result nor error key present")>]
+[<Fact>]
 [<Trait("Category", "Integration")>]
 let ``MCP_ListReminders_ReturnsActiveReminders`` () =
     task {
@@ -458,17 +458,19 @@ let ``MCP_ListReminders_ReturnsActiveReminders`` () =
             let! response = McpServer.processMessage db m.Fs TestHelpers.silentLogger "/archive" json
             let doc = JsonDocument.Parse(response)
             let root = doc.RootElement
-            // Should have result (not error)
             if root.TryGetProperty("error") |> fst then
                 let err = root.GetProperty("error").GetProperty("message").GetString()
                 failwith $"Expected result, got error: {err}"
             let result = root.GetProperty("result")
-            let reminders = result.GetProperty("reminders")
+            let content = result.GetProperty("content")
+            let textContent = content.[0].GetProperty("text").GetString() |> Option.ofObj |> Option.defaultValue ""
+            let inner = JsonDocument.Parse(textContent).RootElement
+            let reminders = inner.GetProperty("reminders")
             Assert.True(reminders.GetArrayLength() > 0)
         finally db.dispose ()
     }
 
-[<Fact(Skip = "MCP response structure needs debugging — neither result nor error key present")>]
+[<Fact>]
 [<Trait("Category", "Integration")>]
 let ``MCP_UpdateReminder_MarkComplete_ChangesStatus`` () =
     task {
@@ -495,7 +497,10 @@ let ``MCP_UpdateReminder_MarkComplete_ChangesStatus`` () =
                 let err = root.GetProperty("error").GetProperty("message").GetString()
                 failwith $"Expected result, got error: {err}"
             let result = root.GetProperty("result")
-            Assert.Equal("completed", result.GetProperty("status").GetString())
+            let content = result.GetProperty("content")
+            let textContent = content.[0].GetProperty("text").GetString() |> Option.ofObj |> Option.defaultValue ""
+            let inner = JsonDocument.Parse(textContent).RootElement
+            Assert.Equal("completed", inner.GetProperty("status").GetString())
         finally db.dispose ()
     }
 
