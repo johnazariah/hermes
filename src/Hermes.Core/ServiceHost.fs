@@ -113,6 +113,70 @@ module ServiceHost =
                     with ex -> logger.warn $"Backfill failed for {account.Label}: {ex.Message}"
         }
 
+    let private reclassifyUnsorted
+        (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
+        (config: Domain.HermesConfig) (contentRules: Domain.ContentRule list) =
+        task {
+            // Tier 2: content rules reclassification
+            let! reclassified, remaining =
+                Classifier.reclassifyUnsortedBatch db fs contentRules config.ArchiveDir 50
+            if reclassified > 0 then
+                logger.info $"Tier 2 reclassified {reclassified} documents ({remaining} still unsorted)"
+
+            // Tier 3: LLM classification for remaining unsorted
+            if remaining > 0 then
+                try
+                    let chatProvider = Chat.providerFromConfig config.Chat config.Ollama.BaseUrl config.Ollama.InstructModel
+                    let! unsortedRows =
+                        db.execReader
+                            """SELECT id, extracted_text FROM documents
+                               WHERE (category = 'unsorted' OR category = 'unclassified')
+                                 AND extracted_text IS NOT NULL
+                               ORDER BY id ASC LIMIT 10"""
+                            []
+                    let! catRows =
+                        db.execReader "SELECT DISTINCT category FROM documents WHERE category NOT IN ('unsorted','unclassified')" []
+                    let categories =
+                        catRows |> List.choose (fun r -> Prelude.RowReader(r).OptString "category")
+                    let mutable llmClassified = 0
+                    for row in unsortedRows do
+                        let r = Prelude.RowReader(row)
+                        match r.OptInt64 "id", r.OptString "extracted_text" with
+                        | Some docId, Some text ->
+                            let prompt = ContentClassifier.buildClassificationPrompt text categories
+                            let! llmResult = chatProvider.complete "You are a document classifier." prompt
+                            match llmResult with
+                            | Ok response ->
+                                match ContentClassifier.parseClassificationResponse response with
+                                | Some (cat, conf, reasoning) when conf >= 0.4 && categories |> List.contains cat ->
+                                    let! moveResult = DocumentManagement.reclassify db fs config.ArchiveDir docId cat
+                                    match moveResult with
+                                    | Ok () ->
+                                        let tier = if conf >= 0.7 then "llm" else "llm_review"
+                                        let! _ =
+                                            db.execNonQuery
+                                                """UPDATE documents SET classification_tier = @tier,
+                                                   classification_confidence = @conf WHERE id = @id"""
+                                                [ ("@tier", Database.boxVal tier)
+                                                  ("@conf", Database.boxVal conf)
+                                                  ("@id", Database.boxVal docId) ]
+                                        llmClassified <- llmClassified + 1
+                                        if conf < 0.7 then
+                                            logger.warn $"LLM classified doc {docId} as {cat} (conf={conf:F2}, needs review): {reasoning}"
+                                        else
+                                            logger.info $"LLM classified doc {docId} as {cat} (conf={conf:F2}): {reasoning}"
+                                    | Error e -> logger.warn $"LLM reclassify move failed for doc {docId}: {e}"
+                                | _ -> ()
+                            | Error e ->
+                                let docIdStr = r.OptInt64 "id" |> Option.map string |> Option.defaultValue "?"
+                                logger.warn $"LLM classification failed for doc {docIdStr}: {e}"
+                        | _ -> ()
+                    if llmClassified > 0 then
+                        logger.info $"Tier 3 LLM classified {llmClassified} documents"
+                with ex ->
+                    logger.debug $"LLM classification skipped: {ex.Message}"
+        }
+
     let private runExtraction (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger) (clock: Algebra.Clock) (archiveDir: string) =
         task {
             let extractor : Algebra.TextExtractor =
@@ -125,9 +189,13 @@ module ServiceHost =
     let private evaluateReminders (db: Algebra.Database) (logger: Algebra.Logger) (clock: Algebra.Clock) =
         task {
             let! n = Reminders.evaluateNewDocuments db logger (clock.utcNow ())
-            if n > 0 then logger.info $"Created {n} new reminder(s)"
+            if n > 0 then
+                logger.info $"Created {n} new reminder(s)"
+                do! ActivityLog.logInfo db "reminder" $"Created {n} new reminder(s)" None
             let! u = Reminders.unsnoozeExpired db (clock.utcNow ())
-            if u > 0 then logger.info $"Un-snoozed {u} reminder(s)"
+            if u > 0 then
+                logger.info $"Un-snoozed {u} reminder(s)"
+                do! ActivityLog.logInfo db "reminder" $"Un-snoozed {u} reminder(s)" None
         }
 
     let private runEmbedding (db: Algebra.Database) (logger: Algebra.Logger) (config: Domain.HermesConfig) =
@@ -177,16 +245,27 @@ module ServiceHost =
         : Task<Result<unit, string>> =
         task {
             try
+                do! ActivityLog.logInfo db "sync" "Sync cycle started" None
                 do! syncEmails fs db logger clock config configDir
                 do! syncWatchFolders fs db logger clock config
                 do! runExtraction fs db logger clock config.ArchiveDir
                 do! classifyUnclassified fs db logger clock rules config.ArchiveDir
+                // Load content rules from rules.yaml for Tier 2+3
+                let contentRules =
+                    let rulesPath = Path.Combine(configDir, "rules.yaml")
+                    if fs.fileExists rulesPath then
+                        let yaml = (fs.readAllText rulesPath).Result
+                        Rules.parseContentRules yaml
+                    else []
+                do! reclassifyUnsorted fs db logger config contentRules
                 do! runBackfill fs db logger clock config configDir
                 do! evaluateReminders db logger clock
                 do! runEmbedding db logger config
+                do! ActivityLog.logInfo db "sync" "Sync cycle completed" None
                 logger.debug "Sync cycle completed."
                 return Ok()
             with ex ->
+                do! ActivityLog.logError db "sync" $"Sync cycle failed: {ex.Message}" None ex.Message
                 logger.error $"Sync cycle failed: {ex.Message}"
                 return Error ex.Message
         }

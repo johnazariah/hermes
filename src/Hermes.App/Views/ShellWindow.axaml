@@ -57,9 +57,10 @@
               Background="{DynamicResource SidebarBg}"
               BorderBrush="{DynamicResource SidebarBorder}"
               BorderThickness="0,0,1,0">
-        <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+        <ScrollViewer x:Name="NavigatorContent"
+                      HorizontalScrollBarVisibility="Disabled"
                       VerticalScrollBarVisibility="Auto">
-          <StackPanel>
+          <StackPanel x:Name="NavigatorOuterPanel">
 
             <!-- Navigator heading -->
             <Border Padding="16,14,12,12"
@@ -73,6 +74,8 @@
                            FontFamily="Inter,Segoe UI,sans-serif" />
               </StackPanel>
             </Border>
+
+            <StackPanel x:Name="DefaultNavigatorPanel">
 
             <!-- ── OLLAMA ── -->
             <Expander Classes="section" IsExpanded="True">
@@ -176,6 +179,8 @@
                 <Button x:Name="SettingsButton" Content="⚙"         Classes="action" Padding="7,3" />
               </StackPanel>
             </StackPanel>
+
+            </StackPanel> <!-- /DefaultNavigatorPanel -->
 
           </StackPanel>
         </ScrollViewer>

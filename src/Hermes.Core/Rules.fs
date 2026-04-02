@@ -35,7 +35,35 @@ module Rules =
         { [<YamlMember(Alias = "rules")>]
           Rules: RuleDto array
           [<YamlMember(Alias = "default_category")>]
-          DefaultCategory: string }
+          DefaultCategory: string
+          [<YamlMember(Alias = "content_rules")>]
+          ContentRules: ContentRuleDto array }
+
+    and [<CLIMutable>] ContentRuleDto =
+        { [<YamlMember(Alias = "name")>]
+          Name: string
+          [<YamlMember(Alias = "match")>]
+          Match: ContentMatchDto
+          [<YamlMember(Alias = "category")>]
+          Category: string
+          [<YamlMember(Alias = "confidence")>]
+          Confidence: float }
+
+    and [<CLIMutable>] ContentMatchDto =
+        { [<YamlMember(Alias = "content_any")>]
+          ContentAny: string array
+          [<YamlMember(Alias = "content_all")>]
+          ContentAll: string array
+          [<YamlMember(Alias = "has_table")>]
+          HasTable: bool
+          [<YamlMember(Alias = "table_headers_any")>]
+          TableHeadersAny: string array
+          [<YamlMember(Alias = "table_headers_all")>]
+          TableHeadersAll: string array
+          [<YamlMember(Alias = "has_amount")>]
+          HasAmount: bool
+          [<YamlMember(Alias = "has_date")>]
+          HasDate: bool }
 
     // ─── Internal compiled rule representation ───────────────────────
 
@@ -142,6 +170,37 @@ module Rules =
                     Ok(rules, defaultCat)
         with ex ->
             Error $"Failed to parse rules: {ex.Message}"
+
+    /// Compile a content rule DTO into a Domain.ContentRule.
+    let private compileContentMatch (dto: ContentMatchDto) : Domain.ContentMatch list =
+        [ if not (isNull (box dto.ContentAny)) && dto.ContentAny.Length > 0 then
+              yield Domain.ContentAny (dto.ContentAny |> Array.toList)
+          if not (isNull (box dto.ContentAll)) && dto.ContentAll.Length > 0 then
+              yield Domain.ContentAll (dto.ContentAll |> Array.toList)
+          if dto.HasTable then yield Domain.HasTable
+          if not (isNull (box dto.TableHeadersAny)) && dto.TableHeadersAny.Length > 0 then
+              yield Domain.TableHeadersAny (dto.TableHeadersAny |> Array.toList)
+          if not (isNull (box dto.TableHeadersAll)) && dto.TableHeadersAll.Length > 0 then
+              yield Domain.TableHeadersAll (dto.TableHeadersAll |> Array.toList)
+          if dto.HasAmount then yield Domain.HasAmount
+          if dto.HasDate then yield Domain.HasDate ]
+
+    /// Parse content rules from the same rules.yaml file.
+    let parseContentRules (yaml: string) : Domain.ContentRule list =
+        try
+            if String.IsNullOrWhiteSpace(yaml) then []
+            else
+                let dto = deserializer.Deserialize<RulesFileDto>(yaml)
+                if isNull (box dto) || isNull (box dto.ContentRules) || dto.ContentRules.Length = 0 then []
+                else
+                    dto.ContentRules
+                    |> Array.toList
+                    |> List.map (fun cr ->
+                        { Domain.ContentRule.Name = cr.Name |> orDefault "unnamed"
+                          Conditions = compileContentMatch cr.Match
+                          Category = cr.Category |> orDefault "unsorted"
+                          Confidence = if cr.Confidence > 0.0 then cr.Confidence else 0.5 })
+        with _ -> []
 
     // ─── Classification cascade ──────────────────────────────────────
 

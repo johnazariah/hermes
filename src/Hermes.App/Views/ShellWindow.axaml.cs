@@ -62,6 +62,9 @@ public partial class ShellWindow : Window
     private Button _navActivity = null!;
     private Button _navSettingsBtn = null!;
     private TextBlock _navigatorTitle = null!;
+    private ScrollViewer _navigatorContent = null!;
+    private StackPanel _navigatorOuterPanel = null!;
+    private StackPanel _defaultNavigatorPanel = null!;
 
     public ShellWindow(HermesServiceBridge bridge)
     {
@@ -69,6 +72,7 @@ public partial class ShellWindow : Window
         InitializeComponent();
         ResolveControls();
         WireUpEvents();
+        HighlightActiveNavButton(NavigatorMode.ActionItems);
 
         _vm.AddWelcomeMessage();
         _vm.Messages.CollectionChanged += OnMessagesChanged;
@@ -120,6 +124,9 @@ public partial class ShellWindow : Window
         _navActivity = this.FindControl<Button>("NavActivity")!;
         _navSettingsBtn = this.FindControl<Button>("NavSettingsBtn")!;
         _navigatorTitle = this.FindControl<TextBlock>("NavigatorTitle")!;
+        _navigatorContent = this.FindControl<ScrollViewer>("NavigatorContent")!;
+        _navigatorOuterPanel = this.FindControl<StackPanel>("NavigatorOuterPanel")!;
+        _defaultNavigatorPanel = this.FindControl<StackPanel>("DefaultNavigatorPanel")!;
     }
 
     private void WireUpEvents()
@@ -200,6 +207,352 @@ public partial class ShellWindow : Window
             NavigatorMode.Timeline => "TIMELINE",
             NavigatorMode.Activity => "ACTIVITY",
             _ => "HERMES",
+        };
+        HighlightActiveNavButton(mode);
+        RebuildNavigatorContent(mode);
+    }
+
+    // ── Navigator content switching ───────────────────────────────
+
+    private void HighlightActiveNavButton(NavigatorMode mode)
+    {
+        var active = new SolidColorBrush(Color.Parse("#20000000"));
+        IBrush inactive = Brushes.Transparent;
+
+        _navActionItems.Background = mode is NavigatorMode.ActionItems ? active : inactive;
+        _navDocuments.Background = mode is NavigatorMode.Documents ? active : inactive;
+        _navThreads.Background = mode is NavigatorMode.Threads ? active : inactive;
+        _navTimeline.Background = mode is NavigatorMode.Timeline ? active : inactive;
+        _navActivity.Background = mode is NavigatorMode.Activity ? active : inactive;
+    }
+
+    private void RebuildNavigatorContent(NavigatorMode mode)
+    {
+        _defaultNavigatorPanel.IsVisible = mode is NavigatorMode.ActionItems;
+
+        // Remove any previously-added dynamic panels (keep heading [0] and default panel [1])
+        while (_navigatorOuterPanel.Children.Count > 2)
+            _navigatorOuterPanel.Children.RemoveAt(_navigatorOuterPanel.Children.Count - 1);
+
+        switch (mode)
+        {
+            case NavigatorMode.ActionItems:
+                break;
+            case NavigatorMode.Documents:
+                _ = PopulateDocumentsNavigatorAsync();
+                break;
+            case NavigatorMode.Threads:
+                _ = PopulateThreadsNavigatorAsync();
+                break;
+            case NavigatorMode.Timeline:
+                _ = PopulateTimelineNavigatorAsync();
+                break;
+            case NavigatorMode.Activity:
+                _ = PopulateActivityNavigatorAsync();
+                break;
+        }
+    }
+
+    private async Task PopulateDocumentsNavigatorAsync()
+    {
+        var panel = new StackPanel { Spacing = 0, Margin = new Thickness(0, 4, 0, 0) };
+        var loading = NavigatorMutedText("Loading categories…");
+        panel.Children.Add(loading);
+        _navigatorOuterPanel.Children.Add(panel);
+
+        var dbPath = Path.Combine(_vm.Bridge.ArchiveDir, "db.sqlite");
+        if (!File.Exists(dbPath)) { loading.Text = "No database found."; return; }
+
+        try
+        {
+            var db = Database.fromPath(dbPath);
+            try
+            {
+                var categories = await DocumentBrowser.listCategories(db);
+                if (_vm.ActiveMode is not NavigatorMode.Documents) return;
+
+                panel.Children.Remove(loading);
+
+                if (!categories.Any())
+                {
+                    panel.Children.Add(NavigatorMutedText("No documents indexed yet."));
+                    return;
+                }
+
+                foreach (var tuple in categories)
+                    panel.Children.Add(NavigatorCategoryRow(tuple.Item1, tuple.Item2));
+            }
+            finally
+            {
+                db.dispose.Invoke(null!);
+            }
+        }
+        catch { loading.Text = "Could not load categories."; }
+    }
+
+    private async Task PopulateThreadsNavigatorAsync()
+    {
+        var panel = new StackPanel { Spacing = 0, Margin = new Thickness(0, 4, 0, 0) };
+        var loading = NavigatorMutedText("Loading threads…");
+        panel.Children.Add(loading);
+        _navigatorOuterPanel.Children.Add(panel);
+
+        var dbPath = Path.Combine(_vm.Bridge.ArchiveDir, "db.sqlite");
+        if (!File.Exists(dbPath)) { loading.Text = "No database found."; return; }
+
+        try
+        {
+            var db = Database.fromPath(dbPath);
+            try
+            {
+                var threads = await Threads.listThreads(db, 0, 30);
+                if (_vm.ActiveMode is not NavigatorMode.Threads) return;
+
+                panel.Children.Remove(loading);
+
+                if (!threads.Any())
+                {
+                    panel.Children.Add(NavigatorMutedText("No email threads yet."));
+                    return;
+                }
+
+                foreach (var thread in threads)
+                    panel.Children.Add(NavigatorThreadRow(thread));
+            }
+            finally
+            {
+                db.dispose.Invoke(null!);
+            }
+        }
+        catch { loading.Text = "Could not load threads."; }
+    }
+
+    private async Task PopulateTimelineNavigatorAsync()
+    {
+        var panel = new StackPanel { Spacing = 0, Margin = new Thickness(0, 4, 0, 0) };
+        _navigatorOuterPanel.Children.Add(panel);
+
+        var archiveDir = _vm.Bridge.ArchiveDir;
+        if (!Directory.Exists(archiveDir))
+        {
+            panel.Children.Add(NavigatorMutedText("Archive not found."));
+            return;
+        }
+
+        var files = await Task.Run(() =>
+            new DirectoryInfo(archiveDir)
+                .EnumerateFiles("*", SearchOption.AllDirectories)
+                .Where(f => !f.Name.StartsWith('.')
+                         && !f.Extension.Equals(".sqlite", StringComparison.OrdinalIgnoreCase)
+                         && !f.Extension.Equals(".sqlite-wal", StringComparison.OrdinalIgnoreCase)
+                         && !f.Extension.Equals(".sqlite-shm", StringComparison.OrdinalIgnoreCase)
+                         && f.Name != "heartbeat.json")
+                .OrderByDescending(f => f.LastWriteTimeUtc)
+                .Take(30)
+                .ToList());
+
+        if (_vm.ActiveMode is not NavigatorMode.Timeline) return;
+
+        if (files.Count == 0)
+        {
+            panel.Children.Add(NavigatorMutedText("No documents yet."));
+            return;
+        }
+
+        string? currentDate = null;
+        foreach (var file in files)
+        {
+            var dateStr = file.LastWriteTime.ToString("yyyy-MM-dd");
+            if (dateStr != currentDate)
+            {
+                currentDate = dateStr;
+                panel.Children.Add(NavigatorDateHeader(dateStr));
+            }
+            panel.Children.Add(NavigatorTimelineRow(file));
+        }
+    }
+
+    private async Task PopulateActivityNavigatorAsync()
+    {
+        var panel = new StackPanel { Spacing = 0, Margin = new Thickness(0, 4, 0, 0) };
+        var loading = NavigatorMutedText("Loading activity…");
+        panel.Children.Add(loading);
+        _navigatorOuterPanel.Children.Add(panel);
+
+        var dbPath = Path.Combine(_vm.Bridge.ArchiveDir, "db.sqlite");
+        if (!File.Exists(dbPath)) { loading.Text = "No database found."; return; }
+
+        try
+        {
+            var db = Database.fromPath(dbPath);
+            try
+            {
+                var entries = await ActivityLog.getRecent(db, 50);
+                if (_vm.ActiveMode is not NavigatorMode.Activity) return;
+
+                panel.Children.Remove(loading);
+
+                if (!entries.Any())
+                {
+                    panel.Children.Add(NavigatorMutedText("No activity yet."));
+                    return;
+                }
+
+                foreach (var entry in entries)
+                    panel.Children.Add(NavigatorActivityRow(entry));
+            }
+            finally
+            {
+                db.dispose.Invoke(null!);
+            }
+        }
+        catch { loading.Text = "Could not load activity."; }
+    }
+
+    // ── Navigator UI helpers ──────────────────────────────────────
+
+    private static TextBlock NavigatorMutedText(string text) => new()
+    {
+        Text = text,
+        FontSize = 12,
+        Foreground = new SolidColorBrush(Color.Parse("#888")),
+        Margin = new Thickness(20, 8, 12, 4),
+        TextWrapping = TextWrapping.Wrap
+    };
+
+    private static TextBlock NavigatorDateHeader(string date) => new()
+    {
+        Text = date,
+        FontSize = 10,
+        FontWeight = FontWeight.SemiBold,
+        Foreground = new SolidColorBrush(Color.Parse("#888")),
+        Margin = new Thickness(20, 10, 12, 2)
+    };
+
+    private static Border NavigatorCategoryRow(string category, int count)
+    {
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var nameText = new TextBlock
+        {
+            Text = $"📁 {category}",
+            FontSize = 12,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+        };
+        Grid.SetColumn(nameText, 0);
+
+        var countText = new TextBlock
+        {
+            Text = count.ToString(),
+            FontSize = 11,
+            Foreground = new SolidColorBrush(Color.Parse("#888")),
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+        };
+        Grid.SetColumn(countText, 1);
+
+        grid.Children.Add(nameText);
+        grid.Children.Add(countText);
+
+        return new Border
+        {
+            Child = grid,
+            Padding = new Thickness(20, 5, 12, 5),
+            BorderBrush = new SolidColorBrush(Color.Parse("#10000000")),
+            BorderThickness = new Thickness(0, 0, 0, 1)
+        };
+    }
+
+    private static Border NavigatorThreadRow(Threads.ThreadSummary thread)
+    {
+        var stack = new StackPanel { Spacing = 1 };
+
+        stack.Children.Add(new TextBlock
+        {
+            Text = string.IsNullOrWhiteSpace(thread.Subject) ? "(no subject)" : thread.Subject,
+            FontSize = 12,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            MaxLines = 1
+        });
+
+        stack.Children.Add(new TextBlock
+        {
+            Text = $"{thread.Account} · {thread.MessageCount} msgs · {thread.LastDate}",
+            FontSize = 10,
+            Foreground = new SolidColorBrush(Color.Parse("#888")),
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+
+        return new Border
+        {
+            Child = stack,
+            Padding = new Thickness(20, 6, 12, 6),
+            BorderBrush = new SolidColorBrush(Color.Parse("#10000000")),
+            BorderThickness = new Thickness(0, 0, 0, 1)
+        };
+    }
+
+    private static Border NavigatorTimelineRow(FileInfo file)
+    {
+        var category = file.Directory?.Name ?? "";
+        var stack = new StackPanel { Spacing = 1 };
+
+        stack.Children.Add(new TextBlock
+        {
+            Text = $"📄 {file.Name}",
+            FontSize = 12,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            MaxLines = 1
+        });
+
+        stack.Children.Add(new TextBlock
+        {
+            Text = $"{category} · {file.LastWriteTime:HH:mm}",
+            FontSize = 10,
+            Foreground = new SolidColorBrush(Color.Parse("#888"))
+        });
+
+        return new Border
+        {
+            Child = stack,
+            Padding = new Thickness(20, 4, 12, 4)
+        };
+    }
+
+    private static Border NavigatorActivityRow(ActivityLog.LogEntry entry)
+    {
+        var levelColor = entry.Level switch
+        {
+            "Error" => "#F44336",
+            "Warning" => "#FF9800",
+            _ => "#888"
+        };
+
+        var stack = new StackPanel { Spacing = 1 };
+
+        stack.Children.Add(new TextBlock
+        {
+            Text = entry.Message,
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap,
+            MaxLines = 2,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+
+        stack.Children.Add(new TextBlock
+        {
+            Text = $"{entry.Timestamp} · {entry.Level}",
+            FontSize = 10,
+            Foreground = new SolidColorBrush(Color.Parse(levelColor))
+        });
+
+        return new Border
+        {
+            Child = stack,
+            Padding = new Thickness(20, 5, 12, 5),
+            BorderBrush = new SolidColorBrush(Color.Parse("#10000000")),
+            BorderThickness = new Thickness(0, 0, 0, 1)
         };
     }
 

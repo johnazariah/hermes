@@ -33,10 +33,18 @@
     <Compile Include="ContentClassifierTests.fs" />
     <Compile Include="ServiceHostTests.fs" />
     <Compile Include="SemanticSearchTests.fs" />
+    <Compile Include="CsvExtractionTests.fs" />
+    <Compile Include="ActivityLogTests.fs" />
+    <Compile Include="DocumentBrowserTests.fs" />
+    <Compile Include="DocumentManagementTests.fs" />
+    <Compile Include="ThreadsTests.fs" />
+    <Compile Include="ExcelExtractionTests.fs" />
+    <Compile Include="WordExtractionTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.2" />
+    <PackageReference Include="DocumentFormat.OpenXml" Version="3.2.0" />
     <PackageReference Include="FsCheck.Xunit" Version="2.16.6" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageReference Include="xunit" Version="2.9.2" />
