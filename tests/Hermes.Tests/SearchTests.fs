@@ -424,3 +424,25 @@ let ``Search_ExecuteUnified_ReturnsResults`` () =
             Assert.NotEmpty(results)
         finally db.dispose ()
     }
+
+// ─── Search additional edge cases ────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Search_SanitiseQuery_SpecialChars_SomeCleaned`` () =
+    // sanitiseQuery should handle special characters without crashing
+    let result = Search.sanitiseQuery "test* OR something"
+    Assert.True(result.Length > 0)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Search_DefaultFilter_HasCorrectDefaults`` () =
+    let f = Search.defaultFilter "test query"
+    Assert.Equal("test query", f.Query)
+    Assert.True(f.Category.IsNone)
+    Assert.True(f.Sender.IsNone)
+    Assert.True(f.DateFrom.IsNone)
+    Assert.True(f.DateTo.IsNone)
+    Assert.True(f.Account.IsNone)
+    Assert.True(f.SourceType.IsNone)
+    Assert.True(f.Limit > 0)

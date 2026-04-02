@@ -406,3 +406,27 @@ let ``ServiceInstaller_FormatResult_Failed_EmptyMessage`` () =
 let ``ServiceInstaller_FormatResult_StatusInfo_EmptyString`` () =
     let msg = ServiceInstaller.formatResult (ServiceInstaller.StatusInfo "")
     Assert.Equal("", msg)
+
+// ─── Logging tests ───────────────────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Logging_Silent_DoesNotThrow`` () =
+    Logging.silent.info "test info"
+    Logging.silent.warn "test warn"
+    Logging.silent.error "test error"
+    Logging.silent.debug "test debug"
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``Logging_Configure_CreatesWorkingLogger`` () =
+    let tempDir = IO.Path.Combine(IO.Path.GetTempPath(), $"hermes-log-test-{Guid.NewGuid():N}")
+    try
+        let logger = Logging.configure tempDir Serilog.Events.LogEventLevel.Debug
+        logger.info "test info message"
+        logger.warn "test warn message"
+        logger.error "test error message"
+        logger.debug "test debug message"
+        Assert.True(IO.Directory.Exists(IO.Path.Combine(tempDir, "logs")))
+    finally
+        try IO.Directory.Delete(tempDir, true) with _ -> ()

@@ -835,3 +835,47 @@ let ``McpTools_ReclassifyDocument_ValidDoc_Reclassifies`` () =
             Assert.Equal("reclassified", doc.RootElement.GetProperty("status").GetString())
         finally db.dispose ()
     }
+
+// ─── McpTools.readFile ───────────────────────────────────────────────
+
+// ─── McpTools.readFile (covered by existing path safety tests) ──────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``McpTools_ReadFile_MissingPathArg_ReturnsError`` () =
+    task {
+        let m = TestHelpers.memFs ()
+        let args = JsonObject()
+        let! result = McpTools.readFile m.Fs "/archive" (args :> JsonNode)
+        let json = result.ToJsonString()
+        Assert.Contains("error", json)
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``McpTools_ReadFile_NonexistentFile_ReturnsError`` () =
+    task {
+        let m = TestHelpers.memFs ()
+        let args = JsonObject()
+        args["path"] <- JsonValue.Create("nonexistent/file.txt")
+        let! result = McpTools.readFile m.Fs "/archive" (args :> JsonNode)
+        let json = result.ToJsonString()
+        Assert.Contains("error", json)
+    }
+
+// ─── McpTools.getProcessingQueue extra ───────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``McpTools_GetProcessingQueue_WithDocs_ReturnsJsonObject`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            do! insertTestDocument db "invoices" "test.pdf"
+            let args = JsonObject()
+            let! result = McpTools.getProcessingQueue db (args :> JsonNode)
+            let json = result.ToJsonString()
+            // Should return some queue info as JSON
+            Assert.True(json.Length > 2, "Expected non-empty JSON response")
+        finally db.dispose ()
+    }

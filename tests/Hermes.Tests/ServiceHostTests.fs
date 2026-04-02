@@ -722,3 +722,25 @@ let ``ServiceHost_RunSyncCycle_LowConfidence_NoReclassification`` () =
             | _ -> ()
         finally db.dispose ()
     }
+
+// ─── createServiceHost with short-lived token ────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceHost_CreateServiceHost_ShortLivedToken_RunsLoopBriefly`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        m.Fs.createDirectory "/archive"
+        m.Fs.createDirectory "/archive/unclassified"
+        let config = TestHelpers.testConfig "/archive"
+        let serviceConfig = { ServiceHost.defaultServiceConfig config with HeartbeatIntervalSeconds = 1 }
+        use cts = new CancellationTokenSource()
+        cts.CancelAfter(200)
+        try
+            do! ServiceHost.createServiceHost m.Fs db TestHelpers.silentLogger TestHelpers.defaultClock minimalRules testDeps serviceConfig "/test/config.yaml" cts.Token
+            let! status = ServiceHost.readHeartbeat m.Fs "/archive"
+            Assert.True(status.IsSome)
+            Assert.False(status.Value.Running)
+        finally db.dispose ()
+    }

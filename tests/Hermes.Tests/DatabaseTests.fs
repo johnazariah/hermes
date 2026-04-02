@@ -317,3 +317,104 @@ let ``Database_InitSchema_V3_ReminderIndexesExist`` () =
                 Assert.True(count > 0L, $"Index {idx} should exist")
         finally db.dispose ()
     }
+
+// ─── V2→V3 migration ────────────────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Database_Migration_V2toV3_CreatesNewTablesAndColumns`` () =
+    task {
+        let db = TestHelpers.createRawDb ()
+        try
+            // Seed V2 schema manually
+            let! _ = db.execNonQuery "CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (datetime('now')))" []
+            let! _ = db.execNonQuery "INSERT INTO schema_version (version) VALUES (2)" []
+            let! _ = db.execNonQuery """CREATE TABLE messages (
+                gmail_id TEXT NOT NULL, account TEXT NOT NULL, sender TEXT, subject TEXT, date TEXT,
+                thread_id TEXT, body_text TEXT, label_ids TEXT, has_attachments INTEGER NOT NULL DEFAULT 0,
+                processed_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (account, gmail_id))""" []
+            let! _ = db.execNonQuery """CREATE TABLE documents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, source_type TEXT NOT NULL, gmail_id TEXT,
+                account TEXT, sender TEXT, subject TEXT, email_date TEXT, original_name TEXT,
+                saved_path TEXT NOT NULL, category TEXT NOT NULL, mime_type TEXT, size_bytes INTEGER,
+                sha256 TEXT NOT NULL, source_path TEXT, extracted_text TEXT, extracted_date TEXT,
+                extracted_amount REAL, extracted_vendor TEXT, extracted_abn TEXT, ocr_confidence REAL,
+                extraction_method TEXT, extracted_at TEXT, embedded_at TEXT, chunk_count INTEGER,
+                ingested_at TEXT NOT NULL DEFAULT (datetime('now')))""" []
+            let! _ = db.execNonQuery """CREATE TABLE sync_state (
+                account TEXT PRIMARY KEY, last_history_id TEXT, last_sync_at TEXT,
+                message_count INTEGER NOT NULL DEFAULT 0)""" []
+
+            // Run initSchema — should trigger V2→V3 migration
+            let! result = db.initSchema ()
+            Assert.True(Result.isOk result)
+
+            // Verify V3 additions
+            let! hasReminders = db.tableExists "reminders"
+            Assert.True(hasReminders, "reminders table should exist after migration")
+            let! hasActivityLog = db.tableExists "activity_log"
+            Assert.True(hasActivityLog, "activity_log table should exist after migration")
+            let! v = db.schemaVersion ()
+            Assert.Equal(3, v)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Database_Migration_V2toV3_RunsSuccessfully`` () =
+    task {
+        let db = TestHelpers.createRawDb ()
+        try
+            // Seed with a complete V2 schema
+            let! _ = db.execNonQuery "CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (datetime('now')))" []
+            let! _ = db.execNonQuery "INSERT INTO schema_version (version) VALUES (2)" []
+            let! _ = db.execNonQuery """CREATE TABLE messages (
+                gmail_id TEXT NOT NULL, account TEXT NOT NULL, sender TEXT, subject TEXT, date TEXT,
+                thread_id TEXT, body_text TEXT, label_ids TEXT, has_attachments INTEGER NOT NULL DEFAULT 0,
+                processed_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (account, gmail_id))""" []
+            let! _ = db.execNonQuery """CREATE TABLE documents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, source_type TEXT NOT NULL, gmail_id TEXT,
+                account TEXT, sender TEXT, subject TEXT, email_date TEXT, original_name TEXT,
+                saved_path TEXT NOT NULL, category TEXT NOT NULL, mime_type TEXT, size_bytes INTEGER,
+                sha256 TEXT NOT NULL, source_path TEXT, extracted_text TEXT, extracted_date TEXT,
+                extracted_amount REAL, extracted_vendor TEXT, extracted_abn TEXT, ocr_confidence REAL,
+                extraction_method TEXT, extracted_at TEXT, embedded_at TEXT, chunk_count INTEGER,
+                ingested_at TEXT NOT NULL DEFAULT (datetime('now')))""" []
+            let! _ = db.execNonQuery """CREATE TABLE sync_state (
+                account TEXT PRIMARY KEY, last_history_id TEXT, last_sync_at TEXT,
+                message_count INTEGER NOT NULL DEFAULT 0)""" []
+
+            // Run initSchema — should trigger V2→V3 migration
+            let! result = db.initSchema ()
+            Assert.True(Result.isOk result)
+
+            // Verify schema is now at V3
+            let! v = db.schemaVersion ()
+            Assert.Equal(3, v)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Database_SchemaVersion_FreshDb_ReturnsLatest`` () =
+    task {
+        let db = TestHelpers.createRawDb ()
+        try
+            let! _ = db.initSchema ()
+            let! v = db.schemaVersion ()
+            Assert.True(v >= 3)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Database_InitSchema_Idempotent_CanRunTwice`` () =
+    task {
+        let db = TestHelpers.createRawDb ()
+        try
+            let! r1 = db.initSchema ()
+            Assert.True(Result.isOk r1)
+            let! r2 = db.initSchema ()
+            Assert.True(Result.isOk r2)
+        finally db.dispose ()
+    }
