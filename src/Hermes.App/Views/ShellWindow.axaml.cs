@@ -54,14 +54,13 @@ public partial class ShellWindow : Window
     private ToggleButton _todoTabButton = null!;
     private ScrollViewer _todoScroller = null!;
     private StackPanel _todoPanel = null!;
-
     // Activity bar + navigator
     private Button _navActionItems = null!;
     private Button _navDocuments = null!;
     private Button _navThreads = null!;
     private Button _navTimeline = null!;
     private Button _navActivity = null!;
-    private Button _navSettings = null!;
+    private Button _navSettingsBtn = null!;
     private TextBlock _navigatorTitle = null!;
 
     public ShellWindow(HermesServiceBridge bridge)
@@ -113,14 +112,13 @@ public partial class ShellWindow : Window
         _todoTabButton = this.FindControl<ToggleButton>("TodoTabButton")!;
         _todoScroller = this.FindControl<ScrollViewer>("TodoScroller")!;
         _todoPanel = this.FindControl<StackPanel>("TodoPanel")!;
-
         // Activity bar + navigator
         _navActionItems = this.FindControl<Button>("NavActionItems")!;
         _navDocuments = this.FindControl<Button>("NavDocuments")!;
         _navThreads = this.FindControl<Button>("NavThreads")!;
         _navTimeline = this.FindControl<Button>("NavTimeline")!;
         _navActivity = this.FindControl<Button>("NavActivity")!;
-        _navSettings = this.FindControl<Button>("NavSettings")!;
+        _navSettingsBtn = this.FindControl<Button>("NavSettingsBtn")!;
         _navigatorTitle = this.FindControl<TextBlock>("NavigatorTitle")!;
     }
 
@@ -142,7 +140,7 @@ public partial class ShellWindow : Window
         };
 
         this.FindControl<Button>("SettingsButton")!.Click += async (_, _) => await ShowSettingsDialogAsync();
-        _navSettings.Click += async (_, _) => await ShowSettingsDialogAsync();
+        _navSettingsBtn.Click += async (_, _) => await ShowSettingsDialogAsync();
         this.FindControl<Button>("AddAccountButton")!.Click += async (_, _) => await AddGmailAccountAsync();
         this.FindControl<Button>("AddWatchFolderButton")!.Click += async (_, _) => await AddWatchFolderAsync();
         this.FindControl<Button>("SendButton")!.Click += async (_, _) => await HandleSendAsync();
@@ -183,23 +181,24 @@ public partial class ShellWindow : Window
         }
 
         // Activity bar navigation
-        _navActionItems.Click += (_, _) => SetActiveMode(ViewModels.NavigatorMode.ActionItems);
-        _navDocuments.Click += (_, _) => SetActiveMode(ViewModels.NavigatorMode.Documents);
-        _navThreads.Click += (_, _) => SetActiveMode(ViewModels.NavigatorMode.Threads);
-        _navTimeline.Click += (_, _) => SetActiveMode(ViewModels.NavigatorMode.Timeline);
-        _navActivity.Click += (_, _) => SetActiveMode(ViewModels.NavigatorMode.Activity);
+        _navActionItems.Click += (_, _) => SetActiveMode(NavigatorMode.ActionItems);
+        _navDocuments.Click += (_, _) => SetActiveMode(NavigatorMode.Documents);
+        _navThreads.Click += (_, _) => SetActiveMode(NavigatorMode.Threads);
+        _navTimeline.Click += (_, _) => SetActiveMode(NavigatorMode.Timeline);
+        _navActivity.Click += (_, _) => SetActiveMode(NavigatorMode.Activity);
+        _navSettingsBtn.Click += async (_, _) => await ShowSettingsDialogAsync();
     }
 
-    private void SetActiveMode(ViewModels.NavigatorMode mode)
+    private void SetActiveMode(NavigatorMode mode)
     {
         _vm.ActiveMode = mode;
         _navigatorTitle.Text = mode switch
         {
-            ViewModels.NavigatorMode.ActionItems => "ACTION ITEMS",
-            ViewModels.NavigatorMode.Documents => "DOCUMENTS",
-            ViewModels.NavigatorMode.Threads => "EMAIL THREADS",
-            ViewModels.NavigatorMode.Timeline => "TIMELINE",
-            ViewModels.NavigatorMode.Activity => "ACTIVITY",
+            NavigatorMode.ActionItems => "ACTION ITEMS",
+            NavigatorMode.Documents => "DOCUMENTS",
+            NavigatorMode.Threads => "EMAIL THREADS",
+            NavigatorMode.Timeline => "TIMELINE",
+            NavigatorMode.Activity => "ACTIVITY",
             _ => "HERMES",
         };
     }

@@ -179,9 +179,9 @@ module ServiceHost =
             try
                 do! syncEmails fs db logger clock config configDir
                 do! syncWatchFolders fs db logger clock config
+                do! runExtraction fs db logger clock config.ArchiveDir
                 do! classifyUnclassified fs db logger clock rules config.ArchiveDir
                 do! runBackfill fs db logger clock config configDir
-                do! runExtraction fs db logger clock config.ArchiveDir
                 do! evaluateReminders db logger clock
                 do! runEmbedding db logger config
                 logger.debug "Sync cycle completed."

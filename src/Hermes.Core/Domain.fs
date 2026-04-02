@@ -248,3 +248,20 @@ module Domain =
             | FilenameRule(name, pattern) -> $"filename rule '{name}' (pattern={pattern})"
             | SubjectRule(name, pattern) -> $"subject rule '{name}' (pattern={pattern})"
             | DefaultRule -> "default (unsorted)"
+
+    // ─── Content classification (Tier 2) ─────────────────────────────
+
+    type ContentMatch =
+        | ContentAny of keywords: string list
+        | ContentAll of keywords: string list
+        | HasTable
+        | TableHeadersAny of headers: string list
+        | TableHeadersAll of headers: string list
+        | HasAmount
+        | HasDate
+
+    type ContentRule =
+        { Name: string
+          Conditions: ContentMatch list
+          Category: string
+          Confidence: float }

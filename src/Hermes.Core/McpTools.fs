@@ -380,3 +380,120 @@ module McpTools =
                     r["error"] <- JsonValue.Create($"Unknown action: {other}. Use 'complete', 'snooze', or 'dismiss'.")
                     return r :> JsonNode
         }
+
+    // ─── Feed tools ──────────────────────────────────────────────────
+
+    let listDocumentsFeed (db: Algebra.Database) (args: JsonNode) : Task<JsonNode> =
+        task {
+            let sinceId = tryGetInt64 args "since_id" |> Option.defaultValue 0L
+            let category = tryGetString args "category"
+            let limit = tryGetInt args "limit" 100
+            let! docs = DocumentFeed.listDocuments db sinceId category limit
+            let arr = JsonArray()
+            for doc in docs do
+                arr.Add(DocumentFeed.feedDocToJson doc)
+            return arr :> JsonNode
+        }
+
+    let getFeedStats (db: Algebra.Database) (args: JsonNode) : Task<JsonNode> =
+        task {
+            let! stats = DocumentFeed.getFeedStats db
+            return DocumentFeed.feedStatsToJson stats :> JsonNode
+        }
+
+    let getDocumentContent
+        (db: Algebra.Database) (fs: Algebra.FileSystem) (archiveDir: string)
+        (args: JsonNode) : Task<JsonNode> =
+        task {
+            match tryGetInt64 args "document_id" with
+            | None ->
+                let err = JsonObject()
+                err["error"] <- JsonValue.Create("document_id is required")
+                return err :> JsonNode
+            | Some docId ->
+                let formatStr = tryGetString args "format" |> Option.defaultValue "markdown"
+                let format =
+                    DocumentFeed.parseFormat formatStr
+                    |> Option.defaultValue DocumentFeed.Markdown
+                let! result = DocumentFeed.getDocumentContent db fs archiveDir docId format
+                match result with
+                | Ok content ->
+                    let obj = JsonObject()
+                    obj["document_id"] <- JsonValue.Create(docId)
+                    obj["format"] <- JsonValue.Create(formatStr)
+                    obj["content"] <- JsonValue.Create(content)
+                    return obj :> JsonNode
+                | Error e ->
+                    let err = JsonObject()
+                    err["error"] <- JsonValue.Create(e)
+                    return err :> JsonNode
+        }
+
+    // ─── Document management tools ───────────────────────────────────
+
+    let reclassifyDocument
+        (db: Algebra.Database) (fs: Algebra.FileSystem) (archiveDir: string)
+        (args: JsonNode) : Task<JsonNode> =
+        task {
+            match tryGetInt64 args "document_id", tryGetString args "new_category" with
+            | None, _ ->
+                let err = JsonObject()
+                err["error"] <- JsonValue.Create("document_id is required")
+                return err :> JsonNode
+            | _, None ->
+                let err = JsonObject()
+                err["error"] <- JsonValue.Create("new_category is required")
+                return err :> JsonNode
+            | Some docId, Some category ->
+                let! result = DocumentManagement.reclassify db fs archiveDir docId category
+                match result with
+                | Ok () ->
+                    let obj = JsonObject()
+                    obj["status"] <- JsonValue.Create("reclassified")
+                    obj["document_id"] <- JsonValue.Create(docId)
+                    obj["new_category"] <- JsonValue.Create(category)
+                    return obj :> JsonNode
+                | Error e ->
+                    let err = JsonObject()
+                    err["error"] <- JsonValue.Create(e)
+                    return err :> JsonNode
+        }
+
+    let reextractDocument (db: Algebra.Database) (args: JsonNode) : Task<JsonNode> =
+        task {
+            match tryGetInt64 args "document_id" with
+            | None ->
+                let err = JsonObject()
+                err["error"] <- JsonValue.Create("document_id is required")
+                return err :> JsonNode
+            | Some docId ->
+                let! result = DocumentManagement.reextract db docId
+                match result with
+                | Ok () ->
+                    let obj = JsonObject()
+                    obj["status"] <- JsonValue.Create("queued_for_reextraction")
+                    obj["document_id"] <- JsonValue.Create(docId)
+                    return obj :> JsonNode
+                | Error e ->
+                    let err = JsonObject()
+                    err["error"] <- JsonValue.Create(e)
+                    return err :> JsonNode
+        }
+
+    let getProcessingQueue (db: Algebra.Database) (args: JsonNode) : Task<JsonNode> =
+        task {
+            let limit = tryGetInt args "limit" 10
+            let! queue = DocumentManagement.getProcessingQueue db limit
+            let obj = JsonObject()
+            let stageToJson (stage: DocumentManagement.QueueStage) =
+                let s = JsonObject()
+                s["count"] <- JsonValue.Create(stage.Count)
+                let ids = JsonArray()
+                for id in stage.SampleIds do ids.Add(JsonValue.Create(id))
+                s["sample_ids"] <- ids
+                s
+            obj["unclassified"] <- stageToJson queue.Unclassified
+            obj["unextracted"] <- stageToJson queue.Unextracted
+            obj["unembedded"] <- stageToJson queue.Unembedded
+            return obj :> JsonNode
+        }

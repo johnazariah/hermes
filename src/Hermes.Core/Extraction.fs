@@ -30,10 +30,37 @@ module Extraction =
         with ex ->
             Error $"PDF extraction failed: {ex.Message}"
 
+    // ─── Structured PDF extraction (uses PdfStructure) ───────────────
+
+    let extractPdfContent (pdfBytes: byte[]) : Result<string * float, string> =
+        try
+            let structured : PdfStructure.DocumentContent = PdfStructure.extractStructured pdfBytes
+            if structured.Confidence < 0.3 then
+                Error "Low confidence extraction — needs OCR fallback"
+            else
+                let markdown = PdfStructure.toMarkdown structured (Map.empty<string, string>)
+                Ok (markdown, structured.Confidence)
+        with ex ->
+            Error $"Structured PDF extraction failed: {ex.Message}"
+
     // ─── File type detection ─────────────────────────────────────────
 
     let isPdf (path: string) =
         path.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase)
+
+    let isExcel (path: string) =
+        [| ".xlsx"; ".xls" |]
+        |> Array.exists (fun ext -> path.EndsWith(ext, StringComparison.OrdinalIgnoreCase))
+
+    let isWord (path: string) =
+        path.EndsWith(".docx", StringComparison.OrdinalIgnoreCase)
+
+    let isCsv (path: string) =
+        path.EndsWith(".csv", StringComparison.OrdinalIgnoreCase)
+
+    let isPlainText (path: string) =
+        [| ".txt"; ".md"; ".log" |]
+        |> Array.exists (fun ext -> path.EndsWith(ext, StringComparison.OrdinalIgnoreCase))
 
     let isImage (path: string) =
         [| ".png"; ".jpg"; ".jpeg"; ".tiff"; ".tif"; ".bmp"; ".gif"; ".webp" |]
@@ -113,14 +140,32 @@ module Extraction =
 
     // ─── Extract from bytes (dispatches by file type) ────────────────
 
+    let private structuredToResult (method: string) (doc: PdfStructure.DocumentContent) =
+        let markdown = PdfStructure.toMarkdown doc (Map.empty<string, string>)
+        Ok (analyseText markdown method (Some doc.Confidence))
+
     let extractFromBytes (extractor: Algebra.TextExtractor) (path: string) (bytes: byte array) =
         task {
             if isPdf path then
-                let! result = extractor.extractPdf bytes
-                return result |> Result.map (fun text ->
-                    let method = if isLikelyScanned text then "ollama_vision" else "pdfpig"
-                    let conf = if isLikelyScanned text then Some 0.7 else None
-                    analyseText text method conf)
+                match extractPdfContent bytes with
+                | Ok (markdown, confidence) ->
+                    return Ok (analyseText markdown "pdfstructure" (Some confidence))
+                | Error _ ->
+                    let! result = extractor.extractPdf bytes
+                    return result |> Result.map (fun text ->
+                        let method = if isLikelyScanned text then "ollama_vision" else "pdfpig"
+                        let conf = if isLikelyScanned text then Some 0.7 else None
+                        analyseText text method conf)
+            elif isExcel path then
+                return ExcelExtraction.extractExcel bytes |> structuredToResult "closedxml"
+            elif isWord path then
+                return WordExtraction.extractWord bytes |> structuredToResult "openxml"
+            elif isCsv path then
+                let text = Text.Encoding.UTF8.GetString(bytes)
+                return CsvExtraction.extractCsv text |> structuredToResult "csv"
+            elif isPlainText path then
+                let text = Text.Encoding.UTF8.GetString(bytes)
+                return Ok (analyseText text "plaintext" (Some 1.0))
             elif isImage path then
                 let! result = extractor.extractImage bytes
                 return result |> Result.map (fun text -> analyseText text "ollama_vision" (Some 0.8))
@@ -141,7 +186,8 @@ module Extraction =
                        SET extracted_text = @text, extracted_date = @date,
                            extracted_amount = @amount, extracted_vendor = @vendor,
                            extracted_abn = @abn, extraction_method = @method,
-                           ocr_confidence = @confidence, extracted_at = @now
+                           ocr_confidence = @confidence, extraction_confidence = @extConf,
+                           extracted_at = @now
                        WHERE id = @id"""
                     [ ("@text", Database.boxVal r.Text)
                       ("@date", optVal r.Date)
@@ -150,6 +196,7 @@ module Extraction =
                       ("@abn", optVal r.Abn)
                       ("@method", Database.boxVal r.Method)
                       ("@confidence", r.OcrConfidence |> Option.map Database.boxVal |> Option.defaultValue (Database.boxVal DBNull.Value))
+                      ("@extConf", r.OcrConfidence |> Option.map Database.boxVal |> Option.defaultValue (Database.boxVal DBNull.Value))
                       ("@now", Database.boxVal (clock.utcNow().ToString("o")))
                       ("@id", Database.boxVal docId) ]
             ()

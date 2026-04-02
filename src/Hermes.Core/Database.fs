@@ -64,6 +64,9 @@ module Database =
             extracted_abn   TEXT,
             ocr_confidence  REAL,
             extraction_method TEXT,
+            extraction_confidence REAL,
+            classification_tier TEXT,
+            classification_confidence REAL,
             extracted_at    TEXT,
             embedded_at     TEXT,
             chunk_count     INTEGER,
@@ -266,7 +269,10 @@ module Database =
                "ALTER TABLE sync_state ADD COLUMN backfill_total_estimate INTEGER"
                "ALTER TABLE sync_state ADD COLUMN backfill_scanned INTEGER NOT NULL DEFAULT 0"
                "ALTER TABLE sync_state ADD COLUMN backfill_completed INTEGER NOT NULL DEFAULT 0"
-               "ALTER TABLE sync_state ADD COLUMN backfill_started_at TEXT" |]
+               "ALTER TABLE sync_state ADD COLUMN backfill_started_at TEXT"
+               "ALTER TABLE documents ADD COLUMN extraction_confidence REAL"
+               "ALTER TABLE documents ADD COLUMN classification_tier TEXT"
+               "ALTER TABLE documents ADD COLUMN classification_confidence REAL" |]
         let createStmts =
             [| """CREATE TABLE IF NOT EXISTS reminders (
                     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -285,7 +291,18 @@ module Database =
                 )"""
                "CREATE INDEX IF NOT EXISTS idx_reminder_status ON reminders(status)"
                "CREATE INDEX IF NOT EXISTS idx_reminder_due ON reminders(due_date)"
-               "CREATE INDEX IF NOT EXISTS idx_reminder_doc ON reminders(document_id)" |]
+               "CREATE INDEX IF NOT EXISTS idx_reminder_doc ON reminders(document_id)"
+               """CREATE TABLE IF NOT EXISTS activity_log (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp   TEXT NOT NULL DEFAULT (datetime('now')),
+                    level       TEXT NOT NULL DEFAULT 'info',
+                    category    TEXT NOT NULL,
+                    message     TEXT NOT NULL,
+                    document_id INTEGER,
+                    details     TEXT,
+                    FOREIGN KEY (document_id) REFERENCES documents(id)
+                )"""
+               "CREATE INDEX IF NOT EXISTS idx_activity_log_ts ON activity_log(timestamp DESC)" |]
         task {
             // ALTER TABLE may fail if column already exists — that's fine
             for sql in alterStmts do
