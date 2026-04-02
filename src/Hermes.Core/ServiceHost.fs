@@ -245,7 +245,14 @@ module ServiceHost =
                 do! syncWatchFolders fs db logger clock config
                 do! runExtraction fs db logger clock config.ArchiveDir
                 do! classifyUnclassified fs db logger clock rules config.ArchiveDir
-                do! reclassifyUnsorted fs db logger config [] // TODO: load content rules from config
+                // Load content rules from rules.yaml for Tier 2+3
+                let contentRules =
+                    let rulesPath = Path.Combine(configDir, "rules.yaml")
+                    if fs.fileExists rulesPath then
+                        let yaml = (fs.readAllText rulesPath).Result
+                        Rules.parseContentRules yaml
+                    else []
+                do! reclassifyUnsorted fs db logger config contentRules
                 do! runBackfill fs db logger clock config configDir
                 do! evaluateReminders db logger clock
                 do! runEmbedding db logger config
