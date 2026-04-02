@@ -31,6 +31,13 @@ module Algebra =
           getFiles: string -> string -> string array
           getFileSize: string -> int64 }
 
+    // ─── Environment ────────────────────────────────────────────────
+
+    type Environment =
+        { homeDirectory: unit -> string
+          configDirectory: unit -> string
+          documentsDirectory: unit -> string }
+
     // ─── Logging ─────────────────────────────────────────────────────
 
     type Logger =
@@ -128,6 +135,17 @@ module Interpreters =
           moveFile = fun src dst -> File.Move(src, dst)
           getFiles = fun dir pattern -> Directory.GetFiles(dir, pattern)
           getFileSize = fun path -> FileInfo(path).Length }
+
+    let systemEnvironment : Algebra.Environment =
+        { homeDirectory = fun () -> System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile)
+          configDirectory = fun () ->
+              let appData =
+                  if System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows) then
+                      System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData)
+                  else
+                      Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile), ".config")
+              Path.Combine(appData, "hermes")
+          documentsDirectory = fun () -> System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments) }
 
     let fileWatcher: Algebra.FileWatcher =
         { start =

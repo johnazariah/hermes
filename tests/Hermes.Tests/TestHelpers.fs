@@ -102,6 +102,13 @@ let fixedClock (dt: DateTimeOffset) : Algebra.Clock =
 let defaultClock : Algebra.Clock =
     fixedClock (DateTimeOffset(2025, 3, 15, 10, 30, 0, TimeSpan.Zero))
 
+// ─── Fake environment ────────────────────────────────────────────────
+
+let fakeEnvironment (home: string) (config: string) (docs: string) : Algebra.Environment =
+    { homeDirectory = fun () -> home
+      configDirectory = fun () -> config
+      documentsDirectory = fun () -> docs }
+
 // ─── In-memory SQLite database ───────────────────────────────────────
 
 /// Create a fresh in-memory DB with schema initialised.
