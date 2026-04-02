@@ -322,7 +322,7 @@ let ``FolderWatcher_ProcessFile_UsesSafeCopyRename`` () =
 let ``FolderWatcher_AddWatchFolder_AddsToConfig`` () =
     let config = watchTestConfig "/archive" []
 
-    match FolderWatcher.addWatchFolder config "/watch/new" [ "*.pdf" ] with
+    match FolderWatcher.addWatchFolder (TestHelpers.fakeEnvironment "/home" "/home/.config/hermes" "/home/Documents") config "/watch/new" [ "*.pdf" ] with
     | Ok updated ->
         Assert.Equal(1, updated.WatchFolders.Length)
         Assert.Equal("/watch/new", updated.WatchFolders.[0].Path)
@@ -334,7 +334,7 @@ let ``FolderWatcher_AddWatchFolder_AddsToConfig`` () =
 let ``FolderWatcher_AddWatchFolder_EmptyPatterns_DefaultsToStar`` () =
     let config = watchTestConfig "/archive" []
 
-    match FolderWatcher.addWatchFolder config "/watch/new" [] with
+    match FolderWatcher.addWatchFolder (TestHelpers.fakeEnvironment "/home" "/home/.config/hermes" "/home/Documents") config "/watch/new" [] with
     | Ok updated ->
         Assert.Equal<string list>([ "*" ], updated.WatchFolders.[0].Patterns)
     | Error e -> failwith $"Expected Ok, got Error: {e}"
@@ -347,7 +347,7 @@ let ``FolderWatcher_AddWatchFolder_Duplicate_ReturnsError`` () =
 
     let config = watchTestConfig "/archive" [ existing ]
 
-    match FolderWatcher.addWatchFolder config "/watch/existing" [ "*.pdf" ] with
+    match FolderWatcher.addWatchFolder (TestHelpers.fakeEnvironment "/home" "/home/.config/hermes" "/home/Documents") config "/watch/existing" [ "*.pdf" ] with
     | Error e -> Assert.Contains("already configured", e)
     | Ok _ -> failwith "Expected Error for duplicate"
 
@@ -359,7 +359,7 @@ let ``FolderWatcher_RemoveWatchFolder_RemovesFromConfig`` () =
 
     let config = watchTestConfig "/archive" [ existing ]
 
-    match FolderWatcher.removeWatchFolder config "/watch/existing" with
+    match FolderWatcher.removeWatchFolder (TestHelpers.fakeEnvironment "/home" "/home/.config/hermes" "/home/Documents") config "/watch/existing" with
     | Ok updated -> Assert.Empty(updated.WatchFolders)
     | Error e -> failwith $"Expected Ok, got Error: {e}"
 
@@ -368,7 +368,7 @@ let ``FolderWatcher_RemoveWatchFolder_RemovesFromConfig`` () =
 let ``FolderWatcher_RemoveWatchFolder_NotFound_ReturnsError`` () =
     let config = watchTestConfig "/archive" []
 
-    match FolderWatcher.removeWatchFolder config "/watch/nonexistent" with
+    match FolderWatcher.removeWatchFolder (TestHelpers.fakeEnvironment "/home" "/home/.config/hermes" "/home/Documents") config "/watch/nonexistent" with
     | Error e -> Assert.Contains("not found", e)
     | Ok _ -> failwith "Expected Error for missing folder"
 

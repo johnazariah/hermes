@@ -37,7 +37,7 @@ module Logging =
 
     /// Configure with defaults for the platform config directory.
     let configureDefault () =
-        configure (Config.configDir ()) LogEventLevel.Information
+        configure (Config.configDir Interpreters.systemEnvironment) LogEventLevel.Information
 
     /// A silent logger that discards all messages (useful for tests).
     let silent : Algebra.Logger =

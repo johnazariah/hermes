@@ -196,11 +196,12 @@ module FolderWatcher =
 
     /// Add a watch folder to the configuration (in memory).
     let addWatchFolder
+        (env: Algebra.Environment)
         (config: Domain.HermesConfig)
         (path: string)
         (patterns: string list)
         : Result<Domain.HermesConfig, string> =
-        let expandedPath = Config.expandHome path
+        let expandedPath = Config.expandHome env path
 
         let alreadyExists =
             config.WatchFolders
@@ -218,10 +219,11 @@ module FolderWatcher =
 
     /// Remove a watch folder from the configuration (in memory).
     let removeWatchFolder
+        (env: Algebra.Environment)
         (config: Domain.HermesConfig)
         (path: string)
         : Result<Domain.HermesConfig, string> =
-        let expandedPath = Config.expandHome path
+        let expandedPath = Config.expandHome env path
 
         let exists =
             config.WatchFolders

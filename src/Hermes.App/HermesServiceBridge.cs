@@ -29,7 +29,7 @@ public sealed class HermesServiceBridge
         _config?.ArchiveDir ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "hermes");
 
-    public string ConfigDir => Core.Config.configDir();
+    public string ConfigDir => Core.Config.configDir(Interpreters.systemEnvironment);
 
     public bool IsFirstRun =>
         !File.Exists(Path.Combine(ConfigDir, "config.yaml"));
@@ -39,7 +39,7 @@ public sealed class HermesServiceBridge
         // Load or create config
         var configPath = Path.Combine(ConfigDir, "config.yaml");
         var fs = Interpreters.realFileSystem;
-        var configResult = await Core.Config.load(fs, configPath);
+        var configResult = await Core.Config.load(fs, Interpreters.systemEnvironment, configPath);
 
         if (configResult.IsOk)
         {
@@ -48,7 +48,7 @@ public sealed class HermesServiceBridge
         else
         {
             // First run — use defaults
-            _config = Core.Config.defaultConfig();
+            _config = Core.Config.defaultConfig(Interpreters.systemEnvironment);
         }
 
         // Ensure archive directories exist before any I/O
@@ -66,7 +66,8 @@ public sealed class HermesServiceBridge
         var deps = ServiceHost.buildProductionDeps(_config, ConfigDir, logger, fs);
 
         // Run the service loop — pass configPath so it reloads config before each sync
-        await ServiceHost.createServiceHost(fs, db, logger, clock, rules, deps, serviceConfig, configPath, ct);
+        var env = Interpreters.systemEnvironment;
+        await ServiceHost.createServiceHost(fs, db, logger, clock, env, rules, deps, serviceConfig, configPath, ct);
     }
 
     public async Task RefreshStatusAsync()
@@ -84,7 +85,7 @@ public sealed class HermesServiceBridge
         var configPath = Path.Combine(ConfigDir, "config.yaml");
         if (File.Exists(configPath))
         {
-            var configResult = await Core.Config.load(fs, configPath);
+            var configResult = await Core.Config.load(fs, Interpreters.systemEnvironment, configPath);
             if (configResult.IsOk) _config = configResult.ResultValue;
         }
     }
@@ -116,7 +117,7 @@ public sealed class HermesServiceBridge
 
         // Reload config so in-memory state reflects the new account
         var fs = Interpreters.realFileSystem;
-        var result = await Core.Config.load(fs, configPath);
+        var result = await Core.Config.load(fs, Interpreters.systemEnvironment, configPath);
         if (result.IsOk) _config = result.ResultValue;
     }
 
@@ -137,7 +138,7 @@ public sealed class HermesServiceBridge
         await File.WriteAllTextAsync(configPath, yaml);
 
         var fs = Interpreters.realFileSystem;
-        var result = await Core.Config.load(fs, configPath);
+        var result = await Core.Config.load(fs, Interpreters.systemEnvironment, configPath);
         if (result.IsOk) _config = result.ResultValue;
     }
 
@@ -158,7 +159,7 @@ public sealed class HermesServiceBridge
         await File.WriteAllTextAsync(configPath, yaml);
 
         var fs = Interpreters.realFileSystem;
-        var result = await Core.Config.load(fs, configPath);
+        var result = await Core.Config.load(fs, Interpreters.systemEnvironment, configPath);
         if (result.IsOk) _config = result.ResultValue;
 
         // Trigger an immediate sync so existing files in the new folder are ingested now
@@ -292,7 +293,7 @@ public sealed class HermesServiceBridge
     {
         var configPath = Path.Combine(ConfigDir, "config.yaml");
         var fs = Interpreters.realFileSystem;
-        var result = await Core.Config.load(fs, configPath);
+        var result = await Core.Config.load(fs, Interpreters.systemEnvironment, configPath);
         if (result.IsOk) _config = result.ResultValue;
     }
 

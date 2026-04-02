@@ -278,9 +278,9 @@ module ServiceHost =
             with ex -> () // heartbeat failure is non-fatal
         }
 
-    let private reloadConfig (fs: Algebra.FileSystem) (logger: Algebra.Logger) (configPath: string) (state: LoopState) =
+    let private reloadConfig (fs: Algebra.FileSystem) (env: Algebra.Environment) (logger: Algebra.Logger) (configPath: string) (state: LoopState) =
         task {
-            let! result = Config.load fs configPath
+            let! result = Config.load fs env configPath
             match result with
             | Ok cfg -> state.LiveConfig <- cfg; logger.debug "Config reloaded."
             | Error e -> logger.warn $"Config reload failed: {e}"
@@ -313,12 +313,12 @@ module ServiceHost =
 
     let createServiceHost
         (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
-        (clock: Algebra.Clock) (rules: Algebra.RulesEngine) (deps: SyncDeps)
+        (clock: Algebra.Clock) (env: Algebra.Environment) (rules: Algebra.RulesEngine) (deps: SyncDeps)
         (serviceConfig: HermesServiceConfig) (configPath: string) (ct: CancellationToken)
         : Task<unit> =
         task {
             let startedAt = clock.utcNow ()
-            let configDir = Path.GetDirectoryName(configPath) |> Option.ofObj |> Option.defaultValue (Config.configDir ())
+            let configDir = Path.GetDirectoryName(configPath) |> Option.ofObj |> Option.defaultValue (Config.configDir env)
             let state =
                 { LastSyncAt = None; LastSyncOk = true; LastError = None
                   SyncRunning = false; LiveConfig = serviceConfig.Config; LastHeartbeat = clock.utcNow () }
@@ -344,7 +344,7 @@ module ServiceHost =
 
                 let syncInterval = TimeSpan.FromMinutes(float state.LiveConfig.SyncIntervalMinutes)
                 if shouldSync clock fs serviceConfig.ArchiveDir syncInterval state && not state.SyncRunning then
-                    do! reloadConfig fs logger configPath state
+                    do! reloadConfig fs env logger configPath state
                     do! runOneSyncCycle fs db logger clock rules deps configDir state
 
             logger.info "Hermes service stopping..."

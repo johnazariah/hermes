@@ -8,6 +8,8 @@ open FsCheck
 open FsCheck.Xunit
 open Hermes.Core
 
+let private testEnv = TestHelpers.fakeEnvironment "/home/test" "/home/test/.config/hermes" "/home/test/Documents"
+
 // ─── Config parsing tests ────────────────────────────────────────────
 
 [<Fact>]
@@ -25,7 +27,7 @@ ollama:
   instruct_model: llama3.2
 """
 
-    match Config.parseYaml yaml with
+    match Config.parseYaml testEnv yaml with
     | Ok config ->
         Assert.Equal(30, config.SyncIntervalMinutes)
         Assert.Equal(10240, config.MinAttachmentSize)
@@ -36,9 +38,9 @@ ollama:
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``Config_ParseYaml_EmptyYaml_ReturnsDefaults`` () =
-    match Config.parseYaml "" with
+    match Config.parseYaml testEnv "" with
     | Ok config ->
-        let def = Config.defaultConfig ()
+        let def = Config.defaultConfig testEnv
         Assert.Equal(def.SyncIntervalMinutes, config.SyncIntervalMinutes)
         Assert.Equal(def.MinAttachmentSize, config.MinAttachmentSize)
     | Error e -> failwith $"Expected Ok, got Error: {e}"
@@ -54,7 +56,7 @@ accounts:
     provider: gmail
 """
 
-    match Config.parseYaml yaml with
+    match Config.parseYaml testEnv yaml with
     | Ok config ->
         Assert.Equal(2, config.Accounts.Length)
         Assert.Equal("john-personal", config.Accounts.[0].Label)
@@ -70,7 +72,7 @@ watch_folders:
     patterns: ["*.pdf", "*invoice*"]
 """
 
-    match Config.parseYaml yaml with
+    match Config.parseYaml testEnv yaml with
     | Ok config ->
         Assert.Equal(1, config.WatchFolders.Length)
         Assert.Equal(2, config.WatchFolders.[0].Patterns.Length)
@@ -80,7 +82,7 @@ watch_folders:
 [<Trait("Category", "Unit")>]
 let ``Config_Load_MissingFile_ReturnsError`` () =
     let m = TestHelpers.memFs ()
-    let result = Config.load m.Fs "/nonexistent/config.yaml" |> Async.AwaitTask |> Async.RunSynchronously
+    let result = Config.load m.Fs testEnv "/nonexistent/config.yaml" |> Async.AwaitTask |> Async.RunSynchronously
 
     match result with
     | Error msg -> Assert.Contains("not found", msg)
@@ -91,7 +93,7 @@ let ``Config_Load_MissingFile_ReturnsError`` () =
 let ``Config_Load_ValidFile_ReturnsConfig`` () =
     let m = TestHelpers.memFs ()
     m.Files.["/test/config.yaml"] <- "sync_interval_minutes: 42"
-    let result = Config.load m.Fs "/test/config.yaml" |> Async.AwaitTask |> Async.RunSynchronously
+    let result = Config.load m.Fs testEnv "/test/config.yaml" |> Async.AwaitTask |> Async.RunSynchronously
 
     match result with
     | Ok config -> Assert.Equal(42, config.SyncIntervalMinutes)
@@ -101,7 +103,7 @@ let ``Config_Load_ValidFile_ReturnsConfig`` () =
 [<Trait("Category", "Unit")>]
 let ``Config_Init_CreatesConfigAndRules`` () =
     let m = TestHelpers.memFs ()
-    let result = Config.init m.Fs |> Async.AwaitTask |> Async.RunSynchronously
+    let result = Config.init m.Fs testEnv |> Async.AwaitTask |> Async.RunSynchronously
 
     match result with
     | Ok created ->
@@ -113,9 +115,9 @@ let ``Config_Init_CreatesConfigAndRules`` () =
 [<Trait("Category", "Unit")>]
 let ``Config_Init_SkipsExistingFiles`` () =
     let m = TestHelpers.memFs ()
-    let configPath = Path.Combine(Config.configDir (), "config.yaml") |> m.Norm
+    let configPath = Path.Combine(Config.configDir testEnv, "config.yaml") |> m.Norm
     m.Put configPath "existing content"
-    let result = Config.init m.Fs |> Async.AwaitTask |> Async.RunSynchronously
+    let result = Config.init m.Fs testEnv |> Async.AwaitTask |> Async.RunSynchronously
 
     match result with
     | Ok created ->
@@ -128,16 +130,15 @@ let ``Config_Init_SkipsExistingFiles`` () =
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``Config_ExpandHome_TildePath_ExpandsToUserHome`` () =
-    let result = Config.expandHome "~/Documents/test"
-    let home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
-    Assert.StartsWith(home, result)
+    let result = Config.expandHome testEnv "~/Documents/test"
+    Assert.StartsWith("/home/test", result)
     Assert.EndsWith("test", result)
 
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``Config_ExpandHome_AbsolutePath_ReturnsUnchanged`` () =
     let path = "/usr/local/bin"
-    Assert.Equal(path, Config.expandHome path)
+    Assert.Equal(path, Config.expandHome testEnv path)
 
 // ─── Chat provider config tests ──────────────────────────────────────
 
@@ -155,7 +156,7 @@ chat:
     timeout_seconds: 120
 """
 
-    match Config.parseYaml yaml with
+    match Config.parseYaml testEnv yaml with
     | Ok config ->
         Assert.Equal(Domain.ChatProviderKind.AzureOpenAI, config.Chat.Provider)
         Assert.Equal("https://test.openai.azure.com/", config.Chat.AzureOpenAI.Endpoint)
@@ -173,7 +174,7 @@ chat:
   provider: ollama
 """
 
-    match Config.parseYaml yaml with
+    match Config.parseYaml testEnv yaml with
     | Ok config ->
         Assert.Equal(Domain.ChatProviderKind.Ollama, config.Chat.Provider)
     | Error e -> failwith $"Expected Ok, got Error: {e}"
@@ -185,7 +186,7 @@ let ``Config_ParseYaml_NoChatSection_DefaultsToOllama`` () =
 sync_interval_minutes: 15
 """
 
-    match Config.parseYaml yaml with
+    match Config.parseYaml testEnv yaml with
     | Ok config ->
         Assert.Equal(Domain.ChatProviderKind.Ollama, config.Chat.Provider)
         Assert.Equal("gpt-4o", config.Chat.AzureOpenAI.DeploymentName)
@@ -205,7 +206,8 @@ let ``Config_ChatProviderKind_FromString_ParsesVariants`` () =
 [<Trait("Category", "Property")>]
 let ``Config_ParseYaml_NeverThrows`` (yaml: string | null) =
     // parseYaml should always return Ok or Error, never throw
-    let result = Config.parseYaml (match yaml with null -> "" | s -> s)
+    let result = Config.parseYaml testEnv (match yaml with null -> "" | s -> s)
     match result with
     | Ok _ -> true
     | Error _ -> true
+

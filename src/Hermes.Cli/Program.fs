@@ -130,9 +130,10 @@ let private version () =
 
 let private initCmd () =
     let fs = Interpreters.realFileSystem
+    let env = Interpreters.systemEnvironment
     let logger = Logging.configureDefault ()
     logger.info "Initialising Hermes..."
-    let configResult = Config.init fs |> Async.AwaitTask |> Async.RunSynchronously
+    let configResult = Config.init fs env |> Async.AwaitTask |> Async.RunSynchronously
     match configResult with
     | Error e ->
         logger.error $"Config init failed: {e}"
@@ -140,8 +141,8 @@ let private initCmd () =
     | Ok created ->
         for path in created do
             logger.info $"Created: {path}"
-        let configPath = Path.Combine(Config.configDir (), "config.yaml")
-        let loadResult = Config.load fs configPath |> Async.AwaitTask |> Async.RunSynchronously
+        let configPath = Path.Combine(Config.configDir env, "config.yaml")
+        let loadResult = Config.load fs env configPath |> Async.AwaitTask |> Async.RunSynchronously
         match loadResult with
         | Error e ->
             logger.error $"Failed to load config: {e}"
@@ -163,9 +164,10 @@ let private initCmd () =
 
 let private loadConfigAndDb () =
     let fs = Interpreters.realFileSystem
+    let env = Interpreters.systemEnvironment
     let logger = Logging.configureDefault ()
-    let configPath = Path.Combine(Config.configDir (), "config.yaml")
-    let loadResult = Config.load fs configPath |> Async.AwaitTask |> Async.RunSynchronously
+    let configPath = Path.Combine(Config.configDir env, "config.yaml")
+    let loadResult = Config.load fs env configPath |> Async.AwaitTask |> Async.RunSynchronously
     match loadResult with
     | Error e ->
         logger.error $"Failed to load config: {e}"
@@ -490,12 +492,13 @@ let private serviceCmd (args: ParseResults<ServiceArgs>) =
         | Some(fs, logger, config, db) ->
             try
                 let clock = Interpreters.systemClock
-                let rulesPath = Path.Combine(Config.configDir (), "rules.yaml")
+                let env = Interpreters.systemEnvironment
+                let rulesPath = Path.Combine(Config.configDir env, "rules.yaml")
                 let rules = Rules.fromFile fs logger rulesPath
 
                 let serviceConfig = ServiceHost.defaultServiceConfig config
-                let cfgPath = Path.Combine(Config.configDir (), "config.yaml")
-                let deps = ServiceHost.buildProductionDeps config (Config.configDir ()) logger fs
+                let cfgPath = Path.Combine(Config.configDir env, "config.yaml")
+                let deps = ServiceHost.buildProductionDeps config (Config.configDir env) logger fs
 
                 use cts = new CancellationTokenSource()
 
@@ -504,7 +507,7 @@ let private serviceCmd (args: ParseResults<ServiceArgs>) =
                     logger.info "Ctrl+C received, shutting down..."
                     cts.Cancel())
 
-                ServiceHost.createServiceHost fs db logger clock rules deps serviceConfig cfgPath cts.Token
+                ServiceHost.createServiceHost fs db logger clock env rules deps serviceConfig cfgPath cts.Token
                 |> Async.AwaitTask
                 |> Async.RunSynchronously
                 0

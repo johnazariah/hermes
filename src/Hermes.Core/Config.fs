@@ -115,30 +115,27 @@ module Config =
     // ─── Path helpers ────────────────────────────────────────────────
 
     /// Expand ~ to the user home directory.
-    let expandHome (path: string) =
+    let expandHome (env: Algebra.Environment) (path: string) =
         if path.StartsWith("~/") || path.StartsWith("~\\") then
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), path.Substring(2))
+            Path.Combine(env.homeDirectory (), path.Substring(2))
         elif path = "~" then
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
+            env.homeDirectory ()
         else
             path
 
     /// Get the platform-specific config directory.
-    let configDir () =
-        if RuntimeInformation.IsOSPlatform(OSPlatform.Windows) then
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "hermes")
-        else
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config", "hermes")
+    let configDir (env: Algebra.Environment) =
+        env.configDirectory ()
 
     /// Default archive directory.
-    let defaultArchiveDir () =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "hermes")
+    let defaultArchiveDir (env: Algebra.Environment) =
+        Path.Combine(env.documentsDirectory (), "hermes")
 
     // ─── Defaults ────────────────────────────────────────────────────
 
-    let defaultConfig () : Domain.HermesConfig =
-        { ArchiveDir = defaultArchiveDir ()
-          Credentials = Path.Combine(configDir (), "gmail_credentials.json")
+    let defaultConfig (env: Algebra.Environment) : Domain.HermesConfig =
+        { ArchiveDir = defaultArchiveDir env
+          Credentials = Path.Combine(configDir env, "gmail_credentials.json")
           Accounts = []
           SyncIntervalMinutes = 15
           MinAttachmentSize = 20480
@@ -169,8 +166,8 @@ module Config =
         | null -> fallback
         | v -> v
 
-    let private toConfig (dto: HermesConfigDto) : Domain.HermesConfig =
-        let def = defaultConfig ()
+    let private toConfig (env: Algebra.Environment) (dto: HermesConfigDto) : Domain.HermesConfig =
+        let def = defaultConfig env
 
         let defaultBackfill : Domain.BackfillConfig =
             { Enabled = true; Since = None; BatchSize = 50; AttachmentsOnly = true; IncludeBodies = false }
@@ -203,7 +200,7 @@ module Config =
             else
                 dto.WatchFolders
                 |> Array.map (fun w ->
-                    ({ Path = w.Path |> orDefault "" |> expandHome
+                    ({ Path = w.Path |> orDefault "" |> expandHome env
                        Patterns =
                         if isNull (box w.Patterns) then
                             []
@@ -259,8 +256,8 @@ module Config =
                 { Domain.ChatConfig.Provider = providerKind
                   AzureOpenAI = azureOpenAI }
 
-        { ArchiveDir = dto.ArchiveDir |> orDefault def.ArchiveDir |> expandHome
-          Credentials = dto.Credentials |> orDefault def.Credentials |> expandHome
+        { ArchiveDir = dto.ArchiveDir |> orDefault def.ArchiveDir |> expandHome env
+          Credentials = dto.Credentials |> orDefault def.Credentials |> expandHome env
           Accounts = accounts
           SyncIntervalMinutes =
             if dto.SyncIntervalMinutes = 0 then
@@ -289,40 +286,40 @@ module Config =
     // ─── Public API (parameterised over FileSystem algebra) ──────────
 
     /// Parse a HermesConfig from a YAML string. Pure — no I/O.
-    let parseYaml (yaml: string) : Result<Domain.HermesConfig, string> =
+    let parseYaml (env: Algebra.Environment) (yaml: string) : Result<Domain.HermesConfig, string> =
         try
             if System.String.IsNullOrWhiteSpace(yaml) then
-                Ok(defaultConfig ())
+                Ok(defaultConfig env)
             else
                 let dto = deserializer.Deserialize<HermesConfigDto>(yaml)
 
                 if isNull (box dto) then
-                    Ok(defaultConfig ())
+                    Ok(defaultConfig env)
                 else
-                    Ok(toConfig dto)
+                    Ok(toConfig env dto)
         with ex ->
             Error $"Failed to parse config: {ex.Message}"
 
     /// Load config from a file, using the FileSystem algebra.
-    let load (fs: Algebra.FileSystem) (path: string) =
+    let load (fs: Algebra.FileSystem) (env: Algebra.Environment) (path: string) =
         task {
             if not (fs.fileExists path) then
                 return Error $"Configuration file not found: {path}"
             else
                 try
                     let! yaml = fs.readAllText path
-                    return parseYaml yaml
+                    return parseYaml env yaml
                 with ex ->
                     return Error $"Failed to load config: {ex.Message}"
         }
 
     // ─── Default YAML templates ──────────────────────────────────────
 
-    let defaultConfigYaml () =
+    let defaultConfigYaml (env: Algebra.Environment) =
         $"""archive_dir: ~/Documents/hermes
 
 # Gmail OAuth client credential (shared across accounts)
-credentials: {configDir ()}/gmail_credentials.json
+credentials: {configDir env}/gmail_credentials.json
 
 accounts: []
 
@@ -388,10 +385,10 @@ default_category: unsorted
 
     /// Write default config & rules files via the FileSystem algebra.
     /// Returns the list of files that were created (skips existing).
-    let init (fs: Algebra.FileSystem) =
+    let init (fs: Algebra.FileSystem) (env: Algebra.Environment) =
         task {
             try
-                let dir = configDir ()
+                let dir = configDir env
                 fs.createDirectory dir
                 fs.createDirectory (Path.Combine(dir, "tokens"))
 
@@ -400,7 +397,7 @@ default_category: unsorted
                 let configPath = Path.Combine(dir, "config.yaml")
 
                 if not (fs.fileExists configPath) then
-                    do! fs.writeAllText configPath (defaultConfigYaml ())
+                    do! fs.writeAllText configPath (defaultConfigYaml env)
                     created.Add(configPath)
 
                 let rulesPath = Path.Combine(dir, "rules.yaml")

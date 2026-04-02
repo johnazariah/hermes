@@ -165,7 +165,7 @@ let ``ServiceHost_StatusFilePath_ReturnsCorrectPath`` () =
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``ServiceHost_DefaultServiceConfig_UsesConfigValues`` () =
-    let config = Config.defaultConfig ()
+    let config = Config.defaultConfig (TestHelpers.fakeEnvironment "/home" "/home/.config/hermes" "/home/Documents")
     let serviceConfig = ServiceHost.defaultServiceConfig config
     Assert.Equal(config.SyncIntervalMinutes, serviceConfig.SyncIntervalMinutes)
     Assert.Equal(60, serviceConfig.HeartbeatIntervalSeconds)
@@ -175,7 +175,7 @@ let ``ServiceHost_DefaultServiceConfig_UsesConfigValues`` () =
 [<Trait("Category", "Unit")>]
 let ``ServiceHost_DefaultServiceConfig_CustomInterval_Preserved`` () =
     let config =
-        { Config.defaultConfig () with
+        { Config.defaultConfig (TestHelpers.fakeEnvironment "/home" "/home/.config/hermes" "/home/Documents") with
             SyncIntervalMinutes = 30 }
 
     let serviceConfig = ServiceHost.defaultServiceConfig config
