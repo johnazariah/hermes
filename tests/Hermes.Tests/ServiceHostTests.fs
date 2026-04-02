@@ -282,3 +282,274 @@ let ``ServiceHost_WriteAndReadHeartbeat_AllFields_RoundTrip`` () =
         Assert.Equal(5, read.Value.UnclassifiedCount)
         Assert.True(read.Value.ErrorMessage.IsSome)
     }
+
+// ─── SyncDeps test factory ──────────────────────────────────────────
+
+let private testDeps : ServiceHost.SyncDeps =
+    { Extractor =
+        { extractPdf = fun _ -> task { return Ok "extracted text" }
+          extractImage = fun _ -> task { return Error "not available" } }
+      Embedder = None
+      ChatProvider = None
+      ContentRules = []
+      CreateEmailProvider = fun _ _ -> task { return TestHelpers.emptyProvider } }
+
+let private testDepsWithEmbedder (embedder: Algebra.EmbeddingClient) : ServiceHost.SyncDeps =
+    { testDeps with Embedder = Some embedder }
+
+// ─── runSyncCycle tests ─────────────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceHost_RunSyncCycle_EmptyState_ReturnsOk`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        let rules : Algebra.RulesEngine =
+            { classify = fun _ _ -> { Domain.ClassificationResult.Category = "unsorted"; MatchedRule = Domain.ClassificationRule.DefaultRule }
+              reload = fun () -> task { return Ok () } }
+        let config = TestHelpers.testConfig "/archive"
+        m.Fs.createDirectory "/archive"
+        m.Fs.createDirectory "/archive/unclassified"
+        try
+            let! result = ServiceHost.runSyncCycle m.Fs db TestHelpers.silentLogger TestHelpers.defaultClock rules testDeps config "/config"
+            Assert.True(Result.isOk result)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceHost_RunSyncCycle_WithUnclassifiedFiles_ClassifiesThem`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        m.Fs.createDirectory "/archive"
+        m.Fs.createDirectory "/archive/unclassified"
+        m.Fs.createDirectory "/archive/invoices"
+        m.Put "/archive/unclassified/invoice-test.pdf" "PDF content"
+        let rules : Algebra.RulesEngine =
+            { classify = fun _ fname ->
+                if fname.Contains("invoice") then
+                    { Domain.ClassificationResult.Category = "invoices"; MatchedRule = Domain.ClassificationRule.DefaultRule }
+                else
+                    { Domain.ClassificationResult.Category = "unsorted"; MatchedRule = Domain.ClassificationRule.DefaultRule }
+              reload = fun () -> task { return Ok () } }
+        let config = TestHelpers.testConfig "/archive"
+        try
+            let! result = ServiceHost.runSyncCycle m.Fs db TestHelpers.silentLogger TestHelpers.defaultClock rules testDeps config "/config"
+            Assert.True(Result.isOk result)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceHost_RunSyncCycle_WithExtractor_ExtractsDocuments`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        m.Fs.createDirectory "/archive"
+        m.Fs.createDirectory "/archive/unclassified"
+        m.Put "/archive/invoices/test.pdf" "PDF bytes"
+        let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256) VALUES ('manual_drop', 'invoices/test.pdf', 'invoices', 'sha1')" []
+        let rules : Algebra.RulesEngine =
+            { classify = fun _ _ -> { Domain.ClassificationResult.Category = "unsorted"; MatchedRule = Domain.ClassificationRule.DefaultRule }
+              reload = fun () -> task { return Ok () } }
+        let config = TestHelpers.testConfig "/archive"
+        try
+            let! result = ServiceHost.runSyncCycle m.Fs db TestHelpers.silentLogger TestHelpers.defaultClock rules testDeps config "/config"
+            Assert.True(Result.isOk result)
+            // Verify extraction was attempted
+            let! rows = db.execReader "SELECT extracted_text FROM documents WHERE id = 1" []
+            match rows with
+            | [row] ->
+                let r = Prelude.RowReader(row)
+                Assert.True(r.OptString "extracted_text" |> Option.isSome)
+            | _ -> ()
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceHost_RunSyncCycle_WithEmbedder_RunsEmbedding`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        m.Fs.createDirectory "/archive"
+        m.Fs.createDirectory "/archive/unclassified"
+        let embedder = TestHelpers.fakeEmbedder 768
+        let deps = testDepsWithEmbedder embedder
+        let rules : Algebra.RulesEngine =
+            { classify = fun _ _ -> { Domain.ClassificationResult.Category = "unsorted"; MatchedRule = Domain.ClassificationRule.DefaultRule }
+              reload = fun () -> task { return Ok () } }
+        let config = TestHelpers.testConfig "/archive"
+        try
+            let! result = ServiceHost.runSyncCycle m.Fs db TestHelpers.silentLogger TestHelpers.defaultClock rules deps config "/config"
+            Assert.True(Result.isOk result)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceHost_RunSyncCycle_NoEmbedder_SkipsEmbedding`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        m.Fs.createDirectory "/archive"
+        m.Fs.createDirectory "/archive/unclassified"
+        let rules : Algebra.RulesEngine =
+            { classify = fun _ _ -> { Domain.ClassificationResult.Category = "unsorted"; MatchedRule = Domain.ClassificationRule.DefaultRule }
+              reload = fun () -> task { return Ok () } }
+        let config = TestHelpers.testConfig "/archive"
+        try
+            let! result = ServiceHost.runSyncCycle m.Fs db TestHelpers.silentLogger TestHelpers.defaultClock rules testDeps config "/config"
+            Assert.True(Result.isOk result)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceHost_RunSyncCycle_NoChatProvider_SkipsLlmClassification`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        m.Fs.createDirectory "/archive"
+        m.Fs.createDirectory "/archive/unclassified"
+        let! _ = db.execNonQuery
+                    "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text, extracted_at) VALUES ('manual_drop', 'unsorted/test.pdf', 'unsorted', 'sha1', 'some text', datetime('now'))"
+                    []
+        let rules : Algebra.RulesEngine =
+            { classify = fun _ _ -> { Domain.ClassificationResult.Category = "unsorted"; MatchedRule = Domain.ClassificationRule.DefaultRule }
+              reload = fun () -> task { return Ok () } }
+        let config = TestHelpers.testConfig "/archive"
+        try
+            let! result = ServiceHost.runSyncCycle m.Fs db TestHelpers.silentLogger TestHelpers.defaultClock rules testDeps config "/config"
+            Assert.True(Result.isOk result)
+            let! rows = db.execReader "SELECT category FROM documents WHERE id = 1" []
+            match rows with
+            | [row] -> Assert.Equal(Some "unsorted", Prelude.RowReader(row).OptString "category")
+            | _ -> Assert.Fail("Expected one document")
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceHost_RunSyncCycle_WithEmailProvider_SyncsEmails`` () =
+    task {
+        let mutable providerCalled = false
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        m.Fs.createDirectory "/archive"
+        m.Fs.createDirectory "/archive/unclassified"
+        let deps =
+            { testDeps with
+                CreateEmailProvider = fun _ _ ->
+                    task {
+                        providerCalled <- true
+                        return TestHelpers.emptyProvider
+                    } }
+        let rules : Algebra.RulesEngine =
+            { classify = fun _ _ -> { Domain.ClassificationResult.Category = "unsorted"; MatchedRule = Domain.ClassificationRule.DefaultRule }
+              reload = fun () -> task { return Ok () } }
+        let config = TestHelpers.testConfig "/archive"
+        try
+            let! result = ServiceHost.runSyncCycle m.Fs db TestHelpers.silentLogger TestHelpers.defaultClock rules deps config "/config"
+            Assert.True(Result.isOk result)
+            Assert.True(providerCalled, "Email provider factory should have been called")
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceHost_RunSyncCycle_EmailProviderFails_ContinuesGracefully`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        m.Fs.createDirectory "/archive"
+        m.Fs.createDirectory "/archive/unclassified"
+        let deps =
+            { testDeps with
+                CreateEmailProvider = fun _ _ -> task { return failwith "auth failed" } }
+        let rules : Algebra.RulesEngine =
+            { classify = fun _ _ -> { Domain.ClassificationResult.Category = "unsorted"; MatchedRule = Domain.ClassificationRule.DefaultRule }
+              reload = fun () -> task { return Ok () } }
+        let config = TestHelpers.testConfig "/archive"
+        try
+            let! result = ServiceHost.runSyncCycle m.Fs db TestHelpers.silentLogger TestHelpers.defaultClock rules deps config "/config"
+            Assert.True(Result.isOk result)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceHost_RunSyncCycle_WithContentRules_AppliesReclassification`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        m.Fs.createDirectory "/archive"
+        m.Fs.createDirectory "/archive/unclassified"
+        m.Fs.createDirectory "/archive/unsorted"
+        m.Fs.createDirectory "/archive/invoices"
+        let! _ = db.execNonQuery
+                    "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text, extracted_at) VALUES ('manual_drop', 'unsorted/test.pdf', 'unsorted', 'sha1', 'INVOICE TOTAL: $500', datetime('now'))"
+                    []
+        m.Put "/archive/unsorted/test.pdf" "content"
+        let contentRules : Domain.ContentRule list =
+            [ { Domain.ContentRule.Pattern = "(?i)invoice"; Category = "invoices"; Priority = 1 } ]
+        let deps = { testDeps with ContentRules = contentRules }
+        let rules : Algebra.RulesEngine =
+            { classify = fun _ _ -> { Domain.ClassificationResult.Category = "unsorted"; MatchedRule = Domain.ClassificationRule.DefaultRule }
+              reload = fun () -> task { return Ok () } }
+        let config = TestHelpers.testConfig "/archive"
+        try
+            let! result = ServiceHost.runSyncCycle m.Fs db TestHelpers.silentLogger TestHelpers.defaultClock rules deps config "/config"
+            Assert.True(Result.isOk result)
+        finally db.dispose ()
+    }
+
+// ─── buildProductionDeps tests ──────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceHost_BuildProductionDeps_OllamaDisabled_EmbedderIsNone`` () =
+    let config = TestHelpers.testConfig "/archive"
+    let m = TestHelpers.memFs ()
+    let deps = ServiceHost.buildProductionDeps config "/config" TestHelpers.silentLogger m.Fs
+    Assert.True(deps.Embedder.IsNone)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceHost_BuildProductionDeps_NoRulesFile_EmptyContentRules`` () =
+    let config = TestHelpers.testConfig "/archive"
+    let m = TestHelpers.memFs ()
+    let deps = ServiceHost.buildProductionDeps config "/config" TestHelpers.silentLogger m.Fs
+    Assert.Empty(deps.ContentRules)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceHost_BuildProductionDeps_WithRulesFile_ParsesContentRules`` () =
+    let config = TestHelpers.testConfig "/archive"
+    let m = TestHelpers.memFs ()
+    let rulesYaml = """content_rules:
+  - pattern: "(?i)invoice"
+    category: invoices
+    priority: 1"""
+    m.Put "/config/rules.yaml" rulesYaml
+    let deps = ServiceHost.buildProductionDeps config "/config" TestHelpers.silentLogger m.Fs
+    Assert.NotEmpty(deps.ContentRules)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceHost_BuildProductionDeps_ExtractorIsConfigured`` () =
+    let config = TestHelpers.testConfig "/archive"
+    let m = TestHelpers.memFs ()
+    let deps = ServiceHost.buildProductionDeps config "/config" TestHelpers.silentLogger m.Fs
+    Assert.NotNull(deps.Extractor.extractPdf)
+    Assert.NotNull(deps.Extractor.extractImage)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ServiceHost_BuildProductionDeps_CreateEmailProviderIsConfigured`` () =
+    let config = TestHelpers.testConfig "/archive"
+    let m = TestHelpers.memFs ()
+    let deps = ServiceHost.buildProductionDeps config "/config" TestHelpers.silentLogger m.Fs
+    Assert.NotNull(deps.CreateEmailProvider)

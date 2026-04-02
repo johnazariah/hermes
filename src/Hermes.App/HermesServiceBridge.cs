@@ -63,9 +63,10 @@ public sealed class HermesServiceBridge
         var rulesPath = Path.Combine(ConfigDir, "rules.yaml");
         var rules = Rules.fromFile(fs, logger, rulesPath);
         var serviceConfig = ServiceHost.defaultServiceConfig(_config);
+        var deps = ServiceHost.buildProductionDeps(_config, ConfigDir, logger, fs);
 
         // Run the service loop — pass configPath so it reloads config before each sync
-        await ServiceHost.createServiceHost(fs, db, logger, clock, rules, serviceConfig, configPath, ct);
+        await ServiceHost.createServiceHost(fs, db, logger, clock, rules, deps, serviceConfig, configPath, ct);
     }
 
     public async Task RefreshStatusAsync()

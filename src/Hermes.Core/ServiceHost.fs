@@ -25,6 +25,14 @@ module ServiceHost =
           HeartbeatIntervalSeconds = 60
           Config = config }
 
+    /// All capabilities needed for a sync cycle, parameterized for testability.
+    type SyncDeps =
+        { Extractor: Algebra.TextExtractor
+          Embedder: Algebra.EmbeddingClient option
+          ChatProvider: Algebra.ChatProvider option
+          ContentRules: Domain.ContentRule list
+          CreateEmailProvider: string -> string -> Task<Algebra.EmailProvider> }
+
     // ─── Heartbeat ──────────────────────────────────────────────────
 
     type ServiceStatus =
@@ -79,11 +87,14 @@ module ServiceHost =
 
     // ─── Sync pipeline steps ────────────────────────────────────────
 
-    let private syncEmails (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger) (clock: Algebra.Clock) (config: Domain.HermesConfig) (configDir: string) =
+    let private syncEmails
+        (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
+        (clock: Algebra.Clock) (createProvider: string -> string -> Task<Algebra.EmailProvider>)
+        (config: Domain.HermesConfig) (configDir: string) =
         task {
             for account in config.Accounts do
                 try
-                    let! provider = GmailProvider.create configDir account.Label logger
+                    let! provider = createProvider configDir account.Label
                     let! _ = EmailSync.syncAccount fs db logger clock provider config account.Label
                     ()
                 with ex -> logger.warn $"Email sync failed for {account.Label}: {ex.Message}"
@@ -102,12 +113,15 @@ module ServiceHost =
                     ()
         }
 
-    let private runBackfill (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger) (clock: Algebra.Clock) (config: Domain.HermesConfig) (configDir: string) =
+    let private runBackfill
+        (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
+        (clock: Algebra.Clock) (createProvider: string -> string -> Task<Algebra.EmailProvider>)
+        (config: Domain.HermesConfig) (configDir: string) =
         task {
             for account in config.Accounts do
                 if account.Backfill.Enabled then
                     try
-                        let! provider = GmailProvider.create configDir account.Label logger
+                        let! provider = createProvider configDir account.Label
                         let! _ = EmailSync.backfillAccount fs db logger clock provider config account
                         ()
                     with ex -> logger.warn $"Backfill failed for {account.Label}: {ex.Message}"
@@ -115,18 +129,19 @@ module ServiceHost =
 
     let private reclassifyUnsorted
         (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
-        (config: Domain.HermesConfig) (contentRules: Domain.ContentRule list) =
+        (chatProvider: Algebra.ChatProvider option) (contentRules: Domain.ContentRule list)
+        (archiveDir: string) =
         task {
             // Tier 2: content rules reclassification
             let! reclassified, remaining =
-                Classifier.reclassifyUnsortedBatch db fs contentRules config.ArchiveDir 50
+                Classifier.reclassifyUnsortedBatch db fs contentRules archiveDir 50
             if reclassified > 0 then
                 logger.info $"Tier 2 reclassified {reclassified} documents ({remaining} still unsorted)"
 
             // Tier 3: LLM classification for remaining unsorted
-            if remaining > 0 then
+            match chatProvider with
+            | Some provider when remaining > 0 ->
                 try
-                    let chatProvider = Chat.providerFromConfig config.Chat config.Ollama.BaseUrl config.Ollama.InstructModel
                     let! unsortedRows =
                         db.execReader
                             """SELECT id, extracted_text FROM documents
@@ -144,12 +159,12 @@ module ServiceHost =
                         match r.OptInt64 "id", r.OptString "extracted_text" with
                         | Some docId, Some text ->
                             let prompt = ContentClassifier.buildClassificationPrompt text categories
-                            let! llmResult = chatProvider.complete "You are a document classifier." prompt
+                            let! llmResult = provider.complete "You are a document classifier." prompt
                             match llmResult with
                             | Ok response ->
                                 match ContentClassifier.parseClassificationResponse response with
                                 | Some (cat, conf, reasoning) when conf >= 0.4 && categories |> List.contains cat ->
-                                    let! moveResult = DocumentManagement.reclassify db fs config.ArchiveDir docId cat
+                                    let! moveResult = DocumentManagement.reclassify db fs archiveDir docId cat
                                     match moveResult with
                                     | Ok () ->
                                         let tier = if conf >= 0.7 then "llm" else "llm_review"
@@ -175,13 +190,13 @@ module ServiceHost =
                         logger.info $"Tier 3 LLM classified {llmClassified} documents"
                 with ex ->
                     logger.debug $"LLM classification skipped: {ex.Message}"
+            | _ -> ()
         }
 
-    let private runExtraction (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger) (clock: Algebra.Clock) (archiveDir: string) =
+    let private runExtraction
+        (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
+        (clock: Algebra.Clock) (extractor: Algebra.TextExtractor) (archiveDir: string) =
         task {
-            let extractor : Algebra.TextExtractor =
-                { extractPdf = fun bytes -> task { return Extraction.extractPdfText bytes }
-                  extractImage = fun _ -> task { return Error "Ollama vision not configured" } }
             let! _ = Extraction.extractBatch fs db logger clock extractor archiveDir None false 50
             ()
         }
@@ -198,69 +213,36 @@ module ServiceHost =
                 do! ActivityLog.logInfo db "reminder" $"Un-snoozed {u} reminder(s)" None
         }
 
-    let private runEmbedding (db: Algebra.Database) (logger: Algebra.Logger) (config: Domain.HermesConfig) =
+    let private runEmbedding (db: Algebra.Database) (logger: Algebra.Logger) (embedder: Algebra.EmbeddingClient option) =
         task {
-            if not config.Ollama.Enabled then ()
-            else
-            let url = config.Ollama.BaseUrl.TrimEnd('/')
-            let model = config.Ollama.EmbeddingModel
-            let embedder : Algebra.EmbeddingClient =
-                { embed = fun text ->
-                    task {
-                        try
-                            use client = new System.Net.Http.HttpClient(Timeout = TimeSpan.FromSeconds(30.0))
-                            let payload = JsonSerializer.Serialize({| model = model; input = text |})
-                            let content = new System.Net.Http.StringContent(payload, Text.Encoding.UTF8, "application/json")
-                            let! resp = client.PostAsync($"{url}/api/embed", content)
-                            let! body = resp.Content.ReadAsStringAsync()
-                            if not resp.IsSuccessStatusCode then return Error $"Ollama: {resp.StatusCode}"
-                            else
-                                let doc = JsonDocument.Parse(body)
-                                let arr = doc.RootElement.GetProperty("embeddings").[0]
-                                return Ok [| for i in 0 .. arr.GetArrayLength() - 1 -> arr.[i].GetSingle() |]
-                        with ex -> return Error $"Ollama: {ex.Message}"
-                    }
-                  dimensions = 768
-                  isAvailable = fun () ->
-                    task {
-                        try
-                            use client = new System.Net.Http.HttpClient(Timeout = TimeSpan.FromSeconds(2.0))
-                            let! resp = client.GetAsync($"{url}/api/tags")
-                            return resp.IsSuccessStatusCode
-                        with _ -> return false
-                    } }
-            let! avail = embedder.isAvailable ()
-            if avail then
-                logger.info "Ollama available — embedding..."
-                let! _ = Embeddings.batchEmbed db logger embedder false (Some 50) None
-                ()
+            match embedder with
+            | None -> ()
+            | Some client ->
+                let! avail = client.isAvailable ()
+                if avail then
+                    logger.info "Embedding service available — embedding..."
+                    let! _ = Embeddings.batchEmbed db logger client false (Some 50) None
+                    ()
         }
 
     // ─── Composed sync cycle ────────────────────────────────────────
 
     let runSyncCycle
         (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
-        (clock: Algebra.Clock) (rules: Algebra.RulesEngine)
+        (clock: Algebra.Clock) (rules: Algebra.RulesEngine) (deps: SyncDeps)
         (config: Domain.HermesConfig) (configDir: string)
         : Task<Result<unit, string>> =
         task {
             try
                 do! ActivityLog.logInfo db "sync" "Sync cycle started" None
-                do! syncEmails fs db logger clock config configDir
+                do! syncEmails fs db logger clock deps.CreateEmailProvider config configDir
                 do! syncWatchFolders fs db logger clock config
-                do! runExtraction fs db logger clock config.ArchiveDir
+                do! runExtraction fs db logger clock deps.Extractor config.ArchiveDir
                 do! classifyUnclassified fs db logger clock rules config.ArchiveDir
-                // Load content rules from rules.yaml for Tier 2+3
-                let contentRules =
-                    let rulesPath = Path.Combine(configDir, "rules.yaml")
-                    if fs.fileExists rulesPath then
-                        let yaml = (fs.readAllText rulesPath).Result
-                        Rules.parseContentRules yaml
-                    else []
-                do! reclassifyUnsorted fs db logger config contentRules
-                do! runBackfill fs db logger clock config configDir
+                do! reclassifyUnsorted fs db logger deps.ChatProvider deps.ContentRules config.ArchiveDir
+                do! runBackfill fs db logger clock deps.CreateEmailProvider config configDir
                 do! evaluateReminders db logger clock
-                do! runEmbedding db logger config
+                do! runEmbedding db logger deps.Embedder
                 do! ActivityLog.logInfo db "sync" "Sync cycle completed" None
                 logger.debug "Sync cycle completed."
                 return Ok()
@@ -316,11 +298,12 @@ module ServiceHost =
 
     let private runOneSyncCycle
         (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
-        (clock: Algebra.Clock) (rules: Algebra.RulesEngine) (configDir: string) (state: LoopState) =
+        (clock: Algebra.Clock) (rules: Algebra.RulesEngine) (deps: SyncDeps)
+        (configDir: string) (state: LoopState) =
         task {
             state.SyncRunning <- true
             try
-                let! result = runSyncCycle fs db logger clock rules state.LiveConfig configDir
+                let! result = runSyncCycle fs db logger clock rules deps state.LiveConfig configDir
                 match result with
                 | Ok() -> state.LastSyncAt <- Some(clock.utcNow()); state.LastSyncOk <- true; state.LastError <- None
                 | Error e -> state.LastSyncAt <- Some(clock.utcNow()); state.LastSyncOk <- false; state.LastError <- Some e
@@ -330,7 +313,7 @@ module ServiceHost =
 
     let createServiceHost
         (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
-        (clock: Algebra.Clock) (rules: Algebra.RulesEngine)
+        (clock: Algebra.Clock) (rules: Algebra.RulesEngine) (deps: SyncDeps)
         (serviceConfig: HermesServiceConfig) (configPath: string) (ct: CancellationToken)
         : Task<unit> =
         task {
@@ -344,7 +327,7 @@ module ServiceHost =
             do! writeStatusFromState fs db serviceConfig.ArchiveDir startedAt state true
 
             // Initial backlog processing
-            do! runOneSyncCycle fs db logger clock rules configDir state
+            do! runOneSyncCycle fs db logger clock rules deps configDir state
             do! writeStatusFromState fs db serviceConfig.ArchiveDir startedAt state true
 
             let heartbeatInterval = TimeSpan.FromSeconds(float serviceConfig.HeartbeatIntervalSeconds)
@@ -362,9 +345,35 @@ module ServiceHost =
                 let syncInterval = TimeSpan.FromMinutes(float state.LiveConfig.SyncIntervalMinutes)
                 if shouldSync clock fs serviceConfig.ArchiveDir syncInterval state && not state.SyncRunning then
                     do! reloadConfig fs logger configPath state
-                    do! runOneSyncCycle fs db logger clock rules configDir state
+                    do! runOneSyncCycle fs db logger clock rules deps configDir state
 
             logger.info "Hermes service stopping..."
             do! writeStatusFromState fs db serviceConfig.ArchiveDir startedAt state false
             logger.info "Hermes service stopped."
         }
+
+    /// Build production SyncDeps — the ONLY place concrete implementations are constructed.
+    let buildProductionDeps
+        (config: Domain.HermesConfig) (configDir: string)
+        (logger: Algebra.Logger) (fs: Algebra.FileSystem) : SyncDeps =
+        let extractor : Algebra.TextExtractor =
+            { extractPdf = fun bytes -> task { return Extraction.extractPdfText bytes }
+              extractImage = fun _ -> task { return Error "Ollama vision not configured" } }
+        let embedder =
+            if config.Ollama.Enabled then
+                Some (Embeddings.ollamaClient config.Ollama.BaseUrl config.Ollama.EmbeddingModel 768)
+            else None
+        let chatProvider =
+            try Some (Chat.providerFromConfig config.Chat config.Ollama.BaseUrl config.Ollama.InstructModel)
+            with _ -> None
+        let contentRules =
+            let rulesPath = Path.Combine(configDir, "rules.yaml")
+            if fs.fileExists rulesPath then
+                let yaml = (fs.readAllText rulesPath).Result
+                Rules.parseContentRules yaml
+            else []
+        { Extractor = extractor
+          Embedder = embedder
+          ChatProvider = chatProvider
+          ContentRules = contentRules
+          CreateEmailProvider = fun cfgDir label -> GmailProvider.create cfgDir label logger }
