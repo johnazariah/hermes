@@ -102,6 +102,15 @@ type ReextractArgs =
             | Category _ -> "only reextract documents in this category"
             | Limit _ -> "max documents to reextract (default: all)"
 
+type ReclassifyArgs =
+    | [<AltCommandLine("-n")>] Limit of int
+    | No_Llm
+    interface IArgParserTemplate with
+        member this.Usage =
+            match this with
+            | Limit _ -> "max documents to reclassify (default: 50)"
+            | No_Llm -> "skip Tier 3 LLM classification"
+
 [<RequireSubcommand>]
 type CliArgs =
     | Version
@@ -115,6 +124,7 @@ type CliArgs =
     | [<CliPrefix(CliPrefix.None)>] Service of ParseResults<ServiceArgs>
     | [<CliPrefix(CliPrefix.None)>] Backfill of ParseResults<BackfillArgs>
     | [<CliPrefix(CliPrefix.None)>] Reextract of ParseResults<ReextractArgs>
+    | [<CliPrefix(CliPrefix.None)>] Reclassify of ParseResults<ReclassifyArgs>
     interface IArgParserTemplate with
         member this.Usage =
             match this with
@@ -129,6 +139,7 @@ type CliArgs =
             | Service _ -> "manage the background service"
             | Backfill _ -> "manage email backfill (reset progress)"
             | Reextract _ -> "re-extract documents (force refresh of extracted text and markdown)"
+            | Reclassify _ -> "reclassify unsorted documents using content rules and LLM"
 
 let private version () =
     let asm = System.Reflection.Assembly.GetEntryAssembly()
@@ -405,6 +416,96 @@ let private reextractCmd (args: ParseResults<ReextractArgs>) =
         finally
             db.dispose ()
 
+let private reclassifyCmd (args: ParseResults<ReclassifyArgs>) =
+    match loadConfigAndDb () with
+    | None -> 1
+    | Some(fs, logger, config, db) ->
+        try
+            let env = Interpreters.systemEnvironment
+            let limit = args.TryGetResult ReclassifyArgs.Limit |> Option.defaultValue 50
+            let noLlm = args.Contains No_Llm
+            let configDir = Config.configDir env
+
+            // Load content rules
+            let rulesPath = Path.Combine(configDir, "rules.yaml")
+            let contentRules =
+                if fs.fileExists rulesPath then
+                    let yaml = (fs.readAllText rulesPath).Result
+                    Rules.parseContentRules yaml
+                else []
+
+            printfn $"Reclassifying unsorted documents (limit={limit}, content_rules={contentRules.Length}, llm={not noLlm})..."
+
+            // Tier 2: content rules
+            let reclassified, remaining =
+                Classifier.reclassifyUnsortedBatch db fs contentRules config.ArchiveDir limit
+                |> Async.AwaitTask
+                |> Async.RunSynchronously
+            printfn $"Tier 2 (content rules): {reclassified} reclassified, {remaining} still unsorted."
+
+            // Tier 3: LLM (if not disabled)
+            if not noLlm && remaining > 0 then
+                try
+                    let chatProvider =
+                        Chat.providerFromConfig
+                            (new System.Net.Http.HttpClient())
+                            config.Chat config.Ollama.BaseUrl config.Ollama.InstructModel
+                    let llmLimit = min (limit - reclassified) 10
+                    if llmLimit > 0 then
+                        printfn $"Tier 3 (LLM): classifying up to {llmLimit} remaining documents..."
+                        let catRows =
+                            db.execReader "SELECT DISTINCT category FROM documents WHERE category NOT IN ('unsorted','unclassified')" []
+                            |> Async.AwaitTask |> Async.RunSynchronously
+                        let categories =
+                            catRows |> List.choose (fun r -> Prelude.RowReader(r).OptString "category")
+                        let mutable llmClassified = 0
+                        let unsortedRows =
+                            db.execReader
+                                """SELECT id, extracted_text FROM documents
+                                   WHERE (category = 'unsorted' OR category = 'unclassified')
+                                     AND extracted_text IS NOT NULL
+                                   ORDER BY id ASC LIMIT @lim"""
+                                [ ("@lim", Database.boxVal (int64 llmLimit)) ]
+                            |> Async.AwaitTask |> Async.RunSynchronously
+                        for row in unsortedRows do
+                            let r = Prelude.RowReader(row)
+                            match r.OptInt64 "id", r.OptString "extracted_text" with
+                            | Some docId, Some text ->
+                                let prompt = ContentClassifier.buildClassificationPrompt text categories
+                                let llmResult =
+                                    chatProvider.complete "You are a document classifier." prompt
+                                    |> Async.AwaitTask |> Async.RunSynchronously
+                                match llmResult with
+                                | Ok response ->
+                                    match ContentClassifier.parseClassificationResponse response with
+                                    | Some (cat, conf, reasoning) when conf >= 0.4 && categories |> List.contains cat ->
+                                        let moveResult =
+                                            DocumentManagement.reclassify db fs config.ArchiveDir docId cat
+                                            |> Async.AwaitTask |> Async.RunSynchronously
+                                        match moveResult with
+                                        | Ok () ->
+                                            let tier = if conf >= 0.7 then "llm" else "llm_review"
+                                            db.execNonQuery
+                                                """UPDATE documents SET classification_tier = @tier,
+                                                   classification_confidence = @conf WHERE id = @id"""
+                                                [ ("@tier", Database.boxVal tier)
+                                                  ("@conf", Database.boxVal conf)
+                                                  ("@id", Database.boxVal docId) ]
+                                            |> Async.AwaitTask |> Async.RunSynchronously |> ignore
+                                            llmClassified <- llmClassified + 1
+                                            printfn $"  doc {docId} → {cat} (LLM {conf:F0}%%: {reasoning})"
+                                        | Error e -> printfn $"  doc {docId}: move failed — {e}"
+                                    | _ -> ()
+                                | Error e -> printfn $"  LLM error: {e}"
+                            | _ -> ()
+                        printfn $"Tier 3 (LLM): {llmClassified} reclassified."
+                with ex ->
+                    printfn $"LLM classification unavailable: {ex.Message}"
+            printfn "Done."
+            0
+        finally
+            db.dispose ()
+
 let private mcpCmd () =
     match loadConfigAndDb () with
     | None -> 1
@@ -634,6 +735,8 @@ let main argv =
                 0
         elif results.Contains Reextract then
             reextractCmd (results.GetResult Reextract)
+        elif results.Contains Reclassify then
+            reclassifyCmd (results.GetResult Reclassify)
         else
             printfn "%s" (parser.PrintUsage())
             0

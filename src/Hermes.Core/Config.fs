@@ -381,6 +381,59 @@ rules:
 
 # Default: unmatched files go to unsorted/
 default_category: unsorted
+
+# ─── Tier 2: Content-based classification ─────────────────────────
+# Applied when Tier 1 rules produce 'unsorted'. Matches on extracted markdown.
+# All conditions in a rule must match (AND). First highest-confidence rule wins.
+
+content_rules:
+  - name: payslip-by-content
+    match:
+      content_any: ["gross pay", "tax withheld", "net pay", "pay period", "pay date"]
+    category: payslips
+    confidence: 0.85
+
+  - name: bank-statement-by-content
+    match:
+      content_any: ["opening balance", "closing balance", "narrative", "transaction details"]
+    category: bank-statements
+    confidence: 0.80
+
+  - name: invoice-by-content
+    match:
+      content_any: ["amount due", "invoice number", "invoice date", "payment due", "tax invoice"]
+    category: invoices
+    confidence: 0.80
+
+  - name: rental-statement-by-content
+    match:
+      content_any: ["folio", "owner statement", "rental income", "management fee", "disbursement"]
+    category: rental-statements
+    confidence: 0.80
+
+  - name: tax-by-content
+    match:
+      content_any: ["tax return", "assessment notice", "income statement", "PAYG summary", "taxable income"]
+    category: tax
+    confidence: 0.85
+
+  - name: insurance-by-content
+    match:
+      content_any: ["policy number", "premium", "sum insured", "certificate of insurance", "renewal notice"]
+    category: insurance
+    confidence: 0.75
+
+  - name: receipt-by-content
+    match:
+      content_any: ["receipt", "payment received", "thank you for your payment", "transaction approved"]
+    category: receipts
+    confidence: 0.70
+
+  - name: utilities-by-content
+    match:
+      content_any: ["electricity", "gas usage", "water usage", "meter reading", "usage summary"]
+    category: utilities
+    confidence: 0.75
 """
 
     /// Write default config & rules files via the FileSystem algebra.

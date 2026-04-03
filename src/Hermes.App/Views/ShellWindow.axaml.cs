@@ -673,6 +673,14 @@ public partial class ShellWindow : Window
                 if (FSharpOption<double>.get_IsSome(doc.Summary.ExtractedAmount))
                     metaLines.AppendLine($"Amount: ${doc.Summary.ExtractedAmount!.Value:F2}");
                 metaLines.AppendLine($"Ingested: {doc.IngestedAt}");
+                if (FSharpOption<string>.get_IsSome(doc.Summary.ClassificationTier))
+                {
+                    var tierLabel = doc.Summary.ClassificationTier!.Value;
+                    var confText = FSharpOption<double>.get_IsSome(doc.Summary.ClassificationConfidence)
+                        ? $" ({doc.Summary.ClassificationConfidence!.Value:P0})"
+                        : "";
+                    metaLines.AppendLine($"Classification: {tierLabel}{confText}");
+                }
 
                 _docDetailPanel.Children.Add(new TextBlock
                 {

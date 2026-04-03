@@ -184,3 +184,94 @@ let ``ContentClassifier_BuildPrompt_LongText_Truncates`` () =
 let ``ContentClassifier_BuildPrompt_AlwaysTruncatesTo2000`` (text: NonEmptyString) =
     let prompt = ContentClassifier.buildClassificationPrompt text.Get ["cat1"]
     prompt.Length <= text.Get.Length + 500
+
+// ─── Wave 3: Additional coverage ─────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ContentClassifier_EvaluateRule_HasAmount_MatchesWhenPresent`` () =
+    let rule : Domain.ContentRule =
+        { Name = "invoice-amount"
+          Conditions = [ Domain.ContentAll [ "invoice"; "total" ]; Domain.HasAmount ]
+          Category = "invoices"
+          Confidence = 0.75 }
+    let result = ContentClassifier.evaluateRule "Invoice\nTotal: $250.00" [] (Some 250m) rule
+    match result with
+    | Some ("invoices", conf) -> Assert.Equal(0.75, conf)
+    | _ -> failwith $"Expected invoices match, got {result}"
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ContentClassifier_EvaluateRule_HasAmount_NoMatchWhenAbsent`` () =
+    let rule : Domain.ContentRule =
+        { Name = "invoice-amount"
+          Conditions = [ Domain.ContentAll [ "invoice"; "total" ]; Domain.HasAmount ]
+          Category = "invoices"
+          Confidence = 0.75 }
+    let result = ContentClassifier.evaluateRule "Invoice\nTotal: $250.00" [] None rule
+    Assert.True(result.IsNone)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ContentClassifier_Classify_EmptyText_ReturnsNone`` () =
+    let rules : Domain.ContentRule list =
+        [ { Name = "payslip"
+            Conditions = [ Domain.ContentAny [ "gross pay"; "net pay" ] ]
+            Category = "payslips"; Confidence = 0.85 } ]
+    let result = ContentClassifier.classify "" [] None rules
+    Assert.True(result.IsNone)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ContentClassifier_Classify_SingleMatchingRule_ReturnsCategory`` () =
+    let rules : Domain.ContentRule list =
+        [ { Name = "utility-keywords"
+            Conditions = [ Domain.ContentAny [ "electricity"; "gas bill" ] ]
+            Category = "utilities"; Confidence = 0.80 } ]
+    let result = ContentClassifier.classify "Your electricity usage for March" [] None rules
+    match result with
+    | Some ("utilities", 0.80) -> ()
+    | _ -> failwith $"Expected utilities match, got {result}"
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ContentClassifier_ParseResponse_GarbageInput_ReturnsNone`` () =
+    let result = ContentClassifier.parseClassificationResponse "<<<totally not json>>>"
+    Assert.True(result.IsNone)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ContentClassifier_ParseResponse_MissingConfidence_ReturnsNone`` () =
+    let result = ContentClassifier.parseClassificationResponse """{"category":"tax"}"""
+    Assert.True(result.IsNone)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ContentClassifier_ParseResponse_ExtraWhitespace_ParsesCorrectly`` () =
+    let json = """
+        {  "category" :  "insurance" ,  "confidence" : 0.88 ,  "reasoning" : "Policy document"  }
+    """
+    match ContentClassifier.parseClassificationResponse json with
+    | Some ("insurance", conf, reasoning) ->
+        Assert.Equal(0.88, conf)
+        Assert.Contains("Policy", reasoning)
+    | other -> failwith $"Expected insurance match, got {other}"
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``Classifier_ReclassifyUnsortedBatch_NoCandidates_ReturnsZeros`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        try
+            let contentRules : Domain.ContentRule list =
+                [ { Name = "payslip-rule"
+                    Conditions = [ Domain.ContentAny [ "gross pay" ] ]
+                    Category = "payslips"; Confidence = 0.85 } ]
+            let! (reclassified, remaining) =
+                Classifier.reclassifyUnsortedBatch db m.Fs contentRules "/archive" 50
+            Assert.Equal(0, reclassified)
+            Assert.Equal(0, remaining)
+        finally
+            db.dispose ()
+    }
