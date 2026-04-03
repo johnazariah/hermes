@@ -117,7 +117,7 @@ let ``Extraction_IsImage_DetectsCorrectly`` (path: string, expected: bool) =
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``Extraction_AnalyseText_PopulatesFields`` () =
-    let result = Extraction.analyseText "Invoice $500.00 ABN 12345678901 dated 15/03/2025" "pdfpig" None
+    let result = Extraction.analyseText "Invoice $500.00 ABN 12345678901 dated 15/03/2025" "pdfpig" None None
     Assert.Equal("pdfpig", result.Method)
     Assert.True(result.Amount.IsSome)
     Assert.True(result.Date.IsSome)
@@ -316,4 +316,95 @@ let ``Extraction_ExtractFromBytes_ImageError_ReturnsError`` () =
         let bytes = [| 0uy; 1uy; 2uy; 3uy |]
         let! result = Extraction.extractFromBytes failingExtractor "photo.jpg" bytes
         Assert.True(Result.isError result)
+    }
+
+// ─── stripMarkdownSyntax ─────────────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Extraction_StripMarkdown_RemovesHeadings`` () =
+    let md = "# Heading 1\n## Heading 2\nPlain text"
+    let result = Extraction.stripMarkdownSyntax md
+    Assert.DoesNotContain("#", result)
+    Assert.Contains("Heading 1", result)
+    Assert.Contains("Plain text", result)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Extraction_StripMarkdown_RemovesBoldItalic`` () =
+    let md = "This is **bold** and *italic* and __underline__"
+    let result = Extraction.stripMarkdownSyntax md
+    Assert.DoesNotContain("**", result)
+    Assert.DoesNotContain("__", result)
+    Assert.Contains("bold", result)
+    Assert.Contains("italic", result)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Extraction_StripMarkdown_RemovesTableSyntax`` () =
+    let md = "| Name | Amount |\n|------|--------|\n| Invoice | $500 |"
+    let result = Extraction.stripMarkdownSyntax md
+    Assert.DoesNotContain("|", result)
+    Assert.Contains("Name", result)
+    Assert.Contains("$500", result)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Extraction_StripMarkdown_RemovesFrontmatter`` () =
+    let md = "---\ntitle: Test\ndate: 2025-01-01\n---\n\nBody content"
+    let result = Extraction.stripMarkdownSyntax md
+    Assert.DoesNotContain("---", result)
+    Assert.DoesNotContain("title:", result)
+    Assert.Contains("Body content", result)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Extraction_StripMarkdown_EmptyInput_ReturnsEmpty`` () =
+    Assert.Equal("", Extraction.stripMarkdownSyntax "")
+    Assert.Equal("", Extraction.stripMarkdownSyntax (Unchecked.defaultof<string>))
+
+// ─── Markdown separation ─────────────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Extraction_AnalyseText_WithMarkdown_SetsMarkdownField`` () =
+    let plain = "Invoice 500.00 dated 15/03/2025"
+    let md = "# Invoice\n| Amount |\n|---|\n| $500.00 |"
+    let result = Extraction.analyseText plain "pdfstructure" (Some 0.9) (Some md)
+    Assert.Equal(plain, result.Text)
+    Assert.True(result.Markdown.IsSome)
+    Assert.Equal(md, result.Markdown.Value)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Extraction_AnalyseText_WithoutMarkdown_MarkdownIsNone`` () =
+    let result = Extraction.analyseText "plain text" "pdfpig" None None
+    Assert.Equal("plain text", result.Text)
+    Assert.True(result.Markdown.IsNone)
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``Extraction_ProcessDocument_StoresMarkdownSeparately`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        m.Files.["archive/invoices/test.pdf"] <- "dummy pdf"
+        try
+            let! docId = insertDoc db "invoices/test.pdf" "invoices"
+            let! result =
+                Extraction.processDocument m.Fs db TestHelpers.silentLogger TestHelpers.defaultClock fakeExtractor "archive" docId "invoices/test.pdf" false
+            Assert.True(Result.isOk result)
+
+            // extracted_text should NOT contain markdown table syntax
+            let! textVal = db.execScalar "SELECT extracted_text FROM documents WHERE id = @id" [ ("@id", Database.boxVal docId) ]
+            let text = match textVal with null | :? System.DBNull -> "" | v -> v :?> string
+            Assert.DoesNotContain("|---", text)
+
+            // For plain text extraction (fakeExtractor returns raw text), markdown should be NULL
+            let! mdVal = db.execScalar "SELECT extracted_markdown FROM documents WHERE id = @id" [ ("@id", Database.boxVal docId) ]
+            // fakeExtractor returns plain text, so Markdown = None → NULL in DB
+            Assert.True(
+                (match mdVal with null | :? System.DBNull -> true | _ -> false),
+                "Markdown column should be NULL for plain-text extraction (fakeExtractor)")
+        finally db.dispose ()
     }

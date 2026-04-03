@@ -124,8 +124,28 @@ module Extraction =
 
     // ─── Extraction result ───────────────────────────────────────────
 
+    let private collapseLineWhitespace (s: string) =
+        s.Split('\n')
+        |> Array.map (fun line -> Regex.Replace(line, @"[ \t]+", " ").Trim())
+        |> String.concat "\n"
+
+    /// Strip markdown syntax to produce clean plain text for search and regex field extraction.
+    let stripMarkdownSyntax (markdown: string) : string =
+        if String.IsNullOrEmpty(markdown) then ""
+        else
+            markdown
+            |> fun s -> Regex.Replace(s, @"\A---[\s\S]*?---\s*", "")
+            |> fun s -> Regex.Replace(s, @"^#{1,6}\s+", "", RegexOptions.Multiline)
+            |> fun s -> Regex.Replace(s, @"\*{1,2}|_{1,2}", "")
+            |> fun s -> Regex.Replace(s, @"^\|[-:\s|]+\|\s*$", "", RegexOptions.Multiline)
+            |> fun s -> s.Replace("|", " ")
+            |> collapseLineWhitespace
+            |> fun s -> Regex.Replace(s, @"\n{3,}", "\n\n")
+            |> fun s -> s.Trim()
+
     type ExtractionResult =
         { Text: string
+          Markdown: string option
           Date: string option
           Amount: decimal option
           Vendor: string option
@@ -133,8 +153,8 @@ module Extraction =
           Method: string
           OcrConfidence: float option }
 
-    let analyseText (text: string) (method: string) (confidence: float option) : ExtractionResult =
-        { Text = text; Date = tryExtractDate text; Amount = tryExtractAmount text
+    let analyseText (text: string) (method: string) (confidence: float option) (markdown: string option) : ExtractionResult =
+        { Text = text; Markdown = markdown; Date = tryExtractDate text; Amount = tryExtractAmount text
           Vendor = tryExtractVendor text; Abn = tryExtractAbn text
           Method = method; OcrConfidence = confidence }
 
@@ -142,20 +162,22 @@ module Extraction =
 
     let private structuredToResult (method: string) (doc: PdfStructure.DocumentContent) =
         let markdown = PdfStructure.toMarkdown doc (Map.empty<string, string>)
-        Ok (analyseText markdown method (Some doc.Confidence))
+        let plainText = stripMarkdownSyntax markdown
+        Ok (analyseText plainText method (Some doc.Confidence) (Some markdown))
 
     let extractFromBytes (extractor: Algebra.TextExtractor) (path: string) (bytes: byte array) =
         task {
             if isPdf path then
                 match extractPdfContent bytes with
                 | Ok (markdown, confidence) ->
-                    return Ok (analyseText markdown "pdfstructure" (Some confidence))
+                    let plainText = stripMarkdownSyntax markdown
+                    return Ok (analyseText plainText "pdfstructure" (Some confidence) (Some markdown))
                 | Error _ ->
                     let! result = extractor.extractPdf bytes
                     return result |> Result.map (fun text ->
                         let method = if isLikelyScanned text then "ollama_vision" else "pdfpig"
                         let conf = if isLikelyScanned text then Some 0.7 else None
-                        analyseText text method conf)
+                        analyseText text method conf None)
             elif isExcel path then
                 return ExcelExtraction.extractExcel bytes |> structuredToResult "closedxml"
             elif isWord path then
@@ -165,10 +187,10 @@ module Extraction =
                 return CsvExtraction.extractCsv text |> structuredToResult "csv"
             elif isPlainText path then
                 let text = Text.Encoding.UTF8.GetString(bytes)
-                return Ok (analyseText text "plaintext" (Some 1.0))
+                return Ok (analyseText text "plaintext" (Some 1.0) None)
             elif isImage path then
                 let! result = extractor.extractImage bytes
-                return result |> Result.map (fun text -> analyseText text "ollama_vision" (Some 0.8))
+                return result |> Result.map (fun text -> analyseText text "ollama_vision" (Some 0.8) None)
             else
                 return Error $"Unsupported file type: {path}"
         }
@@ -191,7 +213,7 @@ module Extraction =
                            extracted_at = @now
                        WHERE id = @id"""
                     [ ("@text", Database.boxVal r.Text)
-                      ("@markdown", Database.boxVal r.Text)
+                      ("@markdown", optVal r.Markdown)
                       ("@date", optVal r.Date)
                       ("@amount", r.Amount |> Option.map (fun d -> Database.boxVal (float d)) |> Option.defaultValue (Database.boxVal DBNull.Value))
                       ("@vendor", optVal r.Vendor)

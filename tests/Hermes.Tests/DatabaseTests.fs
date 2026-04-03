@@ -419,3 +419,51 @@ let ``Database_InitSchema_Idempotent_CanRunTwice`` () =
             Assert.True(Result.isOk r2)
         finally db.dispose ()
     }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``Database_Migration_V3toV4_AddsExtractedMarkdownColumn`` () =
+    task {
+        let db = TestHelpers.createRawDb ()
+        try
+            // Seed V3 schema (has reminders/activity_log but no extracted_markdown)
+            let! _ = db.execNonQuery "CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (datetime('now')))" []
+            let! _ = db.execNonQuery "INSERT INTO schema_version (version) VALUES (3)" []
+            let! _ = db.execNonQuery """CREATE TABLE messages (
+                gmail_id TEXT NOT NULL, account TEXT NOT NULL, sender TEXT, subject TEXT, date TEXT,
+                thread_id TEXT, body_text TEXT, label_ids TEXT, has_attachments INTEGER NOT NULL DEFAULT 0,
+                processed_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (account, gmail_id))""" []
+            let! _ = db.execNonQuery """CREATE TABLE documents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, source_type TEXT NOT NULL, gmail_id TEXT,
+                account TEXT, sender TEXT, subject TEXT, email_date TEXT, original_name TEXT,
+                saved_path TEXT NOT NULL, category TEXT NOT NULL, mime_type TEXT, size_bytes INTEGER,
+                sha256 TEXT NOT NULL, source_path TEXT, extracted_text TEXT, extracted_date TEXT,
+                extracted_amount REAL, extracted_vendor TEXT, extracted_abn TEXT, ocr_confidence REAL,
+                extraction_method TEXT, extraction_confidence REAL, classification_tier TEXT,
+                classification_confidence REAL, extracted_at TEXT, embedded_at TEXT, chunk_count INTEGER,
+                ingested_at TEXT NOT NULL DEFAULT (datetime('now')))""" []
+            let! _ = db.execNonQuery """CREATE TABLE sync_state (
+                account TEXT PRIMARY KEY, last_history_id TEXT, last_sync_at TEXT,
+                message_count INTEGER NOT NULL DEFAULT 0, backfill_page_token TEXT,
+                backfill_total_estimate INTEGER, backfill_scanned INTEGER NOT NULL DEFAULT 0,
+                backfill_completed INTEGER NOT NULL DEFAULT 0, backfill_started_at TEXT)""" []
+            let! _ = db.execNonQuery """CREATE TABLE reminders (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                document_id INTEGER, vendor TEXT, amount REAL, due_date TEXT,
+                category TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')))""" []
+            let! _ = db.execNonQuery """CREATE TABLE activity_log (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL DEFAULT (datetime('now')), level TEXT NOT NULL DEFAULT 'info',
+                category TEXT NOT NULL, message TEXT NOT NULL)""" []
+
+            let! result = db.initSchema ()
+            Assert.True(Result.isOk result)
+
+            // Verify V3→V4 migration added extracted_markdown column
+            let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_markdown) VALUES ('test', 'test.pdf', 'test', 'abc', 'markdown content')" []
+            let! row = db.execScalar "SELECT extracted_markdown FROM documents WHERE saved_path = 'test.pdf'" []
+            Assert.Equal("markdown content", string row)
+
+            let! v = db.schemaVersion ()
+            Assert.Equal(4, v)
+        finally db.dispose ()
+    }
