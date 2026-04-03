@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -63,7 +64,37 @@ public sealed class HermesServiceBridge
         var rulesPath = Path.Combine(ConfigDir, "rules.yaml");
         var rules = await Rules.fromFile(fs, logger, rulesPath);
         var serviceConfig = ServiceHost.defaultServiceConfig(_config);
-        var deps = ServiceHost.buildProductionDeps(_config, ConfigDir, logger, fs);
+
+        // Build production SyncDeps at the composition root
+        var extractor = new Algebra.TextExtractor(
+            extractPdf: FuncConvert.FromFunc<byte[], Task<FSharpResult<string, string>>>(
+                bytes => Task.FromResult(Extraction.extractPdfText(bytes))),
+            extractImage: FuncConvert.FromFunc<byte[], Task<FSharpResult<string, string>>>(
+                _ => Task.FromResult(FSharpResult<string, string>.NewError("Ollama vision not configured"))));
+
+        Algebra.EmbeddingClient? embedder = null;
+        if (_config.Ollama.Enabled)
+            embedder = Embeddings.ollamaClient(new HttpClient(), _config.Ollama.BaseUrl, _config.Ollama.EmbeddingModel, 768);
+
+        Algebra.ChatProvider? chatProvider = null;
+        try { chatProvider = Chat.providerFromConfig(new HttpClient(), _config.Chat, _config.Ollama.BaseUrl, _config.Ollama.InstructModel); }
+        catch { /* chat not available */ }
+
+        var contentRules = Microsoft.FSharp.Collections.ListModule.Empty<Domain.ContentRule>();
+        var contentRulesPath = Path.Combine(ConfigDir, "rules.yaml");
+        if (fs.fileExists.Invoke(contentRulesPath))
+        {
+            var yaml = await fs.readAllText.Invoke(contentRulesPath);
+            contentRules = Rules.parseContentRules(yaml);
+        }
+
+        var deps = new ServiceHost.SyncDeps(
+            extractor,
+            embedder is not null ? FSharpOption<Algebra.EmbeddingClient>.Some(embedder) : FSharpOption<Algebra.EmbeddingClient>.None,
+            chatProvider is not null ? FSharpOption<Algebra.ChatProvider>.Some(chatProvider) : FSharpOption<Algebra.ChatProvider>.None,
+            contentRules,
+            FuncConvert.FromFunc<string, string, Task<Algebra.EmailProvider>>(
+                (cfgDir, label) => GmailProvider.create(cfgDir, label, logger)));
 
         // Run the service loop — pass configPath so it reloads config before each sync
         var env = Interpreters.systemEnvironment;

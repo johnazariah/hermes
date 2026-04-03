@@ -500,7 +500,29 @@ let private serviceCmd (args: ParseResults<ServiceArgs>) =
 
                 let serviceConfig = ServiceHost.defaultServiceConfig config
                 let cfgPath = Path.Combine(Config.configDir env, "config.yaml")
-                let deps = ServiceHost.buildProductionDeps config (Config.configDir env) logger fs
+                let configDir = Config.configDir env
+                let extractor : Algebra.TextExtractor =
+                    { extractPdf = fun bytes -> task { return Extraction.extractPdfText bytes }
+                      extractImage = fun _ -> task { return Error "Ollama vision not configured" } }
+                let embedder =
+                    if config.Ollama.Enabled then
+                        Some (Embeddings.ollamaClient (new System.Net.Http.HttpClient()) config.Ollama.BaseUrl config.Ollama.EmbeddingModel 768)
+                    else None
+                let chatProvider =
+                    try Some (Chat.providerFromConfig (new System.Net.Http.HttpClient()) config.Chat config.Ollama.BaseUrl config.Ollama.InstructModel)
+                    with _ -> None
+                let contentRules =
+                    let rulesPath = Path.Combine(configDir, "rules.yaml")
+                    if fs.fileExists rulesPath then
+                        let yaml = (fs.readAllText rulesPath).Result
+                        Rules.parseContentRules yaml
+                    else []
+                let deps : ServiceHost.SyncDeps =
+                    { Extractor = extractor
+                      Embedder = embedder
+                      ChatProvider = chatProvider
+                      ContentRules = contentRules
+                      CreateEmailProvider = fun cfgDir label -> GmailProvider.create cfgDir label logger }
 
                 use cts = new CancellationTokenSource()
 

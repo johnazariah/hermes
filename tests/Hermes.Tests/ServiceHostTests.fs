@@ -513,27 +513,53 @@ let ``ServiceHost_RunSyncCycle_WithContentRules_AppliesReclassification`` () =
         finally db.dispose ()
     }
 
-// ─── buildProductionDeps tests ──────────────────────────────────────
+// ─── SyncDeps composition tests ────────────────────────────────────
+// These validate the composition patterns used by the App/CLI composition roots.
+
+/// Helper that mirrors the composition root logic for building SyncDeps.
+let private buildDeps (config: Domain.HermesConfig) (configDir: string)
+                      (logger: Algebra.Logger) (fs: Algebra.FileSystem) : ServiceHost.SyncDeps =
+    let extractor : Algebra.TextExtractor =
+        { extractPdf = fun bytes -> task { return Extraction.extractPdfText bytes }
+          extractImage = fun _ -> task { return Error "Ollama vision not configured" } }
+    let embedder =
+        if config.Ollama.Enabled then
+            Some (Embeddings.ollamaClient (new System.Net.Http.HttpClient()) config.Ollama.BaseUrl config.Ollama.EmbeddingModel 768)
+        else None
+    let chatProvider =
+        try Some (Chat.providerFromConfig (new System.Net.Http.HttpClient()) config.Chat config.Ollama.BaseUrl config.Ollama.InstructModel)
+        with _ -> None
+    let contentRules =
+        let rulesPath = IO.Path.Combine(configDir, "rules.yaml")
+        if fs.fileExists rulesPath then
+            let yaml = (fs.readAllText rulesPath).Result
+            Rules.parseContentRules yaml
+        else []
+    { Extractor = extractor
+      Embedder = embedder
+      ChatProvider = chatProvider
+      ContentRules = contentRules
+      CreateEmailProvider = fun cfgDir label -> GmailProvider.create cfgDir label logger }
 
 [<Fact>]
 [<Trait("Category", "Unit")>]
-let ``ServiceHost_BuildProductionDeps_OllamaDisabled_EmbedderIsNone`` () =
+let ``SyncDeps_OllamaDisabled_EmbedderIsNone`` () =
     let config = TestHelpers.testConfig "/archive"
     let m = TestHelpers.memFs ()
-    let deps = ServiceHost.buildProductionDeps config "/config" TestHelpers.silentLogger m.Fs
+    let deps = buildDeps config "/config" TestHelpers.silentLogger m.Fs
     Assert.True(deps.Embedder.IsNone)
 
 [<Fact>]
 [<Trait("Category", "Unit")>]
-let ``ServiceHost_BuildProductionDeps_NoRulesFile_EmptyContentRules`` () =
+let ``SyncDeps_NoRulesFile_EmptyContentRules`` () =
     let config = TestHelpers.testConfig "/archive"
     let m = TestHelpers.memFs ()
-    let deps = ServiceHost.buildProductionDeps config "/config" TestHelpers.silentLogger m.Fs
+    let deps = buildDeps config "/config" TestHelpers.silentLogger m.Fs
     Assert.Empty(deps.ContentRules)
 
 [<Fact>]
 [<Trait("Category", "Unit")>]
-let ``ServiceHost_BuildProductionDeps_WithRulesFile_ParsesContentRules`` () =
+let ``SyncDeps_WithRulesFile_ParsesContentRules`` () =
     let config = TestHelpers.testConfig "/archive"
     let m = TestHelpers.memFs ()
     let rulesYaml = """content_rules:
@@ -543,24 +569,24 @@ let ``ServiceHost_BuildProductionDeps_WithRulesFile_ParsesContentRules`` () =
     category: invoices
     confidence: 0.8"""
     m.Put "/config/rules.yaml" rulesYaml
-    let deps = ServiceHost.buildProductionDeps config "/config" TestHelpers.silentLogger m.Fs
+    let deps = buildDeps config "/config" TestHelpers.silentLogger m.Fs
     Assert.NotEmpty(deps.ContentRules)
 
 [<Fact>]
 [<Trait("Category", "Unit")>]
-let ``ServiceHost_BuildProductionDeps_ExtractorIsConfigured`` () =
+let ``SyncDeps_ExtractorIsConfigured`` () =
     let config = TestHelpers.testConfig "/archive"
     let m = TestHelpers.memFs ()
-    let deps = ServiceHost.buildProductionDeps config "/config" TestHelpers.silentLogger m.Fs
+    let deps = buildDeps config "/config" TestHelpers.silentLogger m.Fs
     Assert.NotNull(deps.Extractor.extractPdf)
     Assert.NotNull(deps.Extractor.extractImage)
 
 [<Fact>]
 [<Trait("Category", "Unit")>]
-let ``ServiceHost_BuildProductionDeps_CreateEmailProviderIsConfigured`` () =
+let ``SyncDeps_CreateEmailProviderIsConfigured`` () =
     let config = TestHelpers.testConfig "/archive"
     let m = TestHelpers.memFs ()
-    let deps = ServiceHost.buildProductionDeps config "/config" TestHelpers.silentLogger m.Fs
+    let deps = buildDeps config "/config" TestHelpers.silentLogger m.Fs
     Assert.NotNull(deps.CreateEmailProvider)
 
 // ─── createServiceHost tests ─────────────────────────────────────────

@@ -352,28 +352,3 @@ module ServiceHost =
             logger.info "Hermes service stopped."
         }
 
-    /// Build production SyncDeps — the ONLY place concrete implementations are constructed.
-    let buildProductionDeps
-        (config: Domain.HermesConfig) (configDir: string)
-        (logger: Algebra.Logger) (fs: Algebra.FileSystem) : SyncDeps =
-        let extractor : Algebra.TextExtractor =
-            { extractPdf = fun bytes -> task { return Extraction.extractPdfText bytes }
-              extractImage = fun _ -> task { return Error "Ollama vision not configured" } }
-        let embedder =
-            if config.Ollama.Enabled then
-                Some (Embeddings.ollamaClient (new System.Net.Http.HttpClient()) config.Ollama.BaseUrl config.Ollama.EmbeddingModel 768)
-            else None
-        let chatProvider =
-            try Some (Chat.providerFromConfig (new System.Net.Http.HttpClient()) config.Chat config.Ollama.BaseUrl config.Ollama.InstructModel)
-            with _ -> None
-        let contentRules =
-            let rulesPath = Path.Combine(configDir, "rules.yaml")
-            if fs.fileExists rulesPath then
-                let yaml = (fs.readAllText rulesPath).Result
-                Rules.parseContentRules yaml
-            else []
-        { Extractor = extractor
-          Embedder = embedder
-          ChatProvider = chatProvider
-          ContentRules = contentRules
-          CreateEmailProvider = fun cfgDir label -> GmailProvider.create cfgDir label logger }

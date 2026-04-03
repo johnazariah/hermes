@@ -1,16 +1,34 @@
-# Hermes — Rich UI: VS Code-Style Three-Column Shell
+# Hermes — Rich UI: Pipeline Funnel Shell
 
-> Design doc for the Hermes shell window — a VS Code-inspired layout with status bar, navigator, and adaptive content pane.  
+> Design doc for the Hermes shell window — a pipeline funnel layout where documents visibly flow from sources through extraction and classification to the indexed library.  
 > Supersedes the tab-based design. Builds on: doc 09, doc 12, doc 17, doc 18.  
-> Created: 2026-04-01. Revised: 2026-04-01.
+> Created: 2026-04-01. Revised: 2026-04-03.
 
 ---
 
-## 1. Problem
+## 1. Core Concept: The Pipeline Funnel
 
-The current UI shows aggregate stats but you can't see individual documents, email threads, or processing history. The original doc 15 proposed a 4-tab layout (Chat, TODO, Documents, Activity). But tabs force context-switching — "I see a bill reminder, I want to see the document, then check the email thread" means 3 tab switches.
+The navigator sidebar is not a flat list of modes — it's a **visual representation of the document processing pipeline**, read top to bottom:
 
-**The real workflow is cross-cutting.** Users navigate between documents, threads, reminders, and chat fluidly. The UI should support this without losing context.
+```
+SOURCES          ← where documents come from
+    ↓
+INTAKE           ← raw files awaiting extraction
+    ↓
+EXTRACTING       ← being parsed into structured markdown
+    ↓
+CLASSIFYING      ← extracted, deciding what it is
+    ↓
+LIBRARY          ← classified documents by category
+    ↓
+INDEX            ← searchable + embedded coverage
+    ↓
+SERVICES         ← infrastructure health
+```
+
+Documents flow downward. The user sees at a glance where everything is. The counts always add up: `intake + extracting + classifying + library = total ingested`.
+
+This replaces the mode-switching activity bar with a **persistent pipeline view** that doubles as navigation. Click any section to see its contents in the content pane.
 
 ---
 

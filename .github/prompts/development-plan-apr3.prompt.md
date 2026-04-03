@@ -40,6 +40,39 @@ Everything chains from one critical wire: **connect the structured extractors to
 
 ---
 
+## Wave 1.5: Osprey Parity Validation (extraction quality gate)
+
+**Branch**: `feat/osprey-parity`
+
+Before wiring the extraction pipeline into the DB (Wave 2), validate that the extractors produce output that downstream parsers can actually use. Osprey's 7 proven Python parsers define exactly what fields must be extractable from each document type — they're the test oracle.
+
+**Method**: Take 10 representative documents from the real archive (`~/Documents/Hermes/`), run them through the F# extractors, compare output against Osprey parser expectations.
+
+| Task | Document type | Extractor | Validation |
+|------|--------------|-----------|------------|
+| O1 | Microsoft payslip PDF | PdfStructure.fs | Markdown contains tables with: `Gross Pay`, `Tax Withheld`, `Net Pay`, `YTD` fields. Amounts parseable. Pay period dates extractable. |
+| O2 | QLD Education payslip PDF | PdfStructure.fs | Earning lines with code + description + units + rate + amount. CID-encoded text handled (fallback or decoded). |
+| O3 | Westpac bank statement CSV | CsvExtraction.fs | Columns: Date, Narrative, Debit, Credit, Balance. Dialect auto-detected. All rows preserved. |
+| O4 | CBA bank statement CSV | CsvExtraction.fs | Columns: Date, Amount, Description, Balance. Negative amounts for debits. |
+| O5 | Ray White rental statement PDF | PdfStructure.fs | Monthly sections detected. Income + expense line items in tables. Folio, property, period extracted as KV pairs. |
+| O6 | Fidelity dividend CSV | CsvExtraction.fs | Columns: Pay_Date, Stock, Gross_USD, US_Tax_USD. Dates parsed. Amounts parseable. |
+| O7 | Amazon order history CSV | CsvExtraction.fs | Columns: ASIN, Title, Item Total, Order Date. Quoted fields with commas handled. |
+| O8 | Telstra/AGL invoice PDF | PdfStructure.fs | Amount due, due date, account number extractable. Line items in table. |
+| O9 | Credit card statement CSV | CsvExtraction.fs | Date, Description, Amount columns. Merchant names preserved for regex matching. |
+| O10 | Insurance renewal PDF | PdfStructure.fs | Policy number, premium amount, vehicle/property details, renewal date as KV pairs. |
+
+**For each document**:
+1. Copy from archive to a `tests/test-documents/` folder (gitignored — real documents, not committed)
+2. Write an integration test: load file → run extractor → assert expected fields present in markdown output
+3. If extraction fails to capture required fields → fix the extractor
+4. If CID/scanned → verify fallback path works or document the limitation
+
+**Merge gate**: All 10 document types produce markdown that contains the fields Osprey's parsers need. Tests pass. Any extraction gaps are fixed or documented with `[<Trait("Category", "KnownLimitation")>]`.
+
+**Why before Wave 2**: If the extractors produce garbage for real documents, wiring them into the pipeline just produces garbage faster. Fix quality first, then connect.
+
+---
+
 ## Wave 2: Wire Structured Extraction Pipeline (the critical path)
 
 **Branch**: `feat/structured-extraction-pipeline`
@@ -133,6 +166,8 @@ Integration options (for context):
 
 **Merge gate**: Drop a payslip PDF → Hermes extracts → tax event detected → Pelican API called → journal ID returned and logged in activity.
 
+**Ultimate acceptance test**: Run the full FY2024-25 document set through the Hermes→Pelican pipeline. Compare output against Osprey's actual FY2024-25 tax numbers (in `c:\work\tax-database\tax_data_fy2025.json`). If salary totals, tax withheld, rental income, deductions, and dividend income match within rounding tolerance — the pipeline is proven on real data. This is the gold standard: same inputs, same outputs, new architecture.
+
 ---
 
 ## Wave 7: Polish and Production Readiness
@@ -154,7 +189,9 @@ Integration options (for context):
 ```
 Wave 1 (Tagless-Final)
   ↓
-Wave 2 (Structured Extraction) ← critical path, everything depends on this
+Wave 1.5 (Osprey Parity Validation) ← proves extractors work on real documents
+  ↓
+Wave 2 (Structured Extraction) ← critical path, wire extractors into DB
   ↓
 Wave 3 (Smart Classification) ← needs extracted markdown from Wave 2
   ↓
@@ -163,7 +200,7 @@ Wave 4 (UI Completion) ← needs classification + extraction to show
 Wave 5 (Coverage) ← tests for all new code from Waves 2-4
   ↓
 Wave 6 (Pelican) ← needs structured feed from Wave 2 + classification from Wave 3
-  ↓
+  ↓                 Ultimate gate: replicate FY2024-25 tax numbers
 Wave 7 (Polish)
 ```
 
