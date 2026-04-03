@@ -361,7 +361,7 @@ module ServiceHost =
               extractImage = fun _ -> task { return Error "Ollama vision not configured" } }
         let embedder =
             if config.Ollama.Enabled then
-                Some (Embeddings.ollamaClient config.Ollama.BaseUrl config.Ollama.EmbeddingModel 768)
+                Some (Embeddings.ollamaClient (new System.Net.Http.HttpClient()) config.Ollama.BaseUrl config.Ollama.EmbeddingModel 768)
             else None
         let chatProvider =
             try Some (Chat.providerFromConfig (new System.Net.Http.HttpClient()) config.Chat config.Ollama.BaseUrl config.Ollama.InstructModel)

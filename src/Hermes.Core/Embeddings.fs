@@ -176,10 +176,9 @@ module Embeddings =
     // ─── Ollama embedding client ────────────────────────────────────
 
     /// Create an EmbeddingClient that calls the Ollama REST API.
-    let ollamaClient (baseUrl: string) (model: string) (dims: int) : Algebra.EmbeddingClient =
-        let httpClient = new HttpClient()
-        httpClient.BaseAddress <- Uri(baseUrl)
-        httpClient.Timeout <- TimeSpan.FromSeconds(120.0)
+    let ollamaClient (client: HttpClient) (baseUrl: string) (model: string) (dims: int) : Algebra.EmbeddingClient =
+        client.BaseAddress <- Uri(baseUrl)
+        client.Timeout <- TimeSpan.FromSeconds(120.0)
 
         { embed =
             fun text ->
@@ -189,7 +188,7 @@ module Embeddings =
                             JsonSerializer.Serialize({| model = model; input = text |})
 
                         let content = new StringContent(payload, Encoding.UTF8, "application/json")
-                        let! response = httpClient.PostAsync("/api/embed", content)
+                        let! response = client.PostAsync("/api/embed", content)
 
                         if not response.IsSuccessStatusCode then
                             let! body = response.Content.ReadAsStringAsync()
@@ -218,7 +217,7 @@ module Embeddings =
             fun () ->
                 task {
                     try
-                        let! response = httpClient.GetAsync("/")
+                        let! response = client.GetAsync("/")
                         return response.IsSuccessStatusCode
                     with _ ->
                         return false

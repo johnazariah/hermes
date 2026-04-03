@@ -255,6 +255,7 @@ let private searchCmd (args: ParseResults<SearchArgs>) =
 
                     let client =
                         Embeddings.ollamaClient
+                            (new System.Net.Http.HttpClient())
                             config.Ollama.BaseUrl
                             config.Ollama.EmbeddingModel
                             768
@@ -343,6 +344,7 @@ let private embedCmd (args: ParseResults<EmbedArgs>) =
 
             let client =
                 Embeddings.ollamaClient
+                    (new System.Net.Http.HttpClient())
                     config.Ollama.BaseUrl
                     config.Ollama.EmbeddingModel
                     768
