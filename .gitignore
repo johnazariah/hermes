@@ -59,3 +59,5 @@ logs/
 dist/
 
 TestResults/
+
+tests/test-documents/
