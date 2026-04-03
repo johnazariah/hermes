@@ -7,8 +7,8 @@
 
 | Metric | Value |
 |--------|-------|
-| Tests | 706 passing, 0 skipped |
-| Coverage | 85.5% line |
+| Tests | 733 passing, 6 skipped |
+| Coverage | 85.6% line |
 | Tagless-Final | PASS |
 | Branch | `main` |
 | MCP tools | 13 |
@@ -17,8 +17,7 @@
 
 ## Active Wave
 
-**Wave 2: Wire Structured Extraction Pipeline** → [wave-2-extraction.md](waves/wave-2-extraction.md)  
-Blocked on: Wave 1.5 review/merge
+**Wave 4: UI Pipeline Funnel** → [wave-4-ui.md](waves/wave-4-ui.md)
 
 ## Wave Roadmap
 
@@ -28,8 +27,8 @@ Blocked on: Wave 1.5 review/merge
 | 1a | Tagless-Final Cleanup | ✅ Done | [wave-1a-tagless-final.md](waves/wave-1a-tagless-final.md) |
 | 1b | Coverage Push | ✅ Done | [wave-1b-coverage.md](waves/wave-1b-coverage.md) |
 | 1.5 | Osprey Parity Validation | ✅ Done | [wave-1.5-osprey-parity.md](waves/wave-1.5-osprey-parity.md) |
-| 2 | Wire Structured Extraction | Not started | [wave-2-extraction.md](waves/wave-2-extraction.md) |
-| 3 | Smart Classification Wiring | Not started | [wave-3-classification.md](waves/wave-3-classification.md) |
+| 2 | Wire Structured Extraction | ✅ Done | [wave-2-extraction.md](waves/wave-2-extraction.md) |
+| 3 | Smart Classification Wiring | ✅ Done | [wave-3-classification.md](waves/wave-3-classification.md) |
 | 4 | UI: Pipeline Funnel | Not started | [wave-4-ui.md](waves/wave-4-ui.md) |
 | 5 | Coverage Final | Not started | — |
 | 6 | Pelican Integration | Not started | [wave-6-pelican.md](waves/wave-6-pelican.md) |
