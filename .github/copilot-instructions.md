@@ -4,6 +4,15 @@
 
 **Default: discuss, don't code.** Propose changes and wait for approval before implementing. When asked to implement, proceed with full context.
 
+## Documentation
+
+Before creating or modifying any project documentation, read `.project/GOVERNANCE.md`. It defines the directory structure, rules for STATUS.md / wave files / design docs / prompts, and prevents duplication.
+
+- **Project status**: `.project/STATUS.md` (read first — 50 lines)
+- **Active wave detail**: `.project/waves/wave-*.md` (append-only)
+- **Design reference**: `.project/design/*.md` (what/why, not status)
+- **Agent prompts**: `.github/prompts/*.prompt.md` (how, references waves)
+
 ## Project Overview
 
 Hermes is a local-first document intelligence service for macOS and Windows. It connects to email accounts, watches local folders, and continuously ingests, classifies, and indexes documents — exposing everything through an MCP server for AI agents.
