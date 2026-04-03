@@ -4,8 +4,8 @@ description: "Master development plan: wave roadmap with dependency graph. Statu
 
 # Hermes — Development Plan (April 3, 2026)
 
-> **Canonical status**: `.project/STATUS.md`  
-> **Wave detail**: `.project/waves/wave-*.md` (append-only, newest-on-top)  
+> **Canonical status**: `.project/STATUS.md`
+> **Wave detail**: `.project/waves/wave-*.md` (append-only, newest-on-top)
 > **This file**: roadmap and dependency graph. Agent prompts reference this for sequencing.
 
 ## Current State

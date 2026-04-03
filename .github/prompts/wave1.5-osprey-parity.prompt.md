@@ -4,7 +4,7 @@ description: "Wave 1.5: Validate extraction quality against Osprey's proven pars
 
 # Osprey Parity Validation — Wave 1.5
 
-> **Wave status**: `.project/waves/wave-1.5-osprey-parity.md` — update task status and append log entries as you work.  
+> **Wave status**: `.project/waves/wave-1.5-osprey-parity.md` — update task status and append log entries as you work.
 > **Project status**: `.project/STATUS.md`
 
 **Branch**: `feat/osprey-parity`
@@ -194,18 +194,18 @@ let ``OspreyParity_MicrosoftPayslip_ExtractsRequiredFields`` () =
         let bytes = File.ReadAllBytes(testDocPath)
         let result = PdfStructure.extractStructured bytes
         let markdown = PdfStructure.toMarkdown result Map.empty
-        
+
         // Field presence assertions
         Assert.Contains("Gross", markdown, StringComparison.OrdinalIgnoreCase)
         Assert.Contains("Tax", markdown, StringComparison.OrdinalIgnoreCase)
         Assert.Contains("Net", markdown, StringComparison.OrdinalIgnoreCase)
-        
+
         // Table detection
         Assert.Contains("|", markdown)  // markdown table syntax
-        
+
         // Amount extraction (at least one dollar amount in the output)
         Assert.Matches(@"\$?[\d,]+\.\d{2}", markdown)
-        
+
         // Confidence should be reasonable for machine-generated PDF
         Assert.True(result.Confidence >= 0.5, $"Confidence too low: {result.Confidence}")
 ```

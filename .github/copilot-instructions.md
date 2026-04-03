@@ -125,7 +125,7 @@ dotnet publish -c Release -r osx-arm64 --self-contained  # publish macOS
 - **Test naming**: `Module_Function_Condition_ExpectedResult`
 - **Test categories**: `[<Trait("Category", "Unit")>]`, `Integration`, `Property`
 - **Update the testing register** (`.project/testing-register.md`) when adding/modifying tests
-- **Coverage target**: 85% line coverage, 85% branch coverage. New code must maintain or improve coverage. Run `dotnet test --collect:"XPlat Code Coverage"` to check.
+- **Coverage target**: 85% line coverage, 60% branch coverage. Branch target is lower because F# `task {}` / `async {}` computation expressions generate synthetic IL state machine branches that aren't testable business logic. New code must maintain or improve coverage. Run `dotnet test --collect:"XPlat Code Coverage"` to check.
 - **Coverage is mandatory**: Do not mark a task as complete if it drops coverage below the current level. Write tests for every new function.
 
 ## Key Files

@@ -17,8 +17,8 @@
 
 ## Active Wave
 
-**Wave 1.5: Osprey Parity Validation** → [wave-1.5-osprey-parity.md](waves/wave-1.5-osprey-parity.md)  
-Agent prompt: `.github/prompts/wave1.5-osprey-parity.prompt.md`
+**Wave 2: Wire Structured Extraction Pipeline** → [wave-2-extraction.md](waves/wave-2-extraction.md)  
+Blocked on: Wave 1.5 review/merge
 
 ## Wave Roadmap
 
@@ -27,7 +27,7 @@ Agent prompt: `.github/prompts/wave1.5-osprey-parity.prompt.md`
 | 1 | Backfill + Reminders | ✅ Done | [wave-1-backfill-reminders.md](waves/wave-1-backfill-reminders.md) |
 | 1a | Tagless-Final Cleanup | ✅ Done | [wave-1a-tagless-final.md](waves/wave-1a-tagless-final.md) |
 | 1b | Coverage Push | ✅ Done | [wave-1b-coverage.md](waves/wave-1b-coverage.md) |
-| 1.5 | Osprey Parity Validation | ⏳ Active | [wave-1.5-osprey-parity.md](waves/wave-1.5-osprey-parity.md) |
+| 1.5 | Osprey Parity Validation | ✅ Done | [wave-1.5-osprey-parity.md](waves/wave-1.5-osprey-parity.md) |
 | 2 | Wire Structured Extraction | Not started | [wave-2-extraction.md](waves/wave-2-extraction.md) |
 | 3 | Smart Classification Wiring | Not started | [wave-3-classification.md](waves/wave-3-classification.md) |
 | 4 | UI: Pipeline Funnel | Not started | [wave-4-ui.md](waves/wave-4-ui.md) |
