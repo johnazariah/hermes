@@ -11,6 +11,7 @@ using Google.Apis.Gmail.v1;
 using Google.Apis.Util.Store;
 using Hermes.App.ViewModels;
 using Hermes.Core;
+using Microsoft.FSharp.Core;
 using System;
 using System.Collections.Specialized;
 using System.Diagnostics;
@@ -54,6 +55,8 @@ public partial class ShellWindow : Window
     private ToggleButton _todoTabButton = null!;
     private ScrollViewer _todoScroller = null!;
     private StackPanel _todoPanel = null!;
+    private ScrollViewer _docDetailScroller = null!;
+    private StackPanel _docDetailPanel = null!;
     // Activity bar + navigator
     private Button _navActionItems = null!;
     private Button _navDocuments = null!;
@@ -116,6 +119,8 @@ public partial class ShellWindow : Window
         _todoTabButton = this.FindControl<ToggleButton>("TodoTabButton")!;
         _todoScroller = this.FindControl<ScrollViewer>("TodoScroller")!;
         _todoPanel = this.FindControl<StackPanel>("TodoPanel")!;
+        _docDetailScroller = this.FindControl<ScrollViewer>("DocDetailScroller")!;
+        _docDetailPanel = this.FindControl<StackPanel>("DocDetailPanel")!;
         // Activity bar + navigator
         _navActionItems = this.FindControl<Button>("NavActionItems")!;
         _navDocuments = this.FindControl<Button>("NavDocuments")!;
@@ -166,6 +171,7 @@ public partial class ShellWindow : Window
             _todoTabButton.IsChecked = false;
             _chatScroller.IsVisible = true;
             _todoScroller.IsVisible = false;
+            _docDetailScroller.IsVisible = false;
         };
         _todoTabButton.Click += (_, _) =>
         {
@@ -173,6 +179,7 @@ public partial class ShellWindow : Window
             _chatTabButton.IsChecked = false;
             _chatScroller.IsVisible = false;
             _todoScroller.IsVisible = true;
+            _docDetailScroller.IsVisible = false;
             RebuildTodoPanel();
         };
 
@@ -429,7 +436,7 @@ public partial class ShellWindow : Window
         Margin = new Thickness(20, 10, 12, 2)
     };
 
-    private static Border NavigatorCategoryRow(string category, int count)
+    private Border NavigatorCategoryRow(string category, int count)
     {
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -455,13 +462,296 @@ public partial class ShellWindow : Window
         grid.Children.Add(nameText);
         grid.Children.Add(countText);
 
-        return new Border
+        var border = new Border
         {
             Child = grid,
             Padding = new Thickness(20, 5, 12, 5),
             BorderBrush = new SolidColorBrush(Color.Parse("#10000000")),
-            BorderThickness = new Thickness(0, 0, 0, 1)
+            BorderThickness = new Thickness(0, 0, 0, 1),
+            Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
         };
+
+        border.PointerPressed += (_, _) => _ = PopulateDocumentListAsync(category);
+        return border;
+    }
+
+    private async Task PopulateDocumentListAsync(string category)
+    {
+        // Remove dynamic panels (keep heading [0] and default panel [1])
+        while (_navigatorOuterPanel.Children.Count > 2)
+            _navigatorOuterPanel.Children.RemoveAt(_navigatorOuterPanel.Children.Count - 1);
+
+        var panel = new StackPanel { Spacing = 0, Margin = new Thickness(0, 4, 0, 0) };
+
+        // Back button
+        var backBtn = new Button
+        {
+            Content = "← Categories",
+            FontSize = 11,
+            Padding = new Thickness(12, 4),
+            Margin = new Thickness(12, 4, 12, 8),
+            Background = Brushes.Transparent,
+            Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
+        };
+        backBtn.Click += (_, _) =>
+        {
+            while (_navigatorOuterPanel.Children.Count > 2)
+                _navigatorOuterPanel.Children.RemoveAt(_navigatorOuterPanel.Children.Count - 1);
+            _ = PopulateDocumentsNavigatorAsync();
+        };
+        panel.Children.Add(backBtn);
+
+        panel.Children.Add(new TextBlock
+        {
+            Text = $"📁 {category}",
+            FontSize = 13,
+            FontWeight = FontWeight.SemiBold,
+            Margin = new Thickness(20, 0, 12, 8)
+        });
+
+        var loading = NavigatorMutedText("Loading…");
+        panel.Children.Add(loading);
+        _navigatorOuterPanel.Children.Add(panel);
+
+        var dbPath = Path.Combine(_vm.Bridge.ArchiveDir, "db.sqlite");
+        if (!System.IO.File.Exists(dbPath)) { loading.Text = "No database."; return; }
+
+        try
+        {
+            var db = Database.fromPath(dbPath);
+            try
+            {
+                var docs = await DocumentBrowser.listDocuments(db, category, 0, 100);
+                if (_vm.ActiveMode is not NavigatorMode.Documents) return;
+
+                panel.Children.Remove(loading);
+
+                if (!docs.Any())
+                {
+                    panel.Children.Add(NavigatorMutedText("No documents in this category."));
+                    return;
+                }
+
+                foreach (var doc in docs)
+                    panel.Children.Add(NavigatorDocumentRow(doc));
+            }
+            finally
+            {
+                db.dispose.Invoke(null!);
+            }
+        }
+        catch { loading.Text = "Could not load documents."; }
+    }
+
+    private Border NavigatorDocumentRow(DocumentBrowser.DocumentSummary doc)
+    {
+        var stack = new StackPanel { Spacing = 1 };
+        stack.Children.Add(new TextBlock
+        {
+            Text = doc.OriginalName,
+            FontSize = 11,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            MaxLines = 1
+        });
+
+        var meta = FSharpOption<string>.get_IsSome(doc.ExtractedDate)
+            ? doc.ExtractedDate!.Value
+            : "";
+        if (FSharpOption<string>.get_IsSome(doc.Sender))
+            meta = string.IsNullOrEmpty(meta) ? doc.Sender!.Value : $"{doc.Sender!.Value} · {meta}";
+
+        if (!string.IsNullOrEmpty(meta))
+        {
+            stack.Children.Add(new TextBlock
+            {
+                Text = meta,
+                FontSize = 10,
+                Foreground = new SolidColorBrush(Color.Parse("#888")),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxLines = 1
+            });
+        }
+
+        var border = new Border
+        {
+            Child = stack,
+            Padding = new Thickness(20, 5, 12, 5),
+            BorderBrush = new SolidColorBrush(Color.Parse("#10000000")),
+            BorderThickness = new Thickness(0, 0, 0, 1),
+            Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
+        };
+
+        border.PointerPressed += (_, _) => _ = ShowDocumentDetailAsync(doc.Id);
+        return border;
+    }
+
+    private async Task ShowDocumentDetailAsync(long documentId)
+    {
+        // Switch content area to document detail
+        _chatScroller.IsVisible = false;
+        _todoScroller.IsVisible = false;
+        _docDetailScroller.IsVisible = true;
+        _chatTabButton.IsChecked = false;
+        _todoTabButton.IsChecked = false;
+        _docDetailPanel.Children.Clear();
+
+        _docDetailPanel.Children.Add(new TextBlock
+        {
+            Text = "Loading document…",
+            FontSize = 12,
+            Foreground = new SolidColorBrush(Color.Parse("#888"))
+        });
+
+        var dbPath = Path.Combine(_vm.Bridge.ArchiveDir, "db.sqlite");
+        if (!System.IO.File.Exists(dbPath))
+        {
+            _docDetailPanel.Children.Clear();
+            _docDetailPanel.Children.Add(new TextBlock { Text = "No database found.", FontSize = 12 });
+            return;
+        }
+
+        try
+        {
+            var db = Database.fromPath(dbPath);
+            try
+            {
+                var detail = await DocumentBrowser.getDocumentDetail(db, documentId);
+                if (!FSharpOption<DocumentBrowser.DocumentDetail>.get_IsSome(detail))
+                {
+                    _docDetailPanel.Children.Clear();
+                    _docDetailPanel.Children.Add(new TextBlock { Text = "Document not found.", FontSize = 12 });
+                    return;
+                }
+
+                var doc = detail!.Value;
+
+                // Load markdown content
+                var fs = Interpreters.realFileSystem;
+                var archiveDir = _vm.Bridge.ArchiveDir;
+                var contentResult = await DocumentFeed.getDocumentContent(
+                    db, fs, archiveDir, documentId, DocumentFeed.ContentFormat.Markdown);
+
+                _docDetailPanel.Children.Clear();
+
+                // Back to chat button
+                var backBtn = new Button
+                {
+                    Content = "← Back to Chat",
+                    FontSize = 11,
+                    Padding = new Thickness(8, 4),
+                    Margin = new Thickness(0, 0, 0, 8),
+                    Background = Brushes.Transparent,
+                    Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
+                };
+                backBtn.Click += (_, _) =>
+                {
+                    _docDetailScroller.IsVisible = false;
+                    _chatScroller.IsVisible = true;
+                    _chatTabButton.IsChecked = true;
+                };
+                _docDetailPanel.Children.Add(backBtn);
+
+                // Header: filename
+                _docDetailPanel.Children.Add(new TextBlock
+                {
+                    Text = doc.Summary.OriginalName,
+                    FontSize = 16,
+                    FontWeight = FontWeight.Bold,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 0, 4)
+                });
+
+                // Metadata
+                var metaLines = new System.Text.StringBuilder();
+                metaLines.AppendLine($"Category: {doc.Summary.Category}");
+                if (FSharpOption<string>.get_IsSome(doc.Summary.Sender))
+                    metaLines.AppendLine($"Sender: {doc.Summary.Sender!.Value}");
+                if (FSharpOption<string>.get_IsSome(doc.Vendor))
+                    metaLines.AppendLine($"Vendor: {doc.Vendor!.Value}");
+                if (FSharpOption<string>.get_IsSome(doc.Summary.ExtractedDate))
+                    metaLines.AppendLine($"Date: {doc.Summary.ExtractedDate!.Value}");
+                if (FSharpOption<double>.get_IsSome(doc.Summary.ExtractedAmount))
+                    metaLines.AppendLine($"Amount: ${doc.Summary.ExtractedAmount!.Value:F2}");
+                metaLines.AppendLine($"Ingested: {doc.IngestedAt}");
+
+                _docDetailPanel.Children.Add(new TextBlock
+                {
+                    Text = metaLines.ToString().TrimEnd(),
+                    FontSize = 11,
+                    Foreground = new SolidColorBrush(Color.Parse("#888")),
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 0, 12)
+                });
+
+                // Open file button
+                if (!string.IsNullOrEmpty(doc.FilePath))
+                {
+                    var fullPath = System.IO.Path.IsPathRooted(doc.FilePath)
+                        ? doc.FilePath
+                        : System.IO.Path.Combine(archiveDir, doc.FilePath);
+
+                    if (System.IO.File.Exists(fullPath))
+                    {
+                        var openBtn = new Button
+                        {
+                            Content = "📂 Open Original File",
+                            FontSize = 11,
+                            Padding = new Thickness(10, 4),
+                            Margin = new Thickness(0, 0, 0, 12)
+                        };
+                        openBtn.Click += (_, _) =>
+                            Process.Start(new ProcessStartInfo(fullPath) { UseShellExecute = true });
+                        _docDetailPanel.Children.Add(openBtn);
+                    }
+                }
+
+                // Separator
+                _docDetailPanel.Children.Add(new Rectangle
+                {
+                    Height = 1,
+                    Fill = new SolidColorBrush(Color.Parse("#20000000")),
+                    Margin = new Thickness(0, 0, 0, 12)
+                });
+
+                // Markdown content
+                if (contentResult.IsOk)
+                {
+                    var markdown = contentResult.ResultValue;
+                    _docDetailPanel.Children.Add(new TextBlock
+                    {
+                        Text = markdown,
+                        FontSize = 12,
+                        FontFamily = new FontFamily("Cascadia Code,Consolas,monospace"),
+                        TextWrapping = TextWrapping.Wrap,
+                        LineHeight = 18
+                    });
+                }
+                else
+                {
+                    _docDetailPanel.Children.Add(new TextBlock
+                    {
+                        Text = "No extracted content available.",
+                        FontSize = 12,
+                        Foreground = new SolidColorBrush(Color.Parse("#888")),
+                        FontStyle = FontStyle.Italic
+                    });
+                }
+            }
+            finally
+            {
+                db.dispose.Invoke(null!);
+            }
+        }
+        catch (Exception ex)
+        {
+            _docDetailPanel.Children.Clear();
+            _docDetailPanel.Children.Add(new TextBlock
+            {
+                Text = $"Error loading document: {ex.Message}",
+                FontSize = 12,
+                Foreground = new SolidColorBrush(Color.Parse("#CC0000"))
+            });
+        }
     }
 
     private static Border NavigatorThreadRow(Threads.ThreadSummary thread)

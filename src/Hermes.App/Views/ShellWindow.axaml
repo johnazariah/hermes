@@ -215,6 +215,11 @@
           <StackPanel x:Name="TodoPanel" Margin="20,8" Spacing="12" />
         </ScrollViewer>
 
+        <!-- Document detail view (hidden by default) -->
+        <ScrollViewer x:Name="DocDetailScroller" Grid.Row="1" Padding="0,8" IsVisible="False">
+          <StackPanel x:Name="DocDetailPanel" Margin="20,8" Spacing="12" />
+        </ScrollViewer>
+
         <!-- Input bar -->
         <Border Grid.Row="2"
                 Background="{DynamicResource ChatBg}"
