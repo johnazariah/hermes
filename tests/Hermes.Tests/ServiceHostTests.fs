@@ -113,13 +113,14 @@ let ``ServiceHost_CountUnextracted_ReturnsCorrect`` () =
 
 [<Fact>]
 [<Trait("Category", "Integration")>]
-let ``ServiceHost_RequestSync_CreatesFile`` () =
+let ``ServiceHost_RequestSync_CreatesFile`` () = task {
     let dir = IO.Path.Combine(IO.Path.GetTempPath(), $"hermes-test-{Guid.NewGuid():N}")
     IO.Directory.CreateDirectory(dir) |> ignore
     try
-        ServiceHost.requestSync dir
+        do! ServiceHost.requestSync Interpreters.realFileSystem Interpreters.systemClock dir
         Assert.True(IO.File.Exists(IO.Path.Combine(dir, "hermes-sync-now")))
     finally try IO.Directory.Delete(dir, true) with _ -> ()
+}
 
 // ─── Config defaults ─────────────────────────────────────────────────
 

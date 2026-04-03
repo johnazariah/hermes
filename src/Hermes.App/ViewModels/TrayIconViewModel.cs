@@ -55,7 +55,7 @@ public sealed class TrayIconViewModel
     }
 
     public void TogglePause() => _bridge.TogglePause();
-    public void RequestSync() => _bridge.RequestSync();
+    public Task RequestSyncAsync() => _bridge.RequestSyncAsync();
 
     public bool IsPaused => _bridge.IsPaused;
 

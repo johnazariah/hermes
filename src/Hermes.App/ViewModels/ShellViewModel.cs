@@ -402,7 +402,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     public async Task SyncNowAsync()
     {
         IsSyncing = true;
-        _bridge.RequestSync();
+        await _bridge.RequestSyncAsync();
 
         var startTime = DateTimeOffset.UtcNow;
         for (var i = 0; i < 60; i++)

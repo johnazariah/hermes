@@ -52,8 +52,8 @@ module ServiceHost =
 
     let statusFilePath (archiveDir: string) = Path.Combine(archiveDir, statusFileName)
 
-    let requestSync (archiveDir: string) =
-        File.WriteAllText(Path.Combine(archiveDir, syncTriggerFileName), DateTimeOffset.UtcNow.ToString("O"))
+    let requestSync (fs: Algebra.FileSystem) (clock: Algebra.Clock) (archiveDir: string) =
+        fs.writeAllText (Path.Combine(archiveDir, syncTriggerFileName)) (clock.utcNow().ToString("O"))
 
     let writeHeartbeat (fs: Algebra.FileSystem) (archiveDir: string) (status: ServiceStatus) =
         task { do! fs.writeAllText (statusFilePath archiveDir) (JsonSerializer.Serialize(status, jsonOptions)) }

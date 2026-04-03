@@ -90,9 +90,9 @@ public sealed class HermesServiceBridge
         }
     }
 
-    public void RequestSync()
+    public Task RequestSyncAsync()
     {
-        ServiceHost.requestSync(ArchiveDir);
+        return ServiceHost.requestSync(Interpreters.realFileSystem, Interpreters.systemClock, ArchiveDir);
     }
 
     public void TogglePause()
@@ -163,7 +163,7 @@ public sealed class HermesServiceBridge
         if (result.IsOk) _config = result.ResultValue;
 
         // Trigger an immediate sync so existing files in the new folder are ingested now
-        RequestSync();
+        await RequestSyncAsync();
     }
 
     /// <summary>
@@ -256,7 +256,7 @@ public sealed class HermesServiceBridge
 
         await File.WriteAllTextAsync(configPath, yaml);
         await ReloadConfigAsync();
-        RequestSync();
+        await RequestSyncAsync();
     }
 
     /// <summary>
