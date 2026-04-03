@@ -1,19 +1,23 @@
 ---
-description: "Master development plan: wire the built-but-not-connected pipeline, fix Tagless-Final violations, complete UI, reach 85% coverage."
+description: "Master development plan: wave roadmap with dependency graph. Status tracked in .project/STATUS.md and .project/waves/*.md"
 ---
 
 # Hermes — Development Plan (April 3, 2026)
 
+> **Canonical status**: `.project/STATUS.md`  
+> **Wave detail**: `.project/waves/wave-*.md` (append-only, newest-on-top)  
+> **This file**: roadmap and dependency graph. Agent prompts reference this for sequencing.
+
 ## Current State
 
-- 461 tests on master, 699 on feat/coverage-85 (85.5% line)
+- 706 tests, 0 failures, 85.5% line coverage
+- Tagless-Final: PASS
 - 13 MCP tools
-- 4-column VS Code-style UI shell with navigator panels wired
-- PdfStructure, Excel, Word, CSV extractors built but **not connected to pipeline**
-- Content rules + LLM classification built but **not wired**
-- 4 Tagless-Final violations remaining
-- 2,988 documents stuck in unsorted (classification can't see content)
-- Pelican GL integration planned (replaces Osprey)
+- Pipeline funnel UI designed (doc 15)
+- Extractors built but **not connected to pipeline**
+- Classification built but **not wired**
+- 2,988 documents in unsorted (classification can't see content)
+- Pelican GL integration planned via REST API
 
 ## Priority Order
 

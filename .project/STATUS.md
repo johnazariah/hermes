@@ -1,47 +1,49 @@
 # Hermes — Project Status
 
-**Phase**: All phases + features complete. Settings dialog in progress.  
-**Health**: 🟢 Green  
-**Last Updated**: 2026-03-31
+> **Canonical status hub.** Tiny by design — points to wave files for detail.  
+> Updated after each wave completes. Agents: read this first, then the active wave file.
 
-## Quick Stats
+## Current State (April 3, 2026)
 
 | Metric | Value |
 |--------|-------|
-| Documents (design) | 18 |
-| Phase specs | 12 (Phases 0–11) |
-| GitHub issues | 10 |
-| Tests | 258 |
-| Lines of code | ~12,000+ |
+| Tests | 706 passing, 0 skipped |
+| Coverage | 85.5% line |
+| Tagless-Final | PASS |
+| Branch | `main` |
+| MCP tools | 13 |
+| Documents indexed | 2,163+ |
+| Design docs | 18 |
 
-## Phase Status
+## Active Wave
 
-| Phase | Name | Status | Issue |
-|-------|------|--------|-------|
-| 0 | Project Skeleton | ✅ Done | [#1](https://github.com/johnazariah/hermes/issues/1) |
-| 1 | Email Sync | ✅ Done | [#2](https://github.com/johnazariah/hermes/issues/2) |
-| 2 | Classification | ✅ Done | [#3](https://github.com/johnazariah/hermes/issues/3) |
-| 3 | Text Extraction | ✅ Done | [#4](https://github.com/johnazariah/hermes/issues/4) |
-| 4 | Full-Text Search | ✅ Done | [#5](https://github.com/johnazariah/hermes/issues/5) |
-| 5 | Embeddings | ✅ Done | [#6](https://github.com/johnazariah/hermes/issues/6) |
-| 6 | MCP Server | ✅ Done | [#7](https://github.com/johnazariah/hermes/issues/7) |
-| 7 | Background Service | ✅ Done | [#8](https://github.com/johnazariah/hermes/issues/8) |
-| 8 | Avalonia UI & Installer | ✅ Done (functional) | [#9](https://github.com/johnazariah/hermes/issues/9) |
-| 9 | Folder Watching | ✅ Done | [#10](https://github.com/johnazariah/hermes/issues/10) |
-| 10 | Email Body Indexing | ✅ Done | — |
-| 11 | Document-to-Markdown | ✅ Done | — |
-| — | UI Redesign | 📐 Designing | See [09-ui-redesign.md](design/09-ui-redesign.md) |
-| — | Agent Evolution | 📐 Designing | See [10-agent-evolution.md](design/10-agent-evolution.md) |
-| — | Email Backfill | ✅ Done | Paginated Gmail sync, resume from page token, progress tracking |
-| — | Bills & Reminders | ✅ Done | Bill detection, reminder lifecycle, MCP tools, CLI reset |
-| — | Azure OpenAI Chat | ✅ Done | Chat provider abstraction + Azure OpenAI implementation |
+**Wave 1.5: Osprey Parity Validation** → [wave-1.5-osprey-parity.md](waves/wave-1.5-osprey-parity.md)  
+Agent prompt: `.github/prompts/wave1.5-osprey-parity.prompt.md`
 
-## Key Decisions
+## Wave Roadmap
 
-All 13 open questions resolved — see `.project/design/07-open-questions.md`.
+| Wave | Name | Status | File |
+|------|------|--------|------|
+| 1 | Backfill + Reminders | ✅ Done | [wave-1-backfill-reminders.md](waves/wave-1-backfill-reminders.md) |
+| 1a | Tagless-Final Cleanup | ✅ Done | [wave-1a-tagless-final.md](waves/wave-1a-tagless-final.md) |
+| 1b | Coverage Push | ✅ Done | [wave-1b-coverage.md](waves/wave-1b-coverage.md) |
+| 1.5 | Osprey Parity Validation | ⏳ Active | [wave-1.5-osprey-parity.md](waves/wave-1.5-osprey-parity.md) |
+| 2 | Wire Structured Extraction | Not started | [wave-2-extraction.md](waves/wave-2-extraction.md) |
+| 3 | Smart Classification Wiring | Not started | [wave-3-classification.md](waves/wave-3-classification.md) |
+| 4 | UI: Pipeline Funnel | Not started | [wave-4-ui.md](waves/wave-4-ui.md) |
+| 5 | Coverage Final | Not started | — |
+| 6 | Pelican Integration | Not started | [wave-6-pelican.md](waves/wave-6-pelican.md) |
+| 7 | Polish | Not started | — |
 
-- **Runtime**: .NET 10 / F# + C# (Avalonia)
-- **AI**: Ollama (auto-installed) + ONNX Runtime fallback + Azure Document Intelligence
-- **MCP**: Service IS the MCP server (streamable HTTP on localhost)
-- **UI**: Avalonia tray icon + shell window
-- **Archive**: `~/Documents/Hermes/`
+## Key Design Docs
+
+| Doc | Topic |
+|-----|-------|
+| [15](design/15-rich-ui.md) | Pipeline Funnel UI |
+| [17](design/17-pdf-to-markdown.md) | Document-to-Markdown Extraction |
+| [18](design/18-smart-classification.md) | Smart Classification (3-tier) |
+| [13](design/13-document-feed-and-consumers.md) | Document Feed & Consumer Model |
+
+## Blockers
+
+None.

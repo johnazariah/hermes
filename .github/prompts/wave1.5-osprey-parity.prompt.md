@@ -4,6 +4,9 @@ description: "Wave 1.5: Validate extraction quality against Osprey's proven pars
 
 # Osprey Parity Validation — Wave 1.5
 
+> **Wave status**: `.project/waves/wave-1.5-osprey-parity.md` — update task status and append log entries as you work.  
+> **Project status**: `.project/STATUS.md`
+
 **Branch**: `feat/osprey-parity`
 
 **IMPORTANT: Use a git worktree.**
