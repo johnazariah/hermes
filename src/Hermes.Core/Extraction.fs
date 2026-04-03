@@ -183,13 +183,15 @@ module Extraction =
             let! _ =
                 db.execNonQuery
                     """UPDATE documents
-                       SET extracted_text = @text, extracted_date = @date,
+                       SET extracted_text = @text, extracted_markdown = @markdown,
+                           extracted_date = @date,
                            extracted_amount = @amount, extracted_vendor = @vendor,
                            extracted_abn = @abn, extraction_method = @method,
                            ocr_confidence = @confidence, extraction_confidence = @extConf,
                            extracted_at = @now
                        WHERE id = @id"""
                     [ ("@text", Database.boxVal r.Text)
+                      ("@markdown", Database.boxVal r.Text)
                       ("@date", optVal r.Date)
                       ("@amount", r.Amount |> Option.map (fun d -> Database.boxVal (float d)) |> Option.defaultValue (Database.boxVal DBNull.Value))
                       ("@vendor", optVal r.Vendor)

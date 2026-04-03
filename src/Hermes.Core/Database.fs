@@ -9,7 +9,7 @@ open Microsoft.Data.Sqlite
 [<RequireQualifiedAccess>]
 module Database =
 
-    let [<Literal>] CurrentSchemaVersion = 3
+    let [<Literal>] CurrentSchemaVersion = 4
 
     // ─── Schema DDL ──────────────────────────────────────────────────
 
@@ -58,6 +58,7 @@ module Database =
             sha256          TEXT NOT NULL,
             source_path     TEXT,
             extracted_text  TEXT,
+            extracted_markdown TEXT,
             extracted_date  TEXT,
             extracted_amount REAL,
             extracted_vendor TEXT,
@@ -333,12 +334,30 @@ module Database =
             ()
         }
 
+    let private migrateV3toV4 (conn: SqliteConnection) =
+        task {
+            let stmts =
+                [| "ALTER TABLE documents ADD COLUMN extracted_markdown TEXT" |]
+            for sql in stmts do
+                try
+                    let! _ = execNonQuery conn sql []
+                    ()
+                with _ -> ()
+            let! _ =
+                execNonQuery conn "INSERT OR IGNORE INTO schema_version (version) VALUES (@v)" [ ("@v", boxVal 4) ]
+            ()
+        }
+
     let private runMigrations (conn: SqliteConnection) =
         task {
             let! currentVersion = schemaVersionImpl conn
 
             if currentVersion < 3 && currentVersion >= 2 then
                 do! migrateV2toV3 conn
+
+            let! v = schemaVersionImpl conn
+            if v < 4 && v >= 3 then
+                do! migrateV3toV4 conn
         }
 
     let private initSchemaImpl (conn: SqliteConnection) =

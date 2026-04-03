@@ -304,7 +304,7 @@ let ``DocumentFeed_GetContent_Markdown_NoExtractedText_ReturnsError`` () =
             let docId = docs.[0].Id
             let! result = DocumentFeed.getDocumentContent db m.Fs "/archive" docId DocumentFeed.Markdown
             match result with
-            | Error e -> Assert.Contains("No extracted text", e)
+            | Error e -> Assert.Contains("No extracted content", e)
             | Ok _ -> failwith "Expected Error when no extracted text"
         finally
             db.dispose ()

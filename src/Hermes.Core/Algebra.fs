@@ -149,6 +149,10 @@ module Interpreters =
               Path.Combine(appData, "hermes")
           documentsDirectory = fun () -> System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments) }
 
+    let nullTextExtractor: Algebra.TextExtractor =
+        { extractPdf = fun _ -> Task.FromResult(Error "OCR not available in CLI mode")
+          extractImage = fun _ -> Task.FromResult(Error "OCR not available in CLI mode") }
+
     let fileWatcher: Algebra.FileWatcher =
         { start =
             fun dir callback ->

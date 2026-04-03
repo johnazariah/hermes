@@ -282,7 +282,7 @@ let ``Database_InitSchema_V3_SchemaVersionIs3`` () =
         try
             let! _ = db.initSchema ()
             let! v = db.schemaVersion ()
-            Assert.Equal(3, v)
+            Assert.Equal(4, v)
         finally db.dispose ()
     }
 
@@ -297,7 +297,7 @@ let ``Database_InitSchema_V3_IdempotentRunTwice`` () =
             let! r2 = db.initSchema ()
             Assert.True(Result.isOk r2)
             let! v = db.schemaVersion ()
-            Assert.Equal(3, v)
+            Assert.Equal(4, v)
         finally db.dispose ()
     }
 
@@ -354,8 +354,9 @@ let ``Database_Migration_V2toV3_CreatesNewTablesAndColumns`` () =
             Assert.True(hasReminders, "reminders table should exist after migration")
             let! hasActivityLog = db.tableExists "activity_log"
             Assert.True(hasActivityLog, "activity_log table should exist after migration")
+            // Both V2→V3 and V3→V4 migrations run, ending at current version
             let! v = db.schemaVersion ()
-            Assert.Equal(3, v)
+            Assert.Equal(4, v)
         finally db.dispose ()
     }
 
@@ -388,9 +389,9 @@ let ``Database_Migration_V2toV3_RunsSuccessfully`` () =
             let! result = db.initSchema ()
             Assert.True(Result.isOk result)
 
-            // Verify schema is now at V3
+            // Verify schema is now at V4 (V2→V3 and V3→V4 both ran)
             let! v = db.schemaVersion ()
-            Assert.Equal(3, v)
+            Assert.Equal(4, v)
         finally db.dispose ()
     }
 

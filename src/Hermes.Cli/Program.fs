@@ -93,6 +93,15 @@ type BackfillArgs =
             | Account _ -> "account label"
             | Reset -> "reset backfill progress (re-scan from start)"
 
+type ReextractArgs =
+    | [<AltCommandLine("-c")>] Category of string
+    | [<AltCommandLine("-n")>] Limit of int
+    interface IArgParserTemplate with
+        member this.Usage =
+            match this with
+            | Category _ -> "only reextract documents in this category"
+            | Limit _ -> "max documents to reextract (default: all)"
+
 [<RequireSubcommand>]
 type CliArgs =
     | Version
@@ -105,6 +114,7 @@ type CliArgs =
     | [<CliPrefix(CliPrefix.None)>] Mcp of ParseResults<McpArgs>
     | [<CliPrefix(CliPrefix.None)>] Service of ParseResults<ServiceArgs>
     | [<CliPrefix(CliPrefix.None)>] Backfill of ParseResults<BackfillArgs>
+    | [<CliPrefix(CliPrefix.None)>] Reextract of ParseResults<ReextractArgs>
     interface IArgParserTemplate with
         member this.Usage =
             match this with
@@ -118,6 +128,7 @@ type CliArgs =
             | Mcp _ -> "start MCP server (JSON-RPC over stdio)"
             | Service _ -> "manage the background service"
             | Backfill _ -> "manage email backfill (reset progress)"
+            | Reextract _ -> "re-extract documents (force refresh of extracted text and markdown)"
 
 let private version () =
     let asm = System.Reflection.Assembly.GetEntryAssembly()
@@ -278,10 +289,10 @@ let private searchCmd (args: ParseResults<SearchArgs>) =
                     // Default: FTS5 keyword search
                     let filter : Search.SearchFilter =
                         { Query = query
-                          Category = args.TryGetResult Category
-                          Sender = args.TryGetResult Sender
-                          DateFrom = args.TryGetResult From
-                          DateTo = args.TryGetResult To
+                          Category = args.TryGetResult SearchArgs.Category
+                          Sender = args.TryGetResult SearchArgs.Sender
+                          DateFrom = args.TryGetResult SearchArgs.From
+                          DateTo = args.TryGetResult SearchArgs.To
                           Account = args.TryGetResult SearchArgs.Account
                           SourceType = None
                           Limit = args.TryGetResult SearchArgs.Limit |> Option.defaultValue 20 }
@@ -373,6 +384,26 @@ let private embedCmd (args: ParseResults<EmbedArgs>) =
 let private notImplemented (name: string) =
     printfn $"hermes {name}: not yet implemented"
     0
+
+let private reextractCmd (args: ParseResults<ReextractArgs>) =
+    match loadConfigAndDb () with
+    | None -> 1
+    | Some(fs, logger, config, db) ->
+        try
+            let category = args.TryGetResult ReextractArgs.Category
+            let limit = args.TryGetResult ReextractArgs.Limit |> Option.defaultValue 10000
+            let extractor = Interpreters.nullTextExtractor
+            let clock = Interpreters.systemClock
+            let catLabel = category |> Option.defaultValue "all"
+            printfn $"Re-extracting documents (category={catLabel}, limit={limit})..."
+            let succeeded, failed =
+                Extraction.extractBatch fs db logger clock extractor config.ArchiveDir category true limit
+                |> Async.AwaitTask
+                |> Async.RunSynchronously
+            printfn $"Done: {succeeded} succeeded, {failed} failed."
+            0
+        finally
+            db.dispose ()
 
 let private mcpCmd () =
     match loadConfigAndDb () with
@@ -601,6 +632,8 @@ let main argv =
             else
                 printfn "Usage: hermes backfill --reset --account <label>"
                 0
+        elif results.Contains Reextract then
+            reextractCmd (results.GetResult Reextract)
         else
             printfn "%s" (parser.PrintUsage())
             0
