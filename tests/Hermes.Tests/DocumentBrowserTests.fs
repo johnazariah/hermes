@@ -27,7 +27,7 @@ let private insertExtractedDoc (db: Algebra.Database) (cat: string) (name: strin
 // ─── listCategories ──────────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``DocumentBrowser_ListCategories_EmptyDb_ReturnsEmpty`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -38,7 +38,7 @@ let ``DocumentBrowser_ListCategories_EmptyDb_ReturnsEmpty`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``DocumentBrowser_ListCategories_MultipleCats_ReturnsAll`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -57,7 +57,7 @@ let ``DocumentBrowser_ListCategories_MultipleCats_ReturnsAll`` () =
 // ─── listDocuments ───────────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``DocumentBrowser_ListDocuments_FiltersByCategory`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -71,7 +71,7 @@ let ``DocumentBrowser_ListDocuments_FiltersByCategory`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``DocumentBrowser_ListDocuments_RespectsLimit`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -85,7 +85,7 @@ let ``DocumentBrowser_ListDocuments_RespectsLimit`` () =
 // ─── getDocumentDetail ───────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``DocumentBrowser_GetDocumentDetail_ExistingDoc_ReturnsSome`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -99,7 +99,7 @@ let ``DocumentBrowser_GetDocumentDetail_ExistingDoc_ReturnsSome`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``DocumentBrowser_GetDocumentDetail_Missing_ReturnsNone`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -110,7 +110,7 @@ let ``DocumentBrowser_GetDocumentDetail_Missing_ReturnsNone`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``DocumentBrowser_GetDocumentDetail_PipelineStatus_Unextracted`` () =
     task {
         let db = TestHelpers.createDb ()

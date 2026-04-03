@@ -8,7 +8,7 @@ open Hermes.Core
 // ─── getIndexStats ───────────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Stats_GetIndexStats_EmptyDb_ReturnsZeros`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -21,7 +21,7 @@ let ``Stats_GetIndexStats_EmptyDb_ReturnsZeros`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Stats_GetIndexStats_WithDocuments_ReturnsCorrectCounts`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -50,7 +50,7 @@ let ``Stats_GetCategoryCounts_NonexistentDir_ReturnsEmpty`` () =
 // ─── getAccountStats ─────────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Stats_GetAccountStats_EmptyDb_ReturnsEmpty`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -61,7 +61,7 @@ let ``Stats_GetAccountStats_EmptyDb_ReturnsEmpty`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Stats_GetAccountStats_WithSyncState_ReturnsAccounts`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -79,7 +79,7 @@ let ``Stats_GetAccountStats_WithSyncState_ReturnsAccounts`` () =
 // ─── Additional stats tests ──────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Stats_GetIndexStats_WithExtractedAndEmbedded_CountsCorrectly`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -95,7 +95,7 @@ let ``Stats_GetIndexStats_WithExtractedAndEmbedded_CountsCorrectly`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Stats_GetIndexStats_NonExistentDbPath_SizeIsZero`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -106,7 +106,7 @@ let ``Stats_GetIndexStats_NonExistentDbPath_SizeIsZero`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Stats_GetAccountStats_MultipleAccounts_ReturnsAll`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -168,7 +168,7 @@ let ``Stats_GetCategoryCounts_EmptySubdirs_ExcludesEmpty`` () =
         try Directory.Delete(tempDir, true) with _ -> ()
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Stats_GetAccountStats_NullSyncAt_ReturnsNone`` () =
     task {
         let db = TestHelpers.createDb ()

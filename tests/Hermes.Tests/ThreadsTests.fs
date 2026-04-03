@@ -17,7 +17,7 @@ let private insertMsg (db: Algebra.Database) (threadId: string) (gmailId: string
 // ─── listThreads ─────────────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Threads_ListThreads_EmptyDb_ReturnsEmpty`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -28,7 +28,7 @@ let ``Threads_ListThreads_EmptyDb_ReturnsEmpty`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Threads_ListThreads_GroupsByThreadId`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -44,7 +44,7 @@ let ``Threads_ListThreads_GroupsByThreadId`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Threads_ListThreads_RespectsLimit`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -59,7 +59,7 @@ let ``Threads_ListThreads_RespectsLimit`` () =
 // ─── listThreadsByAccount ────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Threads_ListThreadsByAccount_FiltersCorrectly`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -75,7 +75,7 @@ let ``Threads_ListThreadsByAccount_FiltersCorrectly`` () =
 // ─── getThreadDetail ─────────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Threads_GetThreadDetail_ExistingThread_ReturnsSome`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -91,7 +91,7 @@ let ``Threads_GetThreadDetail_ExistingThread_ReturnsSome`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Threads_GetThreadDetail_Missing_ReturnsNone`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -102,7 +102,7 @@ let ``Threads_GetThreadDetail_Missing_ReturnsNone`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Threads_ListThreads_IncludesParticipants`` () =
     task {
         let db = TestHelpers.createDb ()

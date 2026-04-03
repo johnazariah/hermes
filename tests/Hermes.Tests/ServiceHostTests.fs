@@ -73,7 +73,7 @@ let ``ServiceHost_CountUnclassified_WithFiles_CountsCorrectly`` () =
     Assert.Equal(2, ServiceHost.countUnclassified m.Fs "/archive")
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ServiceHost_CountDocuments_EmptyDb_ReturnsZero`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -84,7 +84,7 @@ let ``ServiceHost_CountDocuments_EmptyDb_ReturnsZero`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ServiceHost_CountDocuments_WithDocs_ReturnsCount`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -97,7 +97,7 @@ let ``ServiceHost_CountDocuments_WithDocs_ReturnsCount`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ServiceHost_CountUnextracted_ReturnsCorrect`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -143,7 +143,7 @@ let ``ServiceHost_StatusFilePath_CombinesCorrectly`` () =
 // ─── classifyUnclassified (via runSyncCycle) ─────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ServiceHost_ClassifyUnclassified_ProcessesFiles`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -167,7 +167,7 @@ let ``ServiceHost_ClassifyUnclassified_ProcessesFiles`` () =
 // ─── Extraction step ─────────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ServiceHost_Extraction_ProcessesUnextractedDocs`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -186,7 +186,7 @@ let ``ServiceHost_Extraction_ProcessesUnextractedDocs`` () =
 // ─── Reminders step ──────────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ServiceHost_EvaluateReminders_CreatesRemindersForBills`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -205,7 +205,7 @@ let ``ServiceHost_EvaluateReminders_CreatesRemindersForBills`` () =
 // ─── countUnextracted tests ──────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ServiceHost_CountUnextracted_AllExtracted_ReturnsZero`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -219,7 +219,7 @@ let ``ServiceHost_CountUnextracted_AllExtracted_ReturnsZero`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ServiceHost_CountUnextracted_EmptyDb_ReturnsZero`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -230,7 +230,7 @@ let ``ServiceHost_CountUnextracted_EmptyDb_ReturnsZero`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ServiceHost_CountUnextracted_MixedDocs_CountsCorrectly`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -303,7 +303,7 @@ let private testDepsWithEmbedder (embedder: Algebra.EmbeddingClient) : ServiceHo
 // ─── runSyncCycle tests ─────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ServiceHost_RunSyncCycle_EmptyState_ReturnsOk`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -321,7 +321,7 @@ let ``ServiceHost_RunSyncCycle_EmptyState_ReturnsOk`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ServiceHost_RunSyncCycle_WithUnclassifiedFiles_ClassifiesThem`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -345,7 +345,7 @@ let ``ServiceHost_RunSyncCycle_WithUnclassifiedFiles_ClassifiesThem`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ServiceHost_RunSyncCycle_WithExtractor_ExtractsDocuments`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -372,7 +372,7 @@ let ``ServiceHost_RunSyncCycle_WithExtractor_ExtractsDocuments`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ServiceHost_RunSyncCycle_WithEmbedder_RunsEmbedding`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -392,7 +392,7 @@ let ``ServiceHost_RunSyncCycle_WithEmbedder_RunsEmbedding`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ServiceHost_RunSyncCycle_NoEmbedder_SkipsEmbedding`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -410,7 +410,7 @@ let ``ServiceHost_RunSyncCycle_NoEmbedder_SkipsEmbedding`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ServiceHost_RunSyncCycle_NoChatProvider_SkipsLlmClassification`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -435,7 +435,7 @@ let ``ServiceHost_RunSyncCycle_NoChatProvider_SkipsLlmClassification`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ServiceHost_RunSyncCycle_WithEmailProvider_SyncsEmails`` () =
     task {
         let mutable providerCalled = false
@@ -462,7 +462,7 @@ let ``ServiceHost_RunSyncCycle_WithEmailProvider_SyncsEmails`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ServiceHost_RunSyncCycle_EmailProviderFails_ContinuesGracefully`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -483,7 +483,7 @@ let ``ServiceHost_RunSyncCycle_EmailProviderFails_ContinuesGracefully`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ServiceHost_RunSyncCycle_WithContentRules_AppliesReclassification`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -571,7 +571,7 @@ let private minimalRules : Algebra.RulesEngine =
       reload = fun () -> task { return Ok () } }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ServiceHost_CreateServiceHost_PreCancelledToken_WritesStoppedStatus`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -591,7 +591,7 @@ let ``ServiceHost_CreateServiceHost_PreCancelledToken_WritesStoppedStatus`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ServiceHost_CreateServiceHost_PreCancelledToken_ReportsDocCount`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -612,7 +612,7 @@ let ``ServiceHost_CreateServiceHost_PreCancelledToken_ReportsDocCount`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ServiceHost_CreateServiceHost_PreCancelledToken_UpdatesSyncState`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -635,7 +635,7 @@ let ``ServiceHost_CreateServiceHost_PreCancelledToken_UpdatesSyncState`` () =
 // ─── LLM reclassification path ──────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ServiceHost_RunSyncCycle_WithChatProvider_RunsLlmClassification`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -664,7 +664,7 @@ let ``ServiceHost_RunSyncCycle_WithChatProvider_RunsLlmClassification`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ServiceHost_RunSyncCycle_ChatProviderError_ContinuesGracefully`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -692,7 +692,7 @@ let ``ServiceHost_RunSyncCycle_ChatProviderError_ContinuesGracefully`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ServiceHost_RunSyncCycle_LowConfidence_NoReclassification`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -728,7 +728,7 @@ let ``ServiceHost_RunSyncCycle_LowConfidence_NoReclassification`` () =
 // ─── createServiceHost with short-lived token ────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ServiceHost_CreateServiceHost_ShortLivedToken_RunsLoopBriefly`` () =
     task {
         let db = TestHelpers.createDb ()

@@ -18,7 +18,7 @@ let private insertDoc (db: Algebra.Database) (cat: string) (name: string) =
 // ─── reclassify ──────────────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``DocumentManagement_Reclassify_ChangesCategoryInDb`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -34,7 +34,7 @@ let ``DocumentManagement_Reclassify_ChangesCategoryInDb`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``DocumentManagement_Reclassify_NonexistentDoc_ReturnsError`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -48,7 +48,7 @@ let ``DocumentManagement_Reclassify_NonexistentDoc_ReturnsError`` () =
 // ─── reextract ───────────────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``DocumentManagement_Reextract_ClearsExtractedAt`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -66,7 +66,7 @@ let ``DocumentManagement_Reextract_ClearsExtractedAt`` () =
 // ─── getProcessingQueue ──────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``DocumentManagement_GetProcessingQueue_EmptyDb_AllZeros`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -78,7 +78,7 @@ let ``DocumentManagement_GetProcessingQueue_EmptyDb_AllZeros`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``DocumentManagement_GetProcessingQueue_MixedDocs_CorrectCounts`` () =
     task {
         let db = TestHelpers.createDb ()

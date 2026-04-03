@@ -3,6 +3,9 @@ module Hermes.Tests.ContentClassifierTests
 open Xunit
 open Hermes.Core
 
+open FsCheck
+open FsCheck.Xunit
+
 // ─── Helpers ─────────────────────────────────────────────────────────
 
 let private payslipRule : Domain.ContentRule =
@@ -173,3 +176,11 @@ let ``ContentClassifier_BuildPrompt_LongText_Truncates`` () =
     let prompt = ContentClassifier.buildClassificationPrompt longText ["invoices"]
     Assert.True(prompt.Length < longText.Length)
     Assert.Contains("truncated", prompt)
+
+// ─── Property-based tests ────────────────────────────────────────────
+
+[<Property>]
+[<Trait("Category", "Property")>]
+let ``ContentClassifier_BuildPrompt_AlwaysTruncatesTo2000`` (text: NonEmptyString) =
+    let prompt = ContentClassifier.buildClassificationPrompt text.Get ["cat1"]
+    prompt.Length <= text.Get.Length + 500

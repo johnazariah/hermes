@@ -39,7 +39,7 @@ let private insertDocWithText (db: Algebra.Database) category name text =
 // ─── listDocuments tests ─────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``DocumentFeed_ListDocuments_SinceId0_ReturnsAll`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -54,7 +54,7 @@ let ``DocumentFeed_ListDocuments_SinceId0_ReturnsAll`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``DocumentFeed_ListDocuments_SinceId_ReturnsOnlyNewer`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -72,7 +72,7 @@ let ``DocumentFeed_ListDocuments_SinceId_ReturnsOnlyNewer`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``DocumentFeed_ListDocuments_FilterByCategory`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -88,7 +88,7 @@ let ``DocumentFeed_ListDocuments_FilterByCategory`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``DocumentFeed_ListDocuments_Limit_RespectsLimit`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -104,7 +104,7 @@ let ``DocumentFeed_ListDocuments_Limit_RespectsLimit`` () =
 // ─── getFeedStats tests ──────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``DocumentFeed_GetFeedStats_ReturnsCorrectCounts`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -124,7 +124,7 @@ let ``DocumentFeed_GetFeedStats_ReturnsCorrectCounts`` () =
 // ─── getDocumentContent tests ────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``DocumentFeed_GetContent_Markdown_ReturnsExtractedText`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -144,7 +144,7 @@ let ``DocumentFeed_GetContent_Markdown_ReturnsExtractedText`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``DocumentFeed_GetContent_Text_StripsFrontmatter`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -165,7 +165,7 @@ let ``DocumentFeed_GetContent_Text_StripsFrontmatter`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``DocumentFeed_GetContent_InvalidId_ReturnsError`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -182,7 +182,7 @@ let ``DocumentFeed_GetContent_InvalidId_ReturnsError`` () =
 // ─── getDocumentContent Raw ──────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``DocumentFeed_GetContent_Raw_ReturnsFileContent`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -201,7 +201,7 @@ let ``DocumentFeed_GetContent_Raw_ReturnsFileContent`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``DocumentFeed_GetContent_Raw_MissingFile_ReturnsError`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -293,7 +293,7 @@ let ``DocumentFeed_FeedStatsToJson_IncludesFields`` () =
 // ─── getDocumentContent Markdown no text ─────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``DocumentFeed_GetContent_Markdown_NoExtractedText_ReturnsError`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -313,7 +313,7 @@ let ``DocumentFeed_GetContent_Markdown_NoExtractedText_ReturnsError`` () =
 // ─── listDocuments empty DB ──────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``DocumentFeed_ListDocuments_EmptyDb_ReturnsEmpty`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -325,7 +325,7 @@ let ``DocumentFeed_ListDocuments_EmptyDb_ReturnsEmpty`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``DocumentFeed_GetFeedStats_EmptyDb_ReturnsZeros`` () =
     task {
         let db = TestHelpers.createDb ()

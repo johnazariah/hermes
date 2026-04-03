@@ -80,7 +80,7 @@ let private insertSearchDoc (db: Algebra.Database) (cat: string) (name: string) 
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``SemanticSearch_KeywordSearch_FindsMatchingDoc`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -94,7 +94,7 @@ let ``SemanticSearch_KeywordSearch_FindsMatchingDoc`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``SemanticSearch_KeywordSearch_NoMatch_ReturnsEmpty`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -106,7 +106,7 @@ let ``SemanticSearch_KeywordSearch_NoMatch_ReturnsEmpty`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``SemanticSearch_KeywordSearch_EmptyQuery_ReturnsEmpty`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -119,7 +119,7 @@ let ``SemanticSearch_KeywordSearch_EmptyQuery_ReturnsEmpty`` () =
 // ─── EnrichResult ────────────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``SemanticSearch_EnrichResult_ReturnsDocDetails`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -134,7 +134,7 @@ let ``SemanticSearch_EnrichResult_ReturnsDocDetails`` () =
 // ─── HybridSearch ────────────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``SemanticSearch_HybridSearch_FallsBackToKeyword_WhenNoEmbeddings`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -142,15 +142,15 @@ let ``SemanticSearch_HybridSearch_FallsBackToKeyword_WhenNoEmbeddings`` () =
             do! insertSearchDoc db "invoices" "plumber.pdf" "plumbing invoice"
             let embedder = TestHelpers.failingEmbedder
             let! results = SemanticSearch.hybridSearch db embedder "plumbing" 10
-            // Should still return keyword results even if semantic fails
-            Assert.True(results.Length >= 0) // may return empty if semantic error kills it
+            // Hybrid search should fall back to keyword results when semantic fails
+            Assert.True(results.Length >= 1, $"Expected keyword fallback results, got {results.Length}")
         finally db.dispose ()
     }
 
 // ─── Full search pipeline ────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``SemanticSearch_Search_KeywordMode_ReturnsResults`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -166,7 +166,7 @@ let ``SemanticSearch_Search_KeywordMode_ReturnsResults`` () =
 // ─── Additional search tests ─────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``SemanticSearch_Search_KeywordMode_NoResults_ReturnsEmpty`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -179,7 +179,7 @@ let ``SemanticSearch_Search_KeywordMode_NoResults_ReturnsEmpty`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``SemanticSearch_Search_KeywordMode_EmptyQuery_ReturnsEmpty`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -191,7 +191,7 @@ let ``SemanticSearch_Search_KeywordMode_EmptyQuery_ReturnsEmpty`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``SemanticSearch_EnrichResult_MissingDoc_ReturnsEmptyFields`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -205,7 +205,7 @@ let ``SemanticSearch_EnrichResult_MissingDoc_ReturnsEmptyFields`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``SemanticSearch_KeywordSearch_MultipleMatches_ReturnsAll`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -218,7 +218,7 @@ let ``SemanticSearch_KeywordSearch_MultipleMatches_ReturnsAll`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``SemanticSearch_EnrichResult_WithExtractedText_ReturnsSnippet`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -231,7 +231,7 @@ let ``SemanticSearch_EnrichResult_WithExtractedText_ReturnsSnippet`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``SemanticSearch_Search_SemanticMode_FailingEmbedder_ReturnsEmpty`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -244,7 +244,7 @@ let ``SemanticSearch_Search_SemanticMode_FailingEmbedder_ReturnsEmpty`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``SemanticSearch_HybridSearch_KeywordOnlyWhenSemFails`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -259,7 +259,7 @@ let ``SemanticSearch_HybridSearch_KeywordOnlyWhenSemFails`` () =
 // ─── Semantic search with embeddings ─────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``SemanticSearch_SemanticSearch_WithChunks_ReturnsResults`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -278,7 +278,7 @@ let ``SemanticSearch_SemanticSearch_WithChunks_ReturnsResults`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``SemanticSearch_SemanticSearch_NoChunks_ReturnsEmpty`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -293,7 +293,7 @@ let ``SemanticSearch_SemanticSearch_NoChunks_ReturnsEmpty`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``SemanticSearch_HybridSearch_WithChunks_CombinesResults`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -309,7 +309,7 @@ let ``SemanticSearch_HybridSearch_WithChunks_CombinesResults`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``SemanticSearch_Search_HybridMode_ReturnsResults`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -325,7 +325,7 @@ let ``SemanticSearch_Search_HybridMode_ReturnsResults`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``SemanticSearch_Search_SemanticMode_WithChunks_ReturnsResults`` () =
     task {
         let db = TestHelpers.createDb ()

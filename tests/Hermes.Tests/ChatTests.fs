@@ -71,7 +71,7 @@ let private fakeChat : Algebra.ChatProvider =
     { complete = fun _ _ -> task { return Ok "Fake AI response" } }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Chat_Query_KeywordMode_ReturnsResults`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -88,7 +88,7 @@ let ``Chat_Query_KeywordMode_ReturnsResults`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Chat_Query_AiMode_ReturnsAiSummary`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -106,7 +106,7 @@ let ``Chat_Query_AiMode_ReturnsAiSummary`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Chat_Query_EmptyQuery_ReturnsEmpty`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -121,15 +121,21 @@ let ``Chat_Query_EmptyQuery_ReturnsEmpty`` () =
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``Chat_ProviderFromConfig_Ollama_ReturnsOllamaProvider`` () =
-    let chatConfig : Domain.ChatConfig =
-        { Provider = Domain.ChatProviderKind.Ollama
-          AzureOpenAI = { Domain.AzureOpenAIConfig.Endpoint = ""; ApiKey = ""; DeploymentName = ""; MaxTokens = 100; TimeoutSeconds = 30 } }
-    // Just verify it doesn't throw — the provider is a record of functions
-    let _provider = Chat.providerFromConfig (new System.Net.Http.HttpClient()) chatConfig "http://localhost:11434" "llama3"
-    Assert.True(true)
+    task {
+        use client = new System.Net.Http.HttpClient(Timeout = TimeSpan.FromSeconds(2.0))
+        let chatConfig : Domain.ChatConfig =
+            { Provider = Domain.ChatProviderKind.Ollama
+              AzureOpenAI = { Domain.AzureOpenAIConfig.Endpoint = ""; ApiKey = ""; DeploymentName = ""; MaxTokens = 100; TimeoutSeconds = 30 } }
+        let provider = Chat.providerFromConfig client chatConfig "http://127.0.0.1:1" "llama3"
+        Assert.NotNull(box provider)
+        let! result = provider.complete "test" "test"
+        match result with
+        | Error msg -> Assert.Contains("Ollama error", msg)
+        | Ok _ -> failwith "Expected Error from unreachable Ollama endpoint"
+    }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Chat_Query_AiError_ReturnsErrorMessage`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -146,7 +152,7 @@ let ``Chat_Query_AiError_ReturnsErrorMessage`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Chat_Query_NoResults_AiSummaryIsNone`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -160,7 +166,7 @@ let ``Chat_Query_NoResults_AiSummaryIsNone`` () =
 // ─── Additional query tests ──────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Chat_Query_MultipleResults_ReturnsAll`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -181,7 +187,7 @@ let ``Chat_Query_MultipleResults_ReturnsAll`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Chat_Query_WithFakeChatProvider_ReturnsCustomResponse`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -203,44 +209,65 @@ let ``Chat_Query_WithFakeChatProvider_ReturnsCustomResponse`` () =
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``Chat_ProviderFromConfig_AzureOpenAI_WithValidConfig_ReturnsAzureProvider`` () =
-    let chatConfig : Domain.ChatConfig =
-        { Provider = Domain.ChatProviderKind.AzureOpenAI
-          AzureOpenAI =
-            { Domain.AzureOpenAIConfig.Endpoint = "https://test.openai.azure.com"
-              ApiKey = "test-api-key"
-              DeploymentName = "gpt-4o"
-              MaxTokens = 100
-              TimeoutSeconds = 30 } }
-    let _provider = Chat.providerFromConfig (new System.Net.Http.HttpClient()) chatConfig "http://localhost:11434" "llama3"
-    Assert.True(true)
+    task {
+        use client = new System.Net.Http.HttpClient(Timeout = TimeSpan.FromSeconds(2.0))
+        let chatConfig : Domain.ChatConfig =
+            { Provider = Domain.ChatProviderKind.AzureOpenAI
+              AzureOpenAI =
+                { Domain.AzureOpenAIConfig.Endpoint = "http://127.0.0.1:1"
+                  ApiKey = "test-api-key"
+                  DeploymentName = "gpt-4o"
+                  MaxTokens = 100
+                  TimeoutSeconds = 30 } }
+        let provider = Chat.providerFromConfig client chatConfig "http://127.0.0.1:1" "llama3"
+        Assert.NotNull(box provider)
+        let! result = provider.complete "test" "test"
+        match result with
+        | Error msg -> Assert.Contains("Azure OpenAI error", msg)
+        | Ok _ -> failwith "Expected Error from unreachable Azure endpoint"
+    }
 
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``Chat_ProviderFromConfig_AzureOpenAI_EmptyEndpoint_FallsBackToOllama`` () =
-    let chatConfig : Domain.ChatConfig =
-        { Provider = Domain.ChatProviderKind.AzureOpenAI
-          AzureOpenAI =
-            { Domain.AzureOpenAIConfig.Endpoint = ""
-              ApiKey = "test-api-key"
-              DeploymentName = "gpt-4o"
-              MaxTokens = 100
-              TimeoutSeconds = 30 } }
-    let _provider = Chat.providerFromConfig (new System.Net.Http.HttpClient()) chatConfig "http://localhost:11434" "llama3"
-    Assert.True(true)
+    task {
+        use client = new System.Net.Http.HttpClient(Timeout = TimeSpan.FromSeconds(2.0))
+        let chatConfig : Domain.ChatConfig =
+            { Provider = Domain.ChatProviderKind.AzureOpenAI
+              AzureOpenAI =
+                { Domain.AzureOpenAIConfig.Endpoint = ""
+                  ApiKey = "test-api-key"
+                  DeploymentName = "gpt-4o"
+                  MaxTokens = 100
+                  TimeoutSeconds = 30 } }
+        let provider = Chat.providerFromConfig client chatConfig "http://127.0.0.1:1" "llama3"
+        Assert.NotNull(box provider)
+        let! result = provider.complete "test" "test"
+        match result with
+        | Error msg -> Assert.Contains("Ollama error", msg)
+        | Ok _ -> failwith "Expected Error from unreachable Ollama endpoint"
+    }
 
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``Chat_ProviderFromConfig_AzureOpenAI_EmptyApiKey_FallsBackToOllama`` () =
-    let chatConfig : Domain.ChatConfig =
-        { Provider = Domain.ChatProviderKind.AzureOpenAI
-          AzureOpenAI =
-            { Domain.AzureOpenAIConfig.Endpoint = "https://test.openai.azure.com"
-              ApiKey = ""
-              DeploymentName = "gpt-4o"
-              MaxTokens = 100
-              TimeoutSeconds = 30 } }
-    let _provider = Chat.providerFromConfig (new System.Net.Http.HttpClient()) chatConfig "http://localhost:11434" "llama3"
-    Assert.True(true)
+    task {
+        use client = new System.Net.Http.HttpClient(Timeout = TimeSpan.FromSeconds(2.0))
+        let chatConfig : Domain.ChatConfig =
+            { Provider = Domain.ChatProviderKind.AzureOpenAI
+              AzureOpenAI =
+                { Domain.AzureOpenAIConfig.Endpoint = "https://test.openai.azure.com"
+                  ApiKey = ""
+                  DeploymentName = "gpt-4o"
+                  MaxTokens = 100
+                  TimeoutSeconds = 30 } }
+        let provider = Chat.providerFromConfig client chatConfig "http://127.0.0.1:1" "llama3"
+        Assert.NotNull(box provider)
+        let! result = provider.complete "test" "test"
+        match result with
+        | Error msg -> Assert.Contains("Ollama error", msg)
+        | Ok _ -> failwith "Expected Error from unreachable Ollama endpoint"
+    }
 
 // ─── buildUserPrompt ─────────────────────────────────────────────────
 
@@ -287,7 +314,7 @@ let ``Chat_FormatResults_NoOptionalFields_FormatsCleanly`` () =
     Assert.DoesNotContain("Subject:", formatted)
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Chat_Query_AiEnabled_NoResults_SkipsAiCall`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -347,16 +374,23 @@ let ``Chat_AzureOpenAIProvider_ConnectionRefused_ReturnsError`` () =
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``Chat_ProviderFromConfig_WhitespaceEndpoint_FallsBackToOllama`` () =
-    let chatConfig : Domain.ChatConfig =
-        { Provider = Domain.ChatProviderKind.AzureOpenAI
-          AzureOpenAI =
-            { Domain.AzureOpenAIConfig.Endpoint = "  "
-              ApiKey = "valid-key"
-              DeploymentName = "gpt-4o"
-              MaxTokens = 100
-              TimeoutSeconds = 30 } }
-    let _provider = Chat.providerFromConfig (new System.Net.Http.HttpClient()) chatConfig "http://localhost:11434" "llama3"
-    Assert.True(true)
+    task {
+        use client = new System.Net.Http.HttpClient(Timeout = TimeSpan.FromSeconds(2.0))
+        let chatConfig : Domain.ChatConfig =
+            { Provider = Domain.ChatProviderKind.AzureOpenAI
+              AzureOpenAI =
+                { Domain.AzureOpenAIConfig.Endpoint = "  "
+                  ApiKey = "valid-key"
+                  DeploymentName = "gpt-4o"
+                  MaxTokens = 100
+                  TimeoutSeconds = 30 } }
+        let provider = Chat.providerFromConfig client chatConfig "http://127.0.0.1:1" "llama3"
+        Assert.NotNull(box provider)
+        let! result = provider.complete "test" "test"
+        match result with
+        | Error msg -> Assert.Contains("Ollama error", msg)
+        | Ok _ -> failwith "Expected Error from unreachable Ollama endpoint"
+    }
 
 [<Fact>]
 [<Trait("Category", "Unit")>]

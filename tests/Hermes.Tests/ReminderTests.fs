@@ -61,7 +61,7 @@ let ``Reminders_DetectBill_FutureDate_Beyond60Days_ReturnsNone`` () =
 // ─── Evaluate new documents ──────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Reminders_EvaluateNew_InsertsReminders`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -73,7 +73,7 @@ let ``Reminders_EvaluateNew_InsertsReminders`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Reminders_EvaluateNew_DeduplicatesExisting`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -89,7 +89,7 @@ let ``Reminders_EvaluateNew_DeduplicatesExisting`` () =
 // ─── Actions ─────────────────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Reminders_MarkCompleted_ChangesStatus`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -106,7 +106,7 @@ let ``Reminders_MarkCompleted_ChangesStatus`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Reminders_Snooze_HidesUntilExpiry`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -127,7 +127,7 @@ let ``Reminders_Snooze_HidesUntilExpiry`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Reminders_Dismiss_PermanentlyRemoves`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -145,7 +145,7 @@ let ``Reminders_Dismiss_PermanentlyRemoves`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Reminders_GetSummary_CorrectCounts`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -164,7 +164,7 @@ let ``Reminders_GetSummary_CorrectCounts`` () =
 // ─── unsnoozeExpired ─────────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Reminders_UnsnoozeExpired_WithExpiredSnooze_UnsnoozesReminder`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -186,7 +186,7 @@ let ``Reminders_UnsnoozeExpired_WithExpiredSnooze_UnsnoozesReminder`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Reminders_UnsnoozeExpired_NoSnoozedReminders_ReturnsZero`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -197,7 +197,7 @@ let ``Reminders_UnsnoozeExpired_NoSnoozedReminders_ReturnsZero`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Reminders_UnsnoozeExpired_BeforeExpiry_ReturnsZero`` () =
     task {
         let db = TestHelpers.createDb ()

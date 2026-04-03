@@ -26,7 +26,7 @@ let private initDb () =
 // ─── log + getRecent ─────────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ActivityLog_LogInfo_And_GetRecent_RoundTrips`` () =
     task {
         let db = initDb ()
@@ -40,7 +40,7 @@ let ``ActivityLog_LogInfo_And_GetRecent_RoundTrips`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ActivityLog_LogWarning_IncludesDetails`` () =
     task {
         let db = initDb ()
@@ -54,7 +54,7 @@ let ``ActivityLog_LogWarning_IncludesDetails`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ActivityLog_LogError_SetsErrorLevel`` () =
     task {
         let db = initDb ()
@@ -67,7 +67,7 @@ let ``ActivityLog_LogError_SetsErrorLevel`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ActivityLog_GetRecent_RespectsLimit`` () =
     task {
         let db = initDb ()
@@ -80,7 +80,7 @@ let ``ActivityLog_GetRecent_RespectsLimit`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ActivityLog_GetRecent_EmptyLog_ReturnsEmpty`` () =
     task {
         let db = initDb ()
@@ -93,7 +93,7 @@ let ``ActivityLog_GetRecent_EmptyLog_ReturnsEmpty`` () =
 // ─── getForDocument ──────────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ActivityLog_GetForDocument_FiltersCorrectly`` () =
     task {
         let db = initDb ()
@@ -108,7 +108,7 @@ let ``ActivityLog_GetForDocument_FiltersCorrectly`` () =
 // ─── getByCategory ───────────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ActivityLog_GetByCategory_FiltersCorrectly`` () =
     task {
         let db = initDb ()
@@ -124,7 +124,7 @@ let ``ActivityLog_GetByCategory_FiltersCorrectly`` () =
 // ─── Additional ActivityLog tests ────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ActivityLog_LogError_WithDocumentId_LinksToDocument`` () =
     task {
         let db = initDb ()
@@ -137,7 +137,7 @@ let ``ActivityLog_LogError_WithDocumentId_LinksToDocument`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ActivityLog_GetRecent_MultipleEntries_RespectsOrder`` () =
     task {
         let db = initDb ()
@@ -147,11 +147,12 @@ let ``ActivityLog_GetRecent_MultipleEntries_RespectsOrder`` () =
             do! ActivityLog.logInfo db "sync" "Third" None
             let! recent = ActivityLog.getRecent db 2
             Assert.Equal(2, recent.Length)
+            Assert.True(recent.[0].Id > recent.[1].Id, $"Expected descending order: {recent.[0].Id} > {recent.[1].Id}")
         finally db.dispose ()
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ActivityLog_LogWarning_SetsWarningLevel`` () =
     task {
         let db = initDb ()
@@ -164,7 +165,7 @@ let ``ActivityLog_LogWarning_SetsWarningLevel`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ActivityLog_GetByCategory_NoMatches_ReturnsEmpty`` () =
     task {
         let db = initDb ()
@@ -178,7 +179,7 @@ let ``ActivityLog_GetByCategory_NoMatches_ReturnsEmpty`` () =
 // ─── Additional ActivityLog tests ────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ActivityLog_LogError_StoresErrorLevel`` () =
     task {
         let db = initDb ()
@@ -192,7 +193,7 @@ let ``ActivityLog_LogError_StoresErrorLevel`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ActivityLog_GetForDocument_ReturnsMatchingEntries`` () =
     task {
         let db = initDb ()
@@ -206,7 +207,7 @@ let ``ActivityLog_GetForDocument_ReturnsMatchingEntries`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ActivityLog_GetByCategory_ReturnsMatchingCategory`` () =
     task {
         let db = initDb ()
@@ -220,7 +221,7 @@ let ``ActivityLog_GetByCategory_ReturnsMatchingCategory`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``ActivityLog_GetRecent_RespectsLimit_LargerSet`` () =
     task {
         let db = initDb ()

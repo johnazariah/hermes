@@ -5,6 +5,8 @@ open System.Threading.Tasks
 open Xunit
 open Hermes.Core
 
+open FsCheck
+open FsCheck.Xunit
 // ─── Helpers ─────────────────────────────────────────────────────────
 
 /// Create an in-memory test database with schema initialised.
@@ -79,24 +81,24 @@ let ``Embeddings_ChunkText_Overlap_ChunksShareContent`` () =
                    $"Word{i} " |]
 
     let result = Embeddings.chunkText 100 30 text
+    Assert.True(result.Length >= 2, $"Expected at least 2 chunks to test overlap, got {result.Length}")
 
-    if result.Length >= 2 then
-        // The end of chunk N should overlap with the start of chunk N+1
-        let chunk0End = result.[0].Text
-        let chunk1Start = result.[1].Text
+    // The end of chunk N should overlap with the start of chunk N+1
+    let chunk0End = result.[0].Text
+    let chunk1Start = result.[1].Text
 
-        // Extract last ~30 chars of chunk0
-        let overlapRegion =
-            if chunk0End.Length > 30 then
-                chunk0End.Substring(chunk0End.Length - 30)
-            else
-                chunk0End
+    // Extract last ~30 chars of chunk0
+    let overlapRegion =
+        if chunk0End.Length > 30 then
+            chunk0End.Substring(chunk0End.Length - 30)
+        else
+            chunk0End
 
-        // The overlap region should appear somewhere in chunk1
-        Assert.True(
-            chunk1Start.Contains(overlapRegion.Trim()),
-            $"Expected overlap between chunks. Chunk0 ends with: '{overlapRegion}', Chunk1 starts with: '{chunk1Start.Substring(0, min 50 chunk1Start.Length)}'"
-        )
+    // The overlap region should appear somewhere in chunk1
+    Assert.True(
+        chunk1Start.Contains(overlapRegion.Trim()),
+        $"Expected overlap between chunks. Chunk0 ends with: '{overlapRegion}', Chunk1 starts with: '{chunk1Start.Substring(0, min 50 chunk1Start.Length)}'"
+    )
 
 [<Fact>]
 [<Trait("Category", "Unit")>]
@@ -255,7 +257,7 @@ let ``SemanticSearch_RRF_TopRankedInBothLists_WinsOverall`` () =
 // ─── Deduplication / integration tests ───────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Embeddings_EmbedDocument_ChunksAndStores`` () =
     task {
         let! db = createTestDbWithSchema ()
@@ -289,7 +291,7 @@ let ``Embeddings_EmbedDocument_ChunksAndStores`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Embeddings_EmbedDocument_UpdatesDocumentMetadata`` () =
     task {
         let! db = createTestDbWithSchema ()
@@ -321,7 +323,7 @@ let ``Embeddings_EmbedDocument_UpdatesDocumentMetadata`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Embeddings_EmbedDocument_EmptyText_ReturnsZero`` () =
     task {
         let! db = createTestDbWithSchema ()
@@ -338,7 +340,7 @@ let ``Embeddings_EmbedDocument_EmptyText_ReturnsZero`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Embeddings_EmbedDocument_FailingClient_ReportsErrors`` () =
     task {
         let! db = createTestDbWithSchema ()
@@ -362,7 +364,7 @@ let ``Embeddings_EmbedDocument_FailingClient_ReportsErrors`` () =
 // ─── Keyword search integration ──────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``SemanticSearch_KeywordSearch_FindsMatchingDocuments`` () =
     task {
         let! db = createTestDbWithSchema ()
@@ -433,7 +435,7 @@ let ``Embeddings_BlobRoundTrip_PreservesValues`` () =
 // ─── Store chunk + initSchema ────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Embeddings_InitSchema_CreatesChunkTable`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -445,7 +447,7 @@ let ``Embeddings_InitSchema_CreatesChunkTable`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Embeddings_StoreChunk_InsertsRow`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -466,7 +468,7 @@ let ``Embeddings_StoreChunk_InsertsRow`` () =
 // ─── embedDocument integration ───────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Embeddings_EmbedDocument_StoresChunksAndUpdatesDoc`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -484,7 +486,7 @@ let ``Embeddings_EmbedDocument_StoresChunksAndUpdatesDoc`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Embeddings_EmbedDocument_EmptyText_ReturnsOkZero`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -496,7 +498,7 @@ let ``Embeddings_EmbedDocument_EmptyText_ReturnsOkZero`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Embeddings_EmbedDocument_FailingClient_ReturnsError`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -513,7 +515,7 @@ let ``Embeddings_EmbedDocument_FailingClient_ReturnsError`` () =
 // ─── batchEmbed tests ────────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Embeddings_BatchEmbed_UnavailableClient_ReturnsError`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -525,7 +527,7 @@ let ``Embeddings_BatchEmbed_UnavailableClient_ReturnsError`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Embeddings_BatchEmbed_NoDocs_ReturnsOkZero`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -538,7 +540,7 @@ let ``Embeddings_BatchEmbed_NoDocs_ReturnsOkZero`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Embeddings_BatchEmbed_WithDocs_EmbedsSuccessfully`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -556,7 +558,7 @@ let ``Embeddings_BatchEmbed_WithDocs_EmbedsSuccessfully`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Embeddings_BatchEmbed_WithLimit_RespectsLimit`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -577,7 +579,7 @@ let ``Embeddings_BatchEmbed_WithLimit_RespectsLimit`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Embeddings_BatchEmbed_Force_ReEmbedsAlreadyEmbedded`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -599,7 +601,7 @@ let ``Embeddings_BatchEmbed_Force_ReEmbedsAlreadyEmbedded`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Embeddings_BatchEmbed_ProgressCallback_Called`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -619,7 +621,7 @@ let ``Embeddings_BatchEmbed_ProgressCallback_Called`` () =
 // ─── storeChunk edge cases ───────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Embeddings_StoreChunk_NoEmbedding_InsertsNullBlob`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -730,7 +732,7 @@ let ``Embeddings_ChunkText_ExactlyAtBoundaryPlusOne_ProducesTwoChunks`` () =
     Assert.True(chunks.Length >= 2, $"Expected >=2 chunks, got {chunks.Length}")
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Embeddings_BatchEmbed_WithProgressCallback_ReportsCorrectTotal`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -754,7 +756,7 @@ let ``Embeddings_BatchEmbed_WithProgressCallback_ReportsCorrectTotal`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Embeddings_BatchEmbed_SkipsDocsWithNullText`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -771,7 +773,7 @@ let ``Embeddings_BatchEmbed_SkipsDocsWithNullText`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Embeddings_BatchEmbed_SkipsDocsWithEmptyText`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -788,7 +790,7 @@ let ``Embeddings_BatchEmbed_SkipsDocsWithEmptyText`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Embeddings_EmbedDocument_WhitespaceOnlyText_ReturnsOkZero`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -808,7 +810,7 @@ let ``Embeddings_EmbeddingToBlob_ByteLength_IsCorrect`` () =
     Assert.Equal(16, blob.Length)
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Embeddings_StoreChunk_WithEmbedding_SetsEmbeddedAt`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -834,7 +836,7 @@ let ``Embeddings_StoreChunk_WithEmbedding_SetsEmbeddedAt`` () =
 // ─── Additional embed document tests ─────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Embeddings_EmbedDocument_ShortText_SingleChunk`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -850,7 +852,7 @@ let ``Embeddings_EmbedDocument_ShortText_SingleChunk`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Embeddings_StoreChunk_WithEmbedding_StoresBlob`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -865,3 +867,14 @@ let ``Embeddings_StoreChunk_WithEmbedding_StoresBlob`` () =
             Assert.True(emb.IsSome)
         finally db.dispose ()
     }
+
+// ─── Property-based tests ────────────────────────────────────────────
+
+[<Property>]
+[<Trait("Category", "Property")>]
+let ``Embeddings_BlobRoundtrip_PreservesValues`` (values: float32 list) =
+    let arr = values |> List.toArray
+    let blob = Embeddings.embeddingToBlob arr
+    let restored = Embeddings.blobToEmbedding blob
+    restored.Length = arr.Length
+    && Embeddings.embeddingToBlob restored = blob

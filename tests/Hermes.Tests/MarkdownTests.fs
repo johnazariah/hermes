@@ -164,7 +164,7 @@ let ``Markdown_WriteSidecar_CreatesFile`` () =
 // ─── ProcessDocument with DB ─────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Markdown_ProcessDocument_WritesMarkdownSidecar`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -179,7 +179,7 @@ let ``Markdown_ProcessDocument_WritesMarkdownSidecar`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Markdown_ProcessDocument_NoText_ReturnsError`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -194,7 +194,7 @@ let ``Markdown_ProcessDocument_NoText_ReturnsError`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Markdown_ProcessDocument_NonexistentDoc_ReturnsError`` () =
     task {
         let db = TestHelpers.createDb ()

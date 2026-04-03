@@ -95,7 +95,7 @@ let ``Classifier_ParseSidecar_InvalidJson_ReturnsError`` () =
 // ─── Dedup tests ─────────────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Classifier_IsDuplicate_NoExistingDoc_ReturnsFalse`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -108,7 +108,7 @@ let ``Classifier_IsDuplicate_NoExistingDoc_ReturnsFalse`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Classifier_IsDuplicate_ExistingDoc_ReturnsTrue`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -127,7 +127,7 @@ let ``Classifier_IsDuplicate_ExistingDoc_ReturnsTrue`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Classifier_IsDuplicate_DifferentHash_ReturnsFalse`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -207,7 +207,7 @@ let ``Classifier_TryLoadSidecar_NoMetaFile_ReturnsNone`` () =
 // ─── Full processFile tests ──────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Classifier_ProcessFile_ClassifiesAndMovesFile`` () =
     task {
         let m = TestHelpers.memFs ()
@@ -243,7 +243,7 @@ let ``Classifier_ProcessFile_ClassifiesAndMovesFile`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Classifier_ProcessFile_WithSidecar_UsesMetadataForClassification`` () =
     task {
         let m = TestHelpers.memFs ()
@@ -279,7 +279,7 @@ let ``Classifier_ProcessFile_WithSidecar_UsesMetadataForClassification`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Classifier_ProcessFile_DuplicateHash_SkipsFile`` () =
     task {
         let m = TestHelpers.memFs ()
@@ -322,7 +322,7 @@ let ``Classifier_ProcessFile_DuplicateHash_SkipsFile`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Classifier_ProcessFile_MissingFile_ReturnsOk`` () =
     task {
         let m = TestHelpers.memFs ()
@@ -341,7 +341,7 @@ let ``Classifier_ProcessFile_MissingFile_ReturnsOk`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Classifier_ProcessFile_UnmatchedFile_GoesToUnsorted`` () =
     task {
         let m = TestHelpers.memFs ()
@@ -368,7 +368,7 @@ let ``Classifier_ProcessFile_UnmatchedFile_GoesToUnsorted`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Classifier_ProcessFile_InsertsDocumentRecord`` () =
     task {
         let m = TestHelpers.memFs ()
@@ -406,7 +406,7 @@ let ``Classifier_ProcessFile_InsertsDocumentRecord`` () =
 // ─── Subject-based classification ────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Classifier_ProcessFile_SubjectBasedClassification`` () =
     task {
         let m = TestHelpers.memFs ()
@@ -447,7 +447,7 @@ let ``Classifier_ProcessFile_SubjectBasedClassification`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Classifier_ProcessFile_SidecarEmailDate_StoredInDb`` () =
     task {
         let m = TestHelpers.memFs ()
@@ -490,7 +490,7 @@ let ``Classifier_ProcessFile_SidecarEmailDate_StoredInDb`` () =
 // ─── suggestRules tests ──────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Classifier_SuggestRules_FindsUnsortedMatchInCategory`` () =
     task {
         let m = TestHelpers.memFs ()
@@ -523,7 +523,7 @@ let ``Classifier_SuggestRules_FindsUnsortedMatchInCategory`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Classifier_SuggestRules_NoUnsortedDocs_ReturnsEmpty`` () =
     task {
         let m = TestHelpers.memFs ()
@@ -546,7 +546,7 @@ let ``Classifier_SuggestRules_NoUnsortedDocs_ReturnsEmpty`` () =
 // ─── reclassifyUnsortedBatch tests ───────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Classifier_ReclassifyUnsortedBatch_ContentRuleMatch`` () =
     task {
         let m = TestHelpers.memFs ()
@@ -590,7 +590,7 @@ let ``Classifier_ReclassifyUnsortedBatch_ContentRuleMatch`` () =
 // ─── reconcile tests ─────────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Classifier_Reconcile_NewFileOnDisk_DetectedAsNewOnDisk`` () =
     task {
         let m = TestHelpers.memFs ()
@@ -611,7 +611,7 @@ let ``Classifier_Reconcile_NewFileOnDisk_DetectedAsNewOnDisk`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Classifier_Reconcile_FileInDb_NoAction`` () =
     task {
         let m = TestHelpers.memFs ()
@@ -639,7 +639,7 @@ let ``Classifier_Reconcile_FileInDb_NoAction`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Classifier_Reconcile_EmptyArchive_ReturnsEmpty`` () =
     task {
         let m = TestHelpers.memFs ()

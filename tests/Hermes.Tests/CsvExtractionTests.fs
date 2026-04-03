@@ -3,6 +3,9 @@ module Hermes.Tests.CsvExtractionTests
 open Xunit
 open Hermes.Core
 
+open FsCheck
+open FsCheck.Xunit
+
 // ─── parseCsvLine ────────────────────────────────────────────────────
 
 [<Fact>]
@@ -67,4 +70,37 @@ let ``CsvExtraction_ExtractCsv_EmptyString_EmptyPages`` () =
 [<Trait("Category", "Unit")>]
 let ``CsvExtraction_ExtractCsv_HeaderOnly`` () =
     let result = CsvExtraction.extractCsv "Name,Amount"
-    Assert.NotNull(result)
+    Assert.Equal(1, result.Pages.Length)
+    let page = result.Pages.[0]
+    Assert.True(page.Blocks.Length >= 1, $"Expected at least 1 block, got {page.Blocks.Length}")
+    Assert.True(result.Confidence > 0.0, "Expected positive confidence")
+
+// ─── Edge case tests ─────────────────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``CsvExtraction_ParseCsvLine_UnterminatedQuote_HandlesGracefully`` () =
+    let fields = CsvExtraction.parseCsvLine ',' "\"unterminated,field"
+    Assert.True(fields.Length >= 1, "Should handle unterminated quote without throwing")
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``CsvExtraction_ParseCsvLine_EmptyFields_ReturnsEmptyStrings`` () =
+    let fields = CsvExtraction.parseCsvLine ',' ",,"
+    Assert.Equal(3, fields.Length)
+    for f in fields do
+        Assert.Equal("", f)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``CsvExtraction_DetectDelimiter_TabSeparated_ReturnsTab`` () =
+    let csv = "Name\tAge\tCity\nAlice\t30\tNYC\nBob\t25\tSF"
+    Assert.Equal('\t', CsvExtraction.detectDelimiter csv)
+
+// ─── Property-based tests ────────────────────────────────────────────
+
+[<Property>]
+[<Trait("Category", "Property")>]
+let ``CsvExtraction_ParseCsvLine_FieldCount_GreaterThanZero`` (line: NonEmptyString) =
+    let fields = CsvExtraction.parseCsvLine ',' line.Get
+    fields.Length > 0

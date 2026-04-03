@@ -25,7 +25,7 @@ let cleanupDir dir =
 // ─── Schema initialisation tests ─────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Database_InitSchema_CreatesAllTables`` () =
     task {
         let db = TestHelpers.createRawDb ()
@@ -53,7 +53,7 @@ let ``Database_InitSchema_CreatesAllTables`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Database_InitSchema_SetsSchemaVersion`` () =
     task {
         let db = TestHelpers.createRawDb ()
@@ -67,7 +67,7 @@ let ``Database_InitSchema_SetsSchemaVersion`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Database_InitSchema_IsIdempotent`` () =
     task {
         let db = TestHelpers.createRawDb ()
@@ -86,7 +86,7 @@ let ``Database_InitSchema_IsIdempotent`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Database_SchemaVersion_BeforeInit_ReturnsZero`` () =
     task {
         let db = TestHelpers.createRawDb ()
@@ -99,7 +99,7 @@ let ``Database_SchemaVersion_BeforeInit_ReturnsZero`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Database_TableExists_NonexistentTable_ReturnsFalse`` () =
     task {
         let db = TestHelpers.createRawDb ()
@@ -114,7 +114,7 @@ let ``Database_TableExists_NonexistentTable_ReturnsFalse`` () =
 // ─── FTS5 tests ──────────────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Database_FTS5_InsertTrigger_PopulatesFtsOnInsert`` () =
     task {
         let db = TestHelpers.createRawDb ()
@@ -137,7 +137,7 @@ let ``Database_FTS5_InsertTrigger_PopulatesFtsOnInsert`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Database_FTS5_SearchByVendor_FindsDocument`` () =
     task {
         let db = TestHelpers.createRawDb ()
@@ -207,7 +207,7 @@ let ``Database_FromPath_CreatesParentDirectories`` () =
 // ─── Indexes verification ────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Database_InitSchema_CreatesAllIndexes`` () =
     task {
         let db = TestHelpers.createRawDb ()
@@ -243,7 +243,7 @@ let ``Database_InitSchema_CreatesAllIndexes`` () =
 // ─── Schema migration v3 tests ──────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Database_InitSchema_V3_CreatesRemindersTable`` () =
     task {
         let db = TestHelpers.createRawDb ()
@@ -255,7 +255,7 @@ let ``Database_InitSchema_V3_CreatesRemindersTable`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Database_InitSchema_V3_SyncStateHasBackfillColumns`` () =
     task {
         let db = TestHelpers.createRawDb ()
@@ -275,7 +275,7 @@ let ``Database_InitSchema_V3_SyncStateHasBackfillColumns`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Database_InitSchema_V3_SchemaVersionIs3`` () =
     task {
         let db = TestHelpers.createRawDb ()
@@ -287,7 +287,7 @@ let ``Database_InitSchema_V3_SchemaVersionIs3`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Database_InitSchema_V3_IdempotentRunTwice`` () =
     task {
         let db = TestHelpers.createRawDb ()
@@ -302,7 +302,7 @@ let ``Database_InitSchema_V3_IdempotentRunTwice`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Database_InitSchema_V3_ReminderIndexesExist`` () =
     task {
         let db = TestHelpers.createRawDb ()
@@ -321,7 +321,7 @@ let ``Database_InitSchema_V3_ReminderIndexesExist`` () =
 // ─── V2→V3 migration ────────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Database_Migration_V2toV3_CreatesNewTablesAndColumns`` () =
     task {
         let db = TestHelpers.createRawDb ()
@@ -360,7 +360,7 @@ let ``Database_Migration_V2toV3_CreatesNewTablesAndColumns`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Database_Migration_V2toV3_RunsSuccessfully`` () =
     task {
         let db = TestHelpers.createRawDb ()
@@ -395,7 +395,7 @@ let ``Database_Migration_V2toV3_RunsSuccessfully`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Database_SchemaVersion_FreshDb_ReturnsLatest`` () =
     task {
         let db = TestHelpers.createRawDb ()
@@ -407,7 +407,7 @@ let ``Database_SchemaVersion_FreshDb_ReturnsLatest`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Database_InitSchema_Idempotent_CanRunTwice`` () =
     task {
         let db = TestHelpers.createRawDb ()

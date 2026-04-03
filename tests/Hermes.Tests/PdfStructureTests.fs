@@ -3,6 +3,11 @@ module Hermes.Tests.PdfStructureTests
 open Xunit
 open Hermes.Core
 
+// ─── FsCheck property-based testing ──────────────────────────────────
+
+open FsCheck
+open FsCheck.Xunit
+
 // ─── Helper: create a Word record ────────────────────────────────────
 
 let private mkWord text x y width fontSize : PdfStructure.Word =
@@ -397,3 +402,20 @@ let ``PdfStructure_ExtractLines_GeneratedPdf_ExtractsText`` () =
     Assert.True(lines.Length >= 1)
     let fullText = PdfStructure.linesToText lines
     Assert.Contains("Hello", fullText)
+
+// ─── Property-based tests ────────────────────────────────────────────
+
+[<Property>]
+[<Trait("Category", "Property")>]
+let ``PdfStructure_LinesToText_LineCount_MatchesNewlineCount`` (texts: string list) =
+    let safeTexts =
+        texts
+        |> List.choose (fun t ->
+            match box t with
+            | null -> None
+            | _ -> if t.Contains('\n') || t.Contains('\r') then None else Some t)
+    let lines : PdfStructure.Line list =
+        safeTexts |> List.mapi (fun i t -> { Words = []; Y = float (100 - i); Text = t })
+    let result = PdfStructure.linesToText lines
+    if safeTexts.IsEmpty then result = ""
+    else result.Split('\n').Length = safeTexts.Length

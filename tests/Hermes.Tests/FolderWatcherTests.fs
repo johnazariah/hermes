@@ -86,7 +86,7 @@ let ``FolderWatcher_SanitiseFileName_EmptyString_ReturnsFallback`` () =
 // ─── Dedup check tests ───────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``FolderWatcher_IsDuplicate_NoExistingDoc_ReturnsFalse`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -99,7 +99,7 @@ let ``FolderWatcher_IsDuplicate_NoExistingDoc_ReturnsFalse`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``FolderWatcher_IsDuplicate_ExistingDoc_ReturnsTrue`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -150,7 +150,7 @@ let ``FolderWatcher_SerialiseSidecar_ProducesValidJson`` () =
 // ─── File processing tests ───────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``FolderWatcher_ProcessFile_CopiesMatchingFile`` () =
     task {
         let m = TestHelpers.memFs ()
@@ -189,7 +189,7 @@ let ``FolderWatcher_ProcessFile_CopiesMatchingFile`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``FolderWatcher_ProcessFile_SkipsNonMatchingPattern`` () =
     task {
         let m = TestHelpers.memFs ()
@@ -217,7 +217,7 @@ let ``FolderWatcher_ProcessFile_SkipsNonMatchingPattern`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``FolderWatcher_ProcessFile_DetectsDuplicate`` () =
     task {
         let m = TestHelpers.memFs ()
@@ -257,7 +257,7 @@ let ``FolderWatcher_ProcessFile_DetectsDuplicate`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``FolderWatcher_ProcessFile_MissingFile_ReturnsSkipped`` () =
     task {
         let m = TestHelpers.memFs ()
@@ -281,7 +281,7 @@ let ``FolderWatcher_ProcessFile_MissingFile_ReturnsSkipped`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``FolderWatcher_ProcessFile_UsesSafeCopyRename`` () =
     task {
         let m = TestHelpers.memFs ()
@@ -395,7 +395,7 @@ let ``FolderWatcher_ListWatchFolders_ReportsStatus`` () =
 // ─── Batch scan test ─────────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``FolderWatcher_ScanFolder_ProcessesAllMatchingFiles`` () =
     task {
         let m = TestHelpers.memFs ()

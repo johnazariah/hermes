@@ -89,7 +89,7 @@ let ``McpServer_SerialiseResponse_ErrorResponse_ContainsErrorField`` () =
 // ─── Tool dispatch routing ───────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``McpServer_Dispatch_Initialize_ReturnsCapabilities`` () =
     task {
         let db = TestHelpers.createRawDb ()
@@ -114,7 +114,7 @@ let ``McpServer_Dispatch_Initialize_ReturnsCapabilities`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``McpServer_Dispatch_ToolsList_ReturnsAllTools`` () =
     task {
         let db = TestHelpers.createRawDb ()
@@ -148,7 +148,7 @@ let ``McpServer_Dispatch_ToolsList_ReturnsAllTools`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``McpServer_Dispatch_UnknownMethod_ReturnsError`` () =
     task {
         let db = TestHelpers.createRawDb ()
@@ -170,7 +170,7 @@ let ``McpServer_Dispatch_UnknownMethod_ReturnsError`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``McpServer_Dispatch_ToolsCallUnknownTool_ReturnsError`` () =
     task {
         let db = TestHelpers.createRawDb ()
@@ -190,7 +190,7 @@ let ``McpServer_Dispatch_ToolsCallUnknownTool_ReturnsError`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``McpServer_Dispatch_ToolsCallSearch_ReturnsContent`` () =
     task {
         let db = TestHelpers.createRawDb ()
@@ -219,7 +219,7 @@ let ``McpServer_Dispatch_ToolsCallSearch_ReturnsContent`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``McpServer_Dispatch_ToolsCallStats_ReturnsStats`` () =
     task {
         let db = TestHelpers.createRawDb ()
@@ -247,7 +247,7 @@ let ``McpServer_Dispatch_ToolsCallStats_ReturnsStats`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``McpServer_Dispatch_ToolsCallListCategories_ReturnsCategories`` () =
     task {
         let db = TestHelpers.createRawDb ()
@@ -329,7 +329,7 @@ let ``McpTools_IsPathSafe_WhitespacePath_ReturnsError`` () =
 // ─── Tool result formatting ──────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``McpTools_Search_EmptyQuery_ReturnsError`` () =
     task {
         let db = TestHelpers.createRawDb ()
@@ -346,7 +346,7 @@ let ``McpTools_Search_EmptyQuery_ReturnsError`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``McpTools_GetDocument_MissingIdAndPath_ReturnsNotFound`` () =
     task {
         let db = TestHelpers.createRawDb ()
@@ -362,7 +362,7 @@ let ``McpTools_GetDocument_MissingIdAndPath_ReturnsNotFound`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``McpTools_GetDocument_ValidId_ReturnsDocument`` () =
     task {
         let db = TestHelpers.createRawDb ()
@@ -406,7 +406,7 @@ let ``McpTools_ReadFile_MissingPath_ReturnsError`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``McpServer_ProcessMessage_CompleteRoundTrip_ValidJsonRpc`` () =
     task {
         let db = TestHelpers.createRawDb ()
@@ -508,7 +508,7 @@ let ``MCP_UpdateReminder_MarkComplete_ChangesStatus`` () =
 // ─── hermes_get_document_content MCP integration (P8) ────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``McpServer_GetDocumentContent_Markdown_ReturnsStructuredContent`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -551,7 +551,7 @@ let ``McpServer_GetDocumentContent_Markdown_ReturnsStructuredContent`` () =
 // ─── McpTools direct function tests ──────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``McpTools_ListDocumentsFeed_ReturnsDocuments`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -565,7 +565,7 @@ let ``McpTools_ListDocumentsFeed_ReturnsDocuments`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``McpTools_ListDocumentsFeed_EmptyDb_ReturnsEmptyArray`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -578,7 +578,7 @@ let ``McpTools_ListDocumentsFeed_EmptyDb_ReturnsEmptyArray`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``McpTools_GetFeedStats_ReturnsStats`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -593,7 +593,7 @@ let ``McpTools_GetFeedStats_ReturnsStats`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``McpTools_GetProcessingQueue_ReturnsQueueInfo`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -611,7 +611,7 @@ let ``McpTools_GetProcessingQueue_ReturnsQueueInfo`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``McpTools_ReextractDocument_ValidId_ReturnsSuccess`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -626,7 +626,7 @@ let ``McpTools_ReextractDocument_ValidId_ReturnsSuccess`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``McpTools_ReextractDocument_MissingId_ReturnsError`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -639,7 +639,7 @@ let ``McpTools_ReextractDocument_MissingId_ReturnsError`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``McpTools_ReclassifyDocument_MissingId_ReturnsError`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -653,7 +653,7 @@ let ``McpTools_ReclassifyDocument_MissingId_ReturnsError`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``McpTools_ReclassifyDocument_MissingCategory_ReturnsError`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -667,7 +667,7 @@ let ``McpTools_ReclassifyDocument_MissingCategory_ReturnsError`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``McpTools_GetDocumentContent_MissingId_ReturnsError`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -680,7 +680,7 @@ let ``McpTools_GetDocumentContent_MissingId_ReturnsError`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``McpTools_GetDocumentContent_ValidId_ReturnsContent`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -716,7 +716,7 @@ let ``McpTools_ReadFile_ValidPath_ReturnsContent`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``McpTools_ListDocumentsFeed_WithCategory_FiltersCorrectly`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -734,7 +734,7 @@ let ``McpTools_ListDocumentsFeed_WithCategory_FiltersCorrectly`` () =
 // ─── McpTools.updateReminder additional branches ─────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``McpTools_UpdateReminder_Snooze_ChangesStatus`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -752,7 +752,7 @@ let ``McpTools_UpdateReminder_Snooze_ChangesStatus`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``McpTools_UpdateReminder_Dismiss_ChangesStatus`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -768,7 +768,7 @@ let ``McpTools_UpdateReminder_Dismiss_ChangesStatus`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``McpTools_UpdateReminder_UnknownAction_ReturnsError`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -784,7 +784,7 @@ let ``McpTools_UpdateReminder_UnknownAction_ReturnsError`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``McpTools_UpdateReminder_MissingFields_ReturnsError`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -797,7 +797,7 @@ let ``McpTools_UpdateReminder_MissingFields_ReturnsError`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``McpTools_UpdateReminder_Paid_IsAlias_ForComplete`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -815,7 +815,7 @@ let ``McpTools_UpdateReminder_Paid_IsAlias_ForComplete`` () =
 // ─── McpTools.reclassifyDocument ─────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``McpTools_ReclassifyDocument_ValidDoc_Reclassifies`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -866,7 +866,7 @@ let ``McpTools_ReadFile_NonexistentFile_ReturnsError`` () =
 // ─── McpTools.getProcessingQueue extra ───────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``McpTools_GetProcessingQueue_WithDocs_ReturnsJsonObject`` () =
     task {
         let db = TestHelpers.createDb ()

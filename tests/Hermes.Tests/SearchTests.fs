@@ -400,8 +400,7 @@ let ``Search_Execute_WithDateRange_FiltersCorrectly`` () =
                     DateFrom = Some "2025-01-01"
                     DateTo = Some "2025-12-31" }
             let! results = Search.execute db filter
-            // Just verify no crash; date filtering depends on ingested_at/email_date format
-            Assert.True(true)
+            Assert.Equal(1, results.Length)
         finally db.dispose ()
     }
 

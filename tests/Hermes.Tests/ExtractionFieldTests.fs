@@ -136,7 +136,7 @@ let private insertDoc (db: Algebra.Database) (path: string) (cat: string) =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Extraction_ProcessDocument_PdfFile_ExtractsAndUpdatesDb`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -158,7 +158,7 @@ let ``Extraction_ProcessDocument_PdfFile_ExtractsAndUpdatesDb`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Extraction_ProcessDocument_MissingFile_ReturnsError`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -172,7 +172,7 @@ let ``Extraction_ProcessDocument_MissingFile_ReturnsError`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Extraction_ProcessDocument_ExtractorFails_ReturnsError`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -192,7 +192,7 @@ let ``Extraction_ProcessDocument_ExtractorFails_ReturnsError`` () =
 // These tests validate the contract but may need adjusting when the query is refactored.
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Extraction_ExtractBatch_ProcessesUnextractedDocs`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -210,7 +210,7 @@ let ``Extraction_ExtractBatch_ProcessesUnextractedDocs`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Extraction_ExtractBatch_RespectsLimit`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -228,7 +228,7 @@ let ``Extraction_ExtractBatch_RespectsLimit`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Extraction_ExtractBatch_CategoryFilter_OnlyProcessesMatching`` () =
     task {
         let db = TestHelpers.createDb ()

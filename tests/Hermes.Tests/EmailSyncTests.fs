@@ -145,7 +145,7 @@ let ``EmailSync_SerialiseSidecar_ProducesValidJson`` () =
 // ─── Sync state tests ────────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``EmailSync_LoadSyncState_NoState_ReturnsNone`` () =
     task {
         let db = TestHelpers.createRawDb ()
@@ -159,7 +159,7 @@ let ``EmailSync_LoadSyncState_NoState_ReturnsNone`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``EmailSync_LoadSyncState_AfterSync_ReturnsSome`` () =
     task {
         let db = TestHelpers.createRawDb ()
@@ -184,7 +184,7 @@ let ``EmailSync_LoadSyncState_AfterSync_ReturnsSome`` () =
 // ─── Sync account tests ─────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``EmailSync_SyncAccount_NoMessages_ReturnsZeroCounts`` () =
     task {
         let m = TestHelpers.memFs ()
@@ -207,7 +207,7 @@ let ``EmailSync_SyncAccount_NoMessages_ReturnsZeroCounts`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``EmailSync_SyncAccount_WithAttachments_DownloadsAndRecords`` () =
     task {
         let m = TestHelpers.memFs ()
@@ -244,7 +244,7 @@ let ``EmailSync_SyncAccount_WithAttachments_DownloadsAndRecords`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``EmailSync_SyncAccount_DuplicateHash_SkipsDownload`` () =
     task {
         let m = TestHelpers.memFs ()
@@ -280,7 +280,7 @@ let ``EmailSync_SyncAccount_DuplicateHash_SkipsDownload`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``EmailSync_SyncAccount_SmallAttachment_FilteredByMinSize`` () =
     task {
         let m = TestHelpers.memFs ()
@@ -306,7 +306,7 @@ let ``EmailSync_SyncAccount_SmallAttachment_FilteredByMinSize`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``EmailSync_SyncAccount_AlreadyProcessedMessage_Skipped`` () =
     task {
         let m = TestHelpers.memFs ()
@@ -340,7 +340,7 @@ let ``EmailSync_SyncAccount_AlreadyProcessedMessage_Skipped`` () =
 // ─── Dry run tests ───────────────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``EmailSync_DryRun_ListsMessagesWithAttachments`` () =
     task {
         let db = TestHelpers.createRawDb ()
@@ -365,7 +365,7 @@ let ``EmailSync_DryRun_ListsMessagesWithAttachments`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``EmailSync_DryRun_NoMessages_ReturnsEmpty`` () =
     task {
         let db = TestHelpers.createRawDb ()
@@ -382,7 +382,7 @@ let ``EmailSync_DryRun_NoMessages_ReturnsEmpty`` () =
 // ─── Sync state after sync ──────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``EmailSync_SyncAccount_UpdatesSyncState`` () =
     task {
         let m = TestHelpers.memFs ()
@@ -428,7 +428,7 @@ let private fakePageProvider (messages: Domain.EmailMessage list) (nextToken: st
             } }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Backfill_DisabledConfig_Skips`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -442,7 +442,7 @@ let ``Backfill_DisabledConfig_Skips`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Backfill_EmptyPage_CompletesImmediately`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -456,7 +456,7 @@ let ``Backfill_EmptyPage_CompletesImmediately`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``Backfill_LoadBackfillState_EmptyDb_ReturnsDefaults`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -471,7 +471,7 @@ let ``Backfill_LoadBackfillState_EmptyDb_ReturnsDefaults`` () =
 // ─── syncAll and dryRunAll ───────────────────────────────────────────
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``EmailSync_SyncAll_EmptyMessages_ReturnsResultPerAccount`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -488,7 +488,7 @@ let ``EmailSync_SyncAll_EmptyMessages_ReturnsResultPerAccount`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``EmailSync_SyncAll_MultipleAccounts_SyncsEach`` () =
     task {
         let db = TestHelpers.createDb ()
@@ -508,7 +508,7 @@ let ``EmailSync_SyncAll_MultipleAccounts_SyncsEach`` () =
     }
 
 [<Fact>]
-[<Trait("Category", "Unit")>]
+[<Trait("Category", "Integration")>]
 let ``EmailSync_DryRunAll_EmptyMessages_ReturnsEmpty`` () =
     task {
         let db = TestHelpers.createDb ()
