@@ -94,7 +94,13 @@ public sealed class HermesServiceBridge
             chatProvider is not null ? FSharpOption<Algebra.ChatProvider>.Some(chatProvider) : FSharpOption<Algebra.ChatProvider>.None,
             contentRules,
             FuncConvert.FromFunc<string, string, Task<Algebra.EmailProvider>>(
-                (cfgDir, label) => GmailProvider.create(cfgDir, label, logger)));
+                async (cfgDir, label) =>
+                {
+                    var credPath = Path.Combine(cfgDir, "gmail_credentials.json");
+                    var credBytes = await fs.readAllBytes.Invoke(credPath);
+                    var tokenDir = Path.Combine(cfgDir, "tokens");
+                    return await GmailProvider.create(credBytes, tokenDir, label, logger);
+                }));
 
         // Run the service loop — pass configPath so it reloads config before each sync
         var env = Interpreters.systemEnvironment;

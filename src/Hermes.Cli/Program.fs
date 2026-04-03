@@ -522,7 +522,13 @@ let private serviceCmd (args: ParseResults<ServiceArgs>) =
                       Embedder = embedder
                       ChatProvider = chatProvider
                       ContentRules = contentRules
-                      CreateEmailProvider = fun cfgDir label -> GmailProvider.create cfgDir label logger }
+                      CreateEmailProvider = fun cfgDir label ->
+                        task {
+                            let credPath = IO.Path.Combine(cfgDir, "gmail_credentials.json")
+                            let! credBytes = fs.readAllBytes credPath
+                            let tokenDir = IO.Path.Combine(cfgDir, "tokens")
+                            return! GmailProvider.create credBytes tokenDir label logger
+                        } }
 
                 use cts = new CancellationTokenSource()
 

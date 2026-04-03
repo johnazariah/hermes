@@ -48,20 +48,21 @@ Before wiring the extraction pipeline into the DB (Wave 2), validate that the ex
 
 **Method**: Take 10 representative documents from the real archive (`~/Documents/Hermes/`), run them through the F# extractors, compare output against Osprey parser expectations.
 
-| Task | Document type | Extractor | Validation |
-|------|--------------|-----------|------------|
-| O1 | Microsoft payslip PDF | PdfStructure.fs | Markdown contains tables with: `Gross Pay`, `Tax Withheld`, `Net Pay`, `YTD` fields. Amounts parseable. Pay period dates extractable. |
-| O2 | QLD Education payslip PDF | PdfStructure.fs | Earning lines with code + description + units + rate + amount. CID-encoded text handled (fallback or decoded). |
-| O3 | Westpac bank statement CSV | CsvExtraction.fs | Columns: Date, Narrative, Debit, Credit, Balance. Dialect auto-detected. All rows preserved. |
-| O4 | CBA bank statement CSV | CsvExtraction.fs | Columns: Date, Amount, Description, Balance. Negative amounts for debits. |
-| O5 | Ray White rental statement PDF | PdfStructure.fs | Monthly sections detected. Income + expense line items in tables. Folio, property, period extracted as KV pairs. |
-| O6 | Fidelity dividend CSV | CsvExtraction.fs | Columns: Pay_Date, Stock, Gross_USD, US_Tax_USD. Dates parsed. Amounts parseable. |
-| O7 | Amazon order history CSV | CsvExtraction.fs | Columns: ASIN, Title, Item Total, Order Date. Quoted fields with commas handled. |
-| O8 | Telstra/AGL invoice PDF | PdfStructure.fs | Amount due, due date, account number extractable. Line items in table. |
-| O9 | Credit card statement CSV | CsvExtraction.fs | Date, Description, Amount columns. Merchant names preserved for regex matching. |
-| O10 | Insurance renewal PDF | PdfStructure.fs | Policy number, premium amount, vehicle/property details, renewal date as KV pairs. |
+| Task | Document type                  | Extractor        | Validation                                                                                                                            |
+| ---- | ------------------------------ | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| O1   | Microsoft payslip PDF          | PdfStructure.fs  | Markdown contains tables with: `Gross Pay`, `Tax Withheld`, `Net Pay`, `YTD` fields. Amounts parseable. Pay period dates extractable. |
+| O2   | QLD Education payslip PDF      | PdfStructure.fs  | Earning lines with code + description + units + rate + amount. CID-encoded text handled (fallback or decoded).                        |
+| O3   | Westpac bank statement CSV     | CsvExtraction.fs | Columns: Date, Narrative, Debit, Credit, Balance. Dialect auto-detected. All rows preserved.                                          |
+| O4   | CBA bank statement CSV         | CsvExtraction.fs | Columns: Date, Amount, Description, Balance. Negative amounts for debits.                                                             |
+| O5   | Ray White rental statement PDF | PdfStructure.fs  | Monthly sections detected. Income + expense line items in tables. Folio, property, period extracted as KV pairs.                      |
+| O6   | Fidelity dividend CSV          | CsvExtraction.fs | Columns: Pay_Date, Stock, Gross_USD, US_Tax_USD. Dates parsed. Amounts parseable.                                                     |
+| O7   | Amazon order history CSV       | CsvExtraction.fs | Columns: ASIN, Title, Item Total, Order Date. Quoted fields with commas handled.                                                      |
+| O8   | Telstra/AGL invoice PDF        | PdfStructure.fs  | Amount due, due date, account number extractable. Line items in table.                                                                |
+| O9   | Credit card statement CSV      | CsvExtraction.fs | Date, Description, Amount columns. Merchant names preserved for regex matching.                                                       |
+| O10  | Insurance renewal PDF          | PdfStructure.fs  | Policy number, premium amount, vehicle/property details, renewal date as KV pairs.                                                    |
 
 **For each document**:
+
 1. Copy from archive to a `tests/test-documents/` folder (gitignored — real documents, not committed)
 2. Write an integration test: load file → run extractor → assert expected fields present in markdown output
 3. If extraction fails to capture required fields → fix the extractor

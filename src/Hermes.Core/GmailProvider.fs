@@ -13,13 +13,10 @@ open Google.Apis.Util.Store
 [<RequireQualifiedAccess>]
 module GmailProvider =
 
-    /// Build a Gmail API service for the given account label.
-    let private createService (configDir: string) (label: string) : Task<GmailService> =
+    /// Build a Gmail API service from pre-loaded credential bytes.
+    let private createService (credentialBytes: byte array) (tokenDir: string) (label: string) : Task<GmailService> =
         task {
-            let credPath = Path.Combine(configDir, "gmail_credentials.json")
-            let tokenDir = Path.Combine(configDir, "tokens")
-
-            use stream = new FileStream(credPath, FileMode.Open, FileAccess.Read)
+            use stream = new MemoryStream(credentialBytes)
             let! credential =
                 GoogleWebAuthorizationBroker.AuthorizeAsync(
                     GoogleClientSecrets.FromStream(stream).Secrets,
@@ -55,9 +52,9 @@ module GmailProvider =
         walk payload
 
     /// Create an EmailProvider algebra backed by the Gmail API.
-    let create (configDir: string) (label: string) (logger: Algebra.Logger) : Task<Algebra.EmailProvider> =
+    let create (credentialBytes: byte array) (tokenDir: string) (label: string) (logger: Algebra.Logger) : Task<Algebra.EmailProvider> =
         task {
-            let! service = createService configDir label
+            let! service = createService credentialBytes tokenDir label
 
             let listMessages (sinceOpt: DateTimeOffset option) : Task<Domain.EmailMessage list> =
                 task {
