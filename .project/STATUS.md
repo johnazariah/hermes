@@ -7,8 +7,8 @@
 
 | Metric | Value |
 |--------|-------|
-| Tests | 737 passing, 6 skipped |
-| Coverage | 85.6% line |
+| Tests | 755 passing, 6 skipped |
+| Coverage | 86.4% line, 45.7% branch |
 | Tagless-Final | PASS |
 | Branch | `main` |
 | MCP tools | 13 |
@@ -17,7 +17,7 @@
 
 ## Active Wave
 
-**Wave 5: Coverage Final** → TBD
+**Wave 6: Pelican Integration** → [wave-6-pelican.md](waves/wave-6-pelican.md)
 
 ## Wave Roadmap
 
@@ -30,7 +30,7 @@
 | 2 | Wire Structured Extraction | ✅ Done | [wave-2-extraction.md](waves/wave-2-extraction.md) |
 | 3 | Smart Classification Wiring | ✅ Done | [wave-3-classification.md](waves/wave-3-classification.md) |
 | 4 | UI: Pipeline Funnel | ✅ Done | [wave-4-ui.md](waves/wave-4-ui.md) |
-| 5 | Coverage Final | Not started | — |
+| 5 | Coverage Final | ✅ Done | — |
 | 6 | Pelican Integration | Not started | [wave-6-pelican.md](waves/wave-6-pelican.md) |
 | 7 | Polish | Not started | — |
 
