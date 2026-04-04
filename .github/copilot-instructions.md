@@ -172,12 +172,14 @@ User action (button click, query, trigger)
 ```
 
 **Before marking any task complete, trace the full thread:**
+
 1. **Input**: What triggers this feature? (file drop, button click, sync cycle, MCP call)
 2. **Processing**: What backend code runs? (extraction, classification, DB update)
 3. **Presentation**: What data flows to the UI? (ViewModel property, collection update)
 4. **Output**: What does the user see? (document in list, activity log entry, badge update, chat response)
 
 **If ANY link in this chain is broken, the task is NOT done.** Common failures:
+
 - XAML exists but code-behind not wired (dead buttons)
 - Backend processes data but UI never reads it (invisible feature)
 - Tests pass but feature doesn't work end-to-end (integration gap)

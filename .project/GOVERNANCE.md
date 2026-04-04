@@ -84,4 +84,16 @@ Before creating ANY new markdown file in `.project/`, check:
 4. Is this a new phase of work? → Create a wave file in `waves/`
 5. Is this agent instructions? → Create a prompt in `.github/prompts/` that references wave files
 
-**Never create files in**: `.project/plans/` (archived), root of `.project/` (except STATUS.md and testing-register.md)
+**Never create files in**: `.project/plans/` (archived), root of `.project/` (except STATUS.md, GOVERNANCE.md, and testing-register.md)
+
+## Maintenance Rhythm
+
+After each wave is reviewed and approved, run `.github/prompts/post-wave-update.prompt.md`:
+
+- **Wave file**: mark ✅ Done, append log entry
+- **STATUS.md**: update metrics + roadmap (30 seconds)
+- **README badges**: refresh test count + coverage if changed
+- **Archive**: move completed wave prompt to `.project/archive/`
+- **Push**: `git push`
+
+This keeps everything in sync. Skip it and entropy wins.
