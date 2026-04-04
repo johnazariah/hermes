@@ -2,10 +2,10 @@
 
 [![CI](https://github.com/johnazariah/hermes/actions/workflows/ci.yml/badge.svg)](https://github.com/johnazariah/hermes/actions/workflows/ci.yml)
 [![.NET 9](https://img.shields.io/badge/.NET-9.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
-[![Tests](https://img.shields.io/badge/tests-258_passing-brightgreen)](#testing)
-[![Coverage](https://img.shields.io/badge/coverage-55%25_line-yellow)](#testing)
+[![Tests](https://img.shields.io/badge/tests-733_passing-brightgreen)](#testing)
+[![Coverage](https://img.shields.io/badge/coverage-85%25_line-brightgreen)](#testing)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Lines of Code](https://img.shields.io/badge/lines-~12k-blue)](#architecture)
+[![Lines of Code](https://img.shields.io/badge/lines-~15k-blue)](#architecture)
 
 **Local-first document intelligence service for macOS and Windows.**
 
@@ -17,10 +17,11 @@ Install it once, forget it's there, and never lose a document again.
 
 - **Syncs email attachments** from multiple Gmail accounts (incrementally, safely)
 - **Watches local folders** (Downloads, Desktop) for new documents
-- **Classifies** into category folders using fast rules (sender domain → filename → subject)
-- **Extracts text** from PDFs and images (PdfPig, Ollama vision, Azure Document Intelligence)
+- **Classifies** into category folders using 3-tier system: rules (instant) → content keywords (fast) → LLM (smart)
+- **Extracts structured content** from PDFs, Excel, Word, CSV → markdown with tables, headings, key-value pairs
 - **Indexes everything** — FTS5 keyword search + Ollama vector embeddings for semantic search
-- **MCP server** — AI agents (Claude, Copilot) query your archive: _"find the plumber invoice from March"_
+- **MCP server** — 13 tools for AI agents to search, browse, classify, and manage documents
+- **Bill detection** — automatic reminders for invoices with due dates
 
 ## Architecture
 
@@ -61,39 +62,43 @@ dotnet test --collect:"XPlat Code Coverage"             # with coverage
 
 | Metric | Current | Target |
 |--------|---------|--------|
-| Tests | 258 | Growing |
-| Line coverage | 55% | **85%** |
-| Branch coverage | 22% | **85%** |
+| Tests | 733 | Growing |
+| Line coverage | 85% | **85%** |
+| Branch coverage | ~45% | **60%** |
 
 Coverage target is enforced in CI. New code must maintain or improve coverage.
 
 ## Project Status
 
-All 12 core phases complete. Active development on platform evolution.
+All 12 core phases complete. Platform evolution in progress.
 
 See [.project/STATUS.md](.project/STATUS.md) for full details.
 
-| Phase | Status |
-|-------|--------|
-| 0–11 | ✅ All core phases complete |
+| Wave | Status |
+|------|--------|
+| 0–11 Core Phases | ✅ Complete |
 | Backfill + Reminders | ✅ Done |
-| Azure OpenAI Chat | ✅ Done |
-| VS Code UI Redesign | 📐 Designing |
-| Document Extraction (PDF/Excel/Word/CSV) | 📐 Designing |
-| Smart Classification (3-tier) | 📐 Designing |
-| Document Feed + Consumer Model | 📐 Designing |
-| Osprey Integration | 📐 Designing |
+| Tagless-Final Cleanup | ✅ Done |
+| Coverage Push (85% line) | ✅ Done |
+| Osprey Parity Validation | ✅ Done |
+| Structured Extraction Pipeline | ✅ Done |
+| Smart Classification (3-tier) | ✅ Done |
+| UI: Pipeline Funnel | ⏳ Next |
+| Pelican GL Integration | Planned |
+| Polish + Production | Planned |
 
 ## Documentation
 
+- [Project Status](.project/STATUS.md)
+- [Documentation Governance](.project/GOVERNANCE.md)
 - [Vision & Goals](.project/design/01-vision-and-goals.md)
-- [Functional Requirements](.project/design/02-functional-requirements.md)
 - [Architecture](.project/design/03-architecture.md)
 - [Data Model](.project/design/04-data-model.md)
 - [MCP Server Design](.project/design/05-mcp-server-design.md)
-- [Development Phases](.project/design/06-development-phases.md)
-- [Decisions Log](.project/design/07-open-questions.md)
-- [Phase Specs](.project/specs/)
+- [Pipeline Funnel UI](.project/design/15-rich-ui.md)
+- [Document Extraction](.project/design/17-pdf-to-markdown.md)
+- [Smart Classification](.project/design/18-smart-classification.md)
+- [Wave Files](.project/waves/)
 
 ## License
 
