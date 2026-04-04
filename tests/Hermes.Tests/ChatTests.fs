@@ -412,3 +412,34 @@ let ``Chat_FormatResults_ResultWithOnlySenderAndSnippet_FormatsCorrectly`` () =
     Assert.DoesNotContain("Subject:", formatted)
     Assert.DoesNotContain("Vendor:", formatted)
     Assert.DoesNotContain("Amount:", formatted)
+
+// ─── Chat query branch coverage ──────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``Chat_Query_NoResults_AiDisabled_ReturnsEmptyResults`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! response = Chat.query db fakeChat false "zzz_no_match_xyz_99"
+            Assert.Empty(response.Results)
+            Assert.True(response.AiSummary.IsNone)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``Chat_Query_WithResults_AiDisabled_ReturnsResultsNoSummary`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! _ =
+                db.execNonQuery
+                    """INSERT INTO documents (source_type, saved_path, category, sha256, original_name, extracted_text)
+                       VALUES ('manual_drop', 'invoices/water-bill.pdf', 'invoices', 'sha-water', 'water-bill.pdf', 'quarterly water bill payment $120')"""
+                    []
+            let! response = Chat.query db fakeChat false "water bill"
+            Assert.True(response.Results.Length > 0, $"Expected results, got {response.Results.Length}")
+            Assert.True(response.AiSummary.IsNone, "Expected no AI summary when AI is disabled")
+        finally db.dispose ()
+    }

@@ -664,3 +664,17 @@ let ``Classifier_TryLoadSidecar_InvalidJson_ReturnsNone`` () =
         let! result = Classifier.tryLoadSidecar m.Fs logger "/test/file.pdf"
         Assert.True(result.IsNone)
     }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Classifier_TryLoadSidecar_ReadThrows_ReturnsNone`` () =
+    task {
+        let m = TestHelpers.memFs ()
+        let logger = Logging.silent
+        let throwingFs =
+            { m.Fs with
+                fileExists = fun path -> path.Replace('\\', '/').EndsWith(".meta.json")
+                readAllText = fun _ -> task { return failwith "I/O error" } }
+        let! result = Classifier.tryLoadSidecar throwingFs logger "/archive/test.pdf"
+        Assert.True(result.IsNone)
+    }

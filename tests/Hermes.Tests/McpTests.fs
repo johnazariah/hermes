@@ -879,3 +879,172 @@ let ``McpTools_GetProcessingQueue_WithDocs_ReturnsJsonObject`` () =
             Assert.True(json.Length > 2, "Expected non-empty JSON response")
         finally db.dispose ()
     }
+
+// ─── handleToolCall dispatch branch coverage ────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``McpServer_Dispatch_ToolsCallGetDocument_ReturnsResult`` () =
+    task {
+        let db = TestHelpers.createRawDb ()
+        let m = TestHelpers.memFs ()
+        let logger = TestHelpers.silentLogger
+        try
+            let! _ = db.initSchema ()
+            let! _ = insertTestDocument db "invoices" "test-doc.pdf"
+            let json =
+                """{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"hermes_get_document","arguments":{"id":1}}}"""
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" json
+            let doc = JsonDocument.Parse(response)
+            Assert.True(doc.RootElement.TryGetProperty("result") |> fst)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``McpServer_Dispatch_ToolsCallListDocuments_ReturnsResult`` () =
+    task {
+        let db = TestHelpers.createRawDb ()
+        let m = TestHelpers.memFs ()
+        let logger = TestHelpers.silentLogger
+        try
+            let! _ = db.initSchema ()
+            let! _ = insertTestDocument db "invoices" "list-test.pdf"
+            let json =
+                """{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"hermes_list_documents","arguments":{"limit":10}}}"""
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" json
+            let doc = JsonDocument.Parse(response)
+            Assert.True(doc.RootElement.TryGetProperty("result") |> fst)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``McpServer_Dispatch_ToolsCallGetProcessingQueue_ReturnsResult`` () =
+    task {
+        let db = TestHelpers.createRawDb ()
+        let m = TestHelpers.memFs ()
+        let logger = TestHelpers.silentLogger
+        try
+            let! _ = db.initSchema ()
+            let json =
+                """{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"hermes_get_processing_queue","arguments":{}}}"""
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" json
+            let doc = JsonDocument.Parse(response)
+            Assert.True(doc.RootElement.TryGetProperty("result") |> fst)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``McpServer_Dispatch_ToolsCallReadFile_ReturnsResult`` () =
+    task {
+        let db = TestHelpers.createRawDb ()
+        let m = TestHelpers.memFs ()
+        m.Put "/archive/invoices/test.pdf" "file content here"
+        let logger = TestHelpers.silentLogger
+        try
+            let! _ = db.initSchema ()
+            let json =
+                """{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"hermes_read_file","arguments":{"path":"invoices/test.pdf"}}}"""
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" json
+            let doc = JsonDocument.Parse(response)
+            Assert.True(doc.RootElement.TryGetProperty("result") |> fst)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``McpServer_Dispatch_ToolsCallListReminders_ReturnsResult`` () =
+    task {
+        let db = TestHelpers.createRawDb ()
+        let m = TestHelpers.memFs ()
+        let logger = TestHelpers.silentLogger
+        try
+            let! _ = db.initSchema ()
+            let json =
+                """{"jsonrpc":"2.0","id":14,"method":"tools/call","params":{"name":"hermes_list_reminders","arguments":{}}}"""
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" json
+            let doc = JsonDocument.Parse(response)
+            Assert.True(doc.RootElement.TryGetProperty("result") |> fst)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``McpServer_Dispatch_ToolsCallGetFeedStats_ReturnsResult`` () =
+    task {
+        let db = TestHelpers.createRawDb ()
+        let m = TestHelpers.memFs ()
+        let logger = TestHelpers.silentLogger
+        try
+            let! _ = db.initSchema ()
+            let json =
+                """{"jsonrpc":"2.0","id":15,"method":"tools/call","params":{"name":"hermes_get_feed_stats","arguments":{}}}"""
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" json
+            let doc = JsonDocument.Parse(response)
+            Assert.True(doc.RootElement.TryGetProperty("result") |> fst)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``McpServer_Dispatch_ToolsCallGetDocumentContent_ReturnsResult`` () =
+    task {
+        let db = TestHelpers.createRawDb ()
+        let m = TestHelpers.memFs ()
+        m.Put "/archive/invoices/content-test.pdf" "pdf content"
+        let logger = TestHelpers.silentLogger
+        try
+            let! _ = db.initSchema ()
+            let! _ = insertTestDocument db "invoices" "content-test.pdf"
+            let json =
+                """{"jsonrpc":"2.0","id":16,"method":"tools/call","params":{"name":"hermes_get_document_content","arguments":{"id":1}}}"""
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" json
+            let doc = JsonDocument.Parse(response)
+            Assert.True(doc.RootElement.TryGetProperty("result") |> fst)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``McpServer_Dispatch_ToolsCallReclassify_ReturnsResult`` () =
+    task {
+        let db = TestHelpers.createRawDb ()
+        let m = TestHelpers.memFs ()
+        m.Fs.createDirectory "/archive/unsorted"
+        m.Fs.createDirectory "/archive/invoices"
+        m.Put "/archive/unsorted/recl-test.pdf" "content"
+        let logger = TestHelpers.silentLogger
+        try
+            let! _ = db.initSchema ()
+            let! _ =
+                db.execNonQuery
+                    """INSERT INTO documents (source_type, saved_path, category, sha256, original_name)
+                       VALUES ('manual_drop', 'unsorted/recl-test.pdf', 'unsorted', 'sha-recl', 'recl-test.pdf')"""
+                    []
+            let json =
+                """{"jsonrpc":"2.0","id":17,"method":"tools/call","params":{"name":"hermes_reclassify","arguments":{"id":1,"category":"invoices"}}}"""
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" json
+            let doc = JsonDocument.Parse(response)
+            Assert.True(doc.RootElement.TryGetProperty("result") |> fst)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``McpServer_Dispatch_ToolsCallReextract_ReturnsResult`` () =
+    task {
+        let db = TestHelpers.createRawDb ()
+        let m = TestHelpers.memFs ()
+        let logger = TestHelpers.silentLogger
+        try
+            let! _ = db.initSchema ()
+            let! _ = insertTestDocument db "invoices" "reext-test.pdf"
+            let json =
+                """{"jsonrpc":"2.0","id":18,"method":"tools/call","params":{"name":"hermes_reextract","arguments":{"id":1}}}"""
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" json
+            let doc = JsonDocument.Parse(response)
+            Assert.True(doc.RootElement.TryGetProperty("result") |> fst)
+        finally db.dispose ()
+    }

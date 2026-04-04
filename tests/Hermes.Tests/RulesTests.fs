@@ -1,6 +1,7 @@
 module Hermes.Tests.RulesTests
 
 open System
+open System.Threading.Tasks
 open Xunit
 open Hermes.Core
 
@@ -472,3 +473,65 @@ default_category: misc
         Assert.Equal("misc", defaultCat)
     | Error e -> failwith $"Expected Ok, got Error: {e}"
 
+// ─── Rules branch coverage: invalid regex, missing match, read exception ─
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Rules_ParseYaml_InvalidRegex_SkipsRule`` () =
+    let yaml = """
+rules:
+  - name: bad-regex-rule
+    match:
+      filename: "[invalid"
+    category: broken
+  - name: good-rule
+    match:
+      filename: "(?i)invoice"
+    category: invoices
+default_category: unsorted
+"""
+    match Rules.parseRulesYaml yaml with
+    | Ok (rules, defaultCat) ->
+        Assert.Equal("unsorted", defaultCat)
+        let filenameRules =
+            rules |> List.filter (fun r ->
+                match r.Kind with
+                | Rules.FilenameMatch _ -> true
+                | _ -> false)
+        Assert.Equal(1, filenameRules.Length)
+        Assert.Equal("good-rule", filenameRules.[0].Name)
+    | Error e -> failwith $"Expected Ok, got Error: {e}"
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Rules_ParseYaml_MissingMatch_SkipsRule`` () =
+    let yaml = """
+rules:
+  - name: no-match-rule
+    category: broken
+  - name: valid-rule
+    match:
+      sender_domain: example.com
+    category: emails
+default_category: unsorted
+"""
+    match Rules.parseRulesYaml yaml with
+    | Ok (rules, _) ->
+        Assert.Equal(1, rules.Length)
+        Assert.Equal("valid-rule", rules.[0].Name)
+    | Error e -> failwith $"Expected Ok, got Error: {e}"
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Rules_FromFile_ReadException_ReturnsDefaults`` () =
+    task {
+        let m = TestHelpers.memFs ()
+        let throwingFs =
+            { m.Fs with
+                fileExists = fun path -> path.Replace('\\', '/').Contains("rules.yaml")
+                readAllText = fun _ -> task { return failwith "disk read error" } }
+        let! engine = Rules.fromFile throwingFs TestHelpers.silentLogger "/config/rules.yaml"
+        let result = engine.classify None "anything.pdf"
+        Assert.Equal("unsorted", result.Category)
+        Assert.Equal(Domain.DefaultRule, result.MatchedRule)
+    }

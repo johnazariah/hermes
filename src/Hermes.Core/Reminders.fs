@@ -166,7 +166,12 @@ module Reminders =
             let summary : Domain.ReminderSummary =
                 { OverdueCount = match overdueResult with null -> 0 | v -> v :?> int64 |> int
                   UpcomingCount = match upcomingResult with null -> 0 | v -> v :?> int64 |> int
-                  TotalActiveAmount = match totalResult with null -> 0m | v -> v :?> float |> decimal }
+                  TotalActiveAmount =
+                    match totalResult with
+                    | null -> 0m
+                    | :? float as f -> decimal f
+                    | :? int64 as i -> decimal i
+                    | _ -> 0m }
             return summary
         }
 
