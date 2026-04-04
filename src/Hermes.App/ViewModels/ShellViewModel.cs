@@ -186,6 +186,14 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         set => Set(ref _activeMode, value);
     }
 
+    // Pipeline funnel counts
+    private Stats.PipelineCounts? _pipelineCounts;
+    public Stats.PipelineCounts? PipelineCounts
+    {
+        get => _pipelineCounts;
+        private set => Set(ref _pipelineCounts, value);
+    }
+
     // ── Refresh all status ─────────────────────────────────────────
 
     public async Task RefreshAsync()
@@ -196,6 +204,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         {
             await RefreshOllamaAsync();
             await RefreshIndexStatsAsync();
+            await RefreshPipelineCountsAsync();
             RefreshCategories();
             await RefreshAccountsAsync();
             await RefreshRemindersAsync();
@@ -244,6 +253,27 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             try
             {
                 IndexStats = await Stats.getIndexStats(db, Interpreters.realFileSystem, dbPath);
+            }
+            finally
+            {
+                db.dispose.Invoke(null!);
+            }
+        }
+        catch { /* DB may not exist yet */ }
+    }
+
+    private async Task RefreshPipelineCountsAsync()
+    {
+        var dbPath = Path.Combine(_bridge.ArchiveDir, "db.sqlite");
+        if (!File.Exists(dbPath)) return;
+
+        try
+        {
+            var db = Database.fromPath(dbPath);
+            try
+            {
+                PipelineCounts = await Stats.getPipelineCounts(
+                    db, Interpreters.realFileSystem, _bridge.ArchiveDir);
             }
             finally
             {
@@ -308,12 +338,21 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     {
         var stats = IndexStats;
         var docCount = stats?.DocumentCount ?? 0;
-        var extracted = stats?.ExtractedCount ?? 0;
+        var pipeline = PipelineCounts;
+        var intake = pipeline?.IntakeCount ?? 0;
+        var extracting = pipeline?.ExtractingCount ?? 0;
+        var classifying = pipeline?.ClassifyingCount ?? 0;
         var embedded = stats?.EmbeddedCount ?? 0;
         var sizeMb = stats?.DatabaseSizeMb ?? 0.0;
 
         var stateText = IsSyncing ? "Syncing" : "Ready";
-        StatusBarText = $"{stateText} · {docCount:N0} docs · {extracted:N0} extracted · {embedded:N0} embedded · DB {sizeMb:F1} MB";
+        var parts = new List<string> { $"{stateText} · {docCount:N0} docs" };
+        if (intake > 0) parts.Add($"{intake} intake");
+        if (extracting > 0) parts.Add($"{extracting} extracting");
+        if (classifying > 0) parts.Add($"{classifying} classifying");
+        if (ActionItemCount > 0) parts.Add($"{ActionItemCount} action items");
+        parts.Add($"DB {sizeMb:F1} MB");
+        StatusBarText = string.Join(" · ", parts);
     }
 
     // ── Chat commands ──────────────────────────────────────────────

@@ -21,6 +21,7 @@ using System.Threading;
 using System.Threading.Tasks;
 
 using Path = System.IO.Path;
+using File = System.IO.File;
 
 namespace Hermes.App.Views;
 
@@ -29,21 +30,19 @@ public partial class ShellWindow : Window
     private readonly ShellViewModel _vm;
     private readonly DispatcherTimer _refreshTimer;
 
-    // Resolved controls
+    // Resolved controls — Pipeline funnel
     private Ellipse _ollamaDot = null!;
     private TextBlock _ollamaStatusText = null!;
     private TextBlock _ollamaModelsText = null!;
-    private TextBlock _indexDocCount = null!;
     private ProgressBar _extractedBar = null!;
-    private TextBlock _extractedCount = null!;
+    private TextBlock _extractedCountText = null!;
     private ProgressBar _embeddedBar = null!;
-    private TextBlock _embeddedCount = null!;
-    private TextBlock _categoryText = null!;
+    private TextBlock _embeddedCountText = null!;
+    private TextBlock _dbSizeText = null!;
     private TextBlock _accountsText = null!;
     private TextBlock _watchFoldersText = null!;
     private TextBlock _lastSyncText = null!;
     private Button _syncNowButton = null!;
-    private Button _pauseButton = null!;
     private StackPanel _chatPanel = null!;
     private ScrollViewer _chatScroller = null!;
     private TextBox _chatInput = null!;
@@ -51,23 +50,28 @@ public partial class ShellWindow : Window
     private WrapPanel _suggestedQueries = null!;
     private Ellipse _statusDot = null!;
     private TextBlock _statusBarText = null!;
-    private ToggleButton _chatTabButton = null!;
-    private ToggleButton _todoTabButton = null!;
-    private ScrollViewer _todoScroller = null!;
-    private StackPanel _todoPanel = null!;
-    private ScrollViewer _docDetailScroller = null!;
-    private StackPanel _docDetailPanel = null!;
-    // Activity bar + navigator
-    private Button _navActionItems = null!;
-    private Button _navDocuments = null!;
-    private Button _navThreads = null!;
-    private Button _navTimeline = null!;
-    private Button _navActivity = null!;
     private Button _navSettingsBtn = null!;
-    private TextBlock _navigatorTitle = null!;
-    private ScrollViewer _navigatorContent = null!;
-    private StackPanel _navigatorOuterPanel = null!;
-    private StackPanel _defaultNavigatorPanel = null!;
+    // Pipeline sections
+    private Expander _intakeExpander = null!;
+    private TextBlock _intakeCount = null!;
+    private Expander _extractingExpander = null!;
+    private TextBlock _extractingCount = null!;
+    private Expander _classifyingExpander = null!;
+    private TextBlock _classifyingCount = null!;
+    private StackPanel _libraryPanel = null!;
+    private TextBlock _libraryCount = null!;
+    private TextBlock _actionItemBadge = null!;
+    private StackPanel _actionItemsPanel = null!;
+    private TextBlock _dbStatusText = null!;
+    private TextBlock _pipelineStatusText = null!;
+    // Content pane
+    private Button _backButton = null!;
+    private TextBlock _breadcrumbText = null!;
+    private ScrollViewer _contentScroller = null!;
+    private StackPanel _contentPanel = null!;
+    // Chat pane
+    private Grid _chatPaneGrid = null!;
+    private Button _toggleChatButton = null!;
 
     public ShellWindow(HermesServiceBridge bridge)
     {
@@ -75,11 +79,11 @@ public partial class ShellWindow : Window
         InitializeComponent();
         ResolveControls();
         WireUpEvents();
-        HighlightActiveNavButton(NavigatorMode.ActionItems);
 
         _vm.AddWelcomeMessage();
         _vm.Messages.CollectionChanged += OnMessagesChanged;
         RenderAllMessages();
+        ShowWelcome();
 
         _vm.PropertyChanged += (_, e) => Dispatcher.UIThread.Post(() => OnViewModelChanged(e.PropertyName));
 
@@ -94,44 +98,54 @@ public partial class ShellWindow : Window
 
     private void ResolveControls()
     {
+        // Services
         _ollamaDot = this.FindControl<Ellipse>("OllamaDot")!;
         _ollamaStatusText = this.FindControl<TextBlock>("OllamaStatusText")!;
         _ollamaModelsText = this.FindControl<TextBlock>("OllamaModelsText")!;
-        _indexDocCount = this.FindControl<TextBlock>("IndexDocCount")!;
+        _dbStatusText = this.FindControl<TextBlock>("DbStatusText")!;
+        _pipelineStatusText = this.FindControl<TextBlock>("PipelineStatusText")!;
+        // Index
         _extractedBar = this.FindControl<ProgressBar>("ExtractedBar")!;
-        _extractedCount = this.FindControl<TextBlock>("ExtractedCount")!;
+        _extractedCountText = this.FindControl<TextBlock>("ExtractedCountText")!;
         _embeddedBar = this.FindControl<ProgressBar>("EmbeddedBar")!;
-        _embeddedCount = this.FindControl<TextBlock>("EmbeddedCount")!;
-        _categoryText = this.FindControl<TextBlock>("CategoryText")!;
+        _embeddedCountText = this.FindControl<TextBlock>("EmbeddedCountText")!;
+        _dbSizeText = this.FindControl<TextBlock>("DbSizeText")!;
+        // Sources
         _accountsText = this.FindControl<TextBlock>("AccountsText")!;
         _watchFoldersText = this.FindControl<TextBlock>("WatchFoldersText")!;
         _lastSyncText = this.FindControl<TextBlock>("LastSyncText")!;
+        // Pipeline stages
+        _intakeExpander = this.FindControl<Expander>("IntakeExpander")!;
+        _intakeCount = this.FindControl<TextBlock>("IntakeCount")!;
+        _extractingExpander = this.FindControl<Expander>("ExtractingExpander")!;
+        _extractingCount = this.FindControl<TextBlock>("ExtractingCount")!;
+        _classifyingExpander = this.FindControl<Expander>("ClassifyingExpander")!;
+        _classifyingCount = this.FindControl<TextBlock>("ClassifyingCount")!;
+        // Library
+        _libraryPanel = this.FindControl<StackPanel>("LibraryPanel")!;
+        _libraryCount = this.FindControl<TextBlock>("LibraryCount")!;
+        // Action Items
+        _actionItemBadge = this.FindControl<TextBlock>("ActionItemBadge")!;
+        _actionItemsPanel = this.FindControl<StackPanel>("ActionItemsPanel")!;
+        // Header buttons
         _syncNowButton = this.FindControl<Button>("SyncNowButton")!;
-        _pauseButton = this.FindControl<Button>("PauseButton")!;
+        _navSettingsBtn = this.FindControl<Button>("NavSettingsBtn")!;
+        _toggleChatButton = this.FindControl<Button>("ToggleChatButton")!;
+        // Content pane
+        _backButton = this.FindControl<Button>("BackButton")!;
+        _breadcrumbText = this.FindControl<TextBlock>("BreadcrumbText")!;
+        _contentScroller = this.FindControl<ScrollViewer>("ContentScroller")!;
+        _contentPanel = this.FindControl<StackPanel>("ContentPanel")!;
+        // Chat pane
+        _chatPaneGrid = this.FindControl<Grid>("ChatPaneGrid")!;
         _chatPanel = this.FindControl<StackPanel>("ChatPanel")!;
         _chatScroller = this.FindControl<ScrollViewer>("ChatScroller")!;
         _chatInput = this.FindControl<TextBox>("ChatInput")!;
         _aiToggle = this.FindControl<ToggleButton>("AiToggle")!;
         _suggestedQueries = this.FindControl<WrapPanel>("SuggestedQueries")!;
+        // Status bar
         _statusDot = this.FindControl<Ellipse>("StatusDot")!;
         _statusBarText = this.FindControl<TextBlock>("StatusBarText")!;
-        _chatTabButton = this.FindControl<ToggleButton>("ChatTabButton")!;
-        _todoTabButton = this.FindControl<ToggleButton>("TodoTabButton")!;
-        _todoScroller = this.FindControl<ScrollViewer>("TodoScroller")!;
-        _todoPanel = this.FindControl<StackPanel>("TodoPanel")!;
-        _docDetailScroller = this.FindControl<ScrollViewer>("DocDetailScroller")!;
-        _docDetailPanel = this.FindControl<StackPanel>("DocDetailPanel")!;
-        // Activity bar + navigator
-        _navActionItems = this.FindControl<Button>("NavActionItems")!;
-        _navDocuments = this.FindControl<Button>("NavDocuments")!;
-        _navThreads = this.FindControl<Button>("NavThreads")!;
-        _navTimeline = this.FindControl<Button>("NavTimeline")!;
-        _navActivity = this.FindControl<Button>("NavActivity")!;
-        _navSettingsBtn = this.FindControl<Button>("NavSettingsBtn")!;
-        _navigatorTitle = this.FindControl<TextBlock>("NavigatorTitle")!;
-        _navigatorContent = this.FindControl<ScrollViewer>("NavigatorContent")!;
-        _navigatorOuterPanel = this.FindControl<StackPanel>("NavigatorOuterPanel")!;
-        _defaultNavigatorPanel = this.FindControl<StackPanel>("DefaultNavigatorPanel")!;
     }
 
     private void WireUpEvents()
@@ -139,19 +153,12 @@ public partial class ShellWindow : Window
         _syncNowButton.Click += async (_, _) =>
         {
             _syncNowButton.IsEnabled = false;
-            _syncNowButton.Content = "⏳ Syncing...";
+            _syncNowButton.Content = "⏳";
             await _vm.SyncNowAsync();
-            _syncNowButton.Content = "⟳ Sync Now";
+            _syncNowButton.Content = "⟳";
             _syncNowButton.IsEnabled = true;
         };
 
-        _pauseButton.Click += (_, _) =>
-        {
-            _vm.TogglePause();
-            _pauseButton.Content = _vm.IsPaused ? "▶ Resume" : "⏸ Pause";
-        };
-
-        this.FindControl<Button>("SettingsButton")!.Click += async (_, _) => await ShowSettingsDialogAsync();
         _navSettingsBtn.Click += async (_, _) => await ShowSettingsDialogAsync();
         this.FindControl<Button>("AddAccountButton")!.Click += async (_, _) => await AddGmailAccountAsync();
         this.FindControl<Button>("AddWatchFolderButton")!.Click += async (_, _) => await AddWatchFolderAsync();
@@ -164,24 +171,13 @@ public partial class ShellWindow : Window
 
         _aiToggle.IsCheckedChanged += (_, _) => _vm.AiEnabled = _aiToggle.IsChecked == true;
 
-        // Tab toggle: Chat ↔ TODO
-        _chatTabButton.Click += (_, _) =>
+        _toggleChatButton.Click += (_, _) =>
         {
-            _chatTabButton.IsChecked = true;
-            _todoTabButton.IsChecked = false;
-            _chatScroller.IsVisible = true;
-            _todoScroller.IsVisible = false;
-            _docDetailScroller.IsVisible = false;
+            _vm.ToggleChatPane();
+            _chatPaneGrid.IsVisible = _vm.IsChatPaneVisible;
         };
-        _todoTabButton.Click += (_, _) =>
-        {
-            _todoTabButton.IsChecked = true;
-            _chatTabButton.IsChecked = false;
-            _chatScroller.IsVisible = false;
-            _todoScroller.IsVisible = true;
-            _docDetailScroller.IsVisible = false;
-            RebuildTodoPanel();
-        };
+
+        _backButton.Click += (_, _) => ShowWelcome();
 
         // Wire up suggested query chips
         foreach (var child in _suggestedQueries.Children.OfType<Button>())
@@ -193,325 +189,40 @@ public partial class ShellWindow : Window
                 await HandleSendAsync();
             };
         }
-
-        // Activity bar navigation
-        _navActionItems.Click += (_, _) => SetActiveMode(NavigatorMode.ActionItems);
-        _navDocuments.Click += (_, _) => SetActiveMode(NavigatorMode.Documents);
-        _navThreads.Click += (_, _) => SetActiveMode(NavigatorMode.Threads);
-        _navTimeline.Click += (_, _) => SetActiveMode(NavigatorMode.Timeline);
-        _navActivity.Click += (_, _) => SetActiveMode(NavigatorMode.Activity);
-        _navSettingsBtn.Click += async (_, _) => await ShowSettingsDialogAsync();
     }
 
-    private void SetActiveMode(NavigatorMode mode)
+    private void ShowWelcome()
     {
-        _vm.ActiveMode = mode;
-        _navigatorTitle.Text = mode switch
+        _contentPanel.Children.Clear();
+        _breadcrumbText.Text = "Welcome";
+        _backButton.IsVisible = false;
+        _contentPanel.Children.Add(new TextBlock
         {
-            NavigatorMode.ActionItems => "ACTION ITEMS",
-            NavigatorMode.Documents => "DOCUMENTS",
-            NavigatorMode.Threads => "EMAIL THREADS",
-            NavigatorMode.Timeline => "TIMELINE",
-            NavigatorMode.Activity => "ACTIVITY",
-            _ => "HERMES",
-        };
-        HighlightActiveNavButton(mode);
-        RebuildNavigatorContent(mode);
-    }
-
-    // ── Navigator content switching ───────────────────────────────
-
-    private void HighlightActiveNavButton(NavigatorMode mode)
-    {
-        var active = new SolidColorBrush(Color.Parse("#20000000"));
-        IBrush inactive = Brushes.Transparent;
-
-        _navActionItems.Background = mode is NavigatorMode.ActionItems ? active : inactive;
-        _navDocuments.Background = mode is NavigatorMode.Documents ? active : inactive;
-        _navThreads.Background = mode is NavigatorMode.Threads ? active : inactive;
-        _navTimeline.Background = mode is NavigatorMode.Timeline ? active : inactive;
-        _navActivity.Background = mode is NavigatorMode.Activity ? active : inactive;
-    }
-
-    private void RebuildNavigatorContent(NavigatorMode mode)
-    {
-        _defaultNavigatorPanel.IsVisible = mode is NavigatorMode.ActionItems;
-
-        // Remove any previously-added dynamic panels (keep heading [0] and default panel [1])
-        while (_navigatorOuterPanel.Children.Count > 2)
-            _navigatorOuterPanel.Children.RemoveAt(_navigatorOuterPanel.Children.Count - 1);
-
-        switch (mode)
-        {
-            case NavigatorMode.ActionItems:
-                break;
-            case NavigatorMode.Documents:
-                _ = PopulateDocumentsNavigatorAsync();
-                break;
-            case NavigatorMode.Threads:
-                _ = PopulateThreadsNavigatorAsync();
-                break;
-            case NavigatorMode.Timeline:
-                _ = PopulateTimelineNavigatorAsync();
-                break;
-            case NavigatorMode.Activity:
-                _ = PopulateActivityNavigatorAsync();
-                break;
-        }
-    }
-
-    private async Task PopulateDocumentsNavigatorAsync()
-    {
-        var panel = new StackPanel { Spacing = 0, Margin = new Thickness(0, 4, 0, 0) };
-        var loading = NavigatorMutedText("Loading categories…");
-        panel.Children.Add(loading);
-        _navigatorOuterPanel.Children.Add(panel);
-
-        var dbPath = Path.Combine(_vm.Bridge.ArchiveDir, "db.sqlite");
-        if (!File.Exists(dbPath)) { loading.Text = "No database found."; return; }
-
-        try
-        {
-            var db = Database.fromPath(dbPath);
-            try
-            {
-                var categories = await DocumentBrowser.listCategories(db);
-                if (_vm.ActiveMode is not NavigatorMode.Documents) return;
-
-                panel.Children.Remove(loading);
-
-                if (!categories.Any())
-                {
-                    panel.Children.Add(NavigatorMutedText("No documents indexed yet."));
-                    return;
-                }
-
-                foreach (var tuple in categories)
-                    panel.Children.Add(NavigatorCategoryRow(tuple.Item1, tuple.Item2));
-            }
-            finally
-            {
-                db.dispose.Invoke(null!);
-            }
-        }
-        catch { loading.Text = "Could not load categories."; }
-    }
-
-    private async Task PopulateThreadsNavigatorAsync()
-    {
-        var panel = new StackPanel { Spacing = 0, Margin = new Thickness(0, 4, 0, 0) };
-        var loading = NavigatorMutedText("Loading threads…");
-        panel.Children.Add(loading);
-        _navigatorOuterPanel.Children.Add(panel);
-
-        var dbPath = Path.Combine(_vm.Bridge.ArchiveDir, "db.sqlite");
-        if (!File.Exists(dbPath)) { loading.Text = "No database found."; return; }
-
-        try
-        {
-            var db = Database.fromPath(dbPath);
-            try
-            {
-                var threads = await Threads.listThreads(db, 0, 30);
-                if (_vm.ActiveMode is not NavigatorMode.Threads) return;
-
-                panel.Children.Remove(loading);
-
-                if (!threads.Any())
-                {
-                    panel.Children.Add(NavigatorMutedText("No email threads yet."));
-                    return;
-                }
-
-                foreach (var thread in threads)
-                    panel.Children.Add(NavigatorThreadRow(thread));
-            }
-            finally
-            {
-                db.dispose.Invoke(null!);
-            }
-        }
-        catch { loading.Text = "Could not load threads."; }
-    }
-
-    private async Task PopulateTimelineNavigatorAsync()
-    {
-        var panel = new StackPanel { Spacing = 0, Margin = new Thickness(0, 4, 0, 0) };
-        _navigatorOuterPanel.Children.Add(panel);
-
-        var archiveDir = _vm.Bridge.ArchiveDir;
-        if (!Directory.Exists(archiveDir))
-        {
-            panel.Children.Add(NavigatorMutedText("Archive not found."));
-            return;
-        }
-
-        var files = await Task.Run(() =>
-            new DirectoryInfo(archiveDir)
-                .EnumerateFiles("*", SearchOption.AllDirectories)
-                .Where(f => !f.Name.StartsWith('.')
-                         && !f.Extension.Equals(".sqlite", StringComparison.OrdinalIgnoreCase)
-                         && !f.Extension.Equals(".sqlite-wal", StringComparison.OrdinalIgnoreCase)
-                         && !f.Extension.Equals(".sqlite-shm", StringComparison.OrdinalIgnoreCase)
-                         && f.Name != "heartbeat.json")
-                .OrderByDescending(f => f.LastWriteTimeUtc)
-                .Take(30)
-                .ToList());
-
-        if (_vm.ActiveMode is not NavigatorMode.Timeline) return;
-
-        if (files.Count == 0)
-        {
-            panel.Children.Add(NavigatorMutedText("No documents yet."));
-            return;
-        }
-
-        string? currentDate = null;
-        foreach (var file in files)
-        {
-            var dateStr = file.LastWriteTime.ToString("yyyy-MM-dd");
-            if (dateStr != currentDate)
-            {
-                currentDate = dateStr;
-                panel.Children.Add(NavigatorDateHeader(dateStr));
-            }
-            panel.Children.Add(NavigatorTimelineRow(file));
-        }
-    }
-
-    private async Task PopulateActivityNavigatorAsync()
-    {
-        var panel = new StackPanel { Spacing = 0, Margin = new Thickness(0, 4, 0, 0) };
-        var loading = NavigatorMutedText("Loading activity…");
-        panel.Children.Add(loading);
-        _navigatorOuterPanel.Children.Add(panel);
-
-        var dbPath = Path.Combine(_vm.Bridge.ArchiveDir, "db.sqlite");
-        if (!File.Exists(dbPath)) { loading.Text = "No database found."; return; }
-
-        try
-        {
-            var db = Database.fromPath(dbPath);
-            try
-            {
-                var entries = await ActivityLog.getRecent(db, 50);
-                if (_vm.ActiveMode is not NavigatorMode.Activity) return;
-
-                panel.Children.Remove(loading);
-
-                if (!entries.Any())
-                {
-                    panel.Children.Add(NavigatorMutedText("No activity yet."));
-                    return;
-                }
-
-                foreach (var entry in entries)
-                    panel.Children.Add(NavigatorActivityRow(entry));
-            }
-            finally
-            {
-                db.dispose.Invoke(null!);
-            }
-        }
-        catch { loading.Text = "Could not load activity."; }
-    }
-
-    // ── Navigator UI helpers ──────────────────────────────────────
-
-    private static TextBlock NavigatorMutedText(string text) => new()
-    {
-        Text = text,
-        FontSize = 12,
-        Foreground = new SolidColorBrush(Color.Parse("#888")),
-        Margin = new Thickness(20, 8, 12, 4),
-        TextWrapping = TextWrapping.Wrap
-    };
-
-    private static TextBlock NavigatorDateHeader(string date) => new()
-    {
-        Text = date,
-        FontSize = 10,
-        FontWeight = FontWeight.SemiBold,
-        Foreground = new SolidColorBrush(Color.Parse("#888")),
-        Margin = new Thickness(20, 10, 12, 2)
-    };
-
-    private Border NavigatorCategoryRow(string category, int count)
-    {
-        var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        var nameText = new TextBlock
-        {
-            Text = $"📁 {category}",
-            FontSize = 12,
-            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
-        };
-        Grid.SetColumn(nameText, 0);
-
-        var countText = new TextBlock
-        {
-            Text = count.ToString(),
-            FontSize = 11,
-            Foreground = new SolidColorBrush(Color.Parse("#888")),
-            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
-        };
-        Grid.SetColumn(countText, 1);
-
-        grid.Children.Add(nameText);
-        grid.Children.Add(countText);
-
-        var border = new Border
-        {
-            Child = grid,
-            Padding = new Thickness(20, 5, 12, 5),
-            BorderBrush = new SolidColorBrush(Color.Parse("#10000000")),
-            BorderThickness = new Thickness(0, 0, 0, 1),
-            Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
-        };
-
-        border.PointerPressed += (_, _) => _ = PopulateDocumentListAsync(category);
-        return border;
-    }
-
-    private async Task PopulateDocumentListAsync(string category)
-    {
-        // Remove dynamic panels (keep heading [0] and default panel [1])
-        while (_navigatorOuterPanel.Children.Count > 2)
-            _navigatorOuterPanel.Children.RemoveAt(_navigatorOuterPanel.Children.Count - 1);
-
-        var panel = new StackPanel { Spacing = 0, Margin = new Thickness(0, 4, 0, 0) };
-
-        // Back button
-        var backBtn = new Button
-        {
-            Content = "← Categories",
-            FontSize = 11,
-            Padding = new Thickness(12, 4),
-            Margin = new Thickness(12, 4, 12, 8),
-            Background = Brushes.Transparent,
-            Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
-        };
-        backBtn.Click += (_, _) =>
-        {
-            while (_navigatorOuterPanel.Children.Count > 2)
-                _navigatorOuterPanel.Children.RemoveAt(_navigatorOuterPanel.Children.Count - 1);
-            _ = PopulateDocumentsNavigatorAsync();
-        };
-        panel.Children.Add(backBtn);
-
-        panel.Children.Add(new TextBlock
-        {
-            Text = $"📁 {category}",
+            Text = "Welcome to Hermes! Select a category from the Library, or ask a question in the chat pane.",
             FontSize = 13,
-            FontWeight = FontWeight.SemiBold,
-            Margin = new Thickness(20, 0, 12, 8)
+            Foreground = new SolidColorBrush(Color.Parse("#888")),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 20, 0, 0)
+        });
+    }
+
+    // ── Content pane navigation ──────────────────────────────────
+
+    private async Task ShowCategoryDocumentsAsync(string category)
+    {
+        _contentPanel.Children.Clear();
+        _breadcrumbText.Text = $"Library / {category}";
+        _backButton.IsVisible = true;
+
+        _contentPanel.Children.Add(new TextBlock
+        {
+            Text = $"📁 {category}",
+            FontSize = 16, FontWeight = FontWeight.SemiBold,
+            Margin = new Thickness(0, 0, 0, 12)
         });
 
-        var loading = NavigatorMutedText("Loading…");
-        panel.Children.Add(loading);
-        _navigatorOuterPanel.Children.Add(panel);
+        var loading = new TextBlock { Text = "Loading…", FontSize = 12, Foreground = new SolidColorBrush(Color.Parse("#888")) };
+        _contentPanel.Children.Add(loading);
 
         var dbPath = Path.Combine(_vm.Bridge.ArchiveDir, "db.sqlite");
         if (!System.IO.File.Exists(dbPath)) { loading.Text = "No database."; return; }
@@ -522,60 +233,79 @@ public partial class ShellWindow : Window
             try
             {
                 var docs = await DocumentBrowser.listDocuments(db, category, 0, 100);
-                if (_vm.ActiveMode is not NavigatorMode.Documents) return;
-
-                panel.Children.Remove(loading);
+                _contentPanel.Children.Remove(loading);
 
                 if (!docs.Any())
                 {
-                    panel.Children.Add(NavigatorMutedText("No documents in this category."));
+                    _contentPanel.Children.Add(new TextBlock
+                    {
+                        Text = "No documents in this category.",
+                        FontSize = 12, Foreground = new SolidColorBrush(Color.Parse("#888"))
+                    });
                     return;
                 }
 
                 foreach (var doc in docs)
-                    panel.Children.Add(NavigatorDocumentRow(doc));
+                {
+                    var row = CreateDocumentListRow(doc);
+                    _contentPanel.Children.Add(row);
+                }
             }
-            finally
-            {
-                db.dispose.Invoke(null!);
-            }
+            finally { db.dispose.Invoke(null!); }
         }
         catch { loading.Text = "Could not load documents."; }
     }
 
-    private Border NavigatorDocumentRow(DocumentBrowser.DocumentSummary doc)
+    private Border CreateDocumentListRow(DocumentBrowser.DocumentSummary doc)
     {
-        var stack = new StackPanel { Spacing = 1 };
-        stack.Children.Add(new TextBlock
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var nameStack = new StackPanel { Spacing = 1 };
+        nameStack.Children.Add(new TextBlock
         {
-            Text = doc.OriginalName,
-            FontSize = 11,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            MaxLines = 1
+            Text = doc.OriginalName, FontSize = 12,
+            TextTrimming = TextTrimming.CharacterEllipsis, MaxLines = 1
         });
 
         var meta = FSharpOption<string>.get_IsSome(doc.ExtractedDate)
-            ? doc.ExtractedDate!.Value
-            : "";
+            ? doc.ExtractedDate!.Value : "";
         if (FSharpOption<string>.get_IsSome(doc.Sender))
             meta = string.IsNullOrEmpty(meta) ? doc.Sender!.Value : $"{doc.Sender!.Value} · {meta}";
+        if (FSharpOption<double>.get_IsSome(doc.ExtractedAmount))
+            meta = string.IsNullOrEmpty(meta) ? $"${doc.ExtractedAmount!.Value:F2}" : $"{meta} · ${doc.ExtractedAmount!.Value:F2}";
 
         if (!string.IsNullOrEmpty(meta))
         {
-            stack.Children.Add(new TextBlock
+            nameStack.Children.Add(new TextBlock
             {
-                Text = meta,
-                FontSize = 10,
+                Text = meta, FontSize = 10,
                 Foreground = new SolidColorBrush(Color.Parse("#888")),
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                MaxLines = 1
+                TextTrimming = TextTrimming.CharacterEllipsis, MaxLines = 1
             });
+        }
+        Grid.SetColumn(nameStack, 0);
+        grid.Children.Add(nameStack);
+
+        // Classification badge
+        if (FSharpOption<string>.get_IsSome(doc.ClassificationTier))
+        {
+            var tier = doc.ClassificationTier!.Value;
+            var badge = new TextBlock
+            {
+                Text = tier, FontSize = 9, Padding = new Thickness(4, 1),
+                Foreground = new SolidColorBrush(Color.Parse("#888")),
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+            };
+            Grid.SetColumn(badge, 1);
+            grid.Children.Add(badge);
         }
 
         var border = new Border
         {
-            Child = stack,
-            Padding = new Thickness(20, 5, 12, 5),
+            Child = grid,
+            Padding = new Thickness(0, 6, 0, 6),
             BorderBrush = new SolidColorBrush(Color.Parse("#10000000")),
             BorderThickness = new Thickness(0, 0, 0, 1),
             Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
@@ -587,15 +317,10 @@ public partial class ShellWindow : Window
 
     private async Task ShowDocumentDetailAsync(long documentId)
     {
-        // Switch content area to document detail
-        _chatScroller.IsVisible = false;
-        _todoScroller.IsVisible = false;
-        _docDetailScroller.IsVisible = true;
-        _chatTabButton.IsChecked = false;
-        _todoTabButton.IsChecked = false;
-        _docDetailPanel.Children.Clear();
+        _contentPanel.Children.Clear();
+        _backButton.IsVisible = true;
 
-        _docDetailPanel.Children.Add(new TextBlock
+        _contentPanel.Children.Add(new TextBlock
         {
             Text = "Loading document…",
             FontSize = 12,
@@ -605,8 +330,8 @@ public partial class ShellWindow : Window
         var dbPath = Path.Combine(_vm.Bridge.ArchiveDir, "db.sqlite");
         if (!System.IO.File.Exists(dbPath))
         {
-            _docDetailPanel.Children.Clear();
-            _docDetailPanel.Children.Add(new TextBlock { Text = "No database found.", FontSize = 12 });
+            _contentPanel.Children.Clear();
+            _contentPanel.Children.Add(new TextBlock { Text = "No database found.", FontSize = 12 });
             return;
         }
 
@@ -618,8 +343,8 @@ public partial class ShellWindow : Window
                 var detail = await DocumentBrowser.getDocumentDetail(db, documentId);
                 if (!FSharpOption<DocumentBrowser.DocumentDetail>.get_IsSome(detail))
                 {
-                    _docDetailPanel.Children.Clear();
-                    _docDetailPanel.Children.Add(new TextBlock { Text = "Document not found.", FontSize = 12 });
+                    _contentPanel.Children.Clear();
+                    _contentPanel.Children.Add(new TextBlock { Text = "Document not found.", FontSize = 12 });
                     return;
                 }
 
@@ -631,28 +356,12 @@ public partial class ShellWindow : Window
                 var contentResult = await DocumentFeed.getDocumentContent(
                     db, fs, archiveDir, documentId, DocumentFeed.ContentFormat.Markdown);
 
-                _docDetailPanel.Children.Clear();
+                _contentPanel.Children.Clear();
 
-                // Back to chat button
-                var backBtn = new Button
-                {
-                    Content = "← Back to Chat",
-                    FontSize = 11,
-                    Padding = new Thickness(8, 4),
-                    Margin = new Thickness(0, 0, 0, 8),
-                    Background = Brushes.Transparent,
-                    Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
-                };
-                backBtn.Click += (_, _) =>
-                {
-                    _docDetailScroller.IsVisible = false;
-                    _chatScroller.IsVisible = true;
-                    _chatTabButton.IsChecked = true;
-                };
-                _docDetailPanel.Children.Add(backBtn);
+                _breadcrumbText.Text = $"Library / {doc.Summary.Category} / {doc.Summary.OriginalName}";
 
                 // Header: filename
-                _docDetailPanel.Children.Add(new TextBlock
+                _contentPanel.Children.Add(new TextBlock
                 {
                     Text = doc.Summary.OriginalName,
                     FontSize = 16,
@@ -682,7 +391,7 @@ public partial class ShellWindow : Window
                     metaLines.AppendLine($"Classification: {tierLabel}{confText}");
                 }
 
-                _docDetailPanel.Children.Add(new TextBlock
+                _contentPanel.Children.Add(new TextBlock
                 {
                     Text = metaLines.ToString().TrimEnd(),
                     FontSize = 11,
@@ -709,12 +418,12 @@ public partial class ShellWindow : Window
                         };
                         openBtn.Click += (_, _) =>
                             Process.Start(new ProcessStartInfo(fullPath) { UseShellExecute = true });
-                        _docDetailPanel.Children.Add(openBtn);
+                        _contentPanel.Children.Add(openBtn);
                     }
                 }
 
                 // Separator
-                _docDetailPanel.Children.Add(new Rectangle
+                _contentPanel.Children.Add(new Rectangle
                 {
                     Height = 1,
                     Fill = new SolidColorBrush(Color.Parse("#20000000")),
@@ -725,7 +434,7 @@ public partial class ShellWindow : Window
                 if (contentResult.IsOk)
                 {
                     var markdown = contentResult.ResultValue;
-                    _docDetailPanel.Children.Add(new TextBlock
+                    _contentPanel.Children.Add(new TextBlock
                     {
                         Text = markdown,
                         FontSize = 12,
@@ -736,7 +445,7 @@ public partial class ShellWindow : Window
                 }
                 else
                 {
-                    _docDetailPanel.Children.Add(new TextBlock
+                    _contentPanel.Children.Add(new TextBlock
                     {
                         Text = "No extracted content available.",
                         FontSize = 12,
@@ -752,106 +461,14 @@ public partial class ShellWindow : Window
         }
         catch (Exception ex)
         {
-            _docDetailPanel.Children.Clear();
-            _docDetailPanel.Children.Add(new TextBlock
+            _contentPanel.Children.Clear();
+            _contentPanel.Children.Add(new TextBlock
             {
                 Text = $"Error loading document: {ex.Message}",
                 FontSize = 12,
                 Foreground = new SolidColorBrush(Color.Parse("#CC0000"))
             });
         }
-    }
-
-    private static Border NavigatorThreadRow(Threads.ThreadSummary thread)
-    {
-        var stack = new StackPanel { Spacing = 1 };
-
-        stack.Children.Add(new TextBlock
-        {
-            Text = string.IsNullOrWhiteSpace(thread.Subject) ? "(no subject)" : thread.Subject,
-            FontSize = 12,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            MaxLines = 1
-        });
-
-        stack.Children.Add(new TextBlock
-        {
-            Text = $"{thread.Account} · {thread.MessageCount} msgs · {thread.LastDate}",
-            FontSize = 10,
-            Foreground = new SolidColorBrush(Color.Parse("#888")),
-            TextTrimming = TextTrimming.CharacterEllipsis
-        });
-
-        return new Border
-        {
-            Child = stack,
-            Padding = new Thickness(20, 6, 12, 6),
-            BorderBrush = new SolidColorBrush(Color.Parse("#10000000")),
-            BorderThickness = new Thickness(0, 0, 0, 1)
-        };
-    }
-
-    private static Border NavigatorTimelineRow(FileInfo file)
-    {
-        var category = file.Directory?.Name ?? "";
-        var stack = new StackPanel { Spacing = 1 };
-
-        stack.Children.Add(new TextBlock
-        {
-            Text = $"📄 {file.Name}",
-            FontSize = 12,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            MaxLines = 1
-        });
-
-        stack.Children.Add(new TextBlock
-        {
-            Text = $"{category} · {file.LastWriteTime:HH:mm}",
-            FontSize = 10,
-            Foreground = new SolidColorBrush(Color.Parse("#888"))
-        });
-
-        return new Border
-        {
-            Child = stack,
-            Padding = new Thickness(20, 4, 12, 4)
-        };
-    }
-
-    private static Border NavigatorActivityRow(ActivityLog.LogEntry entry)
-    {
-        var levelColor = entry.Level switch
-        {
-            "Error" => "#F44336",
-            "Warning" => "#FF9800",
-            _ => "#888"
-        };
-
-        var stack = new StackPanel { Spacing = 1 };
-
-        stack.Children.Add(new TextBlock
-        {
-            Text = entry.Message,
-            FontSize = 12,
-            TextWrapping = TextWrapping.Wrap,
-            MaxLines = 2,
-            TextTrimming = TextTrimming.CharacterEllipsis
-        });
-
-        stack.Children.Add(new TextBlock
-        {
-            Text = $"{entry.Timestamp} · {entry.Level}",
-            FontSize = 10,
-            Foreground = new SolidColorBrush(Color.Parse(levelColor))
-        });
-
-        return new Border
-        {
-            Child = stack,
-            Padding = new Thickness(20, 5, 12, 5),
-            BorderBrush = new SolidColorBrush(Color.Parse("#10000000")),
-            BorderThickness = new Thickness(0, 0, 0, 1)
-        };
     }
 
     // ── ViewModel → View sync ──────────────────────────────────────
@@ -871,25 +488,39 @@ public partial class ShellWindow : Window
                 var stats = _vm.IndexStats;
                 if (stats is null) break;
                 var docs = stats.DocumentCount;
-                _indexDocCount.Text = $"{docs:N0} documents";
-                _extractedBar.Maximum = Math.Max(docs, 1);
+                var total = Math.Max(docs, 1);
+                _extractedBar.Maximum = total;
                 _extractedBar.Value = stats.ExtractedCount;
-                _extractedCount.Text = $"{stats.ExtractedCount:N0}/{docs:N0}";
-                _embeddedBar.Maximum = Math.Max(docs, 1);
+                _extractedCountText.Text = $"{stats.ExtractedCount:N0} / {docs:N0}";
+                _embeddedBar.Maximum = total;
                 _embeddedBar.Value = stats.EmbeddedCount;
-                _embeddedCount.Text = $"{stats.EmbeddedCount:N0}/{docs:N0}";
+                _embeddedCountText.Text = $"{stats.EmbeddedCount:N0} / {docs:N0}";
+                _dbSizeText.Text = $"DB: {stats.DatabaseSizeMb:F1} MB";
+                _dbStatusText.Text = $"Database · {docs:N0} docs";
+                break;
+
+            case nameof(ShellViewModel.PipelineCounts):
+                var counts = _vm.PipelineCounts;
+                if (counts is null) break;
+                _intakeCount.Text = counts.IntakeCount > 0 ? $"({counts.IntakeCount})" : "";
+                _intakeExpander.IsVisible = counts.IntakeCount > 0;
+                _extractingCount.Text = counts.ExtractingCount > 0 ? $"({counts.ExtractingCount})" : "";
+                _extractingExpander.IsVisible = counts.ExtractingCount > 0;
+                _classifyingCount.Text = counts.ClassifyingCount > 0 ? $"({counts.ClassifyingCount})" : "";
+                _classifyingExpander.IsVisible = counts.ClassifyingCount > 0;
+                _pipelineStatusText.Text = (counts.IntakeCount + counts.ExtractingCount + counts.ClassifyingCount) > 0
+                    ? "Pipeline processing…" : "Pipeline idle";
                 break;
 
             case nameof(ShellViewModel.Categories):
-                var cats = _vm.Categories;
-                _categoryText.Text = cats.Count == 0 ? "" : string.Join("\n", cats.Select(c => $"{c.Category,-14} {c.Count,4}"));
+                RebuildLibraryPanel();
                 break;
 
             case nameof(ShellViewModel.Accounts):
                 var accts = _vm.Accounts;
                 _accountsText.Text = accts.Count == 0
                     ? "No accounts configured."
-                    : string.Join("\n", accts.Select(a => $"● {a.Label}  {a.MessageCount} emails"));
+                    : string.Join("\n", accts.Select(a => $"📧 {a.Label}  {a.MessageCount} emails"));
                 break;
 
             case nameof(ShellViewModel.LastSyncText):
@@ -898,31 +529,143 @@ public partial class ShellWindow : Window
 
             case nameof(ShellViewModel.StatusBarText):
                 _statusBarText.Text = _vm.StatusBarText;
+                // Also update watch folders
+                var wf = _vm.WatchFolders;
+                _watchFoldersText.Text = wf.Count == 0
+                    ? ""
+                    : string.Join("\n", wf.Select(f => $"📁 {f.Path}  [{string.Join(", ", f.Patterns)}]"));
                 break;
 
             case nameof(ShellViewModel.IsSyncing):
                 _statusDot.Fill = new SolidColorBrush(_vm.IsSyncing ? Color.Parse("#2196F3") : Color.Parse("#4CAF50"));
                 break;
 
-            case nameof(ShellViewModel.IsSearching):
-                break;
-
             case nameof(ShellViewModel.ActionItemCount):
-                _todoTabButton.Content = _vm.ActionItemCount > 0
-                    ? $"📋 Action Items ({_vm.ActionItemCount})"
-                    : "📋 Action Items";
-                if (_todoScroller.IsVisible) RebuildTodoPanel();
+                RebuildActionItemsPanel();
                 break;
         }
+    }
 
-        // Update watch folders display
-        if (propertyName == nameof(ShellViewModel.StatusBarText))
+    private void RebuildLibraryPanel()
+    {
+        _libraryPanel.Children.Clear();
+        var cats = _vm.Categories;
+        long totalDocs = _vm.IndexStats?.DocumentCount ?? 0;
+        _libraryCount.Text = totalDocs > 0 ? $"({totalDocs:N0})" : "";
+
+        if (cats.Count == 0)
         {
-            var wf = _vm.WatchFolders;
-            _watchFoldersText.Text = wf.Count == 0
-                ? "None configured."
-                : string.Join("\n", wf.Select(f => $"{f.Path}  [{string.Join(", ", f.Patterns)}]"));
+            _libraryPanel.Children.Add(new TextBlock
+            {
+                Text = "No documents yet.", FontSize = 11,
+                Foreground = new SolidColorBrush(Color.Parse("#888"))
+            });
+            return;
         }
+
+        foreach (var cat in cats)
+        {
+            var row = new Border
+            {
+                Padding = new Thickness(0, 3),
+                Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
+            };
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var nameText = new TextBlock { Text = cat.Category, FontSize = 11 };
+            Grid.SetColumn(nameText, 0);
+            var countText = new TextBlock
+            {
+                Text = $"({cat.Count})", FontSize = 10,
+                Foreground = new SolidColorBrush(Color.Parse("#888")),
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+            };
+            Grid.SetColumn(countText, 1);
+            grid.Children.Add(nameText);
+            grid.Children.Add(countText);
+            row.Child = grid;
+
+            var category = cat.Category;
+            row.PointerPressed += (_, _) => _ = ShowCategoryDocumentsAsync(category);
+            _libraryPanel.Children.Add(row);
+        }
+    }
+
+    private void RebuildActionItemsPanel()
+    {
+        _actionItemBadge.Text = _vm.ActionItemCount > 0 ? $"({_vm.ActionItemCount})" : "";
+        _actionItemsPanel.Children.Clear();
+
+        if (_vm.ActionItemCount == 0)
+        {
+            _actionItemsPanel.Children.Add(new TextBlock
+            {
+                Text = "No action items.", FontSize = 11,
+                Foreground = new SolidColorBrush(Color.Parse("#888"))
+            });
+            return;
+        }
+
+        foreach (var r in _vm.OverdueReminders)
+        {
+            var row = new TextBlock
+            {
+                Text = $"🔴 {r.Vendor ?? r.FileName ?? "Unknown"} — {r.DueLabel}",
+                FontSize = 11, TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 2),
+                Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
+            };
+            var item = r;
+            row.PointerPressed += (_, _) => ShowReminderDetail(item);
+            _actionItemsPanel.Children.Add(row);
+        }
+
+        foreach (var r in _vm.UpcomingReminders)
+        {
+            var row = new TextBlock
+            {
+                Text = $"🟡 {r.Vendor ?? r.FileName ?? "Unknown"} — {r.DueLabel}",
+                FontSize = 11, TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 2),
+                Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
+            };
+            var item = r;
+            row.PointerPressed += (_, _) => ShowReminderDetail(item);
+            _actionItemsPanel.Children.Add(row);
+        }
+    }
+
+    private void ShowReminderDetail(ReminderItem item)
+    {
+        _contentPanel.Children.Clear();
+        _breadcrumbText.Text = "Action Items";
+        _backButton.IsVisible = true;
+
+        _contentPanel.Children.Add(new TextBlock
+        {
+            Text = item.Vendor ?? item.FileName ?? "Reminder",
+            FontSize = 16, FontWeight = FontWeight.Bold,
+            Margin = new Thickness(0, 0, 0, 8)
+        });
+
+        if (item.Amount is not null)
+            _contentPanel.Children.Add(new TextBlock { Text = $"Amount: {item.Amount}", FontSize = 13 });
+        if (item.DueDate is not null)
+            _contentPanel.Children.Add(new TextBlock { Text = $"Due: {item.DueDate} ({item.DueLabel})", FontSize = 13 });
+
+        var btnPanel = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 12, 0, 0) };
+        var paidBtn = new Button { Content = "✓ Mark Paid", Padding = new Thickness(10, 4) };
+        paidBtn.Click += async (_, _) => { await _vm.MarkPaidAsync(item.Id); ShowWelcome(); };
+        var snoozeBtn = new Button { Content = "⏰ Snooze 7d", Padding = new Thickness(10, 4) };
+        snoozeBtn.Click += async (_, _) => { await _vm.SnoozeAsync(item.Id); ShowWelcome(); };
+        var dismissBtn = new Button { Content = "✕ Dismiss", Padding = new Thickness(10, 4) };
+        dismissBtn.Click += async (_, _) => { await _vm.DismissAsync(item.Id); ShowWelcome(); };
+        btnPanel.Children.Add(paidBtn);
+        btnPanel.Children.Add(snoozeBtn);
+        btnPanel.Children.Add(dismissBtn);
+        _contentPanel.Children.Add(btnPanel);
     }
 
     // ── Chat rendering ─────────────────────────────────────────────
@@ -1097,53 +840,7 @@ public partial class ShellWindow : Window
 
     // ── TODO / Action Items panel ────────────────────────────────
 
-    private void RebuildTodoPanel()
-    {
-        _todoPanel.Children.Clear();
-
-        if (_vm.OverdueReminders.Count == 0 && _vm.UpcomingReminders.Count == 0)
-        {
-            _todoPanel.Children.Add(new TextBlock
-            {
-                Text = "✅ All clear — no bills or reminders",
-                FontSize = 14,
-                Foreground = new SolidColorBrush(Color.Parse("#888")),
-                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
-                Margin = new Thickness(0, 40, 0, 0)
-            });
-            return;
-        }
-
-        if (_vm.OverdueReminders.Count > 0)
-        {
-            _todoPanel.Children.Add(new TextBlock
-            {
-                Text = "⚠ OVERDUE",
-                FontSize = 12,
-                FontWeight = FontWeight.Bold,
-                Foreground = new SolidColorBrush(Color.Parse("#D32F2F")),
-                Margin = new Thickness(0, 0, 0, 4)
-            });
-
-            foreach (var r in _vm.OverdueReminders)
-                _todoPanel.Children.Add(CreateReminderCard(r, "#D32F2F"));
-        }
-
-        if (_vm.UpcomingReminders.Count > 0)
-        {
-            _todoPanel.Children.Add(new TextBlock
-            {
-                Text = "📋 UPCOMING",
-                FontSize = 12,
-                FontWeight = FontWeight.Bold,
-                Foreground = new SolidColorBrush(Color.Parse("#F9A825")),
-                Margin = new Thickness(0, 12, 0, 4)
-            });
-
-            foreach (var r in _vm.UpcomingReminders)
-                _todoPanel.Children.Add(CreateReminderCard(r, "#F9A825"));
-        }
-    }
+    // RebuildTodoPanel removed — action items now in funnel sidebar
 
     private Control CreateReminderCard(ReminderItem item, string accentColor)
     {

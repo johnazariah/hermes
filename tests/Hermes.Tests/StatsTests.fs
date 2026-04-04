@@ -2,6 +2,7 @@ module Hermes.Tests.StatsTests
 
 open System
 open System.IO
+open System.Threading.Tasks
 open Xunit
 open Hermes.Core
 
@@ -179,5 +180,76 @@ let ``Stats_GetAccountStats_NullSyncAt_ReturnsNone`` () =
             Assert.Equal("nodate@gmail.com", stats.[0].Label)
             Assert.True(stats.[0].LastSyncAt.IsNone || stats.[0].LastSyncAt = Some "")
         finally db.dispose ()
+    }
+
+// ─── getPipelineCounts ───────────────────────────────────────────────
+
+let private pipelineStubDb : Algebra.Database =
+    { execScalar = fun _ _ -> Task.FromResult(box 0L)
+      execNonQuery = fun _ _ -> Task.FromResult(0)
+      execReader = fun _ _ -> Task.FromResult([] : Map<string, obj> list)
+      initSchema = fun () -> Task.FromResult(Ok ())
+      tableExists = fun _ -> Task.FromResult(false)
+      schemaVersion = fun () -> Task.FromResult(0)
+      dispose = ignore }
+
+let private customDb (extracting: int) (classifying: int) : Algebra.Database =
+    { pipelineStubDb with
+        execScalar = fun sql _ ->
+            if sql.Contains("extracted_at IS NULL") then
+                Task.FromResult(box (int64 extracting))
+            elif sql.Contains("unsorted") then
+                Task.FromResult(box (int64 classifying))
+            else
+                Task.FromResult(box 0L) }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Stats_getPipelineCounts_EmptyDbAndFs_AllZeroes`` () =
+    task {
+        let fs = TestHelpers.memFs ()
+        let! counts = Stats.getPipelineCounts pipelineStubDb fs.Fs "archive"
+        Assert.Equal(0, counts.IntakeCount)
+        Assert.Equal(0, counts.ExtractingCount)
+        Assert.Equal(0, counts.ClassifyingCount)
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Stats_getPipelineCounts_FilesInIntake_CountsIntake`` () =
+    task {
+        let fs = TestHelpers.memFs ()
+        fs.Dirs.["archive/unclassified"] <- true
+        fs.Put "archive/unclassified/a.pdf" "content"
+        fs.Put "archive/unclassified/b.pdf" "content"
+        fs.Put "archive/unclassified/c.pdf" "content"
+        let! counts = Stats.getPipelineCounts pipelineStubDb fs.Fs "archive"
+        Assert.Equal(3, counts.IntakeCount)
+        Assert.Equal(0, counts.ExtractingCount)
+        Assert.Equal(0, counts.ClassifyingCount)
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Stats_getPipelineCounts_DocumentsNeedingExtraction_CountsExtracting`` () =
+    task {
+        let fs = TestHelpers.memFs ()
+        let db = customDb 5 0
+        let! counts = Stats.getPipelineCounts db fs.Fs "archive"
+        Assert.Equal(0, counts.IntakeCount)
+        Assert.Equal(5, counts.ExtractingCount)
+        Assert.Equal(0, counts.ClassifyingCount)
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Stats_getPipelineCounts_UnsortedExtractedDocs_CountsClassifying`` () =
+    task {
+        let fs = TestHelpers.memFs ()
+        let db = customDb 0 2
+        let! counts = Stats.getPipelineCounts db fs.Fs "archive"
+        Assert.Equal(0, counts.IntakeCount)
+        Assert.Equal(0, counts.ExtractingCount)
+        Assert.Equal(2, counts.ClassifyingCount)
     }
 

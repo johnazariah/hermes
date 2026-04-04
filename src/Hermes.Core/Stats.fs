@@ -103,3 +103,42 @@ module Stats =
                       MessageCount = msgCount
                       LastSyncAt = lastSync })
         }
+
+    /// Pipeline stage counts for the funnel UI.
+    type PipelineCounts =
+        { IntakeCount: int
+          ExtractingCount: int
+          ClassifyingCount: int }
+
+    /// Query pipeline stage counts from the database and filesystem.
+    let getPipelineCounts (db: Algebra.Database) (fs: Algebra.FileSystem) (archiveDir: string) : Task<PipelineCounts> =
+        task {
+            let unclassifiedDir = Path.Combine(archiveDir, "unclassified")
+            let intakeCount =
+                if fs.directoryExists unclassifiedDir then
+                    fs.getFiles unclassifiedDir "*" |> Array.length
+                else 0
+
+            let! extractingObj =
+                db.execScalar "SELECT COUNT(*) FROM documents WHERE extracted_at IS NULL" []
+            let extractingCount =
+                match extractingObj with
+                | :? int64 as i -> int i
+                | _ -> 0
+
+            let! classifyingObj =
+                db.execScalar
+                    """SELECT COUNT(*) FROM documents
+                       WHERE (category = 'unsorted' OR category = 'unclassified')
+                         AND extracted_at IS NOT NULL"""
+                    []
+            let classifyingCount =
+                match classifyingObj with
+                | :? int64 as i -> int i
+                | _ -> 0
+
+            return
+                { IntakeCount = intakeCount
+                  ExtractingCount = extractingCount
+                  ClassifyingCount = classifyingCount }
+        }
