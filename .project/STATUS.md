@@ -7,7 +7,7 @@
 
 | Metric | Value |
 |--------|-------|
-| Tests | 755 passing, 6 skipped |
+| Tests | 775 passing, 6 skipped |
 | Coverage | 86.4% line, 45.7% branch |
 | Tagless-Final | PASS |
 | Branch | `main` |
@@ -31,7 +31,7 @@
 | 3 | Smart Classification Wiring | ✅ Done | [wave-3-classification.md](waves/wave-3-classification.md) |
 | 4 | UI: Pipeline Funnel | ✅ Done | [wave-4-ui.md](waves/wave-4-ui.md) |
 | 5 | Coverage Final | ✅ Done | — |
-| 5.5 | UI Testing (ViewModel + Headless + Smoke) | ⏳ Next | [wave-5.5-ui-testing.md](waves/wave-5.5-ui-testing.md) |
+| 5.5 | UI Testing (ViewModel + Headless + Smoke) | ✅ Done | [wave-5.5-ui-testing.md](waves/wave-5.5-ui-testing.md) |
 | 6 | Pelican Integration | Not started | [wave-6-pelican.md](waves/wave-6-pelican.md) |
 | 7 | Polish | Not started | — |
 
