@@ -1,6 +1,6 @@
 # Wave 4: UI — Pipeline Funnel
 
-> Status: **Not started** (can overlap with Wave 3)  
+> Status: **✅ Done**  
 > Design doc: [15-rich-ui.md](../design/15-rich-ui.md)  
 > Master plan: `.github/prompts/development-plan-apr3.prompt.md` (Wave 4 section)
 
@@ -12,11 +12,11 @@ Replace the current shell layout with the pipeline funnel: Sources → Intake �
 
 | # | Task | Status |
 |---|------|--------|
-| U1 | Funnel layout shell: three columns, stacked Expanders, counts | Not started |
-| U2 | Sources + Library sections with live data | Not started |
-| U3 | Processing stages (Intake/Extracting/Classifying) | Not started |
-| U4 | Index + Action Items + Services sections | Not started |
-| U5 | Cross-navigation + chat integration | Not started |
+| U1 | Funnel layout shell: three columns, stacked Expanders, counts | ✅ Done |
+| U2 | Sources + Library sections with live data | ✅ Done |
+| U3 | Processing stages (Intake/Extracting/Classifying) | ✅ Done |
+| U4 | Index + Action Items + Services sections | ✅ Done |
+| U5 | Cross-navigation + chat integration | ✅ Done |
 
 ## Log
 

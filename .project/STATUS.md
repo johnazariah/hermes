@@ -7,7 +7,7 @@
 
 | Metric | Value |
 |--------|-------|
-| Tests | 733 passing, 6 skipped |
+| Tests | 737 passing, 6 skipped |
 | Coverage | 85.6% line |
 | Tagless-Final | PASS |
 | Branch | `main` |
@@ -17,7 +17,7 @@
 
 ## Active Wave
 
-**Wave 4: UI Pipeline Funnel** → [wave-4-ui.md](waves/wave-4-ui.md)
+**Wave 5: Coverage Final** → TBD
 
 ## Wave Roadmap
 
@@ -29,7 +29,7 @@
 | 1.5 | Osprey Parity Validation | ✅ Done | [wave-1.5-osprey-parity.md](waves/wave-1.5-osprey-parity.md) |
 | 2 | Wire Structured Extraction | ✅ Done | [wave-2-extraction.md](waves/wave-2-extraction.md) |
 | 3 | Smart Classification Wiring | ✅ Done | [wave-3-classification.md](waves/wave-3-classification.md) |
-| 4 | UI: Pipeline Funnel | Not started | [wave-4-ui.md](waves/wave-4-ui.md) |
+| 4 | UI: Pipeline Funnel | ✅ Done | [wave-4-ui.md](waves/wave-4-ui.md) |
 | 5 | Coverage Final | Not started | — |
 | 6 | Pelican Integration | Not started | [wave-6-pelican.md](waves/wave-6-pelican.md) |
 | 7 | Polish | Not started | — |
