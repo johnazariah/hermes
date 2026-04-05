@@ -1269,6 +1269,95 @@ public partial class ShellWindow : Window
         };
         root.Children.Add(addFolderBtn);
 
+        // ── Section: Pipeline Operations ──
+        root.Children.Add(SettingsSectionHeader("Pipeline Operations"));
+
+        root.Children.Add(new TextBlock { Text = "Extraction batch size:", FontSize = 12 });
+        var extractBatchBox = new NumericUpDown
+        {
+            Value = 500,
+            Minimum = 10,
+            Maximum = 5000,
+            Increment = 50,
+            Margin = new Thickness(0, 2, 0, 4)
+        };
+        root.Children.Add(extractBatchBox);
+
+        var extractNowBtn = new Button
+        {
+            Content = "▶ Run Extraction Now",
+            FontSize = 12,
+            Margin = new Thickness(0, 2, 0, 8)
+        };
+        var extractStatusLbl = new TextBlock { Text = "", FontSize = 11, Foreground = new SolidColorBrush(Color.Parse("#888")), TextWrapping = TextWrapping.Wrap };
+        extractNowBtn.Click += async (_, _) =>
+        {
+            extractNowBtn.IsEnabled = false;
+            extractNowBtn.Content = "⏳ Extracting...";
+            extractStatusLbl.Text = "";
+            try
+            {
+                var count = await _vm.Bridge.RunExtractionBatchAsync((int)(extractBatchBox.Value ?? 500));
+                extractStatusLbl.Text = $"✅ Extracted {count} document(s)";
+                extractStatusLbl.Foreground = new SolidColorBrush(Color.Parse("#4CAF50"));
+            }
+            catch (Exception ex)
+            {
+                extractStatusLbl.Text = $"❌ {ex.Message}";
+                extractStatusLbl.Foreground = new SolidColorBrush(Color.Parse("#F44336"));
+            }
+            finally
+            {
+                extractNowBtn.IsEnabled = true;
+                extractNowBtn.Content = "▶ Run Extraction Now";
+            }
+        };
+        root.Children.Add(extractNowBtn);
+        root.Children.Add(extractStatusLbl);
+
+        root.Children.Add(new TextBlock { Text = "Reclassification batch size:", FontSize = 12 });
+        var reclassifyBatchBox = new NumericUpDown
+        {
+            Value = 200,
+            Minimum = 10,
+            Maximum = 5000,
+            Increment = 50,
+            Margin = new Thickness(0, 2, 0, 4)
+        };
+        root.Children.Add(reclassifyBatchBox);
+
+        var reclassifyNowBtn = new Button
+        {
+            Content = "▶ Reclassify Unsorted",
+            FontSize = 12,
+            Margin = new Thickness(0, 2, 0, 8)
+        };
+        var reclassifyStatusLbl = new TextBlock { Text = "", FontSize = 11, Foreground = new SolidColorBrush(Color.Parse("#888")), TextWrapping = TextWrapping.Wrap };
+        reclassifyNowBtn.Click += async (_, _) =>
+        {
+            reclassifyNowBtn.IsEnabled = false;
+            reclassifyNowBtn.Content = "⏳ Reclassifying...";
+            reclassifyStatusLbl.Text = "";
+            try
+            {
+                var (reclassified, remaining) = await _vm.Bridge.RunReclassifyBatchAsync((int)(reclassifyBatchBox.Value ?? 200));
+                reclassifyStatusLbl.Text = $"✅ Reclassified {reclassified}, {remaining} remaining";
+                reclassifyStatusLbl.Foreground = new SolidColorBrush(Color.Parse("#4CAF50"));
+            }
+            catch (Exception ex)
+            {
+                reclassifyStatusLbl.Text = $"❌ {ex.Message}";
+                reclassifyStatusLbl.Foreground = new SolidColorBrush(Color.Parse("#F44336"));
+            }
+            finally
+            {
+                reclassifyNowBtn.IsEnabled = true;
+                reclassifyNowBtn.Content = "▶ Reclassify Unsorted";
+            }
+        };
+        root.Children.Add(reclassifyNowBtn);
+        root.Children.Add(reclassifyStatusLbl);
+
         // ── Save ──
         root.Children.Add(new Border
         {

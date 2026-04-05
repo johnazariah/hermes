@@ -334,6 +334,59 @@ public sealed class HermesServiceBridge
         if (result.IsOk) _config = result.ResultValue;
     }
 
+    /// <summary>Run extraction on a batch of unextracted documents. Returns count extracted.</summary>
+    public async Task<int> RunExtractionBatchAsync(int batchSize)
+    {
+        if (_config is null) return 0;
+        var dbPath = Path.Combine(_config.ArchiveDir, "db.sqlite");
+        if (!File.Exists(dbPath)) return 0;
+
+        var fs = Interpreters.realFileSystem;
+        var logger = Logging.configure(ConfigDir, Serilog.Events.LogEventLevel.Information);
+        var clock = Interpreters.systemClock;
+        var db = Database.fromPath(dbPath);
+        var extractor = new Algebra.TextExtractor(
+            extractPdf: FuncConvert.FromFunc<byte[], Task<FSharpResult<string, string>>>(
+                bytes => Task.FromResult(Extraction.extractPdfText(bytes))),
+            extractImage: FuncConvert.FromFunc<byte[], Task<FSharpResult<string, string>>>(
+                _ => Task.FromResult(FSharpResult<string, string>.NewError("OCR not available"))));
+
+        try
+        {
+            var result = await Extraction.extractBatch(fs, db, logger, clock, extractor, _config.ArchiveDir,
+                FSharpOption<string>.None, false, batchSize);
+            return result.Item1;
+        }
+        finally
+        {
+            db.dispose.Invoke(null!);
+        }
+    }
+
+    /// <summary>Run reclassification on unsorted documents. Returns (reclassified, remaining).</summary>
+    public async Task<(int reclassified, int remaining)> RunReclassifyBatchAsync(int batchSize)
+    {
+        if (_config is null) return (0, 0);
+        var dbPath = Path.Combine(_config.ArchiveDir, "db.sqlite");
+        if (!File.Exists(dbPath)) return (0, 0);
+
+        var fs = Interpreters.realFileSystem;
+        var db = Database.fromPath(dbPath);
+
+        try
+        {
+            var rulesPath = Path.Combine(ConfigDir, "rules.yaml");
+            var yaml = File.Exists(rulesPath) ? await File.ReadAllTextAsync(rulesPath) : "";
+            var contentRules = Rules.parseContentRules(yaml);
+            var result = await Classifier.reclassifyUnsortedBatch(db, fs, contentRules, _config.ArchiveDir, batchSize);
+            return (result.Item1, result.Item2);
+        }
+        finally
+        {
+            db.dispose.Invoke(null!);
+        }
+    }
+
     public string StatusText
     {
         get
