@@ -3,17 +3,17 @@
 > **Canonical status hub.** Tiny by design — points to wave files for detail.  
 > Updated after each wave completes. Agents: read this first, then the active wave file.
 
-## Current State (April 3, 2026)
+## Current State (April 6, 2026)
 
 | Metric | Value |
 |--------|-------|
-| Tests | 811 passing, 6 skipped |
-| Coverage | 86.4% line, 45.7% branch |
+| Tests | 817 passing, 6 skipped (3 projects) |
+| Coverage | 86.4% line |
 | Tagless-Final | PASS |
 | Branch | `main` |
 | MCP tools | 13 |
 | Documents indexed | 2,163+ |
-| Design docs | 18 |
+| Design docs | 14 |
 
 ## Active Wave
 

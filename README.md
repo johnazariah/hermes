@@ -2,8 +2,8 @@
 
 [![CI](https://github.com/johnazariah/hermes/actions/workflows/ci.yml/badge.svg)](https://github.com/johnazariah/hermes/actions/workflows/ci.yml)
 [![.NET 9](https://img.shields.io/badge/.NET-9.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
-[![Tests](https://img.shields.io/badge/tests-733_passing-brightgreen)](#testing)
-[![Coverage](https://img.shields.io/badge/coverage-85%25_line-brightgreen)](#testing)
+[![Tests](https://img.shields.io/badge/tests-817_passing-brightgreen)](#testing)
+[![Coverage](https://img.shields.io/badge/coverage-86%25_line-brightgreen)](#testing)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Lines of Code](https://img.shields.io/badge/lines-~15k-blue)](#architecture)
 
@@ -62,8 +62,8 @@ dotnet test --collect:"XPlat Code Coverage"             # with coverage
 
 | Metric | Current | Target |
 |--------|---------|--------|
-| Tests | 733 | Growing |
-| Line coverage | 85% | **85%** |
+| Tests | 817 (3 projects) | Growing |
+| Line coverage | 86% | **85%** |
 | Branch coverage | ~45% | **60%** |
 
 Coverage target is enforced in CI. New code must maintain or improve coverage.
