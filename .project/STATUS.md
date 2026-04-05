@@ -7,7 +7,7 @@
 
 | Metric | Value |
 |--------|-------|
-| Tests | 775 passing, 6 skipped |
+| Tests | 795 passing, 6 skipped |
 | Coverage | 86.4% line, 45.7% branch |
 | Tagless-Final | PASS |
 | Branch | `main` |
