@@ -3,12 +3,15 @@ using System.IO;
 using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Controls.Shapes;
 using Avalonia.Headless.XUnit;
 using Hermes.App;
 using Hermes.App.Views;
 using Hermes.Core;
 using Microsoft.FSharp.Collections;
 using Xunit;
+
+using Path = System.IO.Path;
 
 namespace Hermes.Tests.UI;
 
@@ -154,5 +157,279 @@ public sealed class HeadlessTests
         Assert.NotNull(window.FindControl<Button>("BackButton"));
         Assert.NotNull(window.FindControl<TextBlock>("BreadcrumbText"));
         Assert.NotNull(window.FindControl<Button>("SyncNowButton"));
+    }
+
+    // ── HL-9: Source section controls ──────────────────────────────
+
+    [AvaloniaFact]
+    public void ShellWindow_HasSourceControls()
+    {
+        var window = new ShellWindow(CreateFakeBridge());
+        window.Show();
+
+        Assert.NotNull(window.FindControl<Button>("AddAccountButton"));
+        Assert.NotNull(window.FindControl<Button>("AddWatchFolderButton"));
+        Assert.NotNull(window.FindControl<TextBlock>("AccountsText"));
+        Assert.NotNull(window.FindControl<TextBlock>("WatchFoldersText"));
+    }
+
+    // ── HL-10: Index section controls ──────────────────────────────
+
+    [AvaloniaFact]
+    public void ShellWindow_HasIndexControls()
+    {
+        var window = new ShellWindow(CreateFakeBridge());
+        window.Show();
+
+        Assert.NotNull(window.FindControl<ProgressBar>("ExtractedBar"));
+        Assert.NotNull(window.FindControl<TextBlock>("ExtractedCountText"));
+        Assert.NotNull(window.FindControl<ProgressBar>("EmbeddedBar"));
+        Assert.NotNull(window.FindControl<TextBlock>("EmbeddedCountText"));
+        Assert.NotNull(window.FindControl<TextBlock>("DbSizeText"));
+    }
+
+    // ── HL-11: Service indicator controls ──────────────────────────
+
+    [AvaloniaFact]
+    public void ShellWindow_HasServiceIndicators()
+    {
+        var window = new ShellWindow(CreateFakeBridge());
+        window.Show();
+
+        Assert.NotNull(window.FindControl<Ellipse>("OllamaDot"));
+        Assert.NotNull(window.FindControl<TextBlock>("OllamaStatusText"));
+        Assert.NotNull(window.FindControl<TextBlock>("OllamaModelsText"));
+        Assert.NotNull(window.FindControl<Ellipse>("DbDot"));
+        Assert.NotNull(window.FindControl<TextBlock>("DbStatusText"));
+        Assert.NotNull(window.FindControl<Ellipse>("PipelineDot"));
+        Assert.NotNull(window.FindControl<TextBlock>("PipelineStatusText"));
+        Assert.NotNull(window.FindControl<TextBlock>("LastSyncText"));
+    }
+
+    // ── HL-12: Pipeline count labels ───────────────────────────────
+
+    [AvaloniaFact]
+    public void ShellWindow_HasPipelineCounts()
+    {
+        var window = new ShellWindow(CreateFakeBridge());
+        window.Show();
+
+        Assert.NotNull(window.FindControl<TextBlock>("IntakeCount"));
+        Assert.NotNull(window.FindControl<TextBlock>("ExtractingCount"));
+        Assert.NotNull(window.FindControl<TextBlock>("ClassifyingCount"));
+    }
+
+    // ── HL-13: Pipeline detail panels ──────────────────────────────
+
+    [AvaloniaFact]
+    public void ShellWindow_HasPipelinePanels()
+    {
+        var window = new ShellWindow(CreateFakeBridge());
+        window.Show();
+
+        Assert.NotNull(window.FindControl<StackPanel>("IntakePanel"));
+        Assert.NotNull(window.FindControl<StackPanel>("ExtractingPanel"));
+        Assert.NotNull(window.FindControl<StackPanel>("ClassifyingPanel"));
+    }
+
+    // ── HL-14: Library section controls ────────────────────────────
+
+    [AvaloniaFact]
+    public void ShellWindow_HasLibraryControls()
+    {
+        var window = new ShellWindow(CreateFakeBridge());
+        window.Show();
+
+        Assert.NotNull(window.FindControl<StackPanel>("LibraryPanel"));
+        Assert.NotNull(window.FindControl<TextBlock>("LibraryCount"));
+    }
+
+    // ── HL-15: Action items section ────────────────────────────────
+
+    [AvaloniaFact]
+    public void ShellWindow_HasActionItemControls()
+    {
+        var window = new ShellWindow(CreateFakeBridge());
+        window.Show();
+
+        Assert.NotNull(window.FindControl<TextBlock>("ActionItemBadge"));
+        Assert.NotNull(window.FindControl<StackPanel>("ActionItemsPanel"));
+    }
+
+    // ── HL-16: Content panel ───────────────────────────────────────
+
+    [AvaloniaFact]
+    public void ShellWindow_HasContentPanel()
+    {
+        var window = new ShellWindow(CreateFakeBridge());
+        window.Show();
+
+        Assert.NotNull(window.FindControl<StackPanel>("ContentPanel"));
+    }
+
+    // ── HL-17: Chat panel and send button ──────────────────────────
+
+    [AvaloniaFact]
+    public void ShellWindow_HasChatPanelAndSend()
+    {
+        var window = new ShellWindow(CreateFakeBridge());
+        window.Show();
+
+        Assert.NotNull(window.FindControl<StackPanel>("ChatPanel"));
+        Assert.NotNull(window.FindControl<Button>("SendButton"));
+    }
+
+    // ── HL-18: Status dot in status bar ────────────────────────────
+
+    [AvaloniaFact]
+    public void ShellWindow_HasStatusDot()
+    {
+        var window = new ShellWindow(CreateFakeBridge());
+        window.Show();
+
+        Assert.NotNull(window.FindControl<Ellipse>("StatusDot"));
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SetupWizard tests
+    // ═══════════════════════════════════════════════════════════════
+
+    // ── SW-1: Starts on welcome page ───────────────────────────────
+
+    [AvaloniaFact]
+    public void SetupWizard_StartsOnWelcomePage()
+    {
+        var wizard = new SetupWizard(CreateFakeBridge());
+        wizard.Show();
+
+        var welcome = wizard.FindControl<StackPanel>("PageWelcome");
+        Assert.NotNull(welcome);
+        Assert.True(welcome!.IsVisible);
+
+        Assert.False(wizard.FindControl<StackPanel>("PageArchive")!.IsVisible);
+        Assert.False(wizard.FindControl<StackPanel>("PageAccounts")!.IsVisible);
+        Assert.False(wizard.FindControl<StackPanel>("PageWatch")!.IsVisible);
+        Assert.False(wizard.FindControl<StackPanel>("PageOllama")!.IsVisible);
+        Assert.False(wizard.FindControl<StackPanel>("PageDone")!.IsVisible);
+    }
+
+    // ── SW-2: Welcome page controls ────────────────────────────────
+
+    [AvaloniaFact]
+    public void SetupWizard_WelcomePage_HasControls()
+    {
+        var wizard = new SetupWizard(CreateFakeBridge());
+        wizard.Show();
+
+        Assert.NotNull(wizard.FindControl<Button>("WelcomeNext"));
+    }
+
+    // ── SW-3: Archive page controls ────────────────────────────────
+
+    [AvaloniaFact]
+    public void SetupWizard_ArchivePage_HasControls()
+    {
+        var wizard = new SetupWizard(CreateFakeBridge());
+        wizard.Show();
+
+        Assert.NotNull(wizard.FindControl<TextBox>("ArchivePathBox"));
+        Assert.NotNull(wizard.FindControl<Button>("BrowseArchive"));
+        Assert.NotNull(wizard.FindControl<Button>("ArchiveBack"));
+        Assert.NotNull(wizard.FindControl<Button>("ArchiveNext"));
+    }
+
+    // ── SW-4: Accounts page controls ───────────────────────────────
+
+    [AvaloniaFact]
+    public void SetupWizard_AccountsPage_HasControls()
+    {
+        var wizard = new SetupWizard(CreateFakeBridge());
+        wizard.Show();
+
+        Assert.NotNull(wizard.FindControl<Button>("AddGmailButton"));
+        Assert.NotNull(wizard.FindControl<TextBlock>("AccountStatus"));
+        Assert.NotNull(wizard.FindControl<Button>("AccountsBack"));
+        Assert.NotNull(wizard.FindControl<Button>("AccountsNext"));
+    }
+
+    // ── SW-5: Watch folders page controls ──────────────────────────
+
+    [AvaloniaFact]
+    public void SetupWizard_WatchPage_HasControls()
+    {
+        var wizard = new SetupWizard(CreateFakeBridge());
+        wizard.Show();
+
+        Assert.NotNull(wizard.FindControl<CheckBox>("WatchDownloads"));
+        Assert.NotNull(wizard.FindControl<CheckBox>("WatchDesktop"));
+        Assert.NotNull(wizard.FindControl<Button>("WatchBack"));
+        Assert.NotNull(wizard.FindControl<Button>("WatchNext"));
+    }
+
+    // ── SW-6: Ollama page controls ─────────────────────────────────
+
+    [AvaloniaFact]
+    public void SetupWizard_OllamaPage_HasControls()
+    {
+        var wizard = new SetupWizard(CreateFakeBridge());
+        wizard.Show();
+
+        Assert.NotNull(wizard.FindControl<TextBlock>("OllamaDetectText"));
+        Assert.NotNull(wizard.FindControl<CheckBox>("InstallOllama"));
+        Assert.NotNull(wizard.FindControl<TextBlock>("OllamaProgress"));
+        Assert.NotNull(wizard.FindControl<Button>("OllamaBack"));
+        Assert.NotNull(wizard.FindControl<Button>("OllamaNext"));
+    }
+
+    // ── SW-7: Done page controls ───────────────────────────────────
+
+    [AvaloniaFact]
+    public void SetupWizard_DonePage_HasControls()
+    {
+        var wizard = new SetupWizard(CreateFakeBridge());
+        wizard.Show();
+
+        Assert.NotNull(wizard.FindControl<TextBlock>("DoneSummary"));
+        Assert.NotNull(wizard.FindControl<Button>("DoneButton"));
+    }
+
+    // ── SW-8: Archive path shows default ───────────────────────────
+
+    [AvaloniaFact]
+    public void SetupWizard_ArchivePathBox_ShowsDefaultPath()
+    {
+        var bridge = CreateFakeBridge();
+        var wizard = new SetupWizard(bridge);
+        wizard.Show();
+
+        var box = wizard.FindControl<TextBox>("ArchivePathBox");
+        Assert.NotNull(box);
+        Assert.Equal(bridge.ArchiveDir, box!.Text);
+    }
+
+    // ── SW-9: WatchDownloads defaults checked ──────────────────────
+
+    [AvaloniaFact]
+    public void SetupWizard_WatchDownloads_DefaultChecked()
+    {
+        var wizard = new SetupWizard(CreateFakeBridge());
+        wizard.Show();
+
+        var cb = wizard.FindControl<CheckBox>("WatchDownloads");
+        Assert.NotNull(cb);
+        Assert.True(cb!.IsChecked ?? false);
+    }
+
+    // ── SW-10: WatchDesktop defaults unchecked ─────────────────────
+
+    [AvaloniaFact]
+    public void SetupWizard_WatchDesktop_DefaultUnchecked()
+    {
+        var wizard = new SetupWizard(CreateFakeBridge());
+        wizard.Show();
+
+        var cb = wizard.FindControl<CheckBox>("WatchDesktop");
+        Assert.NotNull(cb);
+        Assert.False(cb!.IsChecked ?? true);
     }
 }

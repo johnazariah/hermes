@@ -545,4 +545,154 @@ public sealed class ViewModelTests
         }
         finally { Cleanup(tempDir); }
     }
+
+    // ── VM-13: NavigateTo pushes items ─────────────────────────────
+
+    [Fact]
+    public void NavigateTo_PushesItemAndCanGoBack()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var bridge = CreateBridge(tempDir);
+            var vm = new ShellViewModel(bridge);
+            try
+            {
+                Assert.Null(vm.CurrentItem);
+                Assert.False(vm.CanNavigateBack);
+
+                var item1 = new ShellViewModel.NavigationItem("category", 0, "invoices");
+                vm.NavigateTo(item1);
+
+                Assert.Equal(item1, vm.CurrentItem);
+                Assert.False(vm.CanNavigateBack); // only one item
+
+                var item2 = new ShellViewModel.NavigationItem("document", 42, "receipt.pdf");
+                vm.NavigateTo(item2);
+
+                Assert.Equal(item2, vm.CurrentItem);
+                Assert.True(vm.CanNavigateBack);
+                Assert.Equal(2, vm.BreadcrumbItems.Count);
+            }
+            finally { vm.Dispose(); }
+        }
+        finally { Cleanup(tempDir); }
+    }
+
+    // ── VM-14: NavigateBack restores previous ──────────────────────
+
+    [Fact]
+    public void NavigateBack_RestoresPreviousItem()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var bridge = CreateBridge(tempDir);
+            var vm = new ShellViewModel(bridge);
+            try
+            {
+                var item1 = new ShellViewModel.NavigationItem("category", 0, "invoices");
+                var item2 = new ShellViewModel.NavigationItem("document", 42, "receipt.pdf");
+                vm.NavigateTo(item1);
+                vm.NavigateTo(item2);
+
+                vm.NavigateBack();
+
+                Assert.Equal(item1, vm.CurrentItem);
+                Assert.False(vm.CanNavigateBack);
+            }
+            finally { vm.Dispose(); }
+        }
+        finally { Cleanup(tempDir); }
+    }
+
+    // ── VM-15: NavigateBack at root is no-op ───────────────────────
+
+    [Fact]
+    public void NavigateBack_AtRoot_IsNoOp()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var bridge = CreateBridge(tempDir);
+            var vm = new ShellViewModel(bridge);
+            try
+            {
+                var item = new ShellViewModel.NavigationItem("category", 0, "invoices");
+                vm.NavigateTo(item);
+
+                vm.NavigateBack(); // only 1 item, should be no-op
+                Assert.Equal(item, vm.CurrentItem);
+            }
+            finally { vm.Dispose(); }
+        }
+        finally { Cleanup(tempDir); }
+    }
+
+    // ── VM-16: AddWelcomeMessage adds to Messages ──────────────────
+
+    [Fact]
+    public void AddWelcomeMessage_AddsMessageToCollection()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var bridge = CreateBridge(tempDir);
+            var vm = new ShellViewModel(bridge);
+            try
+            {
+                Assert.Empty(vm.Messages);
+                vm.AddWelcomeMessage();
+                Assert.Single(vm.Messages);
+                Assert.Equal("Hermes", vm.Messages[0].Speaker);
+                Assert.False(vm.Messages[0].IsUser);
+            }
+            finally { vm.Dispose(); }
+        }
+        finally { Cleanup(tempDir); }
+    }
+
+    // ── VM-17: AiEnabled can be set ────────────────────────────────
+
+    [Fact]
+    public void AiEnabled_DefaultsFalse_CanBeSet()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var bridge = CreateBridge(tempDir);
+            var vm = new ShellViewModel(bridge);
+            try
+            {
+                Assert.False(vm.AiEnabled);
+                vm.AiEnabled = true;
+                Assert.True(vm.AiEnabled);
+                vm.AiEnabled = false;
+                Assert.False(vm.AiEnabled);
+            }
+            finally { vm.Dispose(); }
+        }
+        finally { Cleanup(tempDir); }
+    }
+
+    // ── VM-19: ActiveMode can be changed ───────────────────────────
+
+    [Fact]
+    public void ActiveMode_DefaultsToActionItems_CanChange()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var bridge = CreateBridge(tempDir);
+            var vm = new ShellViewModel(bridge);
+            try
+            {
+                Assert.Equal(NavigatorMode.ActionItems, vm.ActiveMode);
+                vm.ActiveMode = NavigatorMode.Documents;
+                Assert.Equal(NavigatorMode.Documents, vm.ActiveMode);
+            }
+            finally { vm.Dispose(); }
+        }
+        finally { Cleanup(tempDir); }
+    }
 }
