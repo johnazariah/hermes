@@ -1,10 +1,13 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Shapes;
 using Avalonia.Headless.XUnit;
+using Avalonia.VisualTree;
 using Hermes.App;
 using Hermes.App.Views;
 using Hermes.Core;
@@ -431,5 +434,297 @@ public sealed class HeadlessTests
         var cb = wizard.FindControl<CheckBox>("WatchDesktop");
         Assert.NotNull(cb);
         Assert.False(cb!.IsChecked ?? true);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Visual tree helpers for dynamic dialogs
+    // ═══════════════════════════════════════════════════════════════
+
+    private static IEnumerable<T> FindAll<T>(Avalonia.Visual parent) where T : class
+    {
+        foreach (var child in parent.GetVisualChildren())
+        {
+            if (child is T match) yield return match;
+            if (child is Avalonia.Visual v)
+                foreach (var descendant in FindAll<T>(v))
+                    yield return descendant;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Settings dialog tests
+    // ═══════════════════════════════════════════════════════════════
+
+    // ── DLG-1: Settings dialog has all sections ────────────────────
+
+    [AvaloniaFact]
+    public void SettingsDialog_HasAllSections()
+    {
+        var window = new ShellWindow(CreateFakeBridge());
+        window.Show();
+
+        var dialog = window.BuildSettingsDialog();
+        Assert.NotNull(dialog);
+        dialog!.Show();
+
+        var textBlocks = FindAll<TextBlock>(dialog).ToList();
+        var sectionHeaders = textBlocks.Where(t => t.FontWeight == Avalonia.Media.FontWeight.Bold).Select(t => t.Text).ToList();
+
+        Assert.Contains("⚙ Settings", sectionHeaders);
+        Assert.Contains("General", sectionHeaders);
+        Assert.Contains("AI / Chat", sectionHeaders);
+        Assert.Contains("Accounts", sectionHeaders);
+        Assert.Contains("Watch Folders", sectionHeaders);
+    }
+
+    // ── DLG-2: Settings dialog has sync interval ───────────────────
+
+    [AvaloniaFact]
+    public void SettingsDialog_HasSyncIntervalControl()
+    {
+        var window = new ShellWindow(CreateFakeBridge());
+        window.Show();
+
+        var dialog = window.BuildSettingsDialog()!;
+        dialog.Show();
+
+        var numericUpDowns = FindAll<NumericUpDown>(dialog).ToList();
+        Assert.True(numericUpDowns.Count >= 2, $"Expected >= 2 NumericUpDown controls, got {numericUpDowns.Count}");
+
+        // First is sync interval (value should match config = 15)
+        Assert.Equal(15m, numericUpDowns[0].Value);
+    }
+
+    // ── DLG-3: Settings dialog has attachment size ──────────────────
+
+    [AvaloniaFact]
+    public void SettingsDialog_HasMinAttachmentSizeControl()
+    {
+        var window = new ShellWindow(CreateFakeBridge());
+        window.Show();
+
+        var dialog = window.BuildSettingsDialog()!;
+        dialog.Show();
+
+        var numericUpDowns = FindAll<NumericUpDown>(dialog).ToList();
+        // Second is attachment size (20480 / 1024 = 20)
+        Assert.Equal(20m, numericUpDowns[1].Value);
+    }
+
+    // ── DLG-4: Settings dialog has chat provider radios ────────────
+
+    [AvaloniaFact]
+    public void SettingsDialog_HasChatProviderRadios()
+    {
+        var window = new ShellWindow(CreateFakeBridge());
+        window.Show();
+
+        var dialog = window.BuildSettingsDialog()!;
+        dialog.Show();
+
+        var radios = FindAll<RadioButton>(dialog).ToList();
+        Assert.Equal(2, radios.Count);
+        Assert.Equal("Ollama", radios[0].Content?.ToString());
+        Assert.Equal("Azure OpenAI", radios[1].Content?.ToString());
+        // Config uses Ollama, so Ollama should be checked
+        Assert.True(radios[0].IsChecked ?? false);
+    }
+
+    // ── DLG-5: Settings dialog has Ollama fields ───────────────────
+
+    [AvaloniaFact]
+    public void SettingsDialog_HasOllamaFields()
+    {
+        var window = new ShellWindow(CreateFakeBridge());
+        window.Show();
+
+        var dialog = window.BuildSettingsDialog()!;
+        dialog.Show();
+
+        var textBoxes = FindAll<TextBox>(dialog).ToList();
+        // Ollama URL and Model should be present
+        Assert.Contains(textBoxes, tb => tb.Text == "http://localhost:11434");
+        Assert.Contains(textBoxes, tb => tb.Text == "llama3.2");
+    }
+
+    // ── DLG-6: Settings dialog has Save button ─────────────────────
+
+    [AvaloniaFact]
+    public void SettingsDialog_HasSaveButton()
+    {
+        var window = new ShellWindow(CreateFakeBridge());
+        window.Show();
+
+        var dialog = window.BuildSettingsDialog()!;
+        dialog.Show();
+
+        var buttons = FindAll<Button>(dialog).ToList();
+        Assert.Contains(buttons, b => b.Content?.ToString() == "Save");
+    }
+
+    // ── DLG-7: Settings dialog has no-accounts message ─────────────
+
+    [AvaloniaFact]
+    public void SettingsDialog_ShowsNoAccountsMessage()
+    {
+        var window = new ShellWindow(CreateFakeBridge());
+        window.Show();
+
+        var dialog = window.BuildSettingsDialog()!;
+        dialog.Show();
+
+        var texts = FindAll<TextBlock>(dialog).ToList();
+        Assert.Contains(texts, t => t.Text == "No accounts configured.");
+    }
+
+    // ── DLG-8: Settings dialog has add-account button ──────────────
+
+    [AvaloniaFact]
+    public void SettingsDialog_HasAddAccountButton()
+    {
+        var window = new ShellWindow(CreateFakeBridge());
+        window.Show();
+
+        var dialog = window.BuildSettingsDialog()!;
+        dialog.Show();
+
+        var buttons = FindAll<Button>(dialog).ToList();
+        Assert.Contains(buttons, b => b.Content?.ToString() == "+ Add Gmail Account");
+    }
+
+    // ── DLG-9: Settings dialog has no-folders message ──────────────
+
+    [AvaloniaFact]
+    public void SettingsDialog_ShowsNoWatchFoldersMessage()
+    {
+        var window = new ShellWindow(CreateFakeBridge());
+        window.Show();
+
+        var dialog = window.BuildSettingsDialog()!;
+        dialog.Show();
+
+        var texts = FindAll<TextBlock>(dialog).ToList();
+        Assert.Contains(texts, t => t.Text == "No watch folders configured.");
+    }
+
+    // ── DLG-10: Settings dialog has add-folder button ──────────────
+
+    [AvaloniaFact]
+    public void SettingsDialog_HasAddFolderButton()
+    {
+        var window = new ShellWindow(CreateFakeBridge());
+        window.Show();
+
+        var dialog = window.BuildSettingsDialog()!;
+        dialog.Show();
+
+        var buttons = FindAll<Button>(dialog).ToList();
+        Assert.Contains(buttons, b => b.Content?.ToString() == "+ Add Folder");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Confirm dialog tests
+    // ═══════════════════════════════════════════════════════════════
+
+    // ── DLG-11: Confirm dialog has message and buttons ─────────────
+
+    [AvaloniaFact]
+    public void ConfirmDialog_HasMessageAndButtons()
+    {
+        var (dialog, _) = ShellWindow.BuildConfirmDialog("Remove Account", "Are you sure?");
+        dialog.Show();
+
+        var texts = FindAll<TextBlock>(dialog).ToList();
+        Assert.Contains(texts, t => t.Text == "Are you sure?");
+
+        var buttons = FindAll<Button>(dialog).ToList();
+        Assert.Contains(buttons, b => b.Content?.ToString() == "Remove");
+        Assert.Contains(buttons, b => b.Content?.ToString() == "Cancel");
+    }
+
+    // ── DLG-12: Confirm dialog uses provided title ─────────────────
+
+    [AvaloniaFact]
+    public void ConfirmDialog_UsesProvidedTitle()
+    {
+        var (dialog, _) = ShellWindow.BuildConfirmDialog("Delete Everything", "Really?");
+        dialog.Show();
+
+        Assert.Equal("Delete Everything", dialog.Title);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Add Account dialog tests
+    // ═══════════════════════════════════════════════════════════════
+
+    // ── DLG-13: Add Account dialog has label box and auth button ───
+
+    [AvaloniaFact]
+    public void AddAccountDialog_HasLabelBoxAndAuthButton()
+    {
+        var window = new ShellWindow(CreateFakeBridge());
+        window.Show();
+
+        var dialog = window.BuildAddAccountDialog();
+        dialog.Show();
+
+        var textBoxes = FindAll<TextBox>(dialog).ToList();
+        Assert.Contains(textBoxes, tb => tb.Watermark == "Account label (e.g. john-personal)");
+
+        var buttons = FindAll<Button>(dialog).ToList();
+        Assert.Contains(buttons, b => b.Content?.ToString() == "Authenticate with Google");
+    }
+
+    // ── DLG-14: Add Account dialog has title and instructions ──────
+
+    [AvaloniaFact]
+    public void AddAccountDialog_HasTitleAndInstructions()
+    {
+        var window = new ShellWindow(CreateFakeBridge());
+        window.Show();
+
+        var dialog = window.BuildAddAccountDialog();
+        dialog.Show();
+
+        var texts = FindAll<TextBlock>(dialog).ToList();
+        Assert.Contains(texts, t => t.Text == "Add Gmail Account");
+        Assert.Contains(texts, t => t.Text == "Enter a friendly label for this account:");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Watch Folder Pattern dialog tests
+    // ═══════════════════════════════════════════════════════════════
+
+    // ── DLG-15: Watch Folder dialog has pattern box and OK button ──
+
+    [AvaloniaFact]
+    public void WatchFolderDialog_HasPatternBoxAndAddButton()
+    {
+        var window = new ShellWindow(CreateFakeBridge());
+        window.Show();
+
+        var dialog = window.BuildWatchFolderPatternDialog(@"C:\Users\test\Downloads");
+        dialog.Show();
+
+        var textBoxes = FindAll<TextBox>(dialog).ToList();
+        Assert.Contains(textBoxes, tb => tb.Text == "*.pdf");
+
+        var buttons = FindAll<Button>(dialog).ToList();
+        Assert.Contains(buttons, b => b.Content?.ToString() == "Add Watch Folder");
+    }
+
+    // ── DLG-16: Watch Folder dialog shows folder path ──────────────
+
+    [AvaloniaFact]
+    public void WatchFolderDialog_ShowsFolderPath()
+    {
+        var window = new ShellWindow(CreateFakeBridge());
+        window.Show();
+
+        var dialog = window.BuildWatchFolderPatternDialog(@"C:\Users\test\Downloads");
+        dialog.Show();
+
+        var texts = FindAll<TextBlock>(dialog).ToList();
+        Assert.Contains(texts, t => t.Text!.Contains(@"C:\Users\test\Downloads"));
     }
 }

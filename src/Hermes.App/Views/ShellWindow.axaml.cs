@@ -16,6 +16,7 @@ using System;
 using System.Collections.Specialized;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -938,8 +939,15 @@ public partial class ShellWindow : Window
 
     private async Task ShowSettingsDialogAsync()
     {
+        var dialog = BuildSettingsDialog();
+        if (dialog is null) return;
+        await dialog.ShowDialog(this);
+    }
+
+    internal Window? BuildSettingsDialog()
+    {
         var config = _vm.Bridge.Config;
-        if (config is null) return;
+        if (config is null) return null;
 
         var dialog = new Window
         {
@@ -1324,7 +1332,7 @@ public partial class ShellWindow : Window
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto
         };
 
-        await dialog.ShowDialog(this);
+        return dialog;
     }
 
     private static TextBlock SettingsSectionHeader(string text) => new()
@@ -1337,7 +1345,14 @@ public partial class ShellWindow : Window
 
     private static async Task<bool> ShowConfirmDialogAsync(Window owner, string title, string message)
     {
-        var result = false;
+        var (dialog, resultHolder) = BuildConfirmDialog(title, message);
+        await dialog.ShowDialog(owner);
+        return resultHolder.Value;
+    }
+
+    internal static (Window Dialog, StrongBox<bool> Result) BuildConfirmDialog(string title, string message)
+    {
+        var resultHolder = new StrongBox<bool>(false);
         var confirmDialog = new Window
         {
             Title = title,
@@ -1359,21 +1374,26 @@ public partial class ShellWindow : Window
         var yesBtn = new Button { Content = "Remove", Foreground = new SolidColorBrush(Color.Parse("#F44336")) };
         var noBtn = new Button { Content = "Cancel" };
 
-        yesBtn.Click += (_, _) => { result = true; confirmDialog.Close(); };
-        noBtn.Click += (_, _) => { result = false; confirmDialog.Close(); };
+        yesBtn.Click += (_, _) => { resultHolder.Value = true; confirmDialog.Close(); };
+        noBtn.Click += (_, _) => { resultHolder.Value = false; confirmDialog.Close(); };
 
         buttons.Children.Add(yesBtn);
         buttons.Children.Add(noBtn);
         panel.Children.Add(buttons);
         confirmDialog.Content = panel;
 
-        await confirmDialog.ShowDialog(owner);
-        return result;
+        return (confirmDialog, resultHolder);
     }
 
     // ── Add Gmail account ──────────────────────────────────────────
 
     private async Task AddGmailAccountAsync()
+    {
+        var dialog = BuildAddAccountDialog();
+        await dialog.ShowDialog(this);
+    }
+
+    internal Window BuildAddAccountDialog()
     {
         var dialog = new Window
         {
@@ -1444,7 +1464,7 @@ public partial class ShellWindow : Window
         panel.Children.Add(statusLabel);
         dialog.Content = panel;
 
-        await dialog.ShowDialog(this);
+        return dialog;
     }
 
     // ── Add watch folder ───────────────────────────────────────────
@@ -1463,44 +1483,7 @@ public partial class ShellWindow : Window
             if (folderDialog.Count == 0) return;
 
             var folder = folderDialog[0].Path.LocalPath;
-            var patternWindow = new Window
-            {
-                Title = "Watch Folder Patterns",
-                Width = 420,
-                Height = 220,
-                WindowStartupLocation = WindowStartupLocation.CenterOwner,
-                CanResize = false
-            };
-
-            var patternBox = new TextBox { Text = "*.pdf", Watermark = "Patterns (comma-separated)", Margin = new Thickness(16, 16, 16, 8) };
-            var okBtn = new Button { Content = "Add Watch Folder", Margin = new Thickness(16, 8), HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center };
-            var statusLbl = new TextBlock { Text = "", Margin = new Thickness(16, 4) };
-
-            okBtn.Click += async (_, _) =>
-            {
-                var patterns = patternBox.Text ?? "*.pdf";
-                okBtn.IsEnabled = false;
-                statusLbl.Text = "Saving…";
-
-                try
-                {
-                    await _vm.Bridge.AddWatchFolderToConfigAsync(folder, patterns);
-                    patternWindow.Close();
-                }
-                catch (Exception ex)
-                {
-                    statusLbl.Text = $"Error: {ex.Message}";
-                    okBtn.IsEnabled = true;
-                }
-            };
-
-            var panel = new StackPanel();
-            panel.Children.Add(new TextBlock { Text = $"Watching: {folder}", FontSize = 14, FontWeight = FontWeight.Bold, Margin = new Thickness(16, 16, 16, 4) });
-            panel.Children.Add(new TextBlock { Text = "Enter file patterns to watch for:", Margin = new Thickness(16, 0) });
-            panel.Children.Add(patternBox);
-            panel.Children.Add(okBtn);
-            panel.Children.Add(statusLbl);
-            patternWindow.Content = panel;
+            var patternWindow = BuildWatchFolderPatternDialog(folder);
 
             await patternWindow.ShowDialog(this);
         }
@@ -1510,6 +1493,50 @@ public partial class ShellWindow : Window
             errWin.Content = new TextBlock { Text = $"Could not open folder picker:\n{ex.Message}", Margin = new Thickness(16) };
             await errWin.ShowDialog(this);
         }
+    }
+
+    internal Window BuildWatchFolderPatternDialog(string folder)
+    {
+        var patternWindow = new Window
+        {
+            Title = "Watch Folder Patterns",
+            Width = 420,
+            Height = 220,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            CanResize = false
+        };
+
+        var patternBox = new TextBox { Text = "*.pdf", Watermark = "Patterns (comma-separated)", Margin = new Thickness(16, 16, 16, 8) };
+        var okBtn = new Button { Content = "Add Watch Folder", Margin = new Thickness(16, 8), HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center };
+        var statusLbl = new TextBlock { Text = "", Margin = new Thickness(16, 4) };
+
+        okBtn.Click += async (_, _) =>
+        {
+            var patterns = patternBox.Text ?? "*.pdf";
+            okBtn.IsEnabled = false;
+            statusLbl.Text = "Saving…";
+
+            try
+            {
+                await _vm.Bridge.AddWatchFolderToConfigAsync(folder, patterns);
+                patternWindow.Close();
+            }
+            catch (Exception ex)
+            {
+                statusLbl.Text = $"Error: {ex.Message}";
+                okBtn.IsEnabled = true;
+            }
+        };
+
+        var panel = new StackPanel();
+        panel.Children.Add(new TextBlock { Text = $"Watching: {folder}", FontSize = 14, FontWeight = FontWeight.Bold, Margin = new Thickness(16, 16, 16, 4) });
+        panel.Children.Add(new TextBlock { Text = "Enter file patterns to watch for:", Margin = new Thickness(16, 0) });
+        panel.Children.Add(patternBox);
+        panel.Children.Add(okBtn);
+        panel.Children.Add(statusLbl);
+        patternWindow.Content = panel;
+
+        return patternWindow;
     }
 
     // ── Lifecycle ──────────────────────────────────────────────────
