@@ -3,16 +3,16 @@
 > **Canonical status hub.** Tiny by design — points to wave files for detail.  
 > Updated after each wave completes. Agents: read this first, then the active wave file.
 
-## Current State (April 6, 2026)
+## Current State (April 7, 2026)
 
 | Metric | Value |
 |--------|-------|
-| Tests | 817 passing, 6 skipped (3 projects) |
-| Coverage | 86.4% line |
+| Tests | 824 passing, 6 skipped (3 projects) |
+| Coverage | 86% line |
 | Tagless-Final | PASS |
 | Branch | `main` |
 | MCP tools | 13 |
-| Documents indexed | 2,163+ |
+| Documents indexed | 7,551+ |
 | Design docs | 14 |
 
 ## Active Wave
@@ -31,7 +31,8 @@
 | 3 | Smart Classification Wiring | ✅ Done | [wave-3-classification.md](waves/wave-3-classification.md) |
 | 4 | UI: Pipeline Funnel | ✅ Done | [wave-4-ui.md](waves/wave-4-ui.md) |
 | 5 | Coverage Final | ✅ Done | — |
-| 5.5 | UI Testing (ViewModel + Headless + Smoke) | ✅ Done | [wave-5.5-ui-testing.md](waves/wave-5.5-ui-testing.md) |
+| 4b | Interactive Pipeline Controls | ✅ Done | [wave-4b-pipeline-controls.md](waves/wave-4b-pipeline-controls.md) |
+| 5.5 | UI Testing | ✅ Done | [wave-5.5-ui-testing.md](waves/wave-5.5-ui-testing.md) |
 | 6 | Pelican Integration | Not started | [wave-6-pelican.md](waves/wave-6-pelican.md) |
 | 7 | Polish | Not started | — |
 

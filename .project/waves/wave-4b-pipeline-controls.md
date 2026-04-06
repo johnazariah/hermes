@@ -21,6 +21,14 @@ Turn the Extracting and Classifying funnel sections from passive count displays 
 
 ## Log
 
-(newest on top)
+### April 7, 2026 — Review PASS (2 medium items)
+- Audit: all 7 tasks implemented, silver threads verified end-to-end
+- 824 tests (up from 817), 0 failures
+- Tagless-Final: clean in Stats.fs
+- All buttons wired, no dead controls
+- 2 medium items: rate/ETA text field not populated, status bar text generic during operations
+- 1 low item: revertTimer not disposed (use Task.Delay or field timer)
+- Live progress during batch operations works via 1s fast ticker
 
-- P1-P7 implemented: F# Stats queries (extraction queue, recent classifications, tier breakdown), PipelineProgress shared state on bridge, rich extracting/classifying panels with batch controls and live progress, status bar ticker with dot color, pipeline ops removed from settings, immediate refresh after operations. 818 tests passing (7 new Stats tests). Build clean.
+### April 6-7, 2026 — Implementation
+- P1-P7 implemented: F# Stats queries (extraction queue, recent classifications, tier breakdown), PipelineProgress shared state on bridge, rich extracting/classifying panels with batch controls and live progress, status bar ticker with dot color, pipeline ops removed from settings, immediate refresh after operations. 7 new Stats tests. Build clean.
