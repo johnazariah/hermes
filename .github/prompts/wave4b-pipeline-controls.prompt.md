@@ -4,13 +4,14 @@ description: "Wave 4b: Turn funnel sections into interactive pipeline control pa
 
 # Wave 4b: Interactive Pipeline Controls
 
-> **Wave status**: `.project/waves/wave-4b-pipeline-controls.md`  
-> **Design reference**: `.project/design/15-rich-ui.md` sections 3.3, 3.4, 6  
+> **Wave status**: `.project/waves/wave-4b-pipeline-controls.md`
+> **Design reference**: `.project/design/15-rich-ui.md` sections 3.3, 3.4, 6
 > **Project status**: `.project/STATUS.md`
 
 **Branch**: `feat/wave4b-pipeline-controls`
 
 **IMPORTANT: Use a git worktree.**
+
 ```
 cd c:\work\hermes
 git worktree add ..\hermes-pipeline feat/wave4b-pipeline-controls 2>/dev/null || git worktree add ..\hermes-pipeline -b feat/wave4b-pipeline-controls
@@ -18,6 +19,7 @@ cd c:\work\hermes-pipeline
 ```
 
 **Rules**:
+
 - Use `@csharp-dev` for all C# code
 - Use `@fsharp-dev` for any F# changes
 - Read `.github/copilot-instructions.md` — silver thread + UI definition of done
@@ -49,11 +51,12 @@ Replace the current Extracting expander content (just a count) with:
 4. **Rate + ETA** — TextBlock: "Rate: ~{N}/min · ETA: ~{time}". Calculated from the delta in extractedCount between refreshes.
 
 **Data sources**:
+
 - Queue: `SELECT id, original_name, size_bytes FROM documents WHERE extracted_at IS NULL ORDER BY id ASC LIMIT 5`
 - "Now:" document: needs a way to know what's currently processing. Two options:
-  - **(a)** Add a `processing_status` column or in-memory flag — complex
-  - **(b)** Show the first item in the queue as "Now:" when the pipeline is running — simpler, slightly inaccurate
-  - **Recommendation**: Option (b) for now. If pipeline is not running (IsSyncing == false), show "Pipeline idle" instead.
+    - **(a)** Add a `processing_status` column or in-memory flag — complex
+    - **(b)** Show the first item in the queue as "Now:" when the pipeline is running — simpler, slightly inaccurate
+    - **Recommendation**: Option (b) for now. If pipeline is not running (IsSyncing == false), show "Pipeline idle" instead.
 
 **Proof**: Launch app → see Extracting section with queue of 5 files, progress bar at 3%, rate estimate.
 
@@ -65,11 +68,11 @@ Add below the progress bar:
 
 1. **Batch size** — `NumericUpDown` with default 500, range 10–5000
 2. **"▶ Extract now" button** — Calls `_vm.Bridge.RunExtractionBatchAsync(batchSize)`. While running:
-   - Button text: "⏳ Extracting..."
-   - Disable button
-   - Start a fast timer (500ms) that re-queries extractedCount and updates the progress bar + queue list
-   - When complete: show "✅ {N} extracted" for 3 seconds, then revert button text
-   - Force a full RefreshAsync to update all funnel counts
+    - Button text: "⏳ Extracting..."
+    - Disable button
+    - Start a fast timer (500ms) that re-queries extractedCount and updates the progress bar + queue list
+    - When complete: show "✅ {N} extracted" for 3 seconds, then revert button text
+    - Force a full RefreshAsync to update all funnel counts
 3. **"⏸ Pause" toggle** — Calls `_vm.TogglePause()` to stop/resume the automatic pipeline
 
 **Proof**: Click "Extract now" with batch 500 → progress bar animates from 3% upward → queue list shrinks → "✅ 487 extracted" shown → funnel count updates immediately.
@@ -83,16 +86,17 @@ Replace the current Classifying expander content with:
 1. **"Now:" line** — TextBlock showing currently-classifying document + tier/provider
 
 2. **Results list** — StackPanel with the most recently classified documents:
-   - Each row: filename → category (confidence%) [✓ Accept] [✎ Change]
-   - [✓ Accept] only shown when confidence ≥ 0.7 — confirms the classification (no DB change needed, it's already classified)
-   - [✎ Change] opens a `ComboBox` with categories, suggested categories at top (from content match), user picks → calls `DocumentManagement.reclassify` → row updates
-   - Low-confidence items (< 0.7) show amber highlight and only [✎ Change] (no auto-accept)
+    - Each row: filename → category (confidence%) [✓ Accept] [✎ Change]
+    - [✓ Accept] only shown when confidence ≥ 0.7 — confirms the classification (no DB change needed, it's already classified)
+    - [✎ Change] opens a `ComboBox` with categories, suggested categories at top (from content match), user picks → calls `DocumentManagement.reclassify` → row updates
+    - Low-confidence items (< 0.7) show amber highlight and only [✎ Change] (no auto-accept)
 
 3. **Tier breakdown** — TextBlock: "Tier 2 (content): N · Tier 3 (LLM): N · Manual: N"
 
 4. **Progress** — ProgressBar showing classified/total
 
 **Data sources**:
+
 - Results: `SELECT id, original_name, category, classification_tier, classification_confidence FROM documents WHERE classification_tier IS NOT NULL ORDER BY extracted_at DESC LIMIT 10`
 - Remaining: `SELECT COUNT(*) FROM documents WHERE (category = 'unsorted' OR category = 'unclassified') AND extracted_at IS NOT NULL`
 
@@ -117,6 +121,7 @@ Add below results:
 Replace the static status bar text with a live ticker.
 
 **In ShellViewModel.cs**:
+
 - Add `CurrentOperation` property: string describing what the pipeline is doing RIGHT NOW
 - Add `CurrentDocumentName` property: the document being processed
 - When pipeline is idle: `CurrentOperation = null`
@@ -126,11 +131,13 @@ Replace the static status bar text with a live ticker.
 - When running a user batch: `CurrentOperation = "Batch extract: {N}/{total}"`
 
 **In ShellWindow.axaml.cs**:
+
 - Status bar text builds from: `{dot} {CurrentOperation ?? "Ready"} · {totalDocs:N0} docs · {queueCounts}`
 - When `CurrentOperation != null`, tick the status bar at 1-second intervals
 - Dot colour follows the tier: green=idle, blue=syncing, yellow=processing, orange=batch, red=error
 
 **Challenge**: Getting real-time "currently processing" info from the background service. The service runs in a separate task. Options:
+
 - **(a)** Write a "current operation" file that the service updates per-document — read by UI. Simple but disk I/O.
 - **(b)** Add an in-memory shared state object between service and UI (e.g. `ConcurrentQueue<PipelineEvent>` or a simple `volatile string`). Better performance.
 - **Recommendation**: (b) — Add a `PipelineProgress` record to `HermesServiceBridge` with `CurrentDocument`, `Operation`, `BatchProgress` fields. Service writes, UI reads on timer.

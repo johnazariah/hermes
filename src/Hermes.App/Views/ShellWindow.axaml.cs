@@ -57,14 +57,32 @@ public partial class ShellWindow : Window
     private TextBlock _intakeCount = null!;
     private Expander _extractingExpander = null!;
     private TextBlock _extractingCount = null!;
+    private StackPanel _extractingPanel = null!;
     private Expander _classifyingExpander = null!;
     private TextBlock _classifyingCount = null!;
+    private StackPanel _classifyingPanel = null!;
     private StackPanel _libraryPanel = null!;
     private TextBlock _libraryCount = null!;
     private TextBlock _actionItemBadge = null!;
     private StackPanel _actionItemsPanel = null!;
     private TextBlock _dbStatusText = null!;
     private TextBlock _pipelineStatusText = null!;
+    // Pipeline live controls (built dynamically)
+    private DispatcherTimer? _fastTicker;
+    private TextBlock? _extractingNowText;
+    private StackPanel? _extractingQueuePanel;
+    private ProgressBar? _extractingProgressBar;
+    private TextBlock? _extractingProgressText;
+    private TextBlock? _extractingRateText;
+    private Button? _extractNowBtn;
+    private NumericUpDown? _extractBatchSize;
+    private TextBlock? _classifyingNowText;
+    private StackPanel? _classifyingResultsPanel;
+    private ProgressBar? _classifyingProgressBar;
+    private TextBlock? _classifyingProgressText;
+    private TextBlock? _classifyingTierText;
+    private Button? _reclassifyNowBtn;
+    private NumericUpDown? _reclassifyBatchSize;
     // Content pane
     private Button _backButton = null!;
     private TextBlock _breadcrumbText = null!;
@@ -85,12 +103,17 @@ public partial class ShellWindow : Window
         _vm.Messages.CollectionChanged += OnMessagesChanged;
         RenderAllMessages();
         ShowWelcome();
+        BuildExtractingPanelControls();
+        BuildClassifyingPanelControls();
 
         _vm.PropertyChanged += (_, e) => Dispatcher.UIThread.Post(() => OnViewModelChanged(e.PropertyName));
 
         _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
         _refreshTimer.Tick += async (_, _) => await _vm.RefreshAsync();
         _refreshTimer.Start();
+
+        _fastTicker = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _fastTicker.Tick += (_, _) => TickFastUpdates();
 
         _ = _vm.RefreshAsync();
     }
@@ -120,8 +143,10 @@ public partial class ShellWindow : Window
         _intakeCount = this.FindControl<TextBlock>("IntakeCount")!;
         _extractingExpander = this.FindControl<Expander>("ExtractingExpander")!;
         _extractingCount = this.FindControl<TextBlock>("ExtractingCount")!;
+        _extractingPanel = this.FindControl<StackPanel>("ExtractingPanel")!;
         _classifyingExpander = this.FindControl<Expander>("ClassifyingExpander")!;
         _classifyingCount = this.FindControl<TextBlock>("ClassifyingCount")!;
+        _classifyingPanel = this.FindControl<StackPanel>("ClassifyingPanel")!;
         // Library
         _libraryPanel = this.FindControl<StackPanel>("LibraryPanel")!;
         _libraryCount = this.FindControl<TextBlock>("LibraryCount")!;
@@ -505,12 +530,30 @@ public partial class ShellWindow : Window
                 if (counts is null) break;
                 _intakeCount.Text = counts.IntakeCount > 0 ? $"({counts.IntakeCount})" : "";
                 _intakeExpander.IsVisible = counts.IntakeCount > 0;
-                _extractingCount.Text = counts.ExtractingCount > 0 ? $"({counts.ExtractingCount})" : "";
-                _extractingExpander.IsVisible = counts.ExtractingCount > 0;
-                _classifyingCount.Text = counts.ClassifyingCount > 0 ? $"({counts.ClassifyingCount})" : "";
-                _classifyingExpander.IsVisible = counts.ClassifyingCount > 0;
+                _extractingCount.Text = counts.ExtractingCount > 0 ? $"({counts.ExtractingCount:N0})" : "";
+                _extractingExpander.IsVisible = true; // Always visible — it has controls
+                _classifyingCount.Text = counts.ClassifyingCount > 0 ? $"({counts.ClassifyingCount:N0})" : "";
+                _classifyingExpander.IsVisible = true; // Always visible — it has controls
                 _pipelineStatusText.Text = (counts.IntakeCount + counts.ExtractingCount + counts.ClassifyingCount) > 0
                     ? "Pipeline processing…" : "Pipeline idle";
+                UpdateExtractingProgress(counts);
+                UpdateClassifyingProgress(counts);
+                break;
+
+            case nameof(ShellViewModel.ExtractionQueue):
+                RebuildExtractingQueueList();
+                break;
+
+            case nameof(ShellViewModel.RecentClassifications):
+                RebuildClassifyingResultsList();
+                break;
+
+            case nameof(ShellViewModel.TierBreakdown):
+                UpdateTierBreakdown();
+                break;
+
+            case nameof(ShellViewModel.CurrentOperation):
+                UpdateStatusBarDot();
                 break;
 
             case nameof(ShellViewModel.Categories):
@@ -538,7 +581,7 @@ public partial class ShellWindow : Window
                 break;
 
             case nameof(ShellViewModel.IsSyncing):
-                _statusDot.Fill = new SolidColorBrush(_vm.IsSyncing ? Color.Parse("#2196F3") : Color.Parse("#4CAF50"));
+                UpdateStatusBarDot();
                 break;
 
             case nameof(ShellViewModel.ActionItemCount):
@@ -635,6 +678,497 @@ public partial class ShellWindow : Window
             var item = r;
             row.PointerPressed += (_, _) => ShowReminderDetail(item);
             _actionItemsPanel.Children.Add(row);
+        }
+    }
+
+    // ── Pipeline control panels ─────────────────────────────────────
+
+    private void BuildExtractingPanelControls()
+    {
+        _extractingPanel.Children.Clear();
+
+        // "Now:" line
+        _extractingNowText = new TextBlock
+        {
+            Text = "Pipeline idle",
+            FontSize = 11, Foreground = new SolidColorBrush(Color.Parse("#888")),
+            Margin = new Thickness(0, 0, 0, 6)
+        };
+        _extractingPanel.Children.Add(_extractingNowText);
+
+        // Queue list container
+        _extractingQueuePanel = new StackPanel { Spacing = 2 };
+        _extractingPanel.Children.Add(_extractingQueuePanel);
+
+        // Progress bar
+        _extractingProgressBar = new ProgressBar
+        {
+            Minimum = 0, Maximum = 100, Value = 0,
+            Height = 6, Margin = new Thickness(0, 8, 0, 2),
+            Foreground = new SolidColorBrush(Color.Parse("#2196F3"))
+        };
+        _extractingPanel.Children.Add(_extractingProgressBar);
+
+        _extractingProgressText = new TextBlock
+        {
+            Text = "", FontSize = 10,
+            Foreground = new SolidColorBrush(Color.Parse("#888"))
+        };
+        _extractingPanel.Children.Add(_extractingProgressText);
+
+        // Rate + ETA
+        _extractingRateText = new TextBlock
+        {
+            Text = "", FontSize = 10,
+            Foreground = new SolidColorBrush(Color.Parse("#888")),
+            Margin = new Thickness(0, 2, 0, 6)
+        };
+        _extractingPanel.Children.Add(_extractingRateText);
+
+        // Batch controls row
+        var batchRow = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Spacing = 6 };
+        _extractBatchSize = new NumericUpDown
+        {
+            Value = 500, Minimum = 10, Maximum = 5000, Increment = 50,
+            Width = 90, FontSize = 11
+        };
+        batchRow.Children.Add(_extractBatchSize);
+
+        _extractNowBtn = new Button
+        {
+            Content = "▶ Extract now", FontSize = 11,
+            Padding = new Thickness(8, 4)
+        };
+        _extractNowBtn.Click += async (_, _) => await RunExtractionBatchFromPanel();
+        batchRow.Children.Add(_extractNowBtn);
+
+        var pauseBtn = new Button
+        {
+            Content = _vm.IsPaused ? "▶ Resume" : "⏸ Pause",
+            FontSize = 11, Padding = new Thickness(8, 4)
+        };
+        pauseBtn.Click += (_, _) =>
+        {
+            _vm.TogglePause();
+            pauseBtn.Content = _vm.IsPaused ? "▶ Resume" : "⏸ Pause";
+        };
+        batchRow.Children.Add(pauseBtn);
+
+        _extractingPanel.Children.Add(batchRow);
+    }
+
+    private void BuildClassifyingPanelControls()
+    {
+        _classifyingPanel.Children.Clear();
+
+        // "Now:" line
+        _classifyingNowText = new TextBlock
+        {
+            Text = "Pipeline idle",
+            FontSize = 11, Foreground = new SolidColorBrush(Color.Parse("#888")),
+            Margin = new Thickness(0, 0, 0, 6)
+        };
+        _classifyingPanel.Children.Add(_classifyingNowText);
+
+        // Results list container
+        _classifyingResultsPanel = new StackPanel { Spacing = 2 };
+        _classifyingPanel.Children.Add(_classifyingResultsPanel);
+
+        // Progress bar
+        _classifyingProgressBar = new ProgressBar
+        {
+            Minimum = 0, Maximum = 100, Value = 0,
+            Height = 6, Margin = new Thickness(0, 8, 0, 2),
+            Foreground = new SolidColorBrush(Color.Parse("#FF9800"))
+        };
+        _classifyingPanel.Children.Add(_classifyingProgressBar);
+
+        _classifyingProgressText = new TextBlock
+        {
+            Text = "", FontSize = 10,
+            Foreground = new SolidColorBrush(Color.Parse("#888"))
+        };
+        _classifyingPanel.Children.Add(_classifyingProgressText);
+
+        // Tier breakdown
+        _classifyingTierText = new TextBlock
+        {
+            Text = "", FontSize = 10,
+            Foreground = new SolidColorBrush(Color.Parse("#888")),
+            Margin = new Thickness(0, 2, 0, 6)
+        };
+        _classifyingPanel.Children.Add(_classifyingTierText);
+
+        // Batch controls row
+        var batchRow = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Spacing = 6 };
+        _reclassifyBatchSize = new NumericUpDown
+        {
+            Value = 200, Minimum = 10, Maximum = 5000, Increment = 50,
+            Width = 90, FontSize = 11
+        };
+        batchRow.Children.Add(_reclassifyBatchSize);
+
+        _reclassifyNowBtn = new Button
+        {
+            Content = "▶ Reclassify now", FontSize = 11,
+            Padding = new Thickness(8, 4)
+        };
+        _reclassifyNowBtn.Click += async (_, _) => await RunReclassifyBatchFromPanel();
+        batchRow.Children.Add(_reclassifyNowBtn);
+
+        // Provider label
+        batchRow.Children.Add(new TextBlock
+        {
+            Text = _vm.ChatProviderName,
+            FontSize = 10, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+            Foreground = new SolidColorBrush(Color.Parse("#888"))
+        });
+
+        _classifyingPanel.Children.Add(batchRow);
+    }
+
+    private void RebuildExtractingQueueList()
+    {
+        if (_extractingQueuePanel is null) return;
+        _extractingQueuePanel.Children.Clear();
+
+        var queue = _vm.ExtractionQueue;
+        if (queue.Count == 0)
+        {
+            _extractingQueuePanel.Children.Add(new TextBlock
+            {
+                Text = "No documents in queue.",
+                FontSize = 10, FontStyle = FontStyle.Italic,
+                Foreground = new SolidColorBrush(Color.Parse("#888"))
+            });
+            return;
+        }
+
+        foreach (var item in queue)
+        {
+            var sizeText = item.SizeBytes switch
+            {
+                >= 1_048_576 => $"{item.SizeBytes / 1_048_576.0:F1} MB",
+                >= 1024 => $"{item.SizeBytes / 1024} KB",
+                _ => $"{item.SizeBytes} B"
+            };
+            var row = new TextBlock
+            {
+                Text = $"📄 {item.OriginalName}  {sizeText}  queued",
+                FontSize = 10, Foreground = new SolidColorBrush(Color.Parse("#AAA")),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Margin = new Thickness(0, 1)
+            };
+            _extractingQueuePanel.Children.Add(row);
+        }
+    }
+
+    private void RebuildClassifyingResultsList()
+    {
+        if (_classifyingResultsPanel is null) return;
+        _classifyingResultsPanel.Children.Clear();
+
+        var results = _vm.RecentClassifications;
+        if (results.Count == 0)
+        {
+            _classifyingResultsPanel.Children.Add(new TextBlock
+            {
+                Text = "No recent classifications.",
+                FontSize = 10, FontStyle = FontStyle.Italic,
+                Foreground = new SolidColorBrush(Color.Parse("#888"))
+            });
+            return;
+        }
+
+        foreach (var item in results)
+        {
+            var confidence = FSharpOption<double>.get_IsSome(item.ClassificationConfidence)
+                ? item.ClassificationConfidence!.Value * 100
+                : (double?)null;
+            var tierLabel = FSharpOption<string>.get_IsSome(item.ClassificationTier)
+                ? item.ClassificationTier!.Value
+                : "unknown";
+            var confText = confidence.HasValue ? $"{confidence.Value:F0}%" : "";
+            var isLowConfidence = confidence.HasValue && confidence.Value < 70;
+
+            var row = new Grid { Margin = new Thickness(0, 1) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var nameBlock = new TextBlock
+            {
+                Text = $"📄 {item.OriginalName} → {item.Category} ({tierLabel}: {confText})",
+                FontSize = 10, TextTrimming = TextTrimming.CharacterEllipsis,
+                Foreground = new SolidColorBrush(isLowConfidence ? Color.Parse("#FF9800") : Color.Parse("#AAA"))
+            };
+            Grid.SetColumn(nameBlock, 0);
+            row.Children.Add(nameBlock);
+
+            var btnPanel = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Spacing = 2 };
+
+            // Accept button — only for high-confidence items
+            if (!isLowConfidence)
+            {
+                var acceptBtn = new Button
+                {
+                    Content = "✓", FontSize = 9,
+                    Padding = new Thickness(4, 1),
+                    Background = Brushes.Transparent,
+                    Foreground = new SolidColorBrush(Color.Parse("#4CAF50"))
+                };
+                acceptBtn.Click += (_, _) => acceptBtn.IsEnabled = false; // Already classified — just acknowledge
+                btnPanel.Children.Add(acceptBtn);
+            }
+
+            // Change button
+            var changeBtn = new Button
+            {
+                Content = "✎", FontSize = 9,
+                Padding = new Thickness(4, 1),
+                Background = Brushes.Transparent,
+                Foreground = new SolidColorBrush(Color.Parse("#2196F3"))
+            };
+            var docId = item.Id;
+            changeBtn.Click += (_, _) => ShowReclassifyDropdown(docId, nameBlock, changeBtn);
+            btnPanel.Children.Add(changeBtn);
+
+            Grid.SetColumn(btnPanel, 1);
+            row.Children.Add(btnPanel);
+
+            _classifyingResultsPanel.Children.Add(row);
+        }
+    }
+
+    private void ShowReclassifyDropdown(long documentId, TextBlock nameBlock, Button changeBtn)
+    {
+        var categories = _vm.Categories.Select(c => c.Category).ToList();
+        if (categories.Count == 0) return;
+
+        var combo = new ComboBox
+        {
+            ItemsSource = categories,
+            FontSize = 10, Width = 120,
+            IsDropDownOpen = true
+        };
+        combo.SelectionChanged += async (_, _) =>
+        {
+            if (combo.SelectedItem is not string newCategory) return;
+            var dbPath = Path.Combine(_vm.Bridge.ArchiveDir, "db.sqlite");
+            if (!File.Exists(dbPath)) return;
+
+            try
+            {
+                var db = Database.fromPath(dbPath);
+                try
+                {
+                    var result = await DocumentManagement.reclassify(db, Interpreters.realFileSystem, _vm.Bridge.ArchiveDir, documentId, newCategory);
+                    if (result.IsOk)
+                    {
+                        nameBlock.Text = $"📄 → {newCategory} (manual)";
+                        nameBlock.Foreground = new SolidColorBrush(Color.Parse("#4CAF50"));
+                    }
+                }
+                finally { db.dispose.Invoke(null!); }
+            }
+            catch { /* ignore reclassify errors in UI */ }
+
+            await _vm.RefreshAsync();
+        };
+
+        // Replace the change button with the combo temporarily
+        if (changeBtn.Parent is StackPanel parent)
+        {
+            var idx = parent.Children.IndexOf(changeBtn);
+            if (idx >= 0) parent.Children[idx] = combo;
+        }
+    }
+
+    private void UpdateExtractingProgress(Stats.PipelineCounts counts)
+    {
+        if (_extractingProgressBar is null) return;
+
+        var stats = _vm.IndexStats;
+        var total = (int)(stats?.DocumentCount ?? 0);
+        var extracted = (int)(stats?.ExtractedCount ?? 0);
+        var remaining = counts.ExtractingCount;
+
+        _extractingProgressBar.Maximum = Math.Max(total, 1);
+        _extractingProgressBar.Value = extracted;
+
+        var pct = total > 0 ? (double)extracted / total * 100 : 0;
+        _extractingProgressText!.Text = $"{extracted:N0} / {total:N0} ({pct:F1}%)";
+
+        var rate = _vm.ExtractionRate;
+        if (rate > 0 && remaining > 0)
+        {
+            var etaMinutes = remaining / rate;
+            var etaText = etaMinutes switch
+            {
+                < 1 => "< 1 min",
+                < 60 => $"~{etaMinutes:F0} min",
+                _ => $"~{etaMinutes / 60:F1} hours"
+            };
+            _extractingRateText!.Text = $"Rate: ~{rate:F0}/min · ETA: {etaText}";
+        }
+        else
+        {
+            _extractingRateText!.Text = remaining > 0 ? "Calculating rate..." : "";
+        }
+
+        // Update "Now:" text
+        var progress = _vm.Bridge.Progress;
+        _extractingNowText!.Text = progress.CurrentOperation switch
+        {
+            "Extracting" => $"⏳ Now: {progress.CurrentDocumentName ?? "processing..."}",
+            _ when _vm.IsSyncing => "⏳ Pipeline active",
+            _ when remaining > 0 => $"⏳ {remaining:N0} awaiting extraction",
+            _ => "✓ All extracted"
+        };
+    }
+
+    private void UpdateClassifyingProgress(Stats.PipelineCounts counts)
+    {
+        if (_classifyingProgressBar is null) return;
+
+        var stats = _vm.IndexStats;
+        var total = (int)(stats?.DocumentCount ?? 0);
+        var classified = total - counts.ClassifyingCount;
+        var remaining = counts.ClassifyingCount;
+
+        _classifyingProgressBar.Maximum = Math.Max(total, 1);
+        _classifyingProgressBar.Value = classified;
+
+        var pct = total > 0 ? (double)classified / total * 100 : 0;
+        _classifyingProgressText!.Text = $"{classified:N0} / {total:N0} ({pct:F1}%)";
+
+        var progress = _vm.Bridge.Progress;
+        _classifyingNowText!.Text = progress.CurrentOperation switch
+        {
+            "Reclassifying" => $"⏳ Now: {progress.CurrentDocumentName ?? "classifying..."}",
+            _ when remaining > 0 => $"⏳ {remaining:N0} awaiting classification",
+            _ => "✓ All classified"
+        };
+    }
+
+    private void UpdateTierBreakdown()
+    {
+        if (_classifyingTierText is null) return;
+        var tb = _vm.TierBreakdown;
+        if (tb is null) { _classifyingTierText.Text = ""; return; }
+
+        _classifyingTierText.Text = $"Content: {tb.ContentCount} · LLM: {tb.LlmCount} · Manual: {tb.ManualCount}";
+    }
+
+    private void UpdateStatusBarDot()
+    {
+        var operation = _vm.CurrentOperation;
+        var color = operation switch
+        {
+            "Extracting" or "Reclassifying" => "#FF9800",  // orange for batch
+            not null => "#FFC107",                          // yellow for processing
+            _ when _vm.IsSyncing => "#2196F3",              // blue for syncing
+            _ => "#4CAF50"                                  // green for idle
+        };
+        _statusDot.Fill = new SolidColorBrush(Color.Parse(color));
+
+        // Start/stop fast ticker based on activity
+        if (operation is not null)
+            _fastTicker?.Start();
+        else
+            _fastTicker?.Stop();
+    }
+
+    private void TickFastUpdates()
+    {
+        // Refresh "Now:" lines and elapsed time at 1-second intervals during active operations
+        var progress = _vm.Bridge.Progress;
+        if (progress.CurrentOperation is null)
+        {
+            _fastTicker?.Stop();
+            return;
+        }
+
+        if (_extractingNowText is not null && progress.CurrentOperation == "Extracting")
+        {
+            var doc = progress.CurrentDocumentName ?? "processing...";
+            var pct = progress.BatchTotal > 0 ? $" ({progress.BatchProcessed}/{progress.BatchTotal})" : "";
+            _extractingNowText.Text = $"⏳ Now: {doc}{pct}";
+        }
+
+        if (_classifyingNowText is not null && progress.CurrentOperation == "Reclassifying")
+        {
+            var doc = progress.CurrentDocumentName ?? "classifying...";
+            var pct = progress.BatchTotal > 0 ? $" ({progress.BatchProcessed}/{progress.BatchTotal})" : "";
+            _classifyingNowText.Text = $"⏳ Now: {doc}{pct}";
+        }
+    }
+
+    private async Task RunExtractionBatchFromPanel()
+    {
+        if (_extractNowBtn is null) return;
+        var batchSize = (int)(_extractBatchSize?.Value ?? 500);
+
+        _extractNowBtn.IsEnabled = false;
+        _extractNowBtn.Content = "⏳ Extracting...";
+        _fastTicker?.Start();
+
+        try
+        {
+            var count = await _vm.Bridge.RunExtractionBatchAsync(batchSize);
+            _extractNowBtn.Content = $"✅ {count} extracted";
+
+            await _vm.RefreshAsync();
+
+            // Revert button text after 3 seconds
+            var revertTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+            revertTimer.Tick += (_, _) =>
+            {
+                _extractNowBtn.Content = "▶ Extract now";
+                revertTimer.Stop();
+            };
+            revertTimer.Start();
+        }
+        catch (Exception ex)
+        {
+            _extractNowBtn.Content = $"❌ {ex.Message}";
+        }
+        finally
+        {
+            _extractNowBtn.IsEnabled = true;
+        }
+    }
+
+    private async Task RunReclassifyBatchFromPanel()
+    {
+        if (_reclassifyNowBtn is null) return;
+        var batchSize = (int)(_reclassifyBatchSize?.Value ?? 200);
+
+        _reclassifyNowBtn.IsEnabled = false;
+        _reclassifyNowBtn.Content = "⏳ Reclassifying...";
+        _fastTicker?.Start();
+
+        try
+        {
+            var (reclassified, remaining) = await _vm.Bridge.RunReclassifyBatchAsync(batchSize);
+            _reclassifyNowBtn.Content = $"✅ {reclassified} reclassified, {remaining} left";
+
+            await _vm.RefreshAsync();
+
+            var revertTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+            revertTimer.Tick += (_, _) =>
+            {
+                _reclassifyNowBtn.Content = "▶ Reclassify now";
+                revertTimer.Stop();
+            };
+            revertTimer.Start();
+        }
+        catch (Exception ex)
+        {
+            _reclassifyNowBtn.Content = $"❌ {ex.Message}";
+        }
+        finally
+        {
+            _reclassifyNowBtn.IsEnabled = true;
         }
     }
 
@@ -1268,95 +1802,6 @@ public partial class ShellWindow : Window
             await ShowSettingsDialogAsync();
         };
         root.Children.Add(addFolderBtn);
-
-        // ── Section: Pipeline Operations ──
-        root.Children.Add(SettingsSectionHeader("Pipeline Operations"));
-
-        root.Children.Add(new TextBlock { Text = "Extraction batch size:", FontSize = 12 });
-        var extractBatchBox = new NumericUpDown
-        {
-            Value = 500,
-            Minimum = 10,
-            Maximum = 5000,
-            Increment = 50,
-            Margin = new Thickness(0, 2, 0, 4)
-        };
-        root.Children.Add(extractBatchBox);
-
-        var extractNowBtn = new Button
-        {
-            Content = "▶ Run Extraction Now",
-            FontSize = 12,
-            Margin = new Thickness(0, 2, 0, 8)
-        };
-        var extractStatusLbl = new TextBlock { Text = "", FontSize = 11, Foreground = new SolidColorBrush(Color.Parse("#888")), TextWrapping = TextWrapping.Wrap };
-        extractNowBtn.Click += async (_, _) =>
-        {
-            extractNowBtn.IsEnabled = false;
-            extractNowBtn.Content = "⏳ Extracting...";
-            extractStatusLbl.Text = "";
-            try
-            {
-                var count = await _vm.Bridge.RunExtractionBatchAsync((int)(extractBatchBox.Value ?? 500));
-                extractStatusLbl.Text = $"✅ Extracted {count} document(s)";
-                extractStatusLbl.Foreground = new SolidColorBrush(Color.Parse("#4CAF50"));
-            }
-            catch (Exception ex)
-            {
-                extractStatusLbl.Text = $"❌ {ex.Message}";
-                extractStatusLbl.Foreground = new SolidColorBrush(Color.Parse("#F44336"));
-            }
-            finally
-            {
-                extractNowBtn.IsEnabled = true;
-                extractNowBtn.Content = "▶ Run Extraction Now";
-            }
-        };
-        root.Children.Add(extractNowBtn);
-        root.Children.Add(extractStatusLbl);
-
-        root.Children.Add(new TextBlock { Text = "Reclassification batch size:", FontSize = 12 });
-        var reclassifyBatchBox = new NumericUpDown
-        {
-            Value = 200,
-            Minimum = 10,
-            Maximum = 5000,
-            Increment = 50,
-            Margin = new Thickness(0, 2, 0, 4)
-        };
-        root.Children.Add(reclassifyBatchBox);
-
-        var reclassifyNowBtn = new Button
-        {
-            Content = "▶ Reclassify Unsorted",
-            FontSize = 12,
-            Margin = new Thickness(0, 2, 0, 8)
-        };
-        var reclassifyStatusLbl = new TextBlock { Text = "", FontSize = 11, Foreground = new SolidColorBrush(Color.Parse("#888")), TextWrapping = TextWrapping.Wrap };
-        reclassifyNowBtn.Click += async (_, _) =>
-        {
-            reclassifyNowBtn.IsEnabled = false;
-            reclassifyNowBtn.Content = "⏳ Reclassifying...";
-            reclassifyStatusLbl.Text = "";
-            try
-            {
-                var (reclassified, remaining) = await _vm.Bridge.RunReclassifyBatchAsync((int)(reclassifyBatchBox.Value ?? 200));
-                reclassifyStatusLbl.Text = $"✅ Reclassified {reclassified}, {remaining} remaining";
-                reclassifyStatusLbl.Foreground = new SolidColorBrush(Color.Parse("#4CAF50"));
-            }
-            catch (Exception ex)
-            {
-                reclassifyStatusLbl.Text = $"❌ {ex.Message}";
-                reclassifyStatusLbl.Foreground = new SolidColorBrush(Color.Parse("#F44336"));
-            }
-            finally
-            {
-                reclassifyNowBtn.IsEnabled = true;
-                reclassifyNowBtn.Content = "▶ Reclassify Unsorted";
-            }
-        };
-        root.Children.Add(reclassifyNowBtn);
-        root.Children.Add(reclassifyStatusLbl);
 
         // ── Save ──
         root.Children.Add(new Border

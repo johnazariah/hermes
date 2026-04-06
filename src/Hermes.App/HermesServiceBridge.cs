@@ -11,6 +11,13 @@ using Serilog.Events;
 
 namespace Hermes.App;
 
+/// <summary>Shared state for real-time pipeline progress — service writes, UI reads.</summary>
+public sealed record PipelineProgress(
+    string? CurrentOperation,
+    string? CurrentDocumentName,
+    int BatchProcessed,
+    int BatchTotal);
+
 /// <summary>
 /// Bridges the Avalonia UI to the F# service host.
 /// Manages config loading, service lifecycle, and status reading.
@@ -20,11 +27,19 @@ public sealed class HermesServiceBridge
     private Domain.HermesConfig? _config;
     private ServiceHost.ServiceStatus? _lastStatus;
     private bool _paused;
+    private volatile PipelineProgress _progress = new(null, null, 0, 0);
 
     public bool IsRunning => _lastStatus?.Running ?? false;
     public bool IsPaused => _paused;
     public ServiceHost.ServiceStatus? LastStatus => _lastStatus;
     public Domain.HermesConfig? Config => _config;
+    public PipelineProgress Progress => _progress;
+
+    public void ReportProgress(string? operation, string? document = null, int processed = 0, int total = 0)
+        => _progress = new PipelineProgress(operation, document, processed, total);
+
+    public void ClearProgress()
+        => _progress = new PipelineProgress(null, null, 0, 0);
 
     public string ArchiveDir =>
         _config?.ArchiveDir ?? Path.Combine(
@@ -351,6 +366,7 @@ public sealed class HermesServiceBridge
             extractImage: FuncConvert.FromFunc<byte[], Task<FSharpResult<string, string>>>(
                 _ => Task.FromResult(FSharpResult<string, string>.NewError("OCR not available"))));
 
+        ReportProgress("Extracting", null, 0, batchSize);
         try
         {
             var result = await Extraction.extractBatch(fs, db, logger, clock, extractor, _config.ArchiveDir,
@@ -359,6 +375,7 @@ public sealed class HermesServiceBridge
         }
         finally
         {
+            ClearProgress();
             db.dispose.Invoke(null!);
         }
     }
@@ -373,6 +390,7 @@ public sealed class HermesServiceBridge
         var fs = Interpreters.realFileSystem;
         var db = Database.fromPath(dbPath);
 
+        ReportProgress("Reclassifying", null, 0, batchSize);
         try
         {
             var rulesPath = Path.Combine(ConfigDir, "rules.yaml");
@@ -383,6 +401,7 @@ public sealed class HermesServiceBridge
         }
         finally
         {
+            ClearProgress();
             db.dispose.Invoke(null!);
         }
     }

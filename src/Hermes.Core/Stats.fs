@@ -142,3 +142,97 @@ module Stats =
                   ExtractingCount = extractingCount
                   ClassifyingCount = classifyingCount }
         }
+
+    // ─── Extraction queue ────────────────────────────────────────────
+
+    /// A document awaiting text extraction.
+    type ExtractionQueueItem =
+        { Id: int64
+          OriginalName: string
+          SizeBytes: int64 }
+
+    /// Get documents waiting for extraction, ordered by insertion.
+    let getExtractionQueue (db: Algebra.Database) (limit: int) : Task<ExtractionQueueItem list> =
+        task {
+            let! rows =
+                db.execReader
+                    "SELECT id, original_name, size_bytes FROM documents WHERE extracted_at IS NULL ORDER BY id ASC LIMIT @limit"
+                    [ ("@limit", Database.boxVal (int64 limit)) ]
+
+            return
+                rows
+                |> List.choose (fun row ->
+                    let r = Prelude.RowReader(row)
+                    r.OptInt64 "id"
+                    |> Option.map (fun id ->
+                        { Id = id
+                          OriginalName = r.String "original_name" "unknown"
+                          SizeBytes = r.Int64 "size_bytes" 0L }))
+        }
+
+    // ─── Recent classifications ──────────────────────────────────────
+
+    /// A recently classified document with its confidence metadata.
+    type RecentClassification =
+        { Id: int64
+          OriginalName: string
+          Category: string
+          ClassificationTier: string option
+          ClassificationConfidence: float option }
+
+    /// Get recently classified documents, newest first.
+    let getRecentClassifications (db: Algebra.Database) (limit: int) : Task<RecentClassification list> =
+        task {
+            let! rows =
+                db.execReader
+                    """SELECT id, original_name, category, classification_tier, classification_confidence
+                       FROM documents WHERE classification_tier IS NOT NULL
+                       ORDER BY extracted_at DESC LIMIT @limit"""
+                    [ ("@limit", Database.boxVal (int64 limit)) ]
+
+            return
+                rows
+                |> List.choose (fun row ->
+                    let r = Prelude.RowReader(row)
+                    r.OptInt64 "id"
+                    |> Option.map (fun id ->
+                        { Id = id
+                          OriginalName = r.String "original_name" "unknown"
+                          Category = r.String "category" ""
+                          ClassificationTier = r.OptString "classification_tier"
+                          ClassificationConfidence = r.OptFloat "classification_confidence" }))
+        }
+
+    // ─── Tier breakdown ──────────────────────────────────────────────
+
+    /// Classification tier counts for the funnel display.
+    type TierBreakdown =
+        { ContentCount: int
+          LlmCount: int
+          ManualCount: int }
+
+    /// Helper: run a scalar COUNT and convert to int.
+    let private countByTier (db: Algebra.Database) (tier: string) : Task<int> =
+        task {
+            let! result =
+                db.execScalar
+                    "SELECT COUNT(*) FROM documents WHERE classification_tier = @tier"
+                    [ ("@tier", Database.boxVal tier) ]
+            return
+                match result with
+                | :? int64 as i -> int i
+                | _ -> 0
+        }
+
+    /// Get document counts per classification tier.
+    let getTierBreakdown (db: Algebra.Database) : Task<TierBreakdown> =
+        task {
+            let! contentCount = countByTier db "content-rules"
+            let! llmCount = countByTier db "llm"
+            let! manualCount = countByTier db "manual"
+
+            return
+                { ContentCount = contentCount
+                  LlmCount = llmCount
+                  ManualCount = manualCount }
+        }

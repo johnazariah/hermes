@@ -194,6 +194,48 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         private set => Set(ref _pipelineCounts, value);
     }
 
+    // Current pipeline operation (for status bar ticker)
+    private string? _currentOperation;
+    public string? CurrentOperation
+    {
+        get => _currentOperation;
+        private set => Set(ref _currentOperation, value);
+    }
+
+    // Extraction queue items for funnel display
+    private IReadOnlyList<Stats.ExtractionQueueItem> _extractionQueue = [];
+    public IReadOnlyList<Stats.ExtractionQueueItem> ExtractionQueue
+    {
+        get => _extractionQueue;
+        private set => Set(ref _extractionQueue, value);
+    }
+
+    // Recent classifications for funnel display
+    private IReadOnlyList<Stats.RecentClassification> _recentClassifications = [];
+    public IReadOnlyList<Stats.RecentClassification> RecentClassifications
+    {
+        get => _recentClassifications;
+        private set => Set(ref _recentClassifications, value);
+    }
+
+    // Tier breakdown for classifying panel
+    private Stats.TierBreakdown? _tierBreakdown;
+    public Stats.TierBreakdown? TierBreakdown
+    {
+        get => _tierBreakdown;
+        private set => Set(ref _tierBreakdown, value);
+    }
+
+    // Rate calculation state
+    private int _previousExtractedCount;
+    private DateTimeOffset _previousExtractedTime = DateTimeOffset.UtcNow;
+    private double _extractionRate;
+    public double ExtractionRate
+    {
+        get => _extractionRate;
+        private set => Set(ref _extractionRate, value);
+    }
+
     // ── Refresh all status ─────────────────────────────────────────
 
     public async Task RefreshAsync()
@@ -205,6 +247,9 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             await RefreshOllamaAsync();
             await RefreshIndexStatsAsync();
             await RefreshPipelineCountsAsync();
+            await RefreshExtractionQueueAsync();
+            await RefreshRecentClassificationsAsync();
+            RefreshCurrentOperation();
             RefreshCategories();
             await RefreshAccountsAsync();
             await RefreshRemindersAsync();
@@ -283,6 +328,55 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         catch { /* DB may not exist yet */ }
     }
 
+    private async Task RefreshExtractionQueueAsync()
+    {
+        var dbPath = Path.Combine(_bridge.ArchiveDir, "db.sqlite");
+        if (!File.Exists(dbPath)) return;
+
+        try
+        {
+            var db = Database.fromPath(dbPath);
+            try { ExtractionQueue = (await Stats.getExtractionQueue(db, 5)).ToList(); }
+            finally { db.dispose.Invoke(null!); }
+        }
+        catch { /* DB may not exist yet */ }
+    }
+
+    private async Task RefreshRecentClassificationsAsync()
+    {
+        var dbPath = Path.Combine(_bridge.ArchiveDir, "db.sqlite");
+        if (!File.Exists(dbPath)) return;
+
+        try
+        {
+            var db = Database.fromPath(dbPath);
+            try
+            {
+                RecentClassifications = (await Stats.getRecentClassifications(db, 10)).ToList();
+                TierBreakdown = await Stats.getTierBreakdown(db);
+            }
+            finally { db.dispose.Invoke(null!); }
+        }
+        catch { /* DB may not exist yet */ }
+    }
+
+    private void RefreshCurrentOperation()
+    {
+        var progress = _bridge.Progress;
+        CurrentOperation = progress.CurrentOperation;
+
+        var stats = IndexStats;
+        var extracted = (int)(stats?.ExtractedCount ?? 0);
+        var now = DateTimeOffset.UtcNow;
+        var elapsed = (now - _previousExtractedTime).TotalMinutes;
+
+        if (elapsed > 0.05 && extracted > _previousExtractedCount)
+            ExtractionRate = (extracted - _previousExtractedCount) / elapsed;
+
+        _previousExtractedCount = extracted;
+        _previousExtractedTime = now;
+    }
+
     private void RefreshCategories()
     {
         var counts = Stats.getCategoryCounts(Interpreters.realFileSystem, _bridge.ArchiveDir);
@@ -345,7 +439,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         var embedded = stats?.EmbeddedCount ?? 0;
         var sizeMb = stats?.DatabaseSizeMb ?? 0.0;
 
-        var stateText = IsSyncing ? "Syncing" : "Ready";
+        var stateText = CurrentOperation ?? (IsSyncing ? "Syncing" : "Ready");
         var parts = new List<string> { $"{stateText} · {docCount:N0} docs" };
         if (intake > 0) parts.Add($"{intake} intake");
         if (extracting > 0) parts.Add($"{extracting} extracting");

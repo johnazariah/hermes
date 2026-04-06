@@ -96,10 +96,7 @@
                                Foreground="{DynamicResource AccentBrush}" FontWeight="SemiBold" />
                   </StackPanel>
                 </Expander.Header>
-                <StackPanel x:Name="ExtractingPanel" Margin="20,4,12,10" Spacing="4">
-                  <TextBlock Text="Being parsed into structured markdown." FontSize="11"
-                             Foreground="{DynamicResource MutedFg}" />
-                </StackPanel>
+                <StackPanel x:Name="ExtractingPanel" Margin="20,4,12,10" Spacing="4" />
               </Expander>
               <Rectangle Height="1" Fill="{DynamicResource SidebarBorder}" />
 
@@ -113,10 +110,7 @@
                                Foreground="{DynamicResource AccentBrush}" FontWeight="SemiBold" />
                   </StackPanel>
                 </Expander.Header>
-                <StackPanel x:Name="ClassifyingPanel" Margin="20,4,12,10" Spacing="4">
-                  <TextBlock Text="Deciding what each document is." FontSize="11"
-                             Foreground="{DynamicResource MutedFg}" />
-                </StackPanel>
+                <StackPanel x:Name="ClassifyingPanel" Margin="20,4,12,10" Spacing="4" />
               </Expander>
               <Rectangle Height="1" Fill="{DynamicResource SidebarBorder}" />
 

@@ -1,6 +1,6 @@
 # Wave 4b: Interactive Pipeline Controls
 
-> Status: **Not started**  
+> Status: **Complete**  
 > Design reference: [15-rich-ui.md](../design/15-rich-ui.md) sections 3.3, 3.4, 6
 
 ## Goal
@@ -11,14 +11,16 @@ Turn the Extracting and Classifying funnel sections from passive count displays 
 
 | # | Task | Status |
 |---|------|--------|
-| P1 | Extracting panel: "Now:" line + queue list + progress bar + rate/ETA | Not started |
-| P2 | Extracting panel: batch controls (batch size + "Extract now" button) with live progress | Not started |
-| P3 | Classifying panel: results list with [✓ Accept] [✎ Change] inline buttons | Not started |
-| P4 | Classifying panel: batch controls (batch size + "Reclassify now" + provider label) | Not started |
-| P5 | Status bar: live ticker showing currently-processing document + operation + rate | Not started |
-| P6 | Remove pipeline operations from Settings dialog (now in funnel) | Not started |
-| P7 | Fix: operations should trigger immediate funnel count refresh (not wait for 5s timer) | Not started |
+| P1 | Extracting panel: "Now:" line + queue list + progress bar + rate/ETA | ✅ Done |
+| P2 | Extracting panel: batch controls (batch size + "Extract now" button) with live progress | ✅ Done |
+| P3 | Classifying panel: results list with [✓ Accept] [✎ Change] inline buttons | ✅ Done |
+| P4 | Classifying panel: batch controls (batch size + "Reclassify now" + provider label) | ✅ Done |
+| P5 | Status bar: live ticker showing currently-processing document + operation + rate | ✅ Done |
+| P6 | Remove pipeline operations from Settings dialog (now in funnel) | ✅ Done |
+| P7 | Fix: operations should trigger immediate funnel count refresh (not wait for 5s timer) | ✅ Done |
 
 ## Log
 
 (newest on top)
+
+- P1-P7 implemented: F# Stats queries (extraction queue, recent classifications, tier breakdown), PipelineProgress shared state on bridge, rich extracting/classifying panels with batch controls and live progress, status bar ticker with dot color, pipeline ops removed from settings, immediate refresh after operations. 818 tests passing (7 new Stats tests). Build clean.

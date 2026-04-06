@@ -253,3 +253,127 @@ let ``Stats_getPipelineCounts_UnsortedExtractedDocs_CountsClassifying`` () =
         Assert.Equal(2, counts.ClassifyingCount)
     }
 
+// ─── getExtractionQueue ──────────────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``Stats_GetExtractionQueue_EmptyDb_ReturnsEmpty`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! queue = Stats.getExtractionQueue db 5
+            Assert.Empty(queue)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``Stats_GetExtractionQueue_ReturnsUnextractedDocs`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! _ = db.execNonQuery
+                        "INSERT INTO documents (source_type, saved_path, category, sha256, original_name, size_bytes) VALUES ('manual_drop', 'a.pdf', 'unsorted', 'sha1', 'invoice.pdf', 102400)"
+                        []
+            let! _ = db.execNonQuery
+                        "INSERT INTO documents (source_type, saved_path, category, sha256, original_name, size_bytes, extracted_at) VALUES ('manual_drop', 'b.pdf', 'invoices', 'sha2', 'extracted.pdf', 2048, datetime('now'))"
+                        []
+            let! _ = db.execNonQuery
+                        "INSERT INTO documents (source_type, saved_path, category, sha256, original_name, size_bytes) VALUES ('manual_drop', 'c.pdf', 'unsorted', 'sha3', 'scan.pdf', 5242880)"
+                        []
+            let! queue = Stats.getExtractionQueue db 5
+            Assert.Equal(2, queue.Length)
+            Assert.Equal("invoice.pdf", queue.[0].OriginalName)
+            Assert.Equal(102400L, queue.[0].SizeBytes)
+            Assert.Equal("scan.pdf", queue.[1].OriginalName)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``Stats_GetExtractionQueue_RespectsLimit`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            for i in 1..10 do
+                let! _ = db.execNonQuery
+                            $"INSERT INTO documents (source_type, saved_path, category, sha256, original_name) VALUES ('manual_drop', 'doc{i}.pdf', 'unsorted', 'sha{i}', 'doc{i}.pdf')"
+                            []
+                ()
+            let! queue = Stats.getExtractionQueue db 3
+            Assert.Equal(3, queue.Length)
+        finally db.dispose ()
+    }
+
+// ─── getRecentClassifications ────────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``Stats_GetRecentClassifications_EmptyDb_ReturnsEmpty`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! results = Stats.getRecentClassifications db 10
+            Assert.Empty(results)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``Stats_GetRecentClassifications_ReturnsClassifiedDocs`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! _ = db.execNonQuery
+                        "INSERT INTO documents (source_type, saved_path, category, sha256, original_name, classification_tier, classification_confidence, extracted_at) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha1', 'invoice.pdf', 'content-rules', 0.87, datetime('now'))"
+                        []
+            let! _ = db.execNonQuery
+                        "INSERT INTO documents (source_type, saved_path, category, sha256, original_name) VALUES ('manual_drop', 'b.pdf', 'unsorted', 'sha2', 'unclassified.pdf')"
+                        []
+            let! _ = db.execNonQuery
+                        "INSERT INTO documents (source_type, saved_path, category, sha256, original_name, classification_tier, classification_confidence, extracted_at) VALUES ('manual_drop', 'c.pdf', 'legal', 'sha3', 'contract.pdf', 'llm', 0.35, datetime('now', '-1 minute'))"
+                        []
+            let! results = Stats.getRecentClassifications db 10
+            Assert.Equal(2, results.Length)
+            Assert.Equal("invoice.pdf", results.[0].OriginalName)
+            Assert.Equal("invoices", results.[0].Category)
+            Assert.Equal(Some "content-rules", results.[0].ClassificationTier)
+            Assert.True(results.[0].ClassificationConfidence.IsSome)
+            Assert.Equal("contract.pdf", results.[1].OriginalName)
+            Assert.Equal(Some "llm", results.[1].ClassificationTier)
+        finally db.dispose ()
+    }
+
+// ─── getTierBreakdown ────────────────────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``Stats_GetTierBreakdown_EmptyDb_AllZeroes`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! tb = Stats.getTierBreakdown db
+            Assert.Equal(0, tb.ContentCount)
+            Assert.Equal(0, tb.LlmCount)
+            Assert.Equal(0, tb.ManualCount)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``Stats_GetTierBreakdown_CountsByTier`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256, classification_tier) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha1', 'content-rules')" []
+            let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256, classification_tier) VALUES ('manual_drop', 'b.pdf', 'invoices', 'sha2', 'content-rules')" []
+            let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256, classification_tier) VALUES ('manual_drop', 'c.pdf', 'legal', 'sha3', 'llm')" []
+            let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256, classification_tier) VALUES ('manual_drop', 'd.pdf', 'tax', 'sha4', 'manual')" []
+            let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256, classification_tier) VALUES ('manual_drop', 'e.pdf', 'tax', 'sha5', 'manual')" []
+            let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256, classification_tier) VALUES ('manual_drop', 'f.pdf', 'unsorted', 'sha6', 'manual')" []
+            let! tb = Stats.getTierBreakdown db
+            Assert.Equal(2, tb.ContentCount)
+            Assert.Equal(1, tb.LlmCount)
+            Assert.Equal(3, tb.ManualCount)
+        finally db.dispose ()
+    }
