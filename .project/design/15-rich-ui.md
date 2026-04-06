@@ -132,53 +132,88 @@ Raw files in `unclassified/` awaiting extraction. Transient — not a failure st
 
 Auto-collapses when empty.
 
-### 3.3 — EXTRACTING
+### 3.3 — EXTRACTING (interactive control panel)
 
-Documents currently being parsed. Shows which extractor is running.
-
-```
-── EXTRACTING (5) ───────────
-⏳ document_283847.pdf     PdfStructure
-⏳ annual_report.pdf       PdfStructure (OCR fallback)
-⏳ dividends_q4.xlsx       Excel
-⏳ contract.docx           Word
-⏳ transactions.csv        CSV
-```
-
-**Click file** → content pane: extraction status (extractor type, start time, any warnings/errors)
-
-Auto-collapses when empty. On the 5-second refresh, items move from Extracting → Classifying.
-
-### 3.4 — CLASSIFYING
-
-Extracted documents awaiting classification. The key UX win of extract-first: **users can preview content before classification finishes**.
+Not just a status display — an operational dashboard for the extraction pipeline.
 
 ```
-── CLASSIFYING (3) ──────────
-📄 document_283847.pdf     extracted ✓
-   Suggested: payslips (content: 87%)
-📄 mystery_scan.pdf        extracted ✓
-   Suggested: (LLM analyzing...)
-📄 random_attachment.pdf   extracted ✓
-   Suggested: unsorted (35% — unable to determine)
+── EXTRACTING (7,328) ─────────────────────── ▾
+
+  ⏳ Now: 2026-03-15_allianz_renewal.pdf (PdfStructure)    2.1s
+
+  Queue (next 5):
+  📄 document_283847.pdf         3.2 MB   queued
+  📄 scan_receipt_2026.pdf       890 KB   queued
+  📄 westpac_april.csv           45 KB    queued
+  📄 contract.docx               120 KB   queued
+  📄 annual_report.pdf           4.5 MB   queued
+  ... and 7,323 more
+
+  ────────────────────────────────────────────
+  Progress ████░░░░░░░░░░░░░░░░ 223 / 7,551 (3%)
+  Rate: ~50/min · ETA: ~2.4 hours
+
+  Batch: [500 ▼]  [▶ Extract now]  [⏸ Pause pipeline]
 ```
 
-**Click file** → content pane: **extracted markdown preview + suggested category + manual classify dropdown**. User can see structured tables, headings, amounts and decide the category if auto-classification is slow or wrong.
+**Behaviour:**
+- **"Now:" line**: Shows the document currently being extracted, which extractor is running, and elapsed time. Updates in real-time (not on 5s timer — use a faster 1s tick for the active document).
+- **Queue list**: Next 5 documents waiting. Scrollable if expanded further. Click a document → content pane shows raw file info.
+- **Progress bar**: Full-width, shows extracted / total. Percentage and absolute count.
+- **Rate + ETA**: Calculated from last N extractions. "~50/min" when the pipeline is running at default speed.
+- **Batch controls**: NumericUpDown for batch size + "Extract now" button that runs a batch immediately (calls `RunExtractionBatchAsync`). Results update the progress bar and queue count in real-time. "Pause pipeline" stops the automatic extraction in the sync cycle.
+- **After "Extract now" clicked**: Button changes to "⏳ Extracting 500..." with a progress count that updates as each document completes. Queue count and progress bar update live. When done: "✅ 487 extracted, 13 failed" for 3 seconds, then reverts to "▶ Extract now".
+- **Auto-collapses** when count reaches 0: section header shows "EXTRACTING ✓" with a green checkmark.
 
-The classify dropdown shows content-based suggestions:
+**Click file in queue** → content pane: raw file info (name, size, source, format). For extracted files: preview of extracted markdown.
+
+### 3.4 — CLASSIFYING (interactive control panel)
+
+Extracted documents awaiting classification. The key UX win of extract-first: **users can preview content and act before auto-classification finishes**.
+
 ```
-[Classify as ▾]
-  ★ payslips (content match: 87%)
-  ★ tax (LLM: 62%)
-  ──────────────
-  invoices
-  bank-statements
-  receipts
-  insurance
-  ...
+── CLASSIFYING (178) ──────────────────────── ▾
+
+  ⏳ Now: mystery_doc.pdf (LLM → Azure OpenAI gpt-4o-mini)
+
+  Results (most recent):
+  📄 document_283847.pdf    → payslips      (content: 87%)  [✓] [✎]
+  📄 scan_receipt.pdf       → receipts      (content: 72%)  [✓] [✎]
+  📄 random_attach.pdf      → unsorted      (LLM: 35%)      [✎]
+  📄 old_contract.pdf       → legal         (LLM: 91%)      [✓] [✎]
+  ... 174 more
+
+  ────────────────────────────────────────────
+  Progress ██████████░░░░░░░░░░ 7,373 / 7,551 (97.6%)
+  Tier 2 (content): 892 · Tier 3 (LLM): 128 · Manual: 3
+
+  Batch: [200 ▼]  [▶ Reclassify now]  Provider: Azure OpenAI
 ```
 
-Auto-collapses when empty.
+**Behaviour:**
+- **"Now:" line**: Shows the document currently being classified and which tier/provider is running.
+- **Results list**: Most recently classified documents with their assigned category, tier, confidence, and inline action buttons:
+  - **[✓]** (Accept): Confirms the classification. Green check. Only shown when confidence ≥ 0.7.
+  - **[✎]** (Change): Opens a category dropdown to manually reclassify. Shows content-based suggestions at the top:
+    ```
+    [✎ Change ▾]
+      ★ payslips (content: 87%)
+      ★ tax (LLM: 62%)
+      ──────
+      invoices
+      bank-statements
+      receipts
+      insurance
+      ...
+    ```
+  - Low-confidence items (< 0.7) don't get the [✓] button — they need human review.
+- **Progress bar**: Shows classified / total documents. Includes all tiers.
+- **Tier breakdown**: How many classified by each tier (content rules vs LLM vs manual).
+- **Batch controls**: NumericUpDown for batch size + "Reclassify now" runs a batch through Tier 2 then Tier 3. Shows provider name. Live progress as documents are classified:
+  - Button: "⏳ Reclassifying... 45/200 (Tier 2: 38, Tier 3: 7)"
+  - When done: "✅ 189 reclassified, 11 remaining"
+- **Click document** → content pane: extracted markdown preview + full metadata + manual classify dropdown.
+- **Auto-collapses** when count reaches 0.
 
 ### 3.5 — LIBRARY
 
@@ -353,13 +388,43 @@ Permanent right column. Toggleable via 💬. Default: visible.
 
 ---
 
-## 6. Status Bar
+## 6. Status Bar (live pipeline ticker)
 
+The status bar is a **live ticker** showing what the pipeline is doing right now, not just counts.
+
+**When idle:**
 ```
-●● Ready · 2,163 docs · 5 extracting · 3 classifying · 3 action items · Backfill 74%
+●● Ready · 7,551 docs · 223 searchable · 3 action items
 ```
 
-Reflects the pipeline state. States: Ready (green), Syncing (blue), Processing (yellow), Error (red).
+**When extracting:**
+```
+●● Extracting: scan_receipt_2026.pdf (PdfStructure) · 7,328 queued · ~50/min
+```
+
+**When classifying:**
+```
+●● Classifying: mystery_doc.pdf (LLM → gpt-4o-mini) · 178 remaining
+```
+
+**When syncing email:**
+```
+●● Syncing john-personal: 12 new messages · Backfill 74%
+```
+
+**When running a user-triggered batch:**
+```
+●● Batch extract: 145/500 done · 355 remaining · ~180/min
+```
+
+**States** (dot colour):
+- 🟢 Ready (idle)
+- 🔵 Syncing (email + folder scan)
+- 🟡 Processing (extract / classify / embed)
+- 🟠 Batch running (user-triggered)
+- 🔴 Error
+
+The status bar updates every 1 second when the pipeline is active (not 5s). Shows the specific document being processed + the operation + rate.
 
 ---
 
