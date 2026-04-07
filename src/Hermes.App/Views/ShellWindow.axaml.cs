@@ -83,6 +83,8 @@ public partial class ShellWindow : Window
     private TextBlock? _classifyingTierText;
     private Button? _reclassifyNowBtn;
     private NumericUpDown? _reclassifyBatchSize;
+    private DateTimeOffset? _batchStartTime;
+    private int _batchStartCount;
     // Content pane
     private Button _backButton = null!;
     private TextBlock _breadcrumbText = null!;
@@ -1080,7 +1082,7 @@ public partial class ShellWindow : Window
 
     private void TickFastUpdates()
     {
-        // Refresh "Now:" lines and elapsed time at 1-second intervals during active operations
+        // Refresh "Now:" lines, rate/ETA, progress bar, and status bar at 1-second intervals
         var progress = _vm.Bridge.Progress;
         if (progress.CurrentOperation is null)
         {
@@ -1088,18 +1090,74 @@ public partial class ShellWindow : Window
             return;
         }
 
-        if (_extractingNowText is not null && progress.CurrentOperation == "Extracting")
+        if (progress.CurrentOperation == "Extracting")
         {
-            var doc = progress.CurrentDocumentName ?? "processing...";
-            var pct = progress.BatchTotal > 0 ? $" ({progress.BatchProcessed}/{progress.BatchTotal})" : "";
-            _extractingNowText.Text = $"⏳ Now: {doc}{pct}";
+            if (_extractingNowText is not null)
+            {
+                var doc = progress.CurrentDocumentName ?? "processing...";
+                var batch = progress.BatchTotal > 0 ? $" ({progress.BatchProcessed}/{progress.BatchTotal})" : "";
+                _extractingNowText.Text = $"⏳ Now: {doc}{batch}";
+            }
+
+            UpdateBatchRateAndProgress(progress);
         }
 
         if (_classifyingNowText is not null && progress.CurrentOperation == "Reclassifying")
         {
             var doc = progress.CurrentDocumentName ?? "classifying...";
-            var pct = progress.BatchTotal > 0 ? $" ({progress.BatchProcessed}/{progress.BatchTotal})" : "";
-            _classifyingNowText.Text = $"⏳ Now: {doc}{pct}";
+            var batch = progress.BatchTotal > 0 ? $" ({progress.BatchProcessed}/{progress.BatchTotal})" : "";
+            _classifyingNowText.Text = $"⏳ Now: {doc}{batch}";
+        }
+
+        // Update status bar during active operations
+        if (_statusBarText is not null)
+        {
+            var docCount = _vm.IndexStats?.DocumentCount ?? 0;
+            var op = progress.CurrentOperation;
+            var docName = progress.CurrentDocumentName ?? "";
+            var batchInfo = progress.BatchTotal > 0 ? $" ({progress.BatchProcessed}/{progress.BatchTotal})" : "";
+            _statusBarText.Text = $"{op}: {docName}{batchInfo} · {docCount:N0} docs";
+        }
+    }
+
+    private void UpdateBatchRateAndProgress(PipelineProgress progress)
+    {
+        if (_batchStartTime is not { } startTime) return;
+
+        var elapsed = DateTimeOffset.UtcNow - startTime;
+        var processed = progress.BatchProcessed - _batchStartCount;
+        var remaining = progress.BatchTotal - progress.BatchProcessed;
+
+        if (_extractingProgressBar is not null && progress.BatchTotal > 0)
+        {
+            _extractingProgressBar.Maximum = progress.BatchTotal;
+            _extractingProgressBar.Value = progress.BatchProcessed;
+
+            if (_extractingProgressText is not null)
+            {
+                var pct = (double)progress.BatchProcessed / progress.BatchTotal * 100;
+                _extractingProgressText.Text = $"{progress.BatchProcessed:N0} / {progress.BatchTotal:N0} ({pct:F1}%)";
+            }
+        }
+
+        if (_extractingRateText is null) return;
+
+        if (elapsed.TotalMinutes > 0.05 && processed > 0)
+        {
+            var rate = processed / elapsed.TotalMinutes;
+            var etaMinutes = remaining > 0 ? remaining / rate : 0;
+            var etaText = etaMinutes switch
+            {
+                0 => "",
+                < 1 => " · ETA: < 1 min",
+                < 60 => $" · ETA: ~{etaMinutes:F0} min",
+                _ => $" · ETA: ~{etaMinutes / 60:F1} hours"
+            };
+            _extractingRateText.Text = $"Rate: ~{rate:F0}/min{etaText}";
+        }
+        else if (remaining > 0)
+        {
+            _extractingRateText.Text = "Calculating rate...";
         }
     }
 
@@ -1110,27 +1168,24 @@ public partial class ShellWindow : Window
 
         _extractNowBtn.IsEnabled = false;
         _extractNowBtn.Content = "⏳ Extracting...";
+        _batchStartTime = DateTimeOffset.UtcNow;
+        _batchStartCount = 0;
         _fastTicker?.Start();
 
         try
         {
             var count = await _vm.Bridge.RunExtractionBatchAsync(batchSize);
             _extractNowBtn.Content = $"✅ {count} extracted";
+            _batchStartTime = null;
 
             await _vm.RefreshAsync();
 
-            // Revert button text after 3 seconds
-            var revertTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
-            revertTimer.Tick += (_, _) =>
-            {
-                _extractNowBtn.Content = "▶ Extract now";
-                revertTimer.Stop();
-            };
-            revertTimer.Start();
+            _ = RevertButtonAfterDelay(_extractNowBtn, "▶ Extract now", TimeSpan.FromSeconds(3));
         }
         catch (Exception ex)
         {
             _extractNowBtn.Content = $"❌ {ex.Message}";
+            _batchStartTime = null;
         }
         finally
         {
@@ -1145,31 +1200,36 @@ public partial class ShellWindow : Window
 
         _reclassifyNowBtn.IsEnabled = false;
         _reclassifyNowBtn.Content = "⏳ Reclassifying...";
+        _batchStartTime = DateTimeOffset.UtcNow;
+        _batchStartCount = 0;
         _fastTicker?.Start();
 
         try
         {
             var (reclassified, remaining) = await _vm.Bridge.RunReclassifyBatchAsync(batchSize);
             _reclassifyNowBtn.Content = $"✅ {reclassified} reclassified, {remaining} left";
+            _batchStartTime = null;
 
             await _vm.RefreshAsync();
 
-            var revertTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
-            revertTimer.Tick += (_, _) =>
-            {
-                _reclassifyNowBtn.Content = "▶ Reclassify now";
-                revertTimer.Stop();
-            };
-            revertTimer.Start();
+            _ = RevertButtonAfterDelay(_reclassifyNowBtn, "▶ Reclassify now", TimeSpan.FromSeconds(3));
         }
         catch (Exception ex)
         {
             _reclassifyNowBtn.Content = $"❌ {ex.Message}";
+            _batchStartTime = null;
         }
         finally
         {
             _reclassifyNowBtn.IsEnabled = true;
         }
+    }
+
+    private static async Task RevertButtonAfterDelay(Button? btn, string text, TimeSpan delay)
+    {
+        await Task.Delay(delay);
+        if (btn is not null)
+            Dispatcher.UIThread.Post(() => btn.Content = text);
     }
 
     private void ShowReminderDetail(ReminderItem item)
