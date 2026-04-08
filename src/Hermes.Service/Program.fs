@@ -5,6 +5,7 @@ open System.IO
 open System.Net.Http
 open System.Threading
 open Microsoft.AspNetCore.Builder
+open Microsoft.Extensions.DependencyInjection
 open Microsoft.Extensions.FileProviders
 open Microsoft.FSharp.Core
 open Hermes.Core
@@ -81,6 +82,7 @@ let main _args =
 
     // Build HTTP API
     let builder = WebApplication.CreateBuilder()
+    builder.Services.AddCors() |> ignore
     let app = builder.Build()
 
     // CORS for Vite dev server

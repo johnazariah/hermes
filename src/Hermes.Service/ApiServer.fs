@@ -96,7 +96,12 @@ module ApiServer =
         app.MapGet("/api/reminders", Func<Task<IResult>>(fun () ->
             task {
                 let! active = Reminders.getActive db (clock.utcNow ())
-                return json active
+                let mapped =
+                    active |> List.map (fun (r, vendor, fileName) ->
+                        {| id = r.Id; documentId = r.DocumentId; vendor = vendor
+                           amount = r.Amount; dueDate = r.DueDate; category = r.Category
+                           status = r.Status.ToString(); fileName = fileName |})
+                return json mapped
             })) |> ignore
 
         // ── Sync trigger ────────────────────────────────────────────
