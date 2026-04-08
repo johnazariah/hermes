@@ -277,3 +277,14 @@ module Domain =
           FailedAt: DateTimeOffset
           RetryCount: int
           OriginalName: string }
+
+    /// Result of extracting text and metadata from a document.
+    type ExtractionResult =
+        { Text: string
+          Markdown: string option
+          Date: string option
+          Amount: decimal option
+          Vendor: string option
+          Abn: string option
+          Method: string
+          OcrConfidence: float option }

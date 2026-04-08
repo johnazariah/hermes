@@ -95,6 +95,21 @@ module Algebra =
         { extractPdf: byte array -> Task<Result<string, string>>
           extractImage: byte array -> Task<Result<string, string>> }
 
+    // ─── Plugin registry ─────────────────────────────────────────────
+
+    /// An extractor plugin: given file bytes, produces extraction result.
+    /// Tried in descending priority order. First canHandle match wins.
+    type ExtractorPlugin =
+        { Name: string
+          Priority: int
+          CanHandle: string -> bool
+          Extract: byte array -> Task<Result<Domain.ExtractionResult, string>> }
+
+    /// A post-processor plugin: fires after extraction completes.
+    type PostProcessor =
+        { Name: string
+          Process: Database -> FileSystem -> Logger -> Clock -> int64 -> Task<unit> }
+
     // ─── Ollama client ───────────────────────────────────────────────
 
     type OllamaClient =
