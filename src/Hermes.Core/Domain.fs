@@ -265,3 +265,15 @@ module Domain =
           Conditions: ContentMatch list
           Category: string
           Confidence: float }
+
+    // ─── Pipeline types ──────────────────────────────────────────────
+
+    /// A document that permanently failed a pipeline stage.
+    type DeadLetter =
+        { DocId: int64
+          Stage: string
+          Error: string
+          Retryable: bool
+          FailedAt: DateTimeOffset
+          RetryCount: int
+          OriginalName: string }

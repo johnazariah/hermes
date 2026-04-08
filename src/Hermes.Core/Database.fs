@@ -368,6 +368,22 @@ module Database =
             for sql in ensureCols do
                 try let! _ = execNonQuery conn sql [] in ()
                 with _ -> () // column already exists — fine
+
+            // Ensure dead_letters table exists
+            let! _ =
+                execNonQuery conn
+                    """CREATE TABLE IF NOT EXISTS dead_letters (
+                        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                        doc_id        INTEGER NOT NULL,
+                        stage         TEXT NOT NULL,
+                        error         TEXT NOT NULL,
+                        retryable     INTEGER NOT NULL DEFAULT 0,
+                        failed_at     TEXT NOT NULL,
+                        retry_count   INTEGER NOT NULL DEFAULT 0,
+                        original_name TEXT,
+                        dismissed     INTEGER NOT NULL DEFAULT 0
+                    )""" []
+            ()
         }
 
     let private initSchemaImpl (conn: SqliteConnection) =

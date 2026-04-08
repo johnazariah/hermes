@@ -133,9 +133,19 @@ module ServiceHost =
 
                 // Stage 1: Classify → Channel → Stage 2: Extract
                 let extractCh = Channel.CreateUnbounded<int64>()
+                let deadLetterCh = Channel.CreateUnbounded<Domain.DeadLetter>()
                 do! ClassifyStage.classifyNew fs db logger clock rules config.ArchiveDir extractCh.Writer
                 extractCh.Writer.Complete()
-                do! ExtractStage.run fs db logger clock deps.Extractor config.ArchiveDir extractCh.Reader
+                do! ExtractStage.run fs db logger clock deps.Extractor config.ArchiveDir extractCh.Reader deadLetterCh.Writer
+
+                // Log dead letters from this cycle
+                let mutable dl = Unchecked.defaultof<Domain.DeadLetter>
+                let mutable dlCount = 0
+                while deadLetterCh.Reader.TryRead(&dl) do
+                    logger.warn $"Dead letter: doc {dl.DocId} ({dl.OriginalName}) — {dl.Error}"
+                    dlCount <- dlCount + 1
+                if dlCount > 0 then
+                    logger.info $"{dlCount} document(s) failed extraction (dead letter)"
 
                 // Stage 1b: Reclassify unsorted (needs extracted text from Stage 2)
                 do! ClassifyStage.reclassifyUnsorted fs db logger deps.ChatProvider deps.ContentRules config.ArchiveDir
