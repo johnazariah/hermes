@@ -150,20 +150,23 @@ module Classifier =
             original_name, saved_path, category, size_bytes, sha256, source_path, ingested_at)
            VALUES
            (@source_type, @gmail_id, @account, @sender, @subject, @email_date,
-            @original_name, @saved_path, @category, @size_bytes, @sha256, @source_path, @ingested_at)"""
+            @original_name, @saved_path, @category, @size_bytes, @sha256, @source_path, @ingested_at)
+           RETURNING id"""
 
     /// Clean up sidecar .meta.json if it exists.
     let private cleanupSidecar (fs: Algebra.FileSystem) (filePath: string) =
         let metaPath = filePath + ".meta.json"
         if fs.fileExists metaPath then fs.deleteFile metaPath
 
+    /// Process a single file: classify, dedup, move, and record.
+    /// Returns Ok(Some docId) on insert, Ok(None) on duplicate/skip, Error on failure.
     let processFile
         (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
         (clock: Algebra.Clock) (rules: Algebra.RulesEngine) (archiveDir: string) (filePath: string)
         =
         task {
             let fileName = Path.GetFileName(filePath) |> Option.ofObj |> Option.defaultValue ""
-            if not (fs.fileExists filePath) then return Ok()
+            if not (fs.fileExists filePath) then return Ok None
             else
             try
                 let! sha256 = computeSha256 fs filePath
@@ -172,7 +175,7 @@ module Classifier =
                     logger.info $"Duplicate detected (sha256={sha256.[..7]}), skipping: {fileName}"
                     fs.deleteFile filePath
                     cleanupSidecar fs filePath
-                    return Ok()
+                    return Ok None
                 else
 
                 let! sidecar = tryLoadSidecar fs logger filePath
@@ -188,9 +191,10 @@ module Classifier =
                 let relativePath = buildRelativePath archiveDir finalDest
                 let now = clock.utcNow().ToString("o")
                 let ps = buildDocParams sidecar fileName relativePath result.Category (fs.getFileSize finalDest) sha256 filePath now
-                let! _ = db.execNonQuery insertDocSql ps
+                let! idObj = db.execScalar insertDocSql ps
+                let docId = match idObj with :? int64 as i -> i | :? int as i -> int64 i | _ -> 0L
                 cleanupSidecar fs filePath
-                return Ok()
+                return Ok (Some docId)
             with ex ->
                 logger.error $"Failed to process {fileName}: {ex.Message}"
                 return Error ex.Message

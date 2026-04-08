@@ -4,6 +4,7 @@ open System
 open System.IO
 open System.Text.Json
 open System.Threading
+open System.Threading.Channels
 open System.Threading.Tasks
 
 /// Background service orchestration: periodic sync, heartbeat, graceful shutdown.
@@ -103,14 +104,19 @@ module ServiceHost =
     let private syncWatchFolders (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger) (clock: Algebra.Clock) (config: Domain.HermesConfig) =
         task { let! _ = FolderWatcher.scanAll fs db logger clock config in () }
 
-    let private classifyUnclassified (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger) (clock: Algebra.Clock) (rules: Algebra.RulesEngine) (archiveDir: string) =
+    let private classifyUnclassified
+        (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
+        (clock: Algebra.Clock) (rules: Algebra.RulesEngine) (archiveDir: string)
+        (extractChannel: ChannelWriter<int64>) =
         task {
             let dir = Path.Combine(archiveDir, "unclassified")
             if fs.directoryExists dir then
                 let files = fs.getFiles dir "*" |> Array.filter (fun f -> not (f.EndsWith(".meta.json", StringComparison.OrdinalIgnoreCase)))
                 for file in files do
-                    let! _ = Classifier.processFile fs db logger clock rules archiveDir file
-                    ()
+                    let! result = Classifier.processFile fs db logger clock rules archiveDir file
+                    match result with
+                    | Ok (Some docId) -> do! extractChannel.WriteAsync(docId)
+                    | _ -> ()
         }
 
     let private runBackfill
@@ -195,8 +201,23 @@ module ServiceHost =
 
     let private runExtraction
         (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
-        (clock: Algebra.Clock) (extractor: Algebra.TextExtractor) (archiveDir: string) =
+        (clock: Algebra.Clock) (extractor: Algebra.TextExtractor) (archiveDir: string)
+        (extractChannel: ChannelReader<int64>) =
         task {
+            // Phase 1: drain channel — newly classified docs from this cycle
+            let mutable channelCount = 0
+            let mutable item = Unchecked.defaultof<int64>
+            while extractChannel.TryRead(&item) do
+                let! rows = db.execReader "SELECT saved_path FROM documents WHERE id = @id" [ ("@id", Database.boxVal item) ]
+                match rows |> List.tryHead |> Option.bind (fun r -> Prelude.RowReader(r).OptString "saved_path") with
+                | Some path ->
+                    let! _ = Extraction.processDocument fs db logger clock extractor archiveDir item path false
+                    channelCount <- channelCount + 1
+                | None -> ()
+            if channelCount > 0 then
+                logger.info $"Extracted {channelCount} newly-classified document(s) from channel"
+
+            // Phase 2: DB backlog — unextracted docs from previous cycles
             let! _ = Extraction.extractBatch fs db logger clock extractor archiveDir None false 500
             ()
         }
@@ -237,8 +258,13 @@ module ServiceHost =
                 do! ActivityLog.logInfo db "sync" "Sync cycle started" None
                 do! syncEmails fs db logger clock deps.CreateEmailProvider config configDir
                 do! syncWatchFolders fs db logger clock config
-                do! runExtraction fs db logger clock deps.Extractor config.ArchiveDir
-                do! classifyUnclassified fs db logger clock rules config.ArchiveDir
+
+                // Channel connects classify → extract within a single cycle
+                let extractCh = Channel.CreateUnbounded<int64>()
+                do! classifyUnclassified fs db logger clock rules config.ArchiveDir extractCh.Writer
+                extractCh.Writer.Complete()
+                do! runExtraction fs db logger clock deps.Extractor config.ArchiveDir extractCh.Reader
+
                 do! reclassifyUnsorted fs db logger deps.ChatProvider deps.ContentRules config.ArchiveDir
                 do! runBackfill fs db logger clock deps.CreateEmailProvider config configDir
                 do! evaluateReminders db logger clock
