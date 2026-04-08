@@ -104,21 +104,6 @@ module ServiceHost =
     let private syncWatchFolders (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger) (clock: Algebra.Clock) (config: Domain.HermesConfig) =
         task { let! _ = FolderWatcher.scanAll fs db logger clock config in () }
 
-    let private classifyUnclassified
-        (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
-        (clock: Algebra.Clock) (rules: Algebra.RulesEngine) (archiveDir: string)
-        (extractChannel: ChannelWriter<int64>) =
-        task {
-            let dir = Path.Combine(archiveDir, "unclassified")
-            if fs.directoryExists dir then
-                let files = fs.getFiles dir "*" |> Array.filter (fun f -> not (f.EndsWith(".meta.json", StringComparison.OrdinalIgnoreCase)))
-                for file in files do
-                    let! result = Classifier.processFile fs db logger clock rules archiveDir file
-                    match result with
-                    | Ok (Some docId) -> do! extractChannel.WriteAsync(docId)
-                    | _ -> ()
-        }
-
     let private runBackfill
         (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
         (clock: Algebra.Clock) (createProvider: string -> string -> Task<Algebra.EmailProvider>)
@@ -131,119 +116,6 @@ module ServiceHost =
                         let! _ = EmailSync.backfillAccount fs db logger clock provider config account
                         ()
                     with ex -> logger.warn $"Backfill failed for {account.Label}: {ex.Message}"
-        }
-
-    let private reclassifyUnsorted
-        (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
-        (chatProvider: Algebra.ChatProvider option) (contentRules: Domain.ContentRule list)
-        (archiveDir: string) =
-        task {
-            // Tier 2: content rules reclassification
-            let! reclassified, remaining =
-                Classifier.reclassifyUnsortedBatch db fs contentRules archiveDir 50
-            if reclassified > 0 then
-                logger.info $"Tier 2 reclassified {reclassified} documents ({remaining} still unsorted)"
-
-            // Tier 3: LLM classification for remaining unsorted
-            match chatProvider with
-            | Some provider when remaining > 0 ->
-                try
-                    let! unsortedRows =
-                        db.execReader
-                            """SELECT id, extracted_text FROM documents
-                               WHERE (category = 'unsorted' OR category = 'unclassified')
-                                 AND extracted_text IS NOT NULL
-                               ORDER BY id ASC LIMIT 10"""
-                            []
-                    let! catRows =
-                        db.execReader "SELECT DISTINCT category FROM documents WHERE category NOT IN ('unsorted','unclassified')" []
-                    let categories =
-                        catRows |> List.choose (fun r -> Prelude.RowReader(r).OptString "category")
-                    let mutable llmClassified = 0
-                    for row in unsortedRows do
-                        let r = Prelude.RowReader(row)
-                        match r.OptInt64 "id", r.OptString "extracted_text" with
-                        | Some docId, Some text ->
-                            let prompt = ContentClassifier.buildClassificationPrompt text categories
-                            let! llmResult = provider.complete "You are a document classifier." prompt
-                            match llmResult with
-                            | Ok response ->
-                                match ContentClassifier.parseClassificationResponse response with
-                                | Some (cat, conf, reasoning) when conf >= 0.4 && categories |> List.contains cat ->
-                                    let! moveResult = DocumentManagement.reclassify db fs archiveDir docId cat
-                                    match moveResult with
-                                    | Ok () ->
-                                        let tier = if conf >= 0.7 then "llm" else "llm_review"
-                                        let! _ =
-                                            db.execNonQuery
-                                                """UPDATE documents SET classification_tier = @tier,
-                                                   classification_confidence = @conf WHERE id = @id"""
-                                                [ ("@tier", Database.boxVal tier)
-                                                  ("@conf", Database.boxVal conf)
-                                                  ("@id", Database.boxVal docId) ]
-                                        llmClassified <- llmClassified + 1
-                                        if conf < 0.7 then
-                                            logger.warn $"LLM classified doc {docId} as {cat} (conf={conf:F2}, needs review): {reasoning}"
-                                        else
-                                            logger.info $"LLM classified doc {docId} as {cat} (conf={conf:F2}): {reasoning}"
-                                    | Error e -> logger.warn $"LLM reclassify move failed for doc {docId}: {e}"
-                                | _ -> ()
-                            | Error e ->
-                                let docIdStr = r.OptInt64 "id" |> Option.map string |> Option.defaultValue "?"
-                                logger.warn $"LLM classification failed for doc {docIdStr}: {e}"
-                        | _ -> ()
-                    if llmClassified > 0 then
-                        logger.info $"Tier 3 LLM classified {llmClassified} documents"
-                with ex ->
-                    logger.debug $"LLM classification skipped: {ex.Message}"
-            | _ -> ()
-        }
-
-    let private runExtraction
-        (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
-        (clock: Algebra.Clock) (extractor: Algebra.TextExtractor) (archiveDir: string)
-        (extractChannel: ChannelReader<int64>) =
-        task {
-            // Phase 1: drain channel — newly classified docs from this cycle
-            let mutable channelCount = 0
-            let mutable item = Unchecked.defaultof<int64>
-            while extractChannel.TryRead(&item) do
-                let! rows = db.execReader "SELECT saved_path FROM documents WHERE id = @id" [ ("@id", Database.boxVal item) ]
-                match rows |> List.tryHead |> Option.bind (fun r -> Prelude.RowReader(r).OptString "saved_path") with
-                | Some path ->
-                    let! _ = Extraction.processDocument fs db logger clock extractor archiveDir item path false
-                    channelCount <- channelCount + 1
-                | None -> ()
-            if channelCount > 0 then
-                logger.info $"Extracted {channelCount} newly-classified document(s) from channel"
-
-            // Phase 2: DB backlog — unextracted docs from previous cycles
-            let! _ = Extraction.extractBatch fs db logger clock extractor archiveDir None false 500
-            ()
-        }
-
-    let private evaluateReminders (db: Algebra.Database) (logger: Algebra.Logger) (clock: Algebra.Clock) =
-        task {
-            let! n = Reminders.evaluateNewDocuments db logger (clock.utcNow ())
-            if n > 0 then
-                logger.info $"Created {n} new reminder(s)"
-                do! ActivityLog.logInfo db "reminder" $"Created {n} new reminder(s)" None
-            let! u = Reminders.unsnoozeExpired db (clock.utcNow ())
-            if u > 0 then
-                logger.info $"Un-snoozed {u} reminder(s)"
-                do! ActivityLog.logInfo db "reminder" $"Un-snoozed {u} reminder(s)" None
-        }
-
-    let private runEmbedding (db: Algebra.Database) (logger: Algebra.Logger) (clock: Algebra.Clock) (embedder: Algebra.EmbeddingClient option) =
-        task {
-            match embedder with
-            | None -> ()
-            | Some client ->
-                let! avail = client.isAvailable ()
-                if avail then
-                    logger.info "Embedding service available — embedding..."
-                    let! _ = Embeddings.batchEmbed db logger clock client false (Some 50) None
-                    ()
         }
 
     // ─── Composed sync cycle ────────────────────────────────────────
@@ -259,16 +131,21 @@ module ServiceHost =
                 do! syncEmails fs db logger clock deps.CreateEmailProvider config configDir
                 do! syncWatchFolders fs db logger clock config
 
-                // Channel connects classify → extract within a single cycle
+                // Stage 1: Classify → Channel → Stage 2: Extract
                 let extractCh = Channel.CreateUnbounded<int64>()
-                do! classifyUnclassified fs db logger clock rules config.ArchiveDir extractCh.Writer
+                do! ClassifyStage.classifyNew fs db logger clock rules config.ArchiveDir extractCh.Writer
                 extractCh.Writer.Complete()
-                do! runExtraction fs db logger clock deps.Extractor config.ArchiveDir extractCh.Reader
+                do! ExtractStage.run fs db logger clock deps.Extractor config.ArchiveDir extractCh.Reader
 
-                do! reclassifyUnsorted fs db logger deps.ChatProvider deps.ContentRules config.ArchiveDir
+                // Stage 1b: Reclassify unsorted (needs extracted text from Stage 2)
+                do! ClassifyStage.reclassifyUnsorted fs db logger deps.ChatProvider deps.ContentRules config.ArchiveDir
+
+                // Producers: backfill historical emails
                 do! runBackfill fs db logger clock deps.CreateEmailProvider config configDir
-                do! evaluateReminders db logger clock
-                do! runEmbedding db logger clock deps.Embedder
+
+                // Stage 3: Post-processing (reminders, embedding)
+                do! PostStage.run db logger clock deps.Embedder
+
                 do! ActivityLog.logInfo db "sync" "Sync cycle completed" None
                 logger.debug "Sync cycle completed."
                 return Ok()
