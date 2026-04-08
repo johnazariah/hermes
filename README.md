@@ -62,7 +62,7 @@ dotnet test --collect:"XPlat Code Coverage"             # with coverage
 
 | Metric | Current | Target |
 |--------|---------|--------|
-| Tests | 824 (3 projects) | Growing |
+| Tests | 818 (3 projects) | Growing |
 | Line coverage | 86% | **85%** |
 | Branch coverage | ~45% | **60%** |
 
@@ -83,9 +83,11 @@ See [.project/STATUS.md](.project/STATUS.md) for full details.
 | Osprey Parity Validation | ✅ Done |
 | Structured Extraction Pipeline | ✅ Done |
 | Smart Classification (3-tier) | ✅ Done |
-| UI: Pipeline Funnel | ⏳ Next |
+| UI: Pipeline Funnel | ✅ Done |
+| Interactive Pipeline Controls | ✅ Done |
+| UI Testing | ✅ Done |
+| **v2: Channel Pipeline + React UI** | ⏳ **Next** |
 | Pelican GL Integration | Planned |
-| Polish + Production | Planned |
 
 ## Documentation
 
@@ -98,6 +100,8 @@ See [.project/STATUS.md](.project/STATUS.md) for full details.
 - [Pipeline Funnel UI](.project/design/15-rich-ui.md)
 - [Document Extraction](.project/design/17-pdf-to-markdown.md)
 - [Smart Classification](.project/design/18-smart-classification.md)
+- [**v2 Pipeline & UI End-State**](.project/design/20-pipeline-v2-endstate.md)
+- [**v2 Implementation Plan**](.project/design/21-v2-implementation-plan.md)
 - [Wave Files](.project/waves/)
 
 ## License

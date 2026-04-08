@@ -311,7 +311,7 @@ module Classifier =
     // ─── Bulk reclassification ───────────────────────────────────────
 
     /// Get unsorted documents that have extracted text (candidates for Tier 2).
-    let private getUnsortedWithText (db: Algebra.Database) (limit: int) =
+    let getUnsortedWithText (db: Algebra.Database) (limit: int) =
         task {
             let! rows =
                 db.execReader

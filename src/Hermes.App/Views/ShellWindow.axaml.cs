@@ -245,7 +245,8 @@ public partial class ShellWindow : Window
         _contentPanel.Children.Add(new TextBlock
         {
             Text = $"📁 {category}",
-            FontSize = 16, FontWeight = FontWeight.SemiBold,
+            FontSize = 16,
+            FontWeight = FontWeight.SemiBold,
             Margin = new Thickness(0, 0, 0, 12)
         });
 
@@ -268,7 +269,8 @@ public partial class ShellWindow : Window
                     _contentPanel.Children.Add(new TextBlock
                     {
                         Text = "No documents in this category.",
-                        FontSize = 12, Foreground = new SolidColorBrush(Color.Parse("#888"))
+                        FontSize = 12,
+                        Foreground = new SolidColorBrush(Color.Parse("#888"))
                     });
                     return;
                 }
@@ -293,8 +295,10 @@ public partial class ShellWindow : Window
         var nameStack = new StackPanel { Spacing = 1 };
         nameStack.Children.Add(new TextBlock
         {
-            Text = doc.OriginalName, FontSize = 12,
-            TextTrimming = TextTrimming.CharacterEllipsis, MaxLines = 1
+            Text = doc.OriginalName,
+            FontSize = 12,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            MaxLines = 1
         });
 
         var meta = FSharpOption<string>.get_IsSome(doc.ExtractedDate)
@@ -308,9 +312,11 @@ public partial class ShellWindow : Window
         {
             nameStack.Children.Add(new TextBlock
             {
-                Text = meta, FontSize = 10,
+                Text = meta,
+                FontSize = 10,
                 Foreground = new SolidColorBrush(Color.Parse("#888")),
-                TextTrimming = TextTrimming.CharacterEllipsis, MaxLines = 1
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxLines = 1
             });
         }
         Grid.SetColumn(nameStack, 0);
@@ -322,7 +328,9 @@ public partial class ShellWindow : Window
             var tier = doc.ClassificationTier!.Value;
             var badge = new TextBlock
             {
-                Text = tier, FontSize = 9, Padding = new Thickness(4, 1),
+                Text = tier,
+                FontSize = 9,
+                Padding = new Thickness(4, 1),
                 Foreground = new SolidColorBrush(Color.Parse("#888")),
                 VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
             };
@@ -603,7 +611,8 @@ public partial class ShellWindow : Window
         {
             _libraryPanel.Children.Add(new TextBlock
             {
-                Text = "No documents yet.", FontSize = 11,
+                Text = "No documents yet.",
+                FontSize = 11,
                 Foreground = new SolidColorBrush(Color.Parse("#888"))
             });
             return;
@@ -624,7 +633,8 @@ public partial class ShellWindow : Window
             Grid.SetColumn(nameText, 0);
             var countText = new TextBlock
             {
-                Text = $"({cat.Count})", FontSize = 10,
+                Text = $"({cat.Count})",
+                FontSize = 10,
                 Foreground = new SolidColorBrush(Color.Parse("#888")),
                 VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
             };
@@ -648,7 +658,8 @@ public partial class ShellWindow : Window
         {
             _actionItemsPanel.Children.Add(new TextBlock
             {
-                Text = "No action items.", FontSize = 11,
+                Text = "No action items.",
+                FontSize = 11,
                 Foreground = new SolidColorBrush(Color.Parse("#888"))
             });
             return;
@@ -659,7 +670,8 @@ public partial class ShellWindow : Window
             var row = new TextBlock
             {
                 Text = $"🔴 {r.Vendor ?? r.FileName ?? "Unknown"} — {r.DueLabel}",
-                FontSize = 11, TextWrapping = TextWrapping.Wrap,
+                FontSize = 11,
+                TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 2),
                 Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
             };
@@ -673,7 +685,8 @@ public partial class ShellWindow : Window
             var row = new TextBlock
             {
                 Text = $"🟡 {r.Vendor ?? r.FileName ?? "Unknown"} — {r.DueLabel}",
-                FontSize = 11, TextWrapping = TextWrapping.Wrap,
+                FontSize = 11,
+                TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 2),
                 Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
             };
@@ -693,7 +706,8 @@ public partial class ShellWindow : Window
         _extractingNowText = new TextBlock
         {
             Text = "Pipeline idle",
-            FontSize = 11, Foreground = new SolidColorBrush(Color.Parse("#888")),
+            FontSize = 11,
+            Foreground = new SolidColorBrush(Color.Parse("#888")),
             Margin = new Thickness(0, 0, 0, 6)
         };
         _extractingPanel.Children.Add(_extractingNowText);
@@ -705,15 +719,19 @@ public partial class ShellWindow : Window
         // Progress bar
         _extractingProgressBar = new ProgressBar
         {
-            Minimum = 0, Maximum = 100, Value = 0,
-            Height = 6, Margin = new Thickness(0, 8, 0, 2),
+            Minimum = 0,
+            Maximum = 100,
+            Value = 0,
+            Height = 6,
+            Margin = new Thickness(0, 8, 0, 2),
             Foreground = new SolidColorBrush(Color.Parse("#2196F3"))
         };
         _extractingPanel.Children.Add(_extractingProgressBar);
 
         _extractingProgressText = new TextBlock
         {
-            Text = "", FontSize = 10,
+            Text = "",
+            FontSize = 10,
             Foreground = new SolidColorBrush(Color.Parse("#888"))
         };
         _extractingPanel.Children.Add(_extractingProgressText);
@@ -721,7 +739,8 @@ public partial class ShellWindow : Window
         // Rate + ETA
         _extractingRateText = new TextBlock
         {
-            Text = "", FontSize = 10,
+            Text = "",
+            FontSize = 10,
             Foreground = new SolidColorBrush(Color.Parse("#888")),
             Margin = new Thickness(0, 2, 0, 6)
         };
@@ -731,14 +750,19 @@ public partial class ShellWindow : Window
         var batchRow = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Spacing = 6 };
         _extractBatchSize = new NumericUpDown
         {
-            Value = 500, Minimum = 10, Maximum = 5000, Increment = 50,
-            Width = 90, FontSize = 11
+            Value = 500,
+            Minimum = 10,
+            Maximum = 5000,
+            Increment = 50,
+            Width = 90,
+            FontSize = 11
         };
         batchRow.Children.Add(_extractBatchSize);
 
         _extractNowBtn = new Button
         {
-            Content = "▶ Extract now", FontSize = 11,
+            Content = "▶ Extract now",
+            FontSize = 11,
             Padding = new Thickness(8, 4)
         };
         _extractNowBtn.Click += async (_, _) => await RunExtractionBatchFromPanel();
@@ -747,7 +771,8 @@ public partial class ShellWindow : Window
         var pauseBtn = new Button
         {
             Content = _vm.IsPaused ? "▶ Resume" : "⏸ Pause",
-            FontSize = 11, Padding = new Thickness(8, 4)
+            FontSize = 11,
+            Padding = new Thickness(8, 4)
         };
         pauseBtn.Click += (_, _) =>
         {
@@ -767,7 +792,8 @@ public partial class ShellWindow : Window
         _classifyingNowText = new TextBlock
         {
             Text = "Pipeline idle",
-            FontSize = 11, Foreground = new SolidColorBrush(Color.Parse("#888")),
+            FontSize = 11,
+            Foreground = new SolidColorBrush(Color.Parse("#888")),
             Margin = new Thickness(0, 0, 0, 6)
         };
         _classifyingPanel.Children.Add(_classifyingNowText);
@@ -779,15 +805,19 @@ public partial class ShellWindow : Window
         // Progress bar
         _classifyingProgressBar = new ProgressBar
         {
-            Minimum = 0, Maximum = 100, Value = 0,
-            Height = 6, Margin = new Thickness(0, 8, 0, 2),
+            Minimum = 0,
+            Maximum = 100,
+            Value = 0,
+            Height = 6,
+            Margin = new Thickness(0, 8, 0, 2),
             Foreground = new SolidColorBrush(Color.Parse("#FF9800"))
         };
         _classifyingPanel.Children.Add(_classifyingProgressBar);
 
         _classifyingProgressText = new TextBlock
         {
-            Text = "", FontSize = 10,
+            Text = "",
+            FontSize = 10,
             Foreground = new SolidColorBrush(Color.Parse("#888"))
         };
         _classifyingPanel.Children.Add(_classifyingProgressText);
@@ -795,7 +825,8 @@ public partial class ShellWindow : Window
         // Tier breakdown
         _classifyingTierText = new TextBlock
         {
-            Text = "", FontSize = 10,
+            Text = "",
+            FontSize = 10,
             Foreground = new SolidColorBrush(Color.Parse("#888")),
             Margin = new Thickness(0, 2, 0, 6)
         };
@@ -805,14 +836,19 @@ public partial class ShellWindow : Window
         var batchRow = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Spacing = 6 };
         _reclassifyBatchSize = new NumericUpDown
         {
-            Value = 200, Minimum = 10, Maximum = 5000, Increment = 50,
-            Width = 90, FontSize = 11
+            Value = 200,
+            Minimum = 10,
+            Maximum = 5000,
+            Increment = 50,
+            Width = 90,
+            FontSize = 11
         };
         batchRow.Children.Add(_reclassifyBatchSize);
 
         _reclassifyNowBtn = new Button
         {
-            Content = "▶ Reclassify now", FontSize = 11,
+            Content = "▶ Reclassify now",
+            FontSize = 11,
             Padding = new Thickness(8, 4)
         };
         _reclassifyNowBtn.Click += async (_, _) => await RunReclassifyBatchFromPanel();
@@ -822,7 +858,8 @@ public partial class ShellWindow : Window
         batchRow.Children.Add(new TextBlock
         {
             Text = _vm.ChatProviderName,
-            FontSize = 10, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+            FontSize = 10,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
             Foreground = new SolidColorBrush(Color.Parse("#888"))
         });
 
@@ -840,7 +877,8 @@ public partial class ShellWindow : Window
             _extractingQueuePanel.Children.Add(new TextBlock
             {
                 Text = "No documents in queue.",
-                FontSize = 10, FontStyle = FontStyle.Italic,
+                FontSize = 10,
+                FontStyle = FontStyle.Italic,
                 Foreground = new SolidColorBrush(Color.Parse("#888"))
             });
             return;
@@ -857,7 +895,8 @@ public partial class ShellWindow : Window
             var row = new TextBlock
             {
                 Text = $"📄 {item.OriginalName}  {sizeText}  queued",
-                FontSize = 10, Foreground = new SolidColorBrush(Color.Parse("#AAA")),
+                FontSize = 10,
+                Foreground = new SolidColorBrush(Color.Parse("#AAA")),
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 Margin = new Thickness(0, 1)
             };
@@ -876,7 +915,8 @@ public partial class ShellWindow : Window
             _classifyingResultsPanel.Children.Add(new TextBlock
             {
                 Text = "No recent classifications.",
-                FontSize = 10, FontStyle = FontStyle.Italic,
+                FontSize = 10,
+                FontStyle = FontStyle.Italic,
                 Foreground = new SolidColorBrush(Color.Parse("#888"))
             });
             return;
@@ -900,7 +940,8 @@ public partial class ShellWindow : Window
             var nameBlock = new TextBlock
             {
                 Text = $"📄 {item.OriginalName} → {item.Category} ({tierLabel}: {confText})",
-                FontSize = 10, TextTrimming = TextTrimming.CharacterEllipsis,
+                FontSize = 10,
+                TextTrimming = TextTrimming.CharacterEllipsis,
                 Foreground = new SolidColorBrush(isLowConfidence ? Color.Parse("#FF9800") : Color.Parse("#AAA"))
             };
             Grid.SetColumn(nameBlock, 0);
@@ -913,7 +954,8 @@ public partial class ShellWindow : Window
             {
                 var acceptBtn = new Button
                 {
-                    Content = "✓", FontSize = 9,
+                    Content = "✓",
+                    FontSize = 9,
                     Padding = new Thickness(4, 1),
                     Background = Brushes.Transparent,
                     Foreground = new SolidColorBrush(Color.Parse("#4CAF50"))
@@ -925,7 +967,8 @@ public partial class ShellWindow : Window
             // Change button
             var changeBtn = new Button
             {
-                Content = "✎", FontSize = 9,
+                Content = "✎",
+                FontSize = 9,
                 Padding = new Thickness(4, 1),
                 Background = Brushes.Transparent,
                 Foreground = new SolidColorBrush(Color.Parse("#2196F3"))
@@ -949,7 +992,8 @@ public partial class ShellWindow : Window
         var combo = new ComboBox
         {
             ItemsSource = categories,
-            FontSize = 10, Width = 120,
+            FontSize = 10,
+            Width = 120,
             IsDropDownOpen = true
         };
         combo.SelectionChanged += async (_, _) =>
@@ -1174,8 +1218,10 @@ public partial class ShellWindow : Window
 
         try
         {
-            var count = await _vm.Bridge.RunExtractionBatchAsync(batchSize);
-            _extractNowBtn.Content = $"✅ {count} extracted";
+            var (succeeded, failed) = await _vm.Bridge.RunExtractionBatchAsync(batchSize);
+            _extractNowBtn.Content = failed > 0
+                ? $"✅ {succeeded} extracted, {failed} failed"
+                : $"✅ {succeeded} extracted";
             _batchStartTime = null;
 
             await _vm.RefreshAsync();
@@ -1241,7 +1287,8 @@ public partial class ShellWindow : Window
         _contentPanel.Children.Add(new TextBlock
         {
             Text = item.Vendor ?? item.FileName ?? "Reminder",
-            FontSize = 16, FontWeight = FontWeight.Bold,
+            FontSize = 16,
+            FontWeight = FontWeight.Bold,
             Margin = new Thickness(0, 0, 0, 8)
         });
 

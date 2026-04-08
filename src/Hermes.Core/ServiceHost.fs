@@ -197,7 +197,7 @@ module ServiceHost =
         (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
         (clock: Algebra.Clock) (extractor: Algebra.TextExtractor) (archiveDir: string) =
         task {
-            let! _ = Extraction.extractBatch fs db logger clock extractor archiveDir None false 50
+            let! _ = Extraction.extractBatch fs db logger clock extractor archiveDir None false 500
             ()
         }
 

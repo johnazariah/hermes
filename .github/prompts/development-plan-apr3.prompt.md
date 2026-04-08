@@ -1,5 +1,6 @@
----
-description: "Master development plan: wave roadmap with dependency graph. Status tracked in .project/STATUS.md and .project/waves/*.md"
+hermes reextract-all -n 500---
+description: "Master development plan: wave roadmap with dependency graph. Status tracked in .project/STATUS.md and .project/waves/\*.md"
+
 ---
 
 # Hermes — Development Plan (April 3, 2026)

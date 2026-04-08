@@ -358,6 +358,16 @@ module Database =
             let! v = schemaVersionImpl conn
             if v < 4 && v >= 3 then
                 do! migrateV3toV4 conn
+
+            // Always ensure required columns exist (handles partial migrations)
+            let ensureCols =
+                [| "ALTER TABLE documents ADD COLUMN extraction_confidence REAL"
+                   "ALTER TABLE documents ADD COLUMN classification_tier TEXT"
+                   "ALTER TABLE documents ADD COLUMN classification_confidence REAL"
+                   "ALTER TABLE documents ADD COLUMN extracted_markdown TEXT" |]
+            for sql in ensureCols do
+                try let! _ = execNonQuery conn sql [] in ()
+                with _ -> () // column already exists — fine
         }
 
     let private initSchemaImpl (conn: SqliteConnection) =

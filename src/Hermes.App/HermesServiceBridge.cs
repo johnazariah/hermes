@@ -349,12 +349,12 @@ public sealed class HermesServiceBridge
         if (result.IsOk) _config = result.ResultValue;
     }
 
-    /// <summary>Run extraction on a batch of unextracted documents. Returns count extracted.</summary>
-    public async Task<int> RunExtractionBatchAsync(int batchSize)
+    /// <summary>Run extraction on a batch of unextracted documents with per-document progress. Returns (succeeded, failed).</summary>
+    public async Task<(int succeeded, int failed)> RunExtractionBatchAsync(int batchSize)
     {
-        if (_config is null) return 0;
+        if (_config is null) return (0, 0);
         var dbPath = Path.Combine(_config.ArchiveDir, "db.sqlite");
-        if (!File.Exists(dbPath)) return 0;
+        if (!File.Exists(dbPath)) return (0, 0);
 
         var fs = Interpreters.realFileSystem;
         var logger = Logging.configure(ConfigDir, Serilog.Events.LogEventLevel.Information);
@@ -366,12 +366,27 @@ public sealed class HermesServiceBridge
             extractImage: FuncConvert.FromFunc<byte[], Task<FSharpResult<string, string>>>(
                 _ => Task.FromResult(FSharpResult<string, string>.NewError("OCR not available"))));
 
-        ReportProgress("Extracting", null, 0, batchSize);
         try
         {
-            var result = await Extraction.extractBatch(fs, db, logger, clock, extractor, _config.ArchiveDir,
-                FSharpOption<string>.None, false, batchSize);
-            return result.Item1;
+            var docs = (await Extraction.getDocumentsForExtraction(
+                db, FSharpOption<string>.None, false, batchSize)).ToArray();
+            var total = docs.Length;
+            ReportProgress("Extracting", null, 0, total);
+
+            int succeeded = 0, failed = 0;
+
+            foreach (var doc in docs)
+            {
+                var docId = doc.Item1;
+                var path = doc.Item2;
+                ReportProgress("Extracting", System.IO.Path.GetFileName(path), succeeded + failed, total);
+
+                var result = await Extraction.processDocument(
+                    fs, db, logger, clock, extractor, _config.ArchiveDir, docId, path, false);
+                if (result.IsOk) succeeded++; else failed++;
+            }
+
+            return (succeeded, failed);
         }
         finally
         {
@@ -380,7 +395,7 @@ public sealed class HermesServiceBridge
         }
     }
 
-    /// <summary>Run reclassification on unsorted documents. Returns (reclassified, remaining).</summary>
+    /// <summary>Run reclassification on unsorted documents with per-document progress. Returns (reclassified, remaining).</summary>
     public async Task<(int reclassified, int remaining)> RunReclassifyBatchAsync(int batchSize)
     {
         if (_config is null) return (0, 0);
@@ -390,14 +405,61 @@ public sealed class HermesServiceBridge
         var fs = Interpreters.realFileSystem;
         var db = Database.fromPath(dbPath);
 
-        ReportProgress("Reclassifying", null, 0, batchSize);
         try
         {
             var rulesPath = Path.Combine(ConfigDir, "rules.yaml");
             var yaml = File.Exists(rulesPath) ? await File.ReadAllTextAsync(rulesPath) : "";
             var contentRules = Rules.parseContentRules(yaml);
-            var result = await Classifier.reclassifyUnsortedBatch(db, fs, contentRules, _config.ArchiveDir, batchSize);
-            return (result.Item1, result.Item2);
+
+            var candidates = (await Classifier.getUnsortedWithText(db, batchSize)).ToArray();
+            var total = candidates.Length;
+            ReportProgress("Reclassifying", null, 0, total);
+
+            int reclassified = 0, processed = 0;
+
+            foreach (var candidate in candidates)
+            {
+                var docId = candidate.Item1;
+                var savedPath = candidate.Item2;
+                var text = candidate.Item3;
+                var amount = candidate.Item4;
+
+                ReportProgress("Reclassifying", System.IO.Path.GetFileName(savedPath), processed, total);
+
+                var match = ContentClassifier.classify(
+                    text,
+                    Microsoft.FSharp.Collections.ListModule.Empty<PdfStructure.Table>(),
+                    amount,
+                    contentRules);
+
+                if (match is not null && FSharpOption<System.Tuple<string, double>>.get_IsSome(match))
+                {
+                    var category = match.Value.Item1;
+                    var confidence = match.Value.Item2;
+                    var result = await DocumentManagement.reclassify(db, fs, _config.ArchiveDir, docId, category);
+                    if (result.IsOk)
+                    {
+                        var updateParams = Microsoft.FSharp.Collections.ListModule.OfArray(new[]
+                        {
+                            System.Tuple.Create("@conf", (object)confidence),
+                            System.Tuple.Create("@id", (object)docId)
+                        });
+                        await db.execNonQuery
+                            .Invoke("UPDATE documents SET classification_tier = 'content', classification_confidence = @conf WHERE id = @id")
+                            .Invoke(updateParams);
+                        reclassified++;
+                    }
+                }
+                processed++;
+            }
+
+            var remainingParams = Microsoft.FSharp.Collections.ListModule.Empty<System.Tuple<string, object>>();
+            var remainingObj = await db.execScalar
+                .Invoke("SELECT COUNT(*) FROM documents WHERE category = 'unsorted' OR category = 'unclassified'")
+                .Invoke(remainingParams);
+            var remaining = remainingObj is long l ? (int)l : 0;
+
+            return (reclassified, remaining);
         }
         finally
         {

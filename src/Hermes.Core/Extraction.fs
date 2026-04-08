@@ -238,6 +238,14 @@ module Extraction =
             else IO.Path.Combine(archiveDir, savedPath)
         task {
             if not (fs.fileExists fullPath) then
+                // Mark as failed so it doesn't block the queue forever
+                let! _ =
+                    db.execNonQuery
+                        """UPDATE documents SET extraction_method = 'failed',
+                           extracted_at = @now WHERE id = @id"""
+                        [ ("@now", Database.boxVal (clock.utcNow().ToString("o")))
+                          ("@id", Database.boxVal docId) ]
+                logger.warn $"File not found for doc {docId}, marked as failed: {savedPath}"
                 return Error $"File not found: {savedPath}"
             else
             try
@@ -245,7 +253,14 @@ module Extraction =
                 let! result = extractFromBytes extractor savedPath bytes
                 match result with
                 | Error e ->
-                    logger.warn $"Extraction failed for doc {docId}: {e}"
+                    // Mark as failed so it doesn't block the queue forever
+                    let! _ =
+                        db.execNonQuery
+                            """UPDATE documents SET extraction_method = 'failed',
+                               extracted_at = @now WHERE id = @id"""
+                            [ ("@now", Database.boxVal (clock.utcNow().ToString("o")))
+                              ("@id", Database.boxVal docId) ]
+                    logger.warn $"Extraction failed for doc {docId}, marked as failed: {e}"
                     return Error e
                 | Ok extraction ->
                     do! updateRow db clock docId extraction
@@ -260,7 +275,9 @@ module Extraction =
 
     let getDocumentsForExtraction (db: Algebra.Database) (category: string option) (force: bool) (limit: int) =
         task {
-            let where = if force then "1=1" else "extracted_at IS NULL"
+            let where =
+                if force then "extraction_method IS NULL OR extraction_method != 'failed'"
+                else "extracted_at IS NULL"
             let catClause, catParams =
                 match category with
                 | Some cat -> " AND category = @cat", [ ("@cat", Database.boxVal cat) ]

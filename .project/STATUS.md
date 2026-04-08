@@ -3,21 +3,21 @@
 > **Canonical status hub.** Tiny by design — points to wave files for detail.  
 > Updated after each wave completes. Agents: read this first, then the active wave file.
 
-## Current State (April 7, 2026)
+## Current State (April 8, 2026)
 
 | Metric | Value |
 |--------|-------|
-| Tests | 824 passing, 6 skipped (3 projects) |
+| Tests | 818 passing, 6 skipped (3 projects) |
 | Coverage | 86% line |
 | Tagless-Final | PASS |
 | Branch | `main` |
 | MCP tools | 13 |
-| Documents indexed | 7,551+ |
-| Design docs | 14 |
+| Documents indexed | 7,555+ |
+| Design docs | 16 |
 
 ## Active Wave
 
-**Wave 6: Pelican Integration** → [wave-6-pelican.md](waves/wave-6-pelican.md)
+**v2: Channel Pipeline + React UI** → [20-pipeline-v2-endstate.md](design/20-pipeline-v2-endstate.md) / [21-v2-implementation-plan.md](design/21-v2-implementation-plan.md)
 
 ## Wave Roadmap
 
@@ -33,8 +33,8 @@
 | 5 | Coverage Final | ✅ Done | — |
 | 4b | Interactive Pipeline Controls | ✅ Done | [wave-4b-pipeline-controls.md](waves/wave-4b-pipeline-controls.md) |
 | 5.5 | UI Testing | ✅ Done | [wave-5.5-ui-testing.md](waves/wave-5.5-ui-testing.md) |
-| 6 | Pelican Integration | Not started | [wave-6-pelican.md](waves/wave-6-pelican.md) |
-| 7 | Polish | Not started | — |
+| **v2** | **Channel Pipeline + React UI** | **⏳ Starting** | [endstate](design/20-pipeline-v2-endstate.md) / [plan](design/21-v2-implementation-plan.md) |
+| 6 | Pelican Integration | Blocked on v2 | [wave-6-pelican.md](waves/wave-6-pelican.md) |
 
 ## Key Design Docs
 
@@ -44,6 +44,8 @@
 | [17](design/17-pdf-to-markdown.md) | Document-to-Markdown Extraction |
 | [18](design/18-smart-classification.md) | Smart Classification (3-tier) |
 | [13](design/13-document-feed-and-consumers.md) | Document Feed & Consumer Model |
+| [**20**](design/20-pipeline-v2-endstate.md) | **v2 Pipeline & UI End-State** |
+| [**21**](design/21-v2-implementation-plan.md) | **v2 Implementation Plan** |
 
 ## Blockers
 
