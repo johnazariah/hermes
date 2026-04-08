@@ -42,6 +42,7 @@
     <Compile Include="ClassifyStage.fs" />
     <Compile Include="ExtractStage.fs" />
     <Compile Include="PostStage.fs" />
+    <Compile Include="Recovery.fs" />
     <Compile Include="ServiceHost.fs" />
     <Compile Include="ServiceInstaller.fs" />
     <Compile Include="McpTools.fs" />
