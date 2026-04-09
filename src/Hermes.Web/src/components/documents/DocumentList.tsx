@@ -22,11 +22,22 @@ function extractMonth(d: string | null): string {
   return d;
 }
 
+function isCleanVendor(v: string | null | undefined): v is string {
+  if (!v || v.length > 60 || v.length < 2) return false;
+  const junk = /your |bank account|financial|institution|credit\/debit|click here|page \d|http/i;
+  return !junk.test(v);
+}
+
+function bestVendorName(doc: DocumentSummary): string {
+  if (isCleanVendor(doc.vendor)) return doc.vendor;
+  return extractSender(doc.sender);
+}
+
 function groupDocs(docs: DocumentSummary[], groupBy: GroupBy): Map<string, DocumentSummary[]> {
   if (groupBy === 'none') return new Map([['All documents', docs]]);
   const groups = new Map<string, DocumentSummary[]>();
   for (const doc of docs) {
-    const key = groupBy === 'vendor' ? (doc.vendor || extractSender(doc.sender) || 'Unknown')
+    const key = groupBy === 'vendor' ? bestVendorName(doc)
               : groupBy === 'sender' ? extractSender(doc.sender)
               : extractMonth(doc.extractedDate);
     const list = groups.get(key) || [];
