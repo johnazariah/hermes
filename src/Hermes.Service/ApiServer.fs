@@ -84,6 +84,34 @@ module ApiServer =
                 | Error e -> return Results.NotFound({| error = e |})
             })) |> ignore
 
+        // ── Document file (serve original PDF/image) ───────────────
+        app.MapGet("/api/documents/{id:long}/file", Func<int64, Task<IResult>>(fun id ->
+            task {
+                let! detail = DocumentBrowser.getDocumentDetail db id
+                match detail with
+                | Some d ->
+                    let fullPath = Path.Combine(archiveDir, d.FilePath)
+                    if File.Exists(fullPath) then
+                        let name = d.Summary.OriginalName
+                        let dot = name.LastIndexOf('.')
+                        let ext = if dot >= 0 then name.Substring(dot).ToLowerInvariant() else ""
+                        let contentType =
+                            match ext with
+                            | ".pdf" -> "application/pdf"
+                            | ".png" -> "image/png"
+                            | ".jpg" | ".jpeg" -> "image/jpeg"
+                            | ".gif" -> "image/gif"
+                            | ".webp" -> "image/webp"
+                            | ".csv" -> "text/csv"
+                            | ".txt" | ".md" | ".log" -> "text/plain"
+                            | _ -> "application/octet-stream"
+                        let! bytes = File.ReadAllBytesAsync(fullPath)
+                        return Results.Bytes(bytes, contentType, name)
+                    else
+                        return Results.NotFound({| error = "File not found on disk" |})
+                | None -> return Results.NotFound()
+            })) |> ignore
+
         // ── Stats ───────────────────────────────────────────────────
         app.MapGet("/api/stats", Func<Task<IResult>>(fun () ->
             task {
