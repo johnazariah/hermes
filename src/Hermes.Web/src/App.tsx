@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Shell } from './components/layout/Shell';
+import type { ViewType } from './components/layout/Shell';
 import { useQuery } from '@tanstack/react-query';
 import { fetchStats } from './api/hermes';
 import { DocumentList } from './components/documents/DocumentList';
@@ -41,15 +42,21 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 export default function App() {
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedView, setSelectedView] = useState<ViewType>(null);
   const [selectedDocId, setSelectedDocId] = useState<number | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   let content;
   if (selectedDocId != null) {
     content = <DocumentDetail documentId={selectedDocId} onBack={() => setSelectedDocId(null)} />;
-  } else if (selectedCategory) {
-    content = <DocumentList category={selectedCategory} onSelectDocument={setSelectedDocId} />;
+  } else if (selectedView?.kind === 'category') {
+    content = <DocumentList category={selectedView.value} onSelectDocument={setSelectedDocId} />;
+  } else if (selectedView?.kind === 'smart' && selectedView.value === 'review') {
+    content = <DocumentList category="unsorted" onSelectDocument={setSelectedDocId} />;
+  } else if (selectedView?.kind === 'smart' && selectedView.value === 'starred') {
+    content = <div className="text-neutral-500 text-sm">Starred documents — coming soon</div>;
+  } else if (selectedView?.kind === 'smart' && selectedView.value === 'recent') {
+    content = <div className="text-neutral-500 text-sm">Recent documents — coming soon</div>;
   } else {
     content = <WelcomePage />;
   }
@@ -57,8 +64,8 @@ export default function App() {
   return (
     <>
       <Shell
-        selectedCategory={selectedCategory}
-        onSelectCategory={(cat) => { setSelectedCategory(cat); setSelectedDocId(null); }}
+        selectedView={selectedView}
+        onSelectView={(view) => { setSelectedView(view); setSelectedDocId(null); }}
         onSelectDocument={setSelectedDocId}
         onOpenSettings={() => setSettingsOpen(true)}
       >

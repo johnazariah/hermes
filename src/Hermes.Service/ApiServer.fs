@@ -224,3 +224,122 @@ module ApiServer =
                 let! _ = db.execNonQuery "UPDATE dead_letters SET dismissed = 1 WHERE dismissed = 0" []
                 return json {| dismissed = true |}
             })) |> ignore
+
+        // ── Move document to category ───────────────────────────────
+        app.MapPut("/api/documents/{id:long}/category", Func<int64, HttpContext, Task<IResult>>(fun id ctx ->
+            task {
+                use sr = new StreamReader(ctx.Request.Body)
+                let! bodyText = sr.ReadToEndAsync()
+                let category =
+                    try
+                        let doc = JsonDocument.Parse(bodyText)
+                        doc.RootElement.GetProperty("category").GetString() |> Option.ofObj |> Option.defaultValue ""
+                    with _ -> ""
+                if category = "" then return json {| error = "category required" |}
+                else
+                    let! result = DocumentManagement.reclassify db fs archiveDir id category
+                    match result with
+                    | Ok () -> return json {| moved = true; category = category |}
+                    | Error e -> return json {| error = e |}
+            })) |> ignore
+
+        // ── Star/unstar ─────────────────────────────────────────────
+        app.MapPost("/api/documents/{id:long}/star", Func<int64, Task<IResult>>(fun id ->
+            task {
+                let! _ = db.execNonQuery "UPDATE documents SET starred = CASE WHEN starred = 1 THEN 0 ELSE 1 END WHERE id = @id" [ ("@id", Database.boxVal id) ]
+                let! obj = db.execScalar "SELECT starred FROM documents WHERE id = @id" [ ("@id", Database.boxVal id) ]
+                let starred = match obj with :? int64 as i -> i = 1L | _ -> false
+                return json {| starred = starred |}
+            })) |> ignore
+
+        // ── Tags CRUD ───────────────────────────────────────────────
+        app.MapGet("/api/documents/{id:long}/tags", Func<int64, Task<IResult>>(fun id ->
+            task {
+                let! rows = db.execReader "SELECT tag, source, confidence FROM tags WHERE document_id = @id" [ ("@id", Database.boxVal id) ]
+                let tags =
+                    rows |> List.map (fun r ->
+                        let rd = Prelude.RowReader(r)
+                        {| tag = rd.String "tag" ""; source = rd.String "source" ""; confidence = rd.OptFloat "confidence" |})
+                return json tags
+            })) |> ignore
+
+        app.MapPost("/api/documents/{id:long}/tags", Func<int64, HttpContext, Task<IResult>>(fun id ctx ->
+            task {
+                use sr = new StreamReader(ctx.Request.Body)
+                let! bodyText = sr.ReadToEndAsync()
+                let tags =
+                    try
+                        let doc = JsonDocument.Parse(bodyText)
+                        doc.RootElement.GetProperty("tags").EnumerateArray() |> Seq.map (fun e -> e.GetString() |> Option.ofObj |> Option.defaultValue "") |> Seq.filter (fun s -> s <> "") |> Seq.toList
+                    with _ -> []
+                for tag in tags do
+                    let! _ = db.execNonQuery "INSERT OR IGNORE INTO tags (document_id, tag, source) VALUES (@id, @tag, 'user')" [ ("@id", Database.boxVal id); ("@tag", Database.boxVal tag) ]
+                    ()
+                return json {| added = tags |}
+            })) |> ignore
+
+        app.MapDelete("/api/documents/{id:long}/tags/{tag}", Func<int64, string, Task<IResult>>(fun id tag ->
+            task {
+                let! _ = db.execNonQuery "DELETE FROM tags WHERE document_id = @id AND tag = @tag" [ ("@id", Database.boxVal id); ("@tag", Database.boxVal tag) ]
+                return json {| removed = tag |}
+            })) |> ignore
+
+        // ── Tag search ──────────────────────────────────────────────
+        app.MapGet("/api/tags", Func<HttpContext, Task<IResult>>(fun ctx ->
+            task {
+                let tag = ctx.Request.Query["tag"].ToString()
+                if tag <> "" then
+                    let! rows = db.execReader
+                                    """SELECT d.id, d.original_name, d.category, d.extracted_date, d.extracted_amount, d.sender, d.extracted_vendor
+                                       FROM documents d JOIN tags t ON d.id = t.document_id WHERE t.tag = @tag ORDER BY d.id DESC LIMIT 100"""
+                                    [ ("@tag", Database.boxVal tag) ]
+                    let docs =
+                        rows |> List.map (fun r ->
+                            let rd = Prelude.RowReader(r)
+                            {| id = rd.Int64 "id" 0L; originalName = rd.String "original_name" ""
+                               category = rd.String "category" ""
+                               extractedDate = rd.OptString "extracted_date"
+                               extractedAmount = rd.OptFloat "extracted_amount"
+                               sender = rd.OptString "sender"
+                               vendor = rd.OptString "extracted_vendor" |})
+                    return json docs
+                else
+                    let! rows = db.execReader "SELECT tag, COUNT(*) as cnt FROM tags GROUP BY tag ORDER BY cnt DESC" []
+                    let tags =
+                        rows |> List.map (fun r ->
+                            let rd = Prelude.RowReader(r)
+                            {| tag = rd.String "tag" ""; count = rd.Int64 "cnt" 0L |})
+                    return json tags
+            })) |> ignore
+
+        // ── Batch operations ────────────────────────────────────────
+        app.MapPost("/api/documents/batch", Func<HttpContext, Task<IResult>>(fun ctx ->
+            task {
+                use sr = new StreamReader(ctx.Request.Body)
+                let! bodyText = sr.ReadToEndAsync()
+                try
+                    let doc = JsonDocument.Parse(bodyText)
+                    let docIds = doc.RootElement.GetProperty("docIds").EnumerateArray() |> Seq.map (fun e -> e.GetInt64()) |> Seq.toList
+                    let action = doc.RootElement.GetProperty("action").GetString() |> Option.ofObj |> Option.defaultValue ""
+                    let value = try doc.RootElement.GetProperty("value").GetString() |> Option.ofObj |> Option.defaultValue "" with _ -> ""
+
+                    match action with
+                    | "move" ->
+                        let mutable moved = 0
+                        for docId in docIds do
+                            let! result = DocumentManagement.reclassify db fs archiveDir docId value
+                            match result with Ok () -> moved <- moved + 1 | _ -> ()
+                        return json {| action = "move"; count = moved |}
+                    | "tag" ->
+                        for docId in docIds do
+                            let! _ = db.execNonQuery "INSERT OR IGNORE INTO tags (document_id, tag, source) VALUES (@id, @tag, 'user')" [ ("@id", Database.boxVal docId); ("@tag", Database.boxVal value) ]
+                            ()
+                        return json {| action = "tag"; count = docIds.Length |}
+                    | "star" ->
+                        for docId in docIds do
+                            let! _ = db.execNonQuery "UPDATE documents SET starred = 1 WHERE id = @id" [ ("@id", Database.boxVal docId) ]
+                            ()
+                        return json {| action = "star"; count = docIds.Length |}
+                    | _ -> return json {| error = "unknown action" |}
+                with ex -> return json {| error = ex.Message |}
+            })) |> ignore

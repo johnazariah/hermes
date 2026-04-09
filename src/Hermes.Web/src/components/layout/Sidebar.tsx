@@ -17,18 +17,25 @@ function StageRow({ label, value, total }: { label: string; value: number; total
   );
 }
 
-export function Sidebar({ onSelectCategory, selectedCategory, onOpenSettings }: {
-  onSelectCategory: (category: string | null) => void;
-  selectedCategory: string | null;
+type ViewType = { kind: 'category'; value: string } | { kind: 'smart'; value: string } | null;
+
+export function Sidebar({ onSelectView, selectedView, onOpenSettings }: {
+  onSelectView: (view: ViewType) => void;
+  selectedView: ViewType;
   onOpenSettings: () => void;
 }) {
   const { data: stats } = useQuery<IndexStats>({ queryKey: ['stats'], queryFn: fetchStats, refetchInterval: 5000 });
   const { data: categories } = useQuery<CategoryCount[]>({ queryKey: ['categories'], queryFn: fetchCategories, refetchInterval: 10000 });
+  const { data: tags } = useQuery<{ tag: string; count: number }[]>({ queryKey: ['tags'], queryFn: () => fetch('/api/tags').then(r => r.json()), refetchInterval: 30000 });
 
   const total = stats?.documentCount ?? 0;
   const extracted = stats?.extractedCount ?? 0;
   const embedded = stats?.embeddedCount ?? 0;
   const extracting = total - extracted;
+  const unsorted = categories?.find(c => c.category === 'unsorted')?.count ?? 0;
+
+  const isSelected = (kind: string, value: string) =>
+    selectedView?.kind === kind && selectedView?.value === value;
 
   return (
     <aside className="w-64 bg-neutral-900 border-r border-neutral-800 flex flex-col h-full overflow-y-auto">
@@ -53,26 +60,34 @@ export function Sidebar({ onSelectCategory, selectedCategory, onOpenSettings }: 
         )}
       </div>
 
-      {/* Library */}
+      {/* Smart Views */}
+      <div className="px-4 py-3 border-b border-neutral-800">
+        <div className="text-[10px] font-semibold tracking-widest text-neutral-500 mb-2">SMART VIEWS</div>
+        <div className="space-y-0.5">
+          {unsorted > 0 && (
+            <SidebarItem icon="🔴" label="Needs Review" count={unsorted} selected={isSelected('smart', 'review')} onClick={() => onSelectView({ kind: 'smart', value: 'review' })} />
+          )}
+          <SidebarItem icon="⭐" label="Starred" selected={isSelected('smart', 'starred')} onClick={() => onSelectView({ kind: 'smart', value: 'starred' })} />
+          <SidebarItem icon="📅" label="Recent" selected={isSelected('smart', 'recent')} onClick={() => onSelectView({ kind: 'smart', value: 'recent' })} />
+        </div>
+      </div>
+
+      {/* Categories */}
       <div className="px-4 py-3 flex-1">
         <div className="text-[10px] font-semibold tracking-widest text-neutral-500 mb-2">
-          LIBRARY {total > 0 && <span className="text-neutral-600">({total.toLocaleString()})</span>}
+          CATEGORIES {total > 0 && <span className="text-neutral-600">({total.toLocaleString()})</span>}
         </div>
         {categories && categories.length > 0 ? (
           <div className="space-y-0.5">
             {categories.map(cat => (
-              <button
+              <SidebarItem
                 key={cat.category}
-                onClick={() => onSelectCategory(cat.category)}
-                className={`w-full text-left px-2 py-1.5 rounded text-sm flex justify-between items-center transition-colors ${
-                  selectedCategory === cat.category
-                    ? 'bg-neutral-800 text-neutral-100'
-                    : 'hover:bg-neutral-800/50 text-neutral-400'
-                }`}
-              >
-                <span>{cat.category}</span>
-                <span className="text-xs text-neutral-600">({cat.count})</span>
-              </button>
+                icon="📁"
+                label={cat.category}
+                count={cat.count}
+                selected={isSelected('category', cat.category)}
+                onClick={() => onSelectView({ kind: 'category', value: cat.category })}
+              />
             ))}
           </div>
         ) : (
@@ -80,15 +95,41 @@ export function Sidebar({ onSelectCategory, selectedCategory, onOpenSettings }: 
         )}
       </div>
 
+      {/* Tags */}
+      {tags && tags.length > 0 && (
+        <div className="px-4 py-3 border-t border-neutral-800">
+          <div className="text-[10px] font-semibold tracking-widest text-neutral-500 mb-2">TAGS</div>
+          <div className="space-y-0.5">
+            {tags.slice(0, 10).map(t => (
+              <SidebarItem key={t.tag} icon="🏷" label={t.tag} count={t.count} selected={false} onClick={() => {}} />
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Footer */}
       <div className="px-4 py-2 border-t border-neutral-800">
-        <button
-          onClick={() => onSelectCategory(null)}
-          className="text-xs text-neutral-500 hover:text-neutral-300"
-        >
-          ← Home
-        </button>
+        <button onClick={() => onSelectView(null)} className="text-xs text-neutral-500 hover:text-neutral-300">← Home</button>
       </div>
     </aside>
   );
 }
+
+function SidebarItem({ icon, label, count, selected, onClick }: {
+  icon: string; label: string; count?: number; selected: boolean; onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full text-left px-2 py-1.5 rounded text-sm flex items-center gap-2 transition-colors ${
+        selected ? 'bg-neutral-800 text-neutral-100' : 'hover:bg-neutral-800/50 text-neutral-400'
+      }`}
+    >
+      <span className="text-xs">{icon}</span>
+      <span className="flex-1 truncate">{label}</span>
+      {count != null && <span className="text-xs text-neutral-600">({count})</span>}
+    </button>
+  );
+}
+
+export type { ViewType };

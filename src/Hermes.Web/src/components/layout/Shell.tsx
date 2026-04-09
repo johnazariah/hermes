@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { Sidebar } from './Sidebar';
+import type { ViewType } from './Sidebar';
 import { ChatPane } from '../chat/ChatPane';
 
-export function Shell({ selectedCategory, onSelectCategory, onSelectDocument, onOpenSettings, children }: {
-  selectedCategory: string | null;
-  onSelectCategory: (category: string | null) => void;
+export function Shell({ selectedView, onSelectView, onSelectDocument, onOpenSettings, children }: {
+  selectedView: ViewType;
+  onSelectView: (view: ViewType) => void;
   onSelectDocument: (id: number) => void;
   onOpenSettings: () => void;
   children: React.ReactNode;
@@ -13,11 +14,10 @@ export function Shell({ selectedCategory, onSelectCategory, onSelectDocument, on
 
   return (
     <div className="flex h-screen bg-neutral-950 text-neutral-200">
-      <Sidebar selectedCategory={selectedCategory} onSelectCategory={onSelectCategory} onOpenSettings={onOpenSettings} />
+      <Sidebar selectedView={selectedView} onSelectView={onSelectView} onOpenSettings={onOpenSettings} />
       <main className="flex-1 overflow-y-auto p-6">
         {children}
       </main>
-      {/* Chat toggle + panel */}
       <button
         onClick={() => setChatOpen(!chatOpen)}
         className="fixed bottom-4 right-4 w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center text-white shadow-lg hover:bg-blue-500 z-50"
@@ -37,3 +37,5 @@ export function Shell({ selectedCategory, onSelectCategory, onSelectDocument, on
     </div>
   );
 }
+
+export type { ViewType };

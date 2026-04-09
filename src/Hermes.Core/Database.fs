@@ -383,6 +383,29 @@ module Database =
                         original_name TEXT,
                         dismissed     INTEGER NOT NULL DEFAULT 0
                     )""" []
+
+            // Tags table
+            let! _ =
+                execNonQuery conn
+                    """CREATE TABLE IF NOT EXISTS tags (
+                        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                        document_id INTEGER NOT NULL REFERENCES documents(id),
+                        tag         TEXT NOT NULL,
+                        source      TEXT NOT NULL DEFAULT 'user',
+                        confidence  REAL,
+                        created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+                        created_by  TEXT
+                    )""" []
+            let! _ = execNonQuery conn "CREATE INDEX IF NOT EXISTS idx_tags_doc ON tags(document_id)" []
+            let! _ = execNonQuery conn "CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag)" []
+            let! _ = execNonQuery conn "CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_unique ON tags(document_id, tag)" []
+
+            // Starred column
+            let starcols = [| "ALTER TABLE documents ADD COLUMN starred INTEGER NOT NULL DEFAULT 0" |]
+            for sql in starcols do
+                try let! _ = execNonQuery conn sql [] in ()
+                with _ -> ()
+
             ()
         }
 
