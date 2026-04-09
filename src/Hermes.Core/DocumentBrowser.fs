@@ -11,7 +11,7 @@ module DocumentBrowser =
     type DocumentSummary =
         { Id: int64; OriginalName: string; Category: string
           ExtractedDate: string option; ExtractedAmount: float option
-          Sender: string option
+          Sender: string option; Vendor: string option
           ClassificationTier: string option
           ClassificationConfidence: float option }
 
@@ -45,7 +45,7 @@ module DocumentBrowser =
             let! rows =
                 db.execReader
                     """SELECT id, original_name, category, extracted_date, extracted_amount,
-                              sender, classification_tier, classification_confidence
+                              sender, extracted_vendor, classification_tier, classification_confidence
                        FROM documents WHERE category = @cat
                        ORDER BY id DESC LIMIT @lim OFFSET @off"""
                     [ ("@cat", Database.boxVal category)
@@ -61,6 +61,7 @@ module DocumentBrowser =
                       ExtractedDate = r.OptString "extracted_date"
                       ExtractedAmount = r.OptFloat "extracted_amount"
                       Sender = r.OptString "sender"
+                      Vendor = r.OptString "extracted_vendor"
                       ClassificationTier = r.OptString "classification_tier"
                       ClassificationConfidence = r.OptFloat "classification_confidence" }))
         }
@@ -87,6 +88,7 @@ module DocumentBrowser =
                           ExtractedDate = r.OptString "extracted_date"
                           ExtractedAmount = r.OptFloat "extracted_amount"
                           Sender = r.OptString "sender"
+                          Vendor = r.OptString "extracted_vendor"
                           ClassificationTier = r.OptString "classification_tier"
                           ClassificationConfidence = r.OptFloat "classification_confidence" }
                     let pipeline =

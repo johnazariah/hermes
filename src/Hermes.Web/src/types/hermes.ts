@@ -21,6 +21,7 @@ export interface DocumentSummary {
   extractedDate: string | null;
   extractedAmount: number | null;
   sender: string | null;
+  vendor: string | null;
   classificationTier: string | null;
   classificationConfidence: number | null;
 }
