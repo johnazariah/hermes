@@ -107,7 +107,7 @@ module ApiServer =
                             | ".txt" | ".md" | ".log" -> "text/plain"
                             | _ -> "application/octet-stream"
                         let! bytes = File.ReadAllBytesAsync(fullPath)
-                        return Results.Bytes(bytes, contentType, name)
+                        return Results.Bytes(bytes, contentType)
                     else
                         return Results.NotFound({| error = "File not found on disk" |})
                 | None -> return Results.NotFound()
