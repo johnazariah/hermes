@@ -17,9 +17,10 @@ function StageRow({ label, value, total }: { label: string; value: number; total
   );
 }
 
-export function Sidebar({ onSelectCategory, selectedCategory }: {
+export function Sidebar({ onSelectCategory, selectedCategory, onOpenSettings }: {
   onSelectCategory: (category: string | null) => void;
   selectedCategory: string | null;
+  onOpenSettings: () => void;
 }) {
   const { data: stats } = useQuery<IndexStats>({ queryKey: ['stats'], queryFn: fetchStats, refetchInterval: 5000 });
   const { data: categories } = useQuery<CategoryCount[]>({ queryKey: ['categories'], queryFn: fetchCategories, refetchInterval: 10000 });
@@ -36,6 +37,7 @@ export function Sidebar({ onSelectCategory, selectedCategory }: {
         <span className="text-lg">⚡</span>
         <span className="text-sm font-bold tracking-widest text-neutral-200">HERMES</span>
         <button onClick={() => triggerSync()} className="ml-auto text-neutral-500 hover:text-neutral-200 text-sm" title="Sync Now">⟳</button>
+        <button onClick={onOpenSettings} className="text-neutral-500 hover:text-neutral-200 text-sm" title="Settings">⚙</button>
       </div>
 
       {/* Pipeline progress */}

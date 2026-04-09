@@ -4,14 +4,18 @@ import { useQuery } from '@tanstack/react-query';
 import { fetchStats } from './api/hermes';
 import { DocumentList } from './components/documents/DocumentList';
 import { DocumentDetail } from './components/documents/DocumentDetail';
+import { SettingsDialog } from './components/settings/SettingsDialog';
+import { DeadLetterPanel } from './components/pipeline/DeadLetterPanel';
 
 function WelcomePage() {
   const { data: stats } = useQuery({ queryKey: ['stats'], queryFn: fetchStats, refetchInterval: 10000 });
 
   return (
-    <div className="max-w-2xl">
-      <h1 className="text-2xl font-bold mb-2">Hermes</h1>
-      <p className="text-neutral-400 mb-6">Document Intelligence</p>
+    <div className="max-w-2xl space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold mb-2">Hermes</h1>
+        <p className="text-neutral-400 mb-6">Document Intelligence</p>
+      </div>
 
       {stats && (
         <div className="grid grid-cols-2 gap-4">
@@ -21,6 +25,8 @@ function WelcomePage() {
           <Stat label="Database" value={`${stats.databaseSizeMb.toFixed(1)} MB`} />
         </div>
       )}
+
+      <DeadLetterPanel />
     </div>
   );
 }
@@ -37,6 +43,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 export default function App() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedDocId, setSelectedDocId] = useState<number | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   let content;
   if (selectedDocId != null) {
@@ -48,12 +55,16 @@ export default function App() {
   }
 
   return (
-    <Shell
-      selectedCategory={selectedCategory}
-      onSelectCategory={(cat) => { setSelectedCategory(cat); setSelectedDocId(null); }}
-      onSelectDocument={setSelectedDocId}
-    >
-      {content}
-    </Shell>
+    <>
+      <Shell
+        selectedCategory={selectedCategory}
+        onSelectCategory={(cat) => { setSelectedCategory(cat); setSelectedDocId(null); }}
+        onSelectDocument={setSelectedDocId}
+        onOpenSettings={() => setSettingsOpen(true)}
+      >
+        {content}
+      </Shell>
+      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+    </>
   );
 }

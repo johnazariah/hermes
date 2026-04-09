@@ -193,3 +193,34 @@ module ApiServer =
                 else
                     return Results.NotFound()
             })) |> ignore
+
+        app.MapPut("/api/settings", Func<HttpContext, Task<IResult>>(fun ctx ->
+            task {
+                use sr = new StreamReader(ctx.Request.Body)
+                let! yaml = sr.ReadToEndAsync()
+                let configPath = Path.Combine(configDir, "config.yaml")
+                do! File.WriteAllTextAsync(configPath, yaml)
+                return json {| saved = true |}
+            })) |> ignore
+
+        // ── Dead letters ────────────────────────────────────────────
+        app.MapGet("/api/dead-letters", Func<Task<IResult>>(fun () ->
+            task {
+                let! rows =
+                    db.execReader
+                        "SELECT id, doc_id, stage, error, original_name, failed_at FROM dead_letters WHERE dismissed = 0 ORDER BY id DESC LIMIT 100"
+                        []
+                let letters =
+                    rows |> List.map (fun row ->
+                        let r = Prelude.RowReader(row)
+                        {| id = r.Int64 "id" 0L; docId = r.Int64 "doc_id" 0L
+                           stage = r.String "stage" ""; error = r.String "error" ""
+                           originalName = r.String "original_name" ""; failedAt = r.String "failed_at" "" |})
+                return json letters
+            })) |> ignore
+
+        app.MapPost("/api/dead-letters/dismiss", Func<Task<IResult>>(fun () ->
+            task {
+                let! _ = db.execNonQuery "UPDATE dead_letters SET dismissed = 1 WHERE dismissed = 0" []
+                return json {| dismissed = true |}
+            })) |> ignore

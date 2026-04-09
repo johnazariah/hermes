@@ -2,17 +2,18 @@ import { useState } from 'react';
 import { Sidebar } from './Sidebar';
 import { ChatPane } from '../chat/ChatPane';
 
-export function Shell({ selectedCategory, onSelectCategory, onSelectDocument, children }: {
+export function Shell({ selectedCategory, onSelectCategory, onSelectDocument, onOpenSettings, children }: {
   selectedCategory: string | null;
   onSelectCategory: (category: string | null) => void;
   onSelectDocument: (id: number) => void;
+  onOpenSettings: () => void;
   children: React.ReactNode;
 }) {
   const [chatOpen, setChatOpen] = useState(false);
 
   return (
     <div className="flex h-screen bg-neutral-950 text-neutral-200">
-      <Sidebar selectedCategory={selectedCategory} onSelectCategory={onSelectCategory} />
+      <Sidebar selectedCategory={selectedCategory} onSelectCategory={onSelectCategory} onOpenSettings={onOpenSettings} />
       <main className="flex-1 overflow-y-auto p-6">
         {children}
       </main>
