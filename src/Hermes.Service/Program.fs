@@ -6,7 +6,6 @@ open System.Net.Http
 open System.Threading
 open Microsoft.AspNetCore.Builder
 open Microsoft.Extensions.DependencyInjection
-open Microsoft.Extensions.FileProviders
 open Microsoft.FSharp.Core
 open Hermes.Core
 open Serilog.Events
@@ -83,23 +82,26 @@ let main _args =
     // Build HTTP API
     let builder = WebApplication.CreateBuilder()
     builder.Services.AddCors() |> ignore
+    // Ensure web root points to wwwroot (React build output)
+    let wwwrootPath = Path.Combine(AppContext.BaseDirectory, "wwwroot")
+    let srcWwwroot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "wwwroot"))
+    if Directory.Exists(srcWwwroot) then builder.Environment.WebRootPath <- srcWwwroot
+    elif Directory.Exists(wwwrootPath) then builder.Environment.WebRootPath <- wwwrootPath
     let app = builder.Build()
 
     // CORS for Vite dev server
     app.UseCors(fun policy ->
         policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader() |> ignore) |> ignore
 
-    // Serve React static files in production
-    let webRoot = Path.Combine(AppContext.BaseDirectory, "wwwroot")
-    if Directory.Exists(webRoot) then
-        app.UseStaticFiles(StaticFileOptions(FileProvider = new PhysicalFileProvider(webRoot))) |> ignore
+    // Serve React static files from wwwroot/ (default Web SDK convention)
+    app.UseDefaultFiles() |> ignore
+    app.UseStaticFiles() |> ignore
 
     // Map API routes
     ApiServer.mapRoutes app db fs logger clock observer chatProvider archiveDir configDir
 
-    // SPA fallback: serve index.html for non-API routes
-    if Directory.Exists(webRoot) then
-        app.MapFallbackToFile("index.html") |> ignore
+    // SPA fallback: serve index.html for non-API, non-file routes
+    app.MapFallbackToFile("index.html") |> ignore
 
     logger.info "Hermes service starting on http://localhost:21741"
     app.Run("http://localhost:21741")
