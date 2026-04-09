@@ -20,6 +20,7 @@ module ApiServer =
         (app: IEndpointRouteBuilder)
         (db: Algebra.Database) (fs: Algebra.FileSystem) (logger: Algebra.Logger)
         (clock: Algebra.Clock) (observer: PipelineObserver.T)
+        (chatProvider: Algebra.ChatProvider option)
         (archiveDir: string) (configDir: string) =
 
         // ── Pipeline state (SSE) ────────────────────────────────────
@@ -144,20 +145,41 @@ module ApiServer =
             task {
                 use sr = new StreamReader(ctx.Request.Body)
                 let! bodyText = sr.ReadToEndAsync()
-                let query =
+                let query, useAi =
                     try
                         let doc = JsonDocument.Parse(bodyText)
-                        doc.RootElement.GetProperty("query").GetString() |> Option.ofObj |> Option.defaultValue ""
-                    with _ -> ""
+                        let q = doc.RootElement.GetProperty("query").GetString() |> Option.ofObj |> Option.defaultValue ""
+                        let ai = try doc.RootElement.GetProperty("aiEnabled").GetBoolean() with _ -> false
+                        (q, ai)
+                    with _ -> ("", false)
 
                 ctx.Response.ContentType <- "text/event-stream"
-
-                // Keyword search
-                let filter = Search.defaultFilter query
-                let! results = Search.execute db filter
+                ctx.Response.Headers.Append("Cache-Control", "no-cache")
                 let opts = JsonSerializerOptions(PropertyNamingPolicy = JsonNamingPolicy.CamelCase)
-                let data = JsonSerializer.Serialize({| results = results |}, opts)
-                do! ctx.Response.WriteAsync($"data: {data}\n\n")
+
+                match chatProvider with
+                | Some chat ->
+                    let! response = Chat.query db chat useAi query
+                    // Send search results immediately
+                    let resultsData = JsonSerializer.Serialize({| results = response.Results |}, opts)
+                    do! ctx.Response.WriteAsync($"event: results\ndata: {resultsData}\n\n")
+                    do! ctx.Response.Body.FlushAsync()
+                    // Send AI summary if available
+                    match response.AiSummary with
+                    | Some summary ->
+                        let answerData = JsonSerializer.Serialize({| answer = summary |}, opts)
+                        do! ctx.Response.WriteAsync($"event: answer\ndata: {answerData}\n\n")
+                        do! ctx.Response.Body.FlushAsync()
+                    | None -> ()
+                | None ->
+                    // No chat provider — just do keyword search
+                    let filter = Search.defaultFilter query
+                    let! results = Search.execute db filter
+                    let resultsData = JsonSerializer.Serialize({| results = results |}, opts)
+                    do! ctx.Response.WriteAsync($"event: results\ndata: {resultsData}\n\n")
+                    do! ctx.Response.Body.FlushAsync()
+
+                do! ctx.Response.WriteAsync("event: done\ndata: {}\n\n")
                 do! ctx.Response.Body.FlushAsync()
             })) |> ignore
 

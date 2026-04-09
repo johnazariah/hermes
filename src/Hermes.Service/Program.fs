@@ -95,7 +95,7 @@ let main _args =
         app.UseStaticFiles(StaticFileOptions(FileProvider = new PhysicalFileProvider(webRoot))) |> ignore
 
     // Map API routes
-    ApiServer.mapRoutes app db fs logger clock observer archiveDir configDir
+    ApiServer.mapRoutes app db fs logger clock observer chatProvider archiveDir configDir
 
     // SPA fallback: serve index.html for non-API routes
     if Directory.Exists(webRoot) then

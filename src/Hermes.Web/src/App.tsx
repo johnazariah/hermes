@@ -48,7 +48,11 @@ export default function App() {
   }
 
   return (
-    <Shell selectedCategory={selectedCategory} onSelectCategory={(cat) => { setSelectedCategory(cat); setSelectedDocId(null); }}>
+    <Shell
+      selectedCategory={selectedCategory}
+      onSelectCategory={(cat) => { setSelectedCategory(cat); setSelectedDocId(null); }}
+      onSelectDocument={setSelectedDocId}
+    >
       {content}
     </Shell>
   );
