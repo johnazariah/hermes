@@ -1,6 +1,9 @@
+import { useState } from 'react';
 import { Shell } from './components/layout/Shell';
 import { useQuery } from '@tanstack/react-query';
 import { fetchStats } from './api/hermes';
+import { DocumentList } from './components/documents/DocumentList';
+import { DocumentDetail } from './components/documents/DocumentDetail';
 
 function WelcomePage() {
   const { data: stats } = useQuery({ queryKey: ['stats'], queryFn: fetchStats, refetchInterval: 10000 });
@@ -32,9 +35,21 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 export default function App() {
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedDocId, setSelectedDocId] = useState<number | null>(null);
+
+  let content;
+  if (selectedDocId != null) {
+    content = <DocumentDetail documentId={selectedDocId} onBack={() => setSelectedDocId(null)} />;
+  } else if (selectedCategory) {
+    content = <DocumentList category={selectedCategory} onSelectDocument={setSelectedDocId} />;
+  } else {
+    content = <WelcomePage />;
+  }
+
   return (
-    <Shell>
-      <WelcomePage />
+    <Shell selectedCategory={selectedCategory} onSelectCategory={(cat) => { setSelectedCategory(cat); setSelectedDocId(null); }}>
+      {content}
     </Shell>
   );
 }

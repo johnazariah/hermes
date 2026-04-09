@@ -1,5 +1,6 @@
-import { usePipelineState } from '../../hooks/usePipelineState';
-import type { PipelineState } from '../../types/hermes';
+import { useQuery } from '@tanstack/react-query';
+import { fetchStats, fetchCategories, triggerSync } from '../../api/hermes';
+import type { IndexStats, CategoryCount } from '../../types/hermes';
 
 function StageRow({ label, value, total }: { label: string; value: number; total: number }) {
   const pct = total > 0 ? (value / total) * 100 : 0;
@@ -16,15 +17,17 @@ function StageRow({ label, value, total }: { label: string; value: number; total
   );
 }
 
-function StatusDot({ state }: { state: PipelineState }) {
-  const active = state.extractQueueDepth > 0 || state.ingestQueueDepth > 0;
-  return (
-    <span className={`inline-block w-2 h-2 rounded-full ${active ? 'bg-green-400 animate-pulse' : 'bg-neutral-500'}`} />
-  );
-}
+export function Sidebar({ onSelectCategory, selectedCategory }: {
+  onSelectCategory: (category: string | null) => void;
+  selectedCategory: string | null;
+}) {
+  const { data: stats } = useQuery<IndexStats>({ queryKey: ['stats'], queryFn: fetchStats, refetchInterval: 5000 });
+  const { data: categories } = useQuery<CategoryCount[]>({ queryKey: ['categories'], queryFn: fetchCategories, refetchInterval: 10000 });
 
-export function Sidebar() {
-  const state = usePipelineState();
+  const total = stats?.documentCount ?? 0;
+  const extracted = stats?.extractedCount ?? 0;
+  const embedded = stats?.embeddedCount ?? 0;
+  const extracting = total - extracted;
 
   return (
     <aside className="w-64 bg-neutral-900 border-r border-neutral-800 flex flex-col h-full overflow-y-auto">
@@ -32,32 +35,57 @@ export function Sidebar() {
       <div className="px-4 py-3 border-b border-neutral-800 flex items-center gap-2">
         <span className="text-lg">⚡</span>
         <span className="text-sm font-bold tracking-widest text-neutral-200">HERMES</span>
-        <span className="ml-auto"><StatusDot state={state} /></span>
+        <button onClick={() => triggerSync()} className="ml-auto text-neutral-500 hover:text-neutral-200 text-sm" title="Sync Now">⟳</button>
       </div>
 
-      {/* Pipeline stages */}
-      <div className="px-4 py-3 space-y-4">
-        <StageRow label="Extracted" value={state.totalExtracted} total={state.totalDocuments} />
-        <StageRow label="Embedded" value={state.totalEmbedded} total={state.totalDocuments} />
-
-        {state.extractQueueDepth > 0 && (
-          <div className="text-xs text-blue-400">
-            ⏳ Extracting... {state.currentDoc && <span className="text-neutral-500">({state.currentDoc})</span>}
-          </div>
+      {/* Pipeline progress */}
+      <div className="px-4 py-3 space-y-3 border-b border-neutral-800">
+        <div className="text-[10px] font-semibold tracking-widest text-neutral-500">PIPELINE</div>
+        <StageRow label="🔍 Extracted" value={extracted} total={total} />
+        <StageRow label="🧠 Embedded" value={embedded} total={total} />
+        {extracting > 0 && (
+          <div className="text-xs text-blue-400">⏳ {extracting.toLocaleString()} awaiting extraction</div>
         )}
-
-        {state.deadLetterCount > 0 && (
-          <div className="text-xs text-red-400">
-            🔴 {state.deadLetterCount} failed
-          </div>
+        {stats && (
+          <div className="text-[10px] text-neutral-600">DB: {stats.databaseSizeMb.toFixed(1)} MB</div>
         )}
       </div>
 
-      {/* Stats */}
-      <div className="px-4 py-2 border-t border-neutral-800 mt-auto">
-        <div className="text-xs text-neutral-500">
-          {state.totalDocuments.toLocaleString()} documents
+      {/* Library */}
+      <div className="px-4 py-3 flex-1">
+        <div className="text-[10px] font-semibold tracking-widest text-neutral-500 mb-2">
+          LIBRARY {total > 0 && <span className="text-neutral-600">({total.toLocaleString()})</span>}
         </div>
+        {categories && categories.length > 0 ? (
+          <div className="space-y-0.5">
+            {categories.map(cat => (
+              <button
+                key={cat.category}
+                onClick={() => onSelectCategory(cat.category)}
+                className={`w-full text-left px-2 py-1.5 rounded text-sm flex justify-between items-center transition-colors ${
+                  selectedCategory === cat.category
+                    ? 'bg-neutral-800 text-neutral-100'
+                    : 'hover:bg-neutral-800/50 text-neutral-400'
+                }`}
+              >
+                <span>{cat.category}</span>
+                <span className="text-xs text-neutral-600">({cat.count})</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="text-xs text-neutral-600">No documents yet.</div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="px-4 py-2 border-t border-neutral-800">
+        <button
+          onClick={() => onSelectCategory(null)}
+          className="text-xs text-neutral-500 hover:text-neutral-300"
+        >
+          ← Home
+        </button>
       </div>
     </aside>
   );
