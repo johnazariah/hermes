@@ -203,8 +203,8 @@ export function DocumentList({ category, onSelectDocument }: {
       {/* Context menu */}
       {contextMenu && (
         <div
-          className="fixed bg-neutral-800 border border-neutral-700 rounded-lg shadow-xl py-1 z-50 min-w-48"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
+          className="fixed bg-neutral-800 border border-neutral-700 rounded-lg shadow-xl py-1 z-50 min-w-48 max-h-96 overflow-y-auto"
+          style={{ left: contextMenu.x, top: Math.min(contextMenu.y, window.innerHeight - 400) }}
         >
           <div className="px-3 py-1 text-[10px] text-neutral-500 uppercase tracking-wider">Move to</div>
           {categories?.filter(c => c.category !== category).map(c => (
