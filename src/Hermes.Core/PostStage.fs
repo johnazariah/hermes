@@ -30,8 +30,15 @@ module PostStage =
                 | Some client ->
                     let! avail = client.isAvailable ()
                     if avail then
-                        let! _ = Embeddings.batchEmbed db logger clock client false (Some 50) None
-                        ()
+                        use cts = new System.Threading.CancellationTokenSource(System.TimeSpan.FromMinutes(5.0))
+                        try
+                            let! _ = Embeddings.batchEmbed db logger clock client false (Some 50) None
+                            ()
+                        with
+                        | :? System.OperationCanceledException ->
+                            logger.warn "Embedding batch timed out after 5 minutes — will resume next cycle"
+                        | ex ->
+                            logger.warn $"Embedding batch failed: {ex.Message}"
             } }
 
     /// LLM extraction enhancer: re-processes raw extracted text into structured markdown.

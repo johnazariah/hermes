@@ -76,7 +76,7 @@ let main _args =
     use cts = new CancellationTokenSource()
     let _ = System.Threading.Tasks.Task.Run(fun () ->
         task {
-            do! ServiceHost.createServiceHost fs db logger clock env rules deps serviceConfig configPath cts.Token
+            do! ServiceHost.createServiceHost fs db logger clock env rules deps serviceConfig configPath cts.Token SleepGuard.preventSleep SleepGuard.allowSleep
         } :> System.Threading.Tasks.Task)
 
     // Build HTTP API

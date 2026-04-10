@@ -616,7 +616,7 @@ let ``ServiceHost_CreateServiceHost_PreCancelledToken_WritesStoppedStatus`` () =
         use cts = new CancellationTokenSource()
         cts.Cancel()
         try
-            do! ServiceHost.createServiceHost m.Fs db TestHelpers.silentLogger TestHelpers.defaultClock testEnv minimalRules testDeps serviceConfig "/test/config.yaml" cts.Token
+            do! ServiceHost.createServiceHost m.Fs db TestHelpers.silentLogger TestHelpers.defaultClock testEnv minimalRules testDeps serviceConfig "/test/config.yaml" cts.Token ignore ignore
             let! status = ServiceHost.readHeartbeat m.Fs "/archive"
             Assert.True(status.IsSome)
             Assert.False(status.Value.Running)
@@ -637,7 +637,7 @@ let ``ServiceHost_CreateServiceHost_PreCancelledToken_ReportsDocCount`` () =
         use cts = new CancellationTokenSource()
         cts.Cancel()
         try
-            do! ServiceHost.createServiceHost m.Fs db TestHelpers.silentLogger TestHelpers.defaultClock testEnv minimalRules testDeps serviceConfig "/test/config.yaml" cts.Token
+            do! ServiceHost.createServiceHost m.Fs db TestHelpers.silentLogger TestHelpers.defaultClock testEnv minimalRules testDeps serviceConfig "/test/config.yaml" cts.Token ignore ignore
             let! status = ServiceHost.readHeartbeat m.Fs "/archive"
             Assert.True(status.IsSome)
             Assert.Equal(1L, status.Value.DocumentCount)
@@ -657,7 +657,7 @@ let ``ServiceHost_CreateServiceHost_PreCancelledToken_UpdatesSyncState`` () =
         use cts = new CancellationTokenSource()
         cts.Cancel()
         try
-            do! ServiceHost.createServiceHost m.Fs db TestHelpers.silentLogger TestHelpers.defaultClock testEnv minimalRules testDeps serviceConfig "/test/config.yaml" cts.Token
+            do! ServiceHost.createServiceHost m.Fs db TestHelpers.silentLogger TestHelpers.defaultClock testEnv minimalRules testDeps serviceConfig "/test/config.yaml" cts.Token ignore ignore
             let! status = ServiceHost.readHeartbeat m.Fs "/archive"
             Assert.True(status.IsSome)
             // Should have run at least one sync cycle
@@ -773,7 +773,7 @@ let ``ServiceHost_CreateServiceHost_ShortLivedToken_RunsLoopBriefly`` () =
         use cts = new CancellationTokenSource()
         cts.CancelAfter(200)
         try
-            do! ServiceHost.createServiceHost m.Fs db TestHelpers.silentLogger TestHelpers.defaultClock testEnv minimalRules testDeps serviceConfig "/test/config.yaml" cts.Token
+            do! ServiceHost.createServiceHost m.Fs db TestHelpers.silentLogger TestHelpers.defaultClock testEnv minimalRules testDeps serviceConfig "/test/config.yaml" cts.Token ignore ignore
             let! status = ServiceHost.readHeartbeat m.Fs "/archive"
             Assert.True(status.IsSome)
             Assert.False(status.Value.Running)

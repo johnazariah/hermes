@@ -213,9 +213,10 @@ module ServiceHost =
     let private runOneSyncCycle
         (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
         (clock: Algebra.Clock) (rules: Algebra.RulesEngine) (deps: SyncDeps)
-        (configDir: string) (state: LoopState) =
+        (configDir: string) (state: LoopState) (onBusy: unit -> unit) (onIdle: unit -> unit) =
         task {
             state.SyncRunning <- true
+            onBusy ()
             try
                 let! result = runSyncCycle fs db logger clock rules deps state.LiveConfig configDir
                 match result with
@@ -223,12 +224,14 @@ module ServiceHost =
                 | Error e -> state.LastSyncAt <- Some(clock.utcNow()); state.LastSyncOk <- false; state.LastError <- Some e
             finally
                 state.SyncRunning <- false
+                onIdle ()
         }
 
     let createServiceHost
         (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
         (clock: Algebra.Clock) (env: Algebra.Environment) (rules: Algebra.RulesEngine) (deps: SyncDeps)
         (serviceConfig: HermesServiceConfig) (configPath: string) (ct: CancellationToken)
+        (onBusy: unit -> unit) (onIdle: unit -> unit)
         : Task<unit> =
         task {
             let startedAt = clock.utcNow ()
@@ -241,7 +244,7 @@ module ServiceHost =
             do! writeStatusFromState fs db serviceConfig.ArchiveDir startedAt state true
 
             // Initial backlog processing
-            do! runOneSyncCycle fs db logger clock rules deps configDir state
+            do! runOneSyncCycle fs db logger clock rules deps configDir state onBusy onIdle
             do! writeStatusFromState fs db serviceConfig.ArchiveDir startedAt state true
 
             let heartbeatInterval = TimeSpan.FromSeconds(float serviceConfig.HeartbeatIntervalSeconds)
@@ -258,8 +261,14 @@ module ServiceHost =
 
                 let syncInterval = TimeSpan.FromMinutes(float state.LiveConfig.SyncIntervalMinutes)
                 if shouldSync clock fs serviceConfig.ArchiveDir syncInterval state && not state.SyncRunning then
-                    do! reloadConfig fs env logger configPath state
-                    do! runOneSyncCycle fs db logger clock rules deps configDir state
+                    try
+                        do! reloadConfig fs env logger configPath state
+                        do! runOneSyncCycle fs db logger clock rules deps configDir state onBusy onIdle
+                    with ex ->
+                        logger.error $"Sync cycle crashed (will retry next interval): {ex.Message}"
+                        state.LastSyncAt <- Some(clock.utcNow())
+                        state.LastSyncOk <- false
+                        state.LastError <- Some ex.Message
 
             logger.info "Hermes service stopping..."
             do! writeStatusFromState fs db serviceConfig.ArchiveDir startedAt state false

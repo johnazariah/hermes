@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <Compile Include="ApiServer.fs" />
+    <Compile Include="SleepGuard.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
