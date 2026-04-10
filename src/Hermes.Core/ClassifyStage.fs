@@ -48,12 +48,18 @@ module ClassifyStage =
                             """SELECT id, extracted_text FROM documents
                                WHERE (category = 'unsorted' OR category = 'unclassified')
                                  AND extracted_text IS NOT NULL
-                               ORDER BY id ASC LIMIT 10"""
+                               ORDER BY id ASC LIMIT 50"""
                             []
                     let! catRows =
                         db.execReader "SELECT DISTINCT category FROM documents WHERE category NOT IN ('unsorted','unclassified')" []
-                    let categories =
+                    let dbCategories =
                         catRows |> List.choose (fun r -> Prelude.RowReader(r).OptString "category")
+                    // Seed with standard categories so LLM can use them even before any docs exist there
+                    let seedCategories =
+                        [ "invoices"; "bank-statements"; "receipts"; "tax"; "payslips"
+                          "insurance"; "real-estate"; "travel"; "medical"; "utilities"
+                          "legal"; "donations"; "contracts"; "correspondence" ]
+                    let categories = (dbCategories @ seedCategories) |> List.distinct
                     let mutable llmClassified = 0
                     for row in unsortedRows do
                         let r = Prelude.RowReader(row)
@@ -64,7 +70,7 @@ module ClassifyStage =
                             match llmResult with
                             | Ok response ->
                                 match ContentClassifier.parseClassificationResponse response with
-                                | Some (cat, conf, reasoning) when conf >= 0.4 && categories |> List.contains cat ->
+                                | Some (cat, conf, reasoning) when conf >= 0.4 ->
                                     let! moveResult = DocumentManagement.reclassify db fs archiveDir docId cat
                                     match moveResult with
                                     | Ok () ->
