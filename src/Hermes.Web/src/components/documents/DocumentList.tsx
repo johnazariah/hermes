@@ -274,7 +274,7 @@ function GroupSection({ title, count, total, docs, onSelectDocument, onContextMe
           {docs.map(doc => (
             <div
               key={doc.id}
-              onContextMenu={e => onContextMenu(e, doc.id)}
+              onContextMenu={e => { e.preventDefault(); onContextMenu(e, doc.id); }}
               className={`flex items-center gap-2 px-2 py-1.5 rounded transition-colors text-sm ${
                 selected.has(doc.id) ? 'bg-blue-950/40' : 'hover:bg-neutral-800/50'
               }`}
