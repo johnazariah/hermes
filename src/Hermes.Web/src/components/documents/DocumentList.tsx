@@ -143,6 +143,10 @@ export function DocumentList({ category, onSelectDocument }: {
                     className="text-xs px-2 py-0.5 bg-neutral-800 rounded hover:bg-neutral-700">{c.category}</button>
           ))}
           <button onClick={() => batchAction('star', '')} className="text-xs text-neutral-400 hover:text-neutral-200 ml-auto">⭐ Star</button>
+          <button onClick={() => {
+            const tag = prompt('Tag name (e.g. rental-property-1, FY2024-25):');
+            if (tag) batchAction('tag', tag.trim());
+          }} className="text-xs text-neutral-400 hover:text-neutral-200">🏷 Tag</button>
         </div>
       )}
 
@@ -204,6 +208,16 @@ export function DocumentList({ category, onSelectDocument }: {
               📁 {c.category}
             </button>
           ))}
+          <button onClick={() => {
+            const name = prompt('New category name:');
+            if (name) moveToCategory(name.toLowerCase().replace(/\s+/g, '-'));
+          }} className="w-full text-left px-3 py-1.5 text-sm hover:bg-neutral-700 text-blue-400">＋ New category...</button>
+          <div className="border-t border-neutral-700 my-1" />
+          <div className="px-3 py-1 text-[10px] text-neutral-500 uppercase tracking-wider">Tag</div>
+          <button onClick={() => {
+            const tag = prompt('Tag name (e.g. rental-property-1, FY2024-25):');
+            if (tag) { batchAction('tag', tag.trim()); setContextMenu(null); }
+          }} className="w-full text-left px-3 py-1.5 text-sm hover:bg-neutral-700 text-blue-400">🏷 Add tag...</button>
           <div className="border-t border-neutral-700 my-1" />
           <button onClick={() => { batchAction('star', ''); setContextMenu(null); }}
                   className="w-full text-left px-3 py-1.5 text-sm hover:bg-neutral-700">⭐ Star</button>
