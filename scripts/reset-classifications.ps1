@@ -15,8 +15,8 @@ New-Item -ItemType Directory -Path $unclassifiedDir -Force | Out-Null
 
 # Get all category subdirectories (excluding unclassified)
 $categories = Get-ChildItem $archiveDir -Directory |
-    Where-Object { $_.Name -ne "unclassified" -and $_.Name -ne ".hermes" } |
-    Select-Object -ExpandProperty Name
+Where-Object { $_.Name -ne "unclassified" -and $_.Name -ne ".hermes" } |
+Select-Object -ExpandProperty Name
 
 Write-Host "`nCategories to reset:" -ForegroundColor Yellow
 foreach ($cat in $categories) {
@@ -58,7 +58,8 @@ WHERE category NOT IN ('unclassified');
 "@
     $sql | sqlite3 $dbPath
     Write-Host "DB updated via sqlite3" -ForegroundColor Green
-} else {
+}
+else {
     Write-Host "sqlite3 CLI not found — using F# script to update DB" -ForegroundColor Yellow
     # Write a simple update script
     $fsx = @"

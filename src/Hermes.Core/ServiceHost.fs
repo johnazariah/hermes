@@ -154,7 +154,7 @@ module ServiceHost =
                 do! runBackfill fs db logger clock deps.CreateEmailProvider config configDir
 
                 // Stage 3: Post-processing (reminders, embedding, plugins)
-                let postProcessors = PostStage.defaultPlugins deps.Embedder
+                let postProcessors = PostStage.defaultPlugins deps.Embedder deps.ChatProvider
                 do! PostStage.run db fs logger clock postProcessors
 
                 do! ActivityLog.logInfo db "sync" "Sync cycle completed" None
