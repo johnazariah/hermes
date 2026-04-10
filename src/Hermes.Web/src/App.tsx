@@ -7,6 +7,7 @@ import { DocumentList } from './components/documents/DocumentList';
 import { DocumentDetail } from './components/documents/DocumentDetail';
 import { SettingsDialog } from './components/settings/SettingsDialog';
 import { DeadLetterPanel } from './components/pipeline/DeadLetterPanel';
+import { ActivityPanel } from './components/pipeline/ActivityPanel';
 
 function WelcomePage() {
   const { data: stats } = useQuery({ queryKey: ['stats'], queryFn: fetchStats, refetchInterval: 10000 });
@@ -57,6 +58,8 @@ export default function App() {
     content = <div className="text-neutral-500 text-sm">Starred documents — coming soon</div>;
   } else if (selectedView?.kind === 'smart' && selectedView.value === 'recent') {
     content = <div className="text-neutral-500 text-sm">Recent documents — coming soon</div>;
+  } else if (selectedView?.kind === 'smart' && selectedView.value === 'activity') {
+    content = <ActivityPanel />;
   } else {
     content = <WelcomePage />;
   }

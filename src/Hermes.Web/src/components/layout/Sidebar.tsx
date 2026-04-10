@@ -69,6 +69,7 @@ export function Sidebar({ onSelectView, selectedView, onOpenSettings }: {
           )}
           <SidebarItem icon="⭐" label="Starred" selected={isSelected('smart', 'starred')} onClick={() => onSelectView({ kind: 'smart', value: 'starred' })} />
           <SidebarItem icon="📅" label="Recent" selected={isSelected('smart', 'recent')} onClick={() => onSelectView({ kind: 'smart', value: 'recent' })} />
+          <SidebarItem icon="📋" label="Activity" selected={isSelected('smart', 'activity')} onClick={() => onSelectView({ kind: 'smart', value: 'activity' })} />
         </div>
       </div>
 

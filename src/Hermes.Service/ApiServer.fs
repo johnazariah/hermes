@@ -225,6 +225,26 @@ module ApiServer =
                 return json {| dismissed = true |}
             })) |> ignore
 
+        // ── Activity log ────────────────────────────────────────────
+        app.MapGet("/api/activity", Func<HttpContext, Task<IResult>>(fun ctx ->
+            task {
+                let limit = ctx.Request.Query["limit"].ToString() |> fun s -> if System.String.IsNullOrEmpty s then 50 else int s
+                let! rows =
+                    db.execReader
+                        "SELECT id, timestamp, level, category, message, document_id FROM activity_log ORDER BY id DESC LIMIT @lim"
+                        [ ("@lim", Database.boxVal (int64 limit)) ]
+                let entries =
+                    rows |> List.map (fun r ->
+                        let rd = Prelude.RowReader(r)
+                        {| id = rd.Int64 "id" 0L
+                           timestamp = rd.String "timestamp" ""
+                           level = rd.String "level" "info"
+                           category = rd.String "category" ""
+                           message = rd.String "message" ""
+                           documentId = rd.OptInt64 "document_id" |})
+                return json entries
+            })) |> ignore
+
         // ── Move document to category ───────────────────────────────
         app.MapPut("/api/documents/{id:long}/category", Func<int64, HttpContext, Task<IResult>>(fun id ctx ->
             task {
