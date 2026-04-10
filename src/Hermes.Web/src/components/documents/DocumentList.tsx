@@ -121,6 +121,10 @@ export function DocumentList({ category, onSelectDocument }: {
     queryClient.invalidateQueries({ queryKey: ['categories'] });
   }, [contextMenu, selected, queryClient]);
 
+  const selectGroup = useCallback((docIds: number[]) => {
+    setSelected(docIds.length > 0 ? new Set(docIds) : new Set());
+  }, []);
+
   if (isLoading) return <div className="text-neutral-500 text-sm">Loading…</div>;
 
   return (
@@ -189,6 +193,7 @@ export function DocumentList({ category, onSelectDocument }: {
               onContextMenu={handleContextMenu}
               selected={selected}
               onToggleSelect={toggleSelect}
+              onSelectGroup={selectGroup}
               collapsed={groupBy !== 'none'}
             />
           );
@@ -229,26 +234,40 @@ export function DocumentList({ category, onSelectDocument }: {
   );
 }
 
-function GroupSection({ title, count, total, docs, onSelectDocument, onContextMenu, selected, onToggleSelect, collapsed: defaultCollapsed }: {
+function GroupSection({ title, count, total, docs, onSelectDocument, onContextMenu, selected, onToggleSelect, collapsed: defaultCollapsed, onSelectGroup }: {
   title: string; count: number; total: number;
   docs: DocumentSummary[]; onSelectDocument: (id: number) => void;
   onContextMenu: (e: React.MouseEvent, id: number) => void;
   selected: Set<number>; onToggleSelect: (id: number) => void;
   collapsed: boolean;
+  onSelectGroup: (docIds: number[]) => void;
 }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed && count > 5);
+  const allSelected = docs.every(d => selected.has(d.id));
 
   return (
     <div>
-      <button
-        onClick={() => setCollapsed(!collapsed)}
-        className="w-full text-left flex items-center gap-2 py-1 text-sm hover:text-neutral-100 transition-colors"
+      <div
+        className="flex items-center gap-2 py-1 text-sm hover:text-neutral-100 transition-colors cursor-pointer"
+        onContextMenu={e => {
+          e.preventDefault();
+          onSelectGroup(docs.map(d => d.id));
+          onContextMenu(e, docs[0]?.id ?? 0);
+        }}
       >
-        <span className="text-neutral-500 text-xs">{collapsed ? '▸' : '▾'}</span>
-        <span className="font-medium">{title}</span>
-        <span className="text-xs text-neutral-500">({count})</span>
-        {total > 0 && <span className="ml-auto text-xs text-neutral-400">${total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>}
-      </button>
+        <input
+          type="checkbox"
+          checked={allSelected && docs.length > 0}
+          onChange={() => onSelectGroup(allSelected ? [] : docs.map(d => d.id))}
+          className="accent-blue-500 shrink-0"
+        />
+        <button onClick={() => setCollapsed(!collapsed)} className="flex items-center gap-2 flex-1 text-left">
+          <span className="text-neutral-500 text-xs">{collapsed ? '▸' : '▾'}</span>
+          <span className="font-medium">{title}</span>
+          <span className="text-xs text-neutral-500">({count})</span>
+          {total > 0 && <span className="ml-auto text-xs text-neutral-400">${total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>}
+        </button>
+      </div>
 
       {!collapsed && (
         <div className="ml-4 space-y-0.5">
