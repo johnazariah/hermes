@@ -5,6 +5,11 @@
 $ErrorActionPreference = "Stop"
 $root = if ($PSScriptRoot) { Split-Path -Parent $PSScriptRoot } else { "c:\work\hermes" }
 
+# Kill any running instances first
+Get-Process -Name "Hermes.Service" -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name "Hermes.Tray" -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Sleep -Milliseconds 500
+
 Write-Host "Building React app..." -ForegroundColor Cyan
 Push-Location "$root\src\Hermes.Web"
 npm run build
