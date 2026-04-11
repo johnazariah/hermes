@@ -72,11 +72,11 @@ let main _args =
     let serviceConfig = ServiceHost.defaultServiceConfig config
     let observer = PipelineObserver.empty ()
 
-    // Start pipeline in background
+    // Start channel-driven pipeline in background
     use cts = new CancellationTokenSource()
     let _ = System.Threading.Tasks.Task.Run(fun () ->
         task {
-            do! ServiceHost.createServiceHost fs db logger clock env rules deps serviceConfig configPath cts.Token SleepGuard.preventSleep SleepGuard.allowSleep
+            do! Pipeline.start fs db logger clock rules deps config configDir SleepGuard.preventSleep SleepGuard.allowSleep cts.Token
         } :> System.Threading.Tasks.Task)
 
     // Build HTTP API
