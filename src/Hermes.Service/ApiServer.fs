@@ -367,14 +367,34 @@ module ApiServer =
         // ── Sync date config ────────────────────────────────────────
         app.MapGet("/api/sync/accounts", Func<Task<IResult>>(fun () ->
             task {
+                // Get sync state from DB
                 let! rows =
                     db.execReader "SELECT account, last_sync_at, message_count FROM sync_state ORDER BY account" []
-                let accounts =
+                let syncState =
                     rows |> List.map (fun r ->
                         let rd = Prelude.RowReader(r)
-                        {| account = rd.String "account" ""
-                           lastSyncAt = rd.OptString "last_sync_at"
-                           messageCount = rd.Int64 "message_count" 0L |})
+                        let acc = rd.String "account" ""
+                        let sync = rd.OptString "last_sync_at"
+                        let count = rd.Int64 "message_count" 0L
+                        (acc, (sync, count)))
+                    |> Map.ofList
+
+                // Get configured accounts from config file
+                let configPath = Path.Combine(configDir, "config.yaml")
+                let! configResult = Config.load fs (Interpreters.systemEnvironment) configPath
+                let configAccounts =
+                    match configResult with
+                    | Ok cfg -> cfg.Accounts |> List.map (fun a -> a.Label)
+                    | Error _ -> []
+
+                // Merge: show all configured accounts with their sync state
+                let accounts =
+                    configAccounts |> List.map (fun label ->
+                        match syncState |> Map.tryFind label with
+                        | Some (lastSync, count) ->
+                            {| account = label; lastSyncAt = lastSync; messageCount = count |}
+                        | None ->
+                            {| account = label; lastSyncAt = (None : string option); messageCount = 0L |})
                 return json accounts
             })) |> ignore
 

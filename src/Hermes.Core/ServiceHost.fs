@@ -240,6 +240,11 @@ module ServiceHost =
             logger.info $"Hermes service starting (sync every {serviceConfig.SyncIntervalMinutes}m)"
             do! writeStatusFromState fs db serviceConfig.ArchiveDir startedAt state true
 
+            // Delay initial sync to avoid slamming Gmail on rapid restarts
+            logger.info "Waiting 30s before first sync..."
+            try do! Task.Delay(TimeSpan.FromSeconds(30.0), ct) with :? OperationCanceledException -> ()
+            if ct.IsCancellationRequested then () else
+
             // Initial backlog processing
             do! runOneSyncCycle fs db logger clock rules deps configDir state onBusy onIdle
             do! writeStatusFromState fs db serviceConfig.ArchiveDir startedAt state true
