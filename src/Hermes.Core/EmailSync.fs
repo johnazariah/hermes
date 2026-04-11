@@ -326,6 +326,15 @@ module EmailSync =
         }
 
     /// Sync one account: list new messages, download attachments, dedup, record.
+    /// Default high-water mark for first sync: 2 fiscal years + 1 month ago.
+    /// Australian FY runs July–June, so this covers current + previous tax years.
+    let defaultHighWaterMark (clock: Algebra.Clock) : DateTimeOffset =
+        let now = clock.utcNow ()
+        // Current FY starts July of this year or last year
+        let fyStartYear = if now.Month >= 7 then now.Year else now.Year - 1
+        // 2 FY ago + 1 month buffer = June 1 two years before current FY start
+        DateTimeOffset(fyStartYear - 2, 6, 1, 0, 0, 0, TimeSpan.Zero)
+
     let syncAccount
         (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
         (clock: Algebra.Clock) (provider: Algebra.EmailProvider)
@@ -334,9 +343,11 @@ module EmailSync =
         task {
             try
                 let! lastSync = loadSyncState db account
-                let sinceStr = lastSync |> Option.map (fun d -> d.ToString("o")) |> Option.defaultValue "beginning"
+                // First sync uses default highWaterMark (2 FY + 1 month ago), not "all time"
+                let syncSince = lastSync |> Option.defaultWith (fun () -> defaultHighWaterMark clock)
+                let sinceStr = syncSince.ToString("yyyy-MM-dd")
                 logger.info $"[{account}] Syncing since {sinceStr}"
-                let! messages = provider.listNewMessages lastSync
+                let! messages = provider.listNewMessages (Some syncSince)
                 logger.info $"[{account}] Found {messages.Length} messages"
 
                 let unclassifiedDir = Path.Combine(config.ArchiveDir, "unclassified")

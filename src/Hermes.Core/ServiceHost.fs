@@ -150,9 +150,6 @@ module ServiceHost =
                 // Stage 1b: Reclassify unsorted (needs extracted text from Stage 2)
                 do! ClassifyStage.reclassifyUnsorted fs db logger deps.ChatProvider deps.ContentRules config.ArchiveDir
 
-                // Producers: backfill historical emails
-                do! runBackfill fs db logger clock deps.CreateEmailProvider config configDir
-
                 // Stage 3: Post-processing (reminders, embedding, plugins)
                 let postProcessors = PostStage.defaultPlugins deps.Embedder deps.ChatProvider
                 do! PostStage.run db fs logger clock postProcessors
