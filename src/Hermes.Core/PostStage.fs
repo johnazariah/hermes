@@ -20,8 +20,8 @@ module PostStage =
                     do! ActivityLog.logInfo db "reminder" $"Un-snoozed {u} reminder(s)" None
             } }
 
-    /// Embedding post-processor: only runs when no documents await classification.
-    /// This prevents Ollama model swap conflicts (phi3 for classify vs nomic for embed).
+    /// Embedding post-processor: only runs when classification backlog is clear
+    /// AND there are enough documents to justify the model swap cost.
     let embeddingPlugin (embedder: Algebra.EmbeddingClient option) : Algebra.PostProcessor =
         { Name = "Embedding"
           Process = fun db _fs logger clock _docId ->
@@ -35,8 +35,18 @@ module PostStage =
                             "SELECT COUNT(*) FROM documents WHERE (category = 'unsorted' OR category = 'unclassified') AND extracted_text IS NOT NULL"
                             []
                     let pendingClassification = match unclassifiedObj with :? int64 as i -> i | _ -> 0L
+
+                    // Also check if there are unextracted docs (extraction is higher priority)
+                    let! unextractedObj =
+                        db.execScalar
+                            "SELECT COUNT(*) FROM documents WHERE extracted_at IS NULL AND extraction_method != 'failed'"
+                            []
+                    let pendingExtraction = match unextractedObj with :? int64 as i -> i | _ -> 0L
+
                     if pendingClassification > 0L then
                         logger.debug $"Embedding deferred — {pendingClassification} docs still awaiting classification"
+                    elif pendingExtraction > 0L then
+                        logger.debug $"Embedding deferred — {pendingExtraction} docs still awaiting extraction"
                     else
                         let! avail = client.isAvailable ()
                         if avail then
