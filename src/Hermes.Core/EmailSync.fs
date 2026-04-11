@@ -368,7 +368,18 @@ module EmailSync =
                         syncAccumZero
                         messages
 
-                do! saveSyncState db account accum.Processed (clock.utcNow ())
+                // Only advance highWaterMark if we actually processed messages
+                // Set it to the date of the latest message we saw, not "now"
+                if messages.Length > 0 then
+                    let latestMessageDate =
+                        messages
+                        |> List.choose (fun m -> m.Date)
+                        |> List.sortDescending
+                        |> List.tryHead
+                        |> Option.defaultValue (clock.utcNow ())
+                    let hwmStr = latestMessageDate.ToString("yyyy-MM-dd")
+                    do! saveSyncState db account accum.Processed latestMessageDate
+                    logger.info $"[{account}] Processed {accum.Processed} messages, {accum.Downloaded} attachments, highWaterMark={hwmStr}"
                 return
                     { Account = account
                       MessagesProcessed = accum.Processed

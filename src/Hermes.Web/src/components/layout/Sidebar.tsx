@@ -112,7 +112,8 @@ export function Sidebar({ onSelectView, selectedView, onOpenSettings }: {
       )}
 
       {/* Footer */}
-      <div className="px-4 py-2 border-t border-neutral-800">
+      </div>
+      <div className="px-4 py-2 border-t border-neutral-800 shrink-0">
         <button onClick={() => onSelectView(null)} className="text-xs text-neutral-500 hover:text-neutral-300">← Home</button>
       </div>
     </aside>
