@@ -93,12 +93,18 @@ module ServiceHost =
         (clock: Algebra.Clock) (createProvider: string -> string -> Task<Algebra.EmailProvider>)
         (config: Domain.HermesConfig) (configDir: string) =
         task {
-            for account in config.Accounts do
-                try
-                    let! provider = createProvider configDir account.Label
-                    let! _ = EmailSync.syncAccount fs db logger clock provider config account.Label
-                    ()
-                with ex -> logger.warn $"Email sync failed for {account.Label}: {ex.Message}"
+            // Run all accounts concurrently — each is an independent producer
+            let tasks =
+                config.Accounts
+                |> List.map (fun account ->
+                    task {
+                        try
+                            let! provider = createProvider configDir account.Label
+                            let! _ = EmailSync.syncAccount fs db logger clock provider config account.Label
+                            ()
+                        with ex -> logger.warn $"Email sync failed for {account.Label}: {ex.Message}"
+                    } :> Task)
+            do! Task.WhenAll(tasks |> List.toArray)
         }
 
     let private syncWatchFolders (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger) (clock: Algebra.Clock) (config: Domain.HermesConfig) =
