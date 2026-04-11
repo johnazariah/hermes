@@ -12,6 +12,7 @@ module DocumentBrowser =
         { Id: int64; OriginalName: string; Category: string
           ExtractedDate: string option; ExtractedAmount: float option
           Sender: string option; Vendor: string option
+          SourceType: string option; Account: string option; SourcePath: string option
           ClassificationTier: string option
           ClassificationConfidence: float option }
 
@@ -45,7 +46,8 @@ module DocumentBrowser =
             let! rows =
                 db.execReader
                     """SELECT id, original_name, category, extracted_date, extracted_amount,
-                              sender, extracted_vendor, classification_tier, classification_confidence
+                              sender, extracted_vendor, source_type, account, source_path,
+                              classification_tier, classification_confidence
                        FROM documents WHERE category = @cat
                        ORDER BY id DESC LIMIT @lim OFFSET @off"""
                     [ ("@cat", Database.boxVal category)
@@ -62,6 +64,9 @@ module DocumentBrowser =
                       ExtractedAmount = r.OptFloat "extracted_amount"
                       Sender = r.OptString "sender"
                       Vendor = r.OptString "extracted_vendor"
+                      SourceType = r.OptString "source_type"
+                      Account = r.OptString "account"
+                      SourcePath = r.OptString "source_path"
                       ClassificationTier = r.OptString "classification_tier"
                       ClassificationConfidence = r.OptFloat "classification_confidence" }))
         }
@@ -73,6 +78,7 @@ module DocumentBrowser =
                 db.execReader
                     """SELECT id, original_name, category, saved_path, extracted_text,
                               extracted_date, extracted_amount, extracted_vendor, sender,
+                              source_type, account, source_path,
                               classification_tier, classification_confidence,
                               ingested_at, extracted_at, embedded_at
                        FROM documents WHERE id = @id"""
@@ -89,6 +95,9 @@ module DocumentBrowser =
                           ExtractedAmount = r.OptFloat "extracted_amount"
                           Sender = r.OptString "sender"
                           Vendor = r.OptString "extracted_vendor"
+                          SourceType = r.OptString "source_type"
+                          Account = r.OptString "account"
+                          SourcePath = r.OptString "source_path"
                           ClassificationTier = r.OptString "classification_tier"
                           ClassificationConfidence = r.OptFloat "classification_confidence" }
                     let pipeline =

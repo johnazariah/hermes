@@ -22,6 +22,9 @@ export interface DocumentSummary {
   extractedAmount: number | null;
   sender: string | null;
   vendor: string | null;
+  sourceType: string | null;
+  account: string | null;
+  sourcePath: string | null;
   classificationTier: string | null;
   classificationConfidence: number | null;
 }

@@ -38,14 +38,17 @@ export function Sidebar({ onSelectView, selectedView, onOpenSettings }: {
     selectedView?.kind === kind && selectedView?.value === value;
 
   return (
-    <aside className="w-64 bg-neutral-900 border-r border-neutral-800 flex flex-col h-full overflow-y-auto">
+    <aside className="w-64 bg-neutral-900 border-r border-neutral-800 flex flex-col h-full">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-neutral-800 flex items-center gap-2">
-        <span className="text-lg">⚡</span>
-        <span className="text-sm font-bold tracking-widest text-neutral-200">HERMES</span>
+      <div className="px-4 py-3 border-b border-neutral-800 flex items-center gap-2 shrink-0">
+        <button onClick={() => onSelectView(null)} className="text-lg hover:opacity-70" title="Home">⚡</button>
+        <button onClick={() => onSelectView(null)} className="text-sm font-bold tracking-widest text-neutral-200 hover:text-white">HERMES</button>
         <button onClick={() => triggerSync()} className="ml-auto text-neutral-500 hover:text-neutral-200 text-sm" title="Sync Now">⟳</button>
         <button onClick={onOpenSettings} className="text-neutral-500 hover:text-neutral-200 text-sm" title="Settings">⚙</button>
       </div>
+
+      {/* Scrollable content */}
+      <div className="flex-1 overflow-y-auto">
 
       {/* Pipeline progress */}
       <div className="px-4 py-3 space-y-3 border-b border-neutral-800">

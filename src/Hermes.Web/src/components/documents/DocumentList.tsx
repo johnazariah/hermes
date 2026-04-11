@@ -3,13 +3,27 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchDocuments, fetchCategories } from '../../api/hermes';
 import type { DocumentSummary } from '../../types/hermes';
 
-type GroupBy = 'none' | 'vendor' | 'sender' | 'date';
+type GroupBy = 'none' | 'origin' | 'vendor' | 'date';
 type SortBy = 'date' | 'amount' | 'name';
 
 function extractSender(s: string | null): string {
-  if (!s) return 'Unknown';
+  if (!s) return '';
   const match = s.match(/^([^<]+)/);
   return match ? match[1].trim() : s;
+}
+
+function getOrigin(doc: DocumentSummary): string {
+  if (doc.sourceType === 'email_attachment' || doc.sender) {
+    const sender = extractSender(doc.sender);
+    const account = doc.account ? doc.account.split('@')[0] : '';
+    return sender || account || 'Email';
+  }
+  if (doc.sourcePath) {
+    const parts = doc.sourcePath.replace(/\\/g, '/').split('/');
+    const meaningful = parts.filter(p => p && !['C:', 'Users', 'johnaz'].includes(p));
+    return meaningful.slice(0, 2).join('/') || 'Local';
+  }
+  return 'Local file';
 }
 
 function extractMonth(d: string | null): string {
@@ -38,7 +52,7 @@ function groupDocs(docs: DocumentSummary[], groupBy: GroupBy): Map<string, Docum
   const groups = new Map<string, DocumentSummary[]>();
   for (const doc of docs) {
     const key = groupBy === 'vendor' ? bestVendorName(doc)
-              : groupBy === 'sender' ? extractSender(doc.sender)
+              : groupBy === 'origin' ? getOrigin(doc)
               : extractMonth(doc.extractedDate);
     const list = groups.get(key) || [];
     list.push(doc);
@@ -60,7 +74,7 @@ export function DocumentList({ category, onSelectDocument }: {
   onSelectDocument: (id: number) => void;
 }) {
   const queryClient = useQueryClient();
-  const [groupBy, setGroupBy] = useState<GroupBy>('vendor');
+  const [groupBy, setGroupBy] = useState<GroupBy>('origin');
   const [sortBy, setSortBy] = useState<SortBy>('date');
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; docId: number } | null>(null);
@@ -161,8 +175,8 @@ export function DocumentList({ category, onSelectDocument }: {
           <select value={groupBy} onChange={e => setGroupBy(e.target.value as GroupBy)}
                   className="bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-neutral-200">
             <option value="none">None</option>
+            <option value="origin">Origin</option>
             <option value="vendor">Vendor</option>
-            <option value="sender">Sender</option>
             <option value="date">Month</option>
           </select>
         </label>
