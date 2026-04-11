@@ -20,7 +20,8 @@ module PostStage =
                     do! ActivityLog.logInfo db "reminder" $"Un-snoozed {u} reminder(s)" None
             } }
 
-    /// Embedding post-processor: generates vectors for semantic search.
+    /// Embedding post-processor: only runs when no documents await classification.
+    /// This prevents Ollama model swap conflicts (phi3 for classify vs nomic for embed).
     let embeddingPlugin (embedder: Algebra.EmbeddingClient option) : Algebra.PostProcessor =
         { Name = "Embedding"
           Process = fun db _fs logger clock _docId ->
@@ -28,17 +29,22 @@ module PostStage =
                 match embedder with
                 | None -> ()
                 | Some client ->
-                    let! avail = client.isAvailable ()
-                    if avail then
-                        use cts = new System.Threading.CancellationTokenSource(System.TimeSpan.FromMinutes(5.0))
-                        try
-                            let! _ = Embeddings.batchEmbed db logger clock client false (Some 50) None
-                            ()
-                        with
-                        | :? System.OperationCanceledException ->
-                            logger.warn "Embedding batch timed out after 5 minutes — will resume next cycle"
-                        | ex ->
-                            logger.warn $"Embedding batch failed: {ex.Message}"
+                    // Only embed when classification backlog is clear
+                    let! unclassifiedObj =
+                        db.execScalar
+                            "SELECT COUNT(*) FROM documents WHERE (category = 'unsorted' OR category = 'unclassified') AND extracted_text IS NOT NULL"
+                            []
+                    let pendingClassification = match unclassifiedObj with :? int64 as i -> i | _ -> 0L
+                    if pendingClassification > 0L then
+                        logger.debug $"Embedding deferred — {pendingClassification} docs still awaiting classification"
+                    else
+                        let! avail = client.isAvailable ()
+                        if avail then
+                            try
+                                let! _ = Embeddings.batchEmbed db logger clock client false (Some 50) None
+                                ()
+                            with ex ->
+                                logger.warn $"Embedding batch failed: {ex.Message}"
             } }
 
     /// LLM extraction enhancer: re-processes raw extracted text into structured markdown.

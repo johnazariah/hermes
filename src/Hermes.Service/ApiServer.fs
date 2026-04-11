@@ -363,3 +363,42 @@ module ApiServer =
                     | _ -> return json {| error = "unknown action" |}
                 with ex -> return json {| error = ex.Message |}
             })) |> ignore
+
+        // ── Sync date config ────────────────────────────────────────
+        app.MapGet("/api/sync/accounts", Func<Task<IResult>>(fun () ->
+            task {
+                let! rows =
+                    db.execReader "SELECT account, last_sync_at, message_count FROM sync_state ORDER BY account" []
+                let accounts =
+                    rows |> List.map (fun r ->
+                        let rd = Prelude.RowReader(r)
+                        {| account = rd.String "account" ""
+                           lastSyncAt = rd.OptString "last_sync_at"
+                           messageCount = rd.Int64 "message_count" 0L |})
+                return json accounts
+            })) |> ignore
+
+        app.MapPost("/api/sync/reset", Func<HttpContext, Task<IResult>>(fun ctx ->
+            task {
+                use sr = new StreamReader(ctx.Request.Body)
+                let! bodyText = sr.ReadToEndAsync()
+                try
+                    let doc = JsonDocument.Parse(bodyText)
+                    let account = doc.RootElement.GetProperty("account").GetString() |> Option.ofObj |> Option.defaultValue ""
+                    let fromDate = doc.RootElement.GetProperty("from").GetString() |> Option.ofObj |> Option.defaultValue ""
+                    if account = "" then return json {| error = "account required" |}
+                    else
+                        if fromDate = "" then
+                            // Reset to default (will use 2 FY + 1 month)
+                            let! _ = db.execNonQuery "DELETE FROM sync_state WHERE account = @acc" [ ("@acc", Database.boxVal account) ]
+                            return json {| reset = true; account = account; from = "default (2 FY + 1 month)" |}
+                        else
+                            // Set specific from-date by setting last_sync_at to that date
+                            let! _ = db.execNonQuery
+                                        """INSERT INTO sync_state (account, last_sync_at, message_count)
+                                           VALUES (@acc, @ts, 0)
+                                           ON CONFLICT(account) DO UPDATE SET last_sync_at = @ts"""
+                                        [ ("@acc", Database.boxVal account); ("@ts", Database.boxVal fromDate) ]
+                            return json {| reset = true; account = account; from = fromDate |}
+                with ex -> return json {| error = ex.Message |}
+            })) |> ignore

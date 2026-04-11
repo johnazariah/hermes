@@ -288,6 +288,17 @@ module EmailSync =
             let sha = computeSha256 att.Content
             let! isDup = hashExists db sha
             if isDup then
+                // Self-healing: check if file exists on disk, re-save if missing
+                let! rows = db.execReader "SELECT saved_path FROM documents WHERE sha256 = @sha" [ ("@sha", boxVal sha) ]
+                match rows |> List.tryHead |> Option.bind (fun r -> Prelude.RowReader(r).OptString "saved_path") with
+                | Some savedPath ->
+                    let archiveDir = Path.GetDirectoryName(unclassifiedDir) |> Option.ofObj |> Option.defaultValue ""
+                    let fullPath = Path.Combine(archiveDir, savedPath)
+                    if not (fs.fileExists fullPath) then
+                        fs.createDirectory (Path.GetDirectoryName(fullPath) |> Option.ofObj |> Option.defaultValue unclassifiedDir)
+                        do! fs.writeAllBytes fullPath att.Content
+                        logger.info $"[{account}] Re-downloaded missing file: {savedPath}"
+                | None -> ()
                 return { accum with Duplicates = accum.Duplicates + 1 }
             else
                 let name = buildStandardName msg.Date msg.Sender att.FileName
