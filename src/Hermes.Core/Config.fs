@@ -160,7 +160,8 @@ module Config =
                   TimeoutSeconds = 300 } }
           Pipeline =
             { Domain.PipelineConfig.ExtractConcurrency = 0  // 0 = auto (ProcessorCount / 2)
-              LlmConcurrency = 1 } }
+              LlmConcurrency = 1
+              EmailConcurrency = 5 } }
 
     // ─── DTO → Domain mapping ────────────────────────────────────────
 
@@ -279,7 +280,8 @@ module Config =
           Chat = chat
           Pipeline =
             { Domain.PipelineConfig.ExtractConcurrency = 0  // 0 = auto
-              LlmConcurrency = 1 } }
+              LlmConcurrency = 1
+              EmailConcurrency = 5 } }
 
     // ─── YAML deserializer ───────────────────────────────────────────
 

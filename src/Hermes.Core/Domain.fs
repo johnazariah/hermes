@@ -183,7 +183,8 @@ module Domain =
     /// Root configuration record.
     type PipelineConfig =
         { ExtractConcurrency: int
-          LlmConcurrency: int }
+          LlmConcurrency: int
+          EmailConcurrency: int }
 
     type HermesConfig =
         { ArchiveDir: string

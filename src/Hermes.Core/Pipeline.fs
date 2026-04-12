@@ -356,7 +356,7 @@ module Pipeline =
             let tasks = ResizeArray<Task>()
 
             // Producers — email producer now pushes file paths directly to ingest channel
-            let emailConcurrency = 5 // network-bound, not GPU-bound
+            let emailConcurrency = max 1 config.Pipeline.EmailConcurrency
             tasks.Add(emailProducer fs db logger clock config configDir deps.CreateEmailProvider ch.Ingest.Writer status emailConcurrency syncInterval (TimeSpan.FromSeconds(30.0)) ct)
             tasks.Add(folderProducer fs db logger clock config ch.Ingest.Writer (TimeSpan.FromSeconds(30.0)) ct)
 

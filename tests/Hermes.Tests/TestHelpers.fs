@@ -214,7 +214,7 @@ let testConfig (archiveDir: string) : Domain.HermesConfig =
           AzureOpenAI =
             { Domain.AzureOpenAIConfig.Endpoint = ""; ApiKey = ""; DeploymentName = "gpt-4o"
               MaxTokens = 4096; TimeoutSeconds = 300 } }
-      Pipeline = { Domain.PipelineConfig.ExtractConcurrency = 1; LlmConcurrency = 1 } }
+      Pipeline = { Domain.PipelineConfig.ExtractConcurrency = 1; LlmConcurrency = 1; EmailConcurrency = 5 } }
 
 // ─── Default rules YAML ──────────────────────────────────────────────
 

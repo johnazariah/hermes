@@ -110,7 +110,11 @@ export function PipelineDashboard() {
     const awaitingReading = total - read;
     const awaitingFiling = read - classified;
     const awaitingMemorising = classified - memorised;
-    const anyActive = awaitingReading > 0 || awaitingFiling > 0 || awaitingMemorising > 0 || emailsPending > 0;
+    const anyActive =
+        awaitingReading > 0 ||
+        awaitingFiling > 0 ||
+        awaitingMemorising > 0 ||
+        emailsPending > 0;
 
     return (
         <div className="space-y-6">
