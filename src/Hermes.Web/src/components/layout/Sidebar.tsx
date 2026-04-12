@@ -114,7 +114,7 @@ export function Sidebar({
                     <StageRow
                         label="🧠 Memorised"
                         value={embedded}
-                        total={total}
+                        total={extracted}
                     />
                     {reading > 0 && (
                         <div className="text-xs text-blue-400">
