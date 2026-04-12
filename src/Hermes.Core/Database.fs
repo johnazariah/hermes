@@ -46,6 +46,7 @@ module Database =
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             source_type     TEXT NOT NULL,
             gmail_id        TEXT,
+            thread_id       TEXT,
             account         TEXT,
             sender          TEXT,
             subject         TEXT,
@@ -81,6 +82,7 @@ module Database =
            "CREATE INDEX IF NOT EXISTS idx_doc_sender     ON documents(sender);"
            "CREATE INDEX IF NOT EXISTS idx_doc_sha256     ON documents(sha256);"
            "CREATE INDEX IF NOT EXISTS idx_doc_account    ON documents(account);"
+           "CREATE INDEX IF NOT EXISTS idx_doc_thread     ON documents(thread_id, account);"
            "CREATE INDEX IF NOT EXISTS idx_doc_source     ON documents(source_type);"
            "CREATE INDEX IF NOT EXISTS idx_doc_extracted  ON documents(extracted_at);"
            "CREATE INDEX IF NOT EXISTS idx_doc_embedded   ON documents(embedded_at);"
@@ -405,6 +407,14 @@ module Database =
             for sql in starcols do
                 try let! _ = execNonQuery conn sql [] in ()
                 with _ -> ()
+
+            // Thread ID on documents
+            let threadCols = [| "ALTER TABLE documents ADD COLUMN thread_id TEXT" |]
+            for sql in threadCols do
+                try let! _ = execNonQuery conn sql [] in ()
+                with _ -> ()
+            let! _ = execNonQuery conn "CREATE INDEX IF NOT EXISTS idx_doc_thread ON documents(thread_id, account)" []
+            ()
 
             ()
         }

@@ -168,6 +168,7 @@ module EmailSync =
 
     let private recordDocument
         (db: Algebra.Database)
+        (sourceType: string)
         (account: string)
         (msg: Domain.EmailMessage)
         (att: Domain.EmailAttachment)
@@ -178,10 +179,11 @@ module EmailSync =
         task {
             let! _ =
                 db.execNonQuery
-                    """INSERT INTO documents (source_type, gmail_id, account, sender, subject, email_date, original_name, saved_path, category, mime_type, size_bytes, sha256)
-                       VALUES (@src, @gid, @acc, @sender, @subject, @date, @orig, @path, @cat, @mime, @size, @sha)"""
-                    [ ("@src", boxVal "email_attachment")
+                    """INSERT INTO documents (source_type, gmail_id, thread_id, account, sender, subject, email_date, original_name, saved_path, category, mime_type, size_bytes, sha256)
+                       VALUES (@src, @gid, @tid, @acc, @sender, @subject, @date, @orig, @path, @cat, @mime, @size, @sha)"""
+                    [ ("@src", boxVal sourceType)
                       ("@gid", boxVal msg.ProviderId)
+                      ("@tid", boxVal msg.ThreadId)
                       ("@acc", boxVal account)
                       ("@sender", msg.Sender |> Option.map boxVal |> Option.defaultValue (boxVal DBNull.Value))
                       ("@subject", msg.Subject |> Option.map boxVal |> Option.defaultValue (boxVal DBNull.Value))
@@ -309,7 +311,7 @@ module EmailSync =
                 do! fs.writeAllBytes savePath att.Content
                 let sidecar = buildSidecar account msg att name sha now
                 do! fs.writeAllText (savePath + ".meta.json") (serialiseSidecar sidecar)
-                do! recordDocument db account msg att name sha now
+                do! recordDocument db "email_attachment" account msg att name sha now
                 logger.info $"[{account}] Downloaded: {name}"
                 return { accum with Downloaded = accum.Downloaded + 1 }
         }
@@ -539,7 +541,7 @@ module EmailSync =
                 do! fs.writeAllBytes destPath att.Content
                 let sidecar = buildSidecar account msg att name sha (clock.utcNow ())
                 do! fs.writeAllText (destPath + ".meta.json") (serialiseSidecar sidecar)
-                do! recordDocument db account msg att name sha (clock.utcNow ())
+                do! recordDocument db "email_attachment" account msg att name sha (clock.utcNow ())
                 return count + 1
             with ex ->
                 logger.warn $"[{account}] Backfill attachment error ({att.FileName}): {ex.Message}"
@@ -669,7 +671,7 @@ module EmailSync =
                             let now = clock.utcNow ()
                             do! recordMessage db account msg now
 
-                            // Fetch and store body text
+                            // Fetch and store body text, save as document
                             if msg.BodyText.IsSome then
                                 let clean = stripHtml msg.BodyText.Value
                                 if not (System.String.IsNullOrWhiteSpace(clean)) then
@@ -677,7 +679,66 @@ module EmailSync =
                                         db.execNonQuery
                                             "UPDATE messages SET body_text = @body WHERE account = @acc AND gmail_id = @gid"
                                             [ ("@body", boxVal clean); ("@acc", boxVal account); ("@gid", boxVal messageId) ]
-                                    ()
+
+                                    // Save email body as a document — one per thread (latest wins)
+                                    let subject = msg.Subject |> Option.defaultValue "(no subject)"
+                                    let sender = msg.Sender |> Option.defaultValue "unknown"
+                                    let dateStr = msg.Date |> Option.map (fun d -> d.ToString("yyyy-MM-dd")) |> Option.defaultValue "undated"
+                                    let bodyMd = $"# {subject}\n\n**From:** {sender}  \n**Date:** {dateStr}\n\n---\n\n{clean}"
+                                    let bodyBytes = System.Text.Encoding.UTF8.GetBytes(bodyMd)
+                                    let bodySha = computeSha256 bodyBytes
+                                    let! bodyDup = hashExists db bodySha
+                                    if not bodyDup then
+                                        // Check if thread already has a body document
+                                        let! existingRows =
+                                            db.execReader
+                                                "SELECT id, saved_path, email_date FROM documents WHERE thread_id = @tid AND account = @acc AND source_type = 'email_body' LIMIT 1"
+                                                [ ("@tid", boxVal msg.ThreadId); ("@acc", boxVal account) ]
+                                        let shouldSave =
+                                            match existingRows |> List.tryHead with
+                                            | None -> true
+                                            | Some row ->
+                                                let r = Prelude.RowReader(row)
+                                                let existingDate = r.OptString "email_date" |> Option.bind (fun s -> match DateTimeOffset.TryParse(s) with true, d -> Some d | _ -> None)
+                                                let msgDate = msg.Date
+                                                // Save if we're newer or existing has no date
+                                                match msgDate, existingDate with
+                                                | Some md, Some ed -> md > ed
+                                                | Some _, None -> true
+                                                | _ -> false
+
+                                        if shouldSave then
+                                            // Delete old body document for this thread if it exists
+                                            for row in existingRows do
+                                                let r = Prelude.RowReader(row)
+                                                match r.OptInt64 "id" with
+                                                | Some oldId ->
+                                                    let! _ = db.execNonQuery "DELETE FROM documents WHERE id = @id" [ ("@id", boxVal oldId) ]
+                                                    match r.OptString "saved_path" with
+                                                    | Some oldPath ->
+                                                        let fullOld = Path.Combine(config.ArchiveDir, oldPath)
+                                                        if fs.fileExists fullOld then try fs.deleteFile fullOld with _ -> ()
+                                                        let metaOld = fullOld + ".meta.json"
+                                                        if fs.fileExists metaOld then try fs.deleteFile metaOld with _ -> ()
+                                                    | None -> ()
+                                                | None -> ()
+
+                                            let bodyName = buildStandardName msg.Date msg.Sender $"{subject}.md" |> fun n -> if n.Length > 200 then n.Substring(0, 200) else n
+                                            let bodyPath = Path.Combine(unclassifiedDir, bodyName)
+                                            fs.createDirectory unclassifiedDir
+                                            do! fs.writeAllBytes bodyPath bodyBytes
+                                            let bodyAtt : Domain.EmailAttachment = { FileName = bodyName; MimeType = "text/markdown"; SizeBytes = int64 bodyBytes.Length; Content = bodyBytes }
+                                            let bodySidecar = buildSidecar account msg bodyAtt bodyName bodySha now
+                                            do! fs.writeAllText (bodyPath + ".meta.json") (serialiseSidecar bodySidecar)
+                                            do! recordDocument db "email_body" account msg bodyAtt bodyName bodySha now
+                                            downloaded <- downloaded + 1
+                                            logger.info $"[{account}/{consumerId}] Saved email body: {bodyName}"
+
+                                            match ingestOutput with
+                                            | Some writer ->
+                                                try do! writer.WriteAsync(bodyPath, ct)
+                                                with :? OperationCanceledException -> ()
+                                            | None -> ()
 
                             // Fetch attachments
                             let! atts = provider.getAttachments messageId
@@ -693,7 +754,7 @@ module EmailSync =
                                     do! fs.writeAllBytes savePath att.Content
                                     let sidecar = buildSidecar account msg att name sha now
                                     do! fs.writeAllText (savePath + ".meta.json") (serialiseSidecar sidecar)
-                                    do! recordDocument db account msg att name sha now
+                                    do! recordDocument db "email_attachment" account msg att name sha now
                                     downloaded <- downloaded + 1
                                     logger.info $"[{account}/{consumerId}] Downloaded: {name}"
 

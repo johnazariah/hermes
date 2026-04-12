@@ -335,7 +335,7 @@ let ``Database_Migration_V2toV3_CreatesNewTablesAndColumns`` () =
                 processed_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (account, gmail_id))""" []
             let! _ = db.execNonQuery """CREATE TABLE documents (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, source_type TEXT NOT NULL, gmail_id TEXT,
-                account TEXT, sender TEXT, subject TEXT, email_date TEXT, original_name TEXT,
+                thread_id TEXT, account TEXT, sender TEXT, subject TEXT, email_date TEXT, original_name TEXT,
                 saved_path TEXT NOT NULL, category TEXT NOT NULL, mime_type TEXT, size_bytes INTEGER,
                 sha256 TEXT NOT NULL, source_path TEXT, extracted_text TEXT, extracted_date TEXT,
                 extracted_amount REAL, extracted_vendor TEXT, extracted_abn TEXT, ocr_confidence REAL,
@@ -375,7 +375,7 @@ let ``Database_Migration_V2toV3_RunsSuccessfully`` () =
                 processed_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (account, gmail_id))""" []
             let! _ = db.execNonQuery """CREATE TABLE documents (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, source_type TEXT NOT NULL, gmail_id TEXT,
-                account TEXT, sender TEXT, subject TEXT, email_date TEXT, original_name TEXT,
+                thread_id TEXT, account TEXT, sender TEXT, subject TEXT, email_date TEXT, original_name TEXT,
                 saved_path TEXT NOT NULL, category TEXT NOT NULL, mime_type TEXT, size_bytes INTEGER,
                 sha256 TEXT NOT NULL, source_path TEXT, extracted_text TEXT, extracted_date TEXT,
                 extracted_amount REAL, extracted_vendor TEXT, extracted_abn TEXT, ocr_confidence REAL,
@@ -435,7 +435,7 @@ let ``Database_Migration_V3toV4_AddsExtractedMarkdownColumn`` () =
                 processed_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (account, gmail_id))""" []
             let! _ = db.execNonQuery """CREATE TABLE documents (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, source_type TEXT NOT NULL, gmail_id TEXT,
-                account TEXT, sender TEXT, subject TEXT, email_date TEXT, original_name TEXT,
+                thread_id TEXT, account TEXT, sender TEXT, subject TEXT, email_date TEXT, original_name TEXT,
                 saved_path TEXT NOT NULL, category TEXT NOT NULL, mime_type TEXT, size_bytes INTEGER,
                 sha256 TEXT NOT NULL, source_path TEXT, extracted_text TEXT, extracted_date TEXT,
                 extracted_amount REAL, extracted_vendor TEXT, extracted_abn TEXT, ocr_confidence REAL,
