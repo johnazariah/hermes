@@ -110,18 +110,19 @@ module Threads =
                               BodyPreview = preview
                               AttachmentDocIds = [] }))
                 // Enrich with attachment doc IDs
-                let! enriched =
-                    messages |> List.map (fun msg ->
-                        task {
-                            let! attRows =
-                                db.execReader
-                                    "SELECT id FROM documents WHERE gmail_id = @gid"
-                                    [ ("@gid", Database.boxVal msg.GmailId) ]
-                            let docIds =
-                                attRows |> List.choose (fun r ->
-                                    Prelude.RowReader(r).OptInt64 "id")
-                            return { msg with AttachmentDocIds = docIds }
-                        }) |> Task.WhenAll
+                let enrichMessage (msg: ThreadMessage) : Task<ThreadMessage> =
+                    task {
+                        let! attRows =
+                            db.execReader
+                                "SELECT id FROM documents WHERE gmail_id = @gid"
+                                [ ("@gid", Database.boxVal msg.GmailId) ]
+                        let docIds =
+                            attRows |> List.choose (fun r ->
+                                Prelude.RowReader(r).OptInt64 "id")
+                        return { msg with AttachmentDocIds = docIds }
+                    }
+
+                let! enriched = messages |> List.map enrichMessage |> List.toArray |> Task.WhenAll
                 let first = messages |> List.head
                 let last = messages |> List.last
                 let summary : ThreadSummary =

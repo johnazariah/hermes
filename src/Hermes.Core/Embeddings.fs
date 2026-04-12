@@ -327,15 +327,11 @@ module Embeddings =
 
             logger.info $"Embedding {docs.Length} documents..."
 
-            let! accum =
-                docs
-                |> List.fold
-                    (fun stateTask doc ->
-                        task {
-                            let! state = stateTask
-                            return! embedOne db logger clock client progress docs.Length state doc
-                        })
-                    (task { return { Completed = 0; Failures = 0 } })
+            let mutable accum = { Completed = 0; Failures = 0 }
+
+            for doc in docs do
+                let! next = embedOne db logger clock client progress docs.Length accum doc
+                accum <- next
 
             logger.info $"Embedding complete: {accum.Completed} processed, {accum.Failures} with errors"
             return Ok accum.Completed

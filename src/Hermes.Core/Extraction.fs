@@ -330,50 +330,44 @@ module Extraction =
         { Name = "PdfPig"
           Priority = 50
           CanHandle = isPdf
-          Extract = fun bytes -> task { return extractPdfText bytes |> Result.map (fun text -> analyseText text "pdfpig" None None) } }
+          Extract = fun bytes -> extractPdfText bytes |> Result.map (fun text -> analyseText text "pdfpig" None None) |> Task.FromResult }
 
     let plainTextPlugin : Algebra.ExtractorPlugin =
         { Name = "PlainText"
           Priority = 80
           CanHandle = isPlainText
-          Extract = fun bytes -> task { return Ok (analyseText (Text.Encoding.UTF8.GetString(bytes)) "plaintext" (Some 1.0) None) } }
+          Extract = fun bytes -> Ok (analyseText (Text.Encoding.UTF8.GetString(bytes)) "plaintext" (Some 1.0) None) |> Task.FromResult }
 
     let csvPlugin : Algebra.ExtractorPlugin =
         { Name = "CSV"
           Priority = 90
           CanHandle = isCsv
           Extract = fun bytes ->
-            task {
-                let text = Text.Encoding.UTF8.GetString(bytes)
-                let doc = CsvExtraction.extractCsv text
-                let markdown = PdfStructure.toMarkdown doc (Map.empty<string, string>)
-                let plain = stripMarkdownSyntax markdown
-                return Ok (analyseText plain "csv" (Some doc.Confidence) (Some markdown))
-            } }
+            let text = Text.Encoding.UTF8.GetString(bytes)
+            let doc = CsvExtraction.extractCsv text
+            let markdown = PdfStructure.toMarkdown doc (Map.empty<string, string>)
+            let plain = stripMarkdownSyntax markdown
+            Ok (analyseText plain "csv" (Some doc.Confidence) (Some markdown)) |> Task.FromResult }
 
     let excelPlugin : Algebra.ExtractorPlugin =
         { Name = "Excel"
           Priority = 90
           CanHandle = isExcel
           Extract = fun bytes ->
-            task {
-                let doc = ExcelExtraction.extractExcel bytes
-                let markdown = PdfStructure.toMarkdown doc (Map.empty<string, string>)
-                let plain = stripMarkdownSyntax markdown
-                return Ok (analyseText plain "closedxml" (Some doc.Confidence) (Some markdown))
-            } }
+            let doc = ExcelExtraction.extractExcel bytes
+            let markdown = PdfStructure.toMarkdown doc (Map.empty<string, string>)
+            let plain = stripMarkdownSyntax markdown
+            Ok (analyseText plain "closedxml" (Some doc.Confidence) (Some markdown)) |> Task.FromResult }
 
     let wordPlugin : Algebra.ExtractorPlugin =
         { Name = "Word"
           Priority = 90
           CanHandle = isWord
           Extract = fun bytes ->
-            task {
-                let doc = WordExtraction.extractWord bytes
-                let markdown = PdfStructure.toMarkdown doc (Map.empty<string, string>)
-                let plain = stripMarkdownSyntax markdown
-                return Ok (analyseText plain "openxml" (Some doc.Confidence) (Some markdown))
-            } }
+            let doc = WordExtraction.extractWord bytes
+            let markdown = PdfStructure.toMarkdown doc (Map.empty<string, string>)
+            let plain = stripMarkdownSyntax markdown
+            Ok (analyseText plain "openxml" (Some doc.Confidence) (Some markdown)) |> Task.FromResult }
 
     /// Default plugin list, sorted by priority descending.
     let defaultPlugins : Algebra.ExtractorPlugin list =

@@ -56,6 +56,27 @@ module GmailProvider =
         task {
             let! service = createService credentialBytes tokenDir label
 
+            let fetchMessageFull (stub: Message) : Task<Domain.EmailMessage> =
+                task {
+                    let getReq = service.Users.Messages.Get("me", stub.Id)
+                    getReq.Format <- UsersResource.MessagesResource.GetRequest.FormatEnum.Full |> Nullable
+                    let! msg = getReq.ExecuteAsync()
+                    let headers = msg.Payload.Headers |> Seq.map (fun h -> h.Name, h.Value) |> dict
+                    let tryHeader key = match headers.TryGetValue(key) with true, v -> Some v | _ -> None
+
+                    return
+                        ({ ProviderId = msg.Id
+                           ThreadId = if msg.ThreadId <> null then msg.ThreadId else ""
+                           Sender = tryHeader "From"
+                           Subject = tryHeader "Subject"
+                           Date =
+                             tryHeader "Date"
+                             |> Option.bind (fun s -> match DateTimeOffset.TryParse(s) with true, d -> Some d | _ -> None)
+                           Labels = (if msg.LabelIds <> null then msg.LabelIds |> Seq.toList else [])
+                           HasAttachments = true
+                           BodyText = Some (extractBodyText msg.Payload) } : Domain.EmailMessage)
+                }
+
             let listMessages (sinceOpt: DateTimeOffset option) : Task<Domain.EmailMessage list> =
                 task {
                     try
@@ -74,34 +95,24 @@ module GmailProvider =
                         if response.Messages = null || response.Messages.Count = 0 then
                             return []
                         else
-                            let! messages =
-                                response.Messages
-                                |> Seq.map (fun stub ->
-                                    task {
-                                        let getReq = service.Users.Messages.Get("me", stub.Id)
-                                        getReq.Format <- UsersResource.MessagesResource.GetRequest.FormatEnum.Full |> Nullable
-                                        let! msg = getReq.ExecuteAsync()
-                                        let headers = msg.Payload.Headers |> Seq.map (fun h -> h.Name, h.Value) |> dict
-                                        let tryHeader key = match headers.TryGetValue(key) with true, v -> Some v | _ -> None
-
-                                        return
-                                            ({ ProviderId = msg.Id
-                                               ThreadId = if msg.ThreadId <> null then msg.ThreadId else ""
-                                               Sender = tryHeader "From"
-                                               Subject = tryHeader "Subject"
-                                               Date =
-                                                 tryHeader "Date"
-                                                 |> Option.bind (fun s -> match DateTimeOffset.TryParse(s) with true, d -> Some d | _ -> None)
-                                               Labels = (if msg.LabelIds <> null then msg.LabelIds |> Seq.toList else [])
-                                               HasAttachments = true
-                                               BodyText = Some (extractBodyText msg.Payload) } : Domain.EmailMessage)
-                                    })
-                                |> Task.WhenAll
-
+                            let! messages = response.Messages |> Seq.map fetchMessageFull |> Task.WhenAll
                             return messages |> Array.toList
                     with ex ->
                         logger.error $"Gmail list failed for {label}: {ex.Message}"
                         return []
+                }
+
+            let fetchAttachment (messageId: string) (part: MessagePart) : Task<Domain.EmailAttachment> =
+                task {
+                    let attReq = service.Users.Messages.Attachments.Get("me", messageId, part.Body.AttachmentId)
+                    let! attBody = attReq.ExecuteAsync()
+                    let bytes = decodeBase64Url attBody.Data
+
+                    return
+                        ({ FileName = part.Filename
+                           MimeType = if part.MimeType <> null then part.MimeType else "application/octet-stream"
+                           SizeBytes = int64 bytes.Length
+                           Content = bytes } : Domain.EmailAttachment)
                 }
 
             let getAtts (messageId: string) : Task<Domain.EmailAttachment list> =
@@ -114,26 +125,13 @@ module GmailProvider =
                         if msg.Payload = null || msg.Payload.Parts = null then
                             return []
                         else
-                            let! attachments =
+                            let attParts =
                                 msg.Payload.Parts
                                 |> Seq.filter (fun p ->
                                     not (String.IsNullOrEmpty(p.Filename)) &&
                                     p.Body <> null &&
                                     not (String.IsNullOrEmpty(p.Body.AttachmentId)))
-                                |> Seq.map (fun part ->
-                                    task {
-                                        let attReq = service.Users.Messages.Attachments.Get("me", messageId, part.Body.AttachmentId)
-                                        let! attBody = attReq.ExecuteAsync()
-                                        let bytes = decodeBase64Url attBody.Data
-
-                                        return
-                                            ({ FileName = part.Filename
-                                               MimeType = if part.MimeType <> null then part.MimeType else "application/octet-stream"
-                                               SizeBytes = int64 bytes.Length
-                                               Content = bytes } : Domain.EmailAttachment)
-                                    })
-                                |> Task.WhenAll
-
+                            let! attachments = attParts |> Seq.map (fetchAttachment messageId) |> Task.WhenAll
                             return attachments |> Array.toList
                     with ex ->
                         logger.error $"Gmail attachments failed for {messageId}: {ex.Message}"
@@ -150,6 +148,27 @@ module GmailProvider =
                         return if String.IsNullOrWhiteSpace(body) then None else Some body
                     with _ ->
                         return None
+                }
+
+            let fetchMessageMetadata (stub: Message) : Task<Domain.EmailMessage> =
+                task {
+                    let getReq = service.Users.Messages.Get("me", stub.Id)
+                    getReq.Format <- UsersResource.MessagesResource.GetRequest.FormatEnum.Metadata |> Nullable
+                    let! msg = getReq.ExecuteAsync()
+                    let headers = msg.Payload.Headers |> Seq.map (fun h -> h.Name, h.Value) |> dict
+                    let tryHeader key = match headers.TryGetValue(key) with true, v -> Some v | _ -> None
+
+                    return
+                        ({ ProviderId = msg.Id
+                           ThreadId = if msg.ThreadId <> null then msg.ThreadId else ""
+                           Sender = tryHeader "From"
+                           Subject = tryHeader "Subject"
+                           Date =
+                             tryHeader "Date"
+                             |> Option.bind (fun s -> match DateTimeOffset.TryParse(s) with true, d -> Some d | _ -> None)
+                           Labels = (if msg.LabelIds <> null then msg.LabelIds |> Seq.toList else [])
+                           HasAttachments = true
+                           BodyText = None } : Domain.EmailMessage)
                 }
 
             let listPage (pageToken: string option) (query: string option) (maxResults: int) : Task<Algebra.MessagePage> =
@@ -171,29 +190,7 @@ module GmailProvider =
                         if response.Messages = null || response.Messages.Count = 0 then
                             return ({ Messages = []; NextPageToken = None; ResultSizeEstimate = 0L } : Algebra.MessagePage)
                         else
-                            let! messages =
-                                response.Messages
-                                |> Seq.map (fun stub ->
-                                    task {
-                                        let getReq = service.Users.Messages.Get("me", stub.Id)
-                                        getReq.Format <- UsersResource.MessagesResource.GetRequest.FormatEnum.Metadata |> Nullable
-                                        let! msg = getReq.ExecuteAsync()
-                                        let headers = msg.Payload.Headers |> Seq.map (fun h -> h.Name, h.Value) |> dict
-                                        let tryHeader key = match headers.TryGetValue(key) with true, v -> Some v | _ -> None
-
-                                        return
-                                            ({ ProviderId = msg.Id
-                                               ThreadId = if msg.ThreadId <> null then msg.ThreadId else ""
-                                               Sender = tryHeader "From"
-                                               Subject = tryHeader "Subject"
-                                               Date =
-                                                 tryHeader "Date"
-                                                 |> Option.bind (fun s -> match DateTimeOffset.TryParse(s) with true, d -> Some d | _ -> None)
-                                               Labels = (if msg.LabelIds <> null then msg.LabelIds |> Seq.toList else [])
-                                               HasAttachments = true
-                                               BodyText = None } : Domain.EmailMessage)
-                                    })
-                                |> Task.WhenAll
+                            let! messages = response.Messages |> Seq.map fetchMessageMetadata |> Task.WhenAll
 
                             let nextToken =
                                 match response.NextPageToken with

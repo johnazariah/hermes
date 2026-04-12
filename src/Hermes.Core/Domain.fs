@@ -181,6 +181,10 @@ module Domain =
           TotalActiveAmount: decimal }
 
     /// Root configuration record.
+    type PipelineConfig =
+        { ExtractConcurrency: int
+          LlmConcurrency: int }
+
     type HermesConfig =
         { ArchiveDir: string
           Credentials: string
@@ -191,7 +195,8 @@ module Domain =
           Ollama: OllamaConfig
           Fallback: FallbackConfig
           Azure: AzureConfig
-          Chat: ChatConfig }
+          Chat: ChatConfig
+          Pipeline: PipelineConfig }
 
     // ─── Email sync domain types ─────────────────────────────────────
 

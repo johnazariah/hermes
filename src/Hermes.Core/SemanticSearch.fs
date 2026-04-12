@@ -139,26 +139,23 @@ module SemanticSearch =
                                     None)
 
                         // Score each chunk
-                        let! scores =
-                            task {
-                                let results = ResizeArray<int64 * float>()
+                        let scores = ResizeArray<int64 * float>()
 
-                                for (docId, chunkId) in chunkRefs do
-                                    let! embResult =
-                                        db.execScalar
-                                            "SELECT embedding FROM document_chunks WHERE id = @id"
-                                            [ ("@id", Database.boxVal chunkId) ]
+                        for (docId, chunkId) in chunkRefs do
+                            let! embResult =
+                                db.execScalar
+                                    "SELECT embedding FROM document_chunks WHERE id = @id"
+                                    [ ("@id", Database.boxVal chunkId) ]
 
-                                    match embResult with
-                                    | null -> ()
-                                    | v ->
-                                        let blob = v :?> byte[]
-                                        let embedding = Embeddings.blobToEmbedding blob
-                                        let sim = cosineSimilarity qEmb embedding
-                                        results.Add(docId, sim)
+                            match embResult with
+                            | null -> ()
+                            | v ->
+                                let blob = v :?> byte[]
+                                let embedding = Embeddings.blobToEmbedding blob
+                                let sim = cosineSimilarity qEmb embedding
+                                scores.Add(docId, sim)
 
-                                return results |> Seq.toList
-                            }
+                        let scores = scores |> Seq.toList
 
                         // Deduplicate: keep best score per document
                         let deduped =
@@ -282,16 +279,11 @@ module SemanticSearch =
                     }
                 | Hybrid -> hybridSearch db client query limit
 
-            let! results =
-                task {
-                    let items = ResizeArray<SearchResult>()
+            let results = ResizeArray<SearchResult>()
 
-                    for (docId, score) in ranked do
-                        let! result = enrichResult db docId score
-                        items.Add(result)
+            for (docId, score) in ranked do
+                let! result = enrichResult db docId score
+                results.Add(result)
 
-                    return items |> Seq.toList
-                }
-
-            return results
+            return results |> Seq.toList
         }

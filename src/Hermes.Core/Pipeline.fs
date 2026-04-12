@@ -85,45 +85,98 @@ module Pipeline =
             logger.debug "Extract consumer stopped"
         }
 
-    // ─── Stage 3: Post-process ──────────────────────────────────────
+    // ─── Stage 3a: LLM Classify (per-doc, N concurrent) ────────────
 
-    /// Continuous consumer: reads docIds from post channel, runs LLM classification + post-processors.
-    let postConsumer
+    /// Continuous consumer: reads docIds, classifies one at a time via LLM.
+    /// Multiple instances can run concurrently on the same channel.
+    let llmClassifyConsumer
         (db: Algebra.Database) (fs: Algebra.FileSystem) (logger: Algebra.Logger)
-        (clock: Algebra.Clock) (chatProvider: Algebra.ChatProvider option)
+        (clock: Algebra.Clock) (chatProvider: Algebra.ChatProvider)
         (contentRules: Domain.ContentRule list) (archiveDir: string)
-        (plugins: Algebra.PostProcessor list)
         (input: ChannelReader<int64>)
-        (extractChannel: ChannelReader<int64>)
+        (consumerId: int)
         (ct: CancellationToken) =
         task {
-            let mutable batchCount = 0
-            let processBacklog () =
-                task {
+            try
+                while not ct.IsCancellationRequested do
+                    let! docId = input.ReadAsync(ct)
                     try
-                        do! ClassifyStage.reclassifyUnsorted fs db logger chatProvider contentRules archiveDir
-                    with ex -> logger.warn $"Reclassify failed: {ex.Message}"
+                        // Check if already classified
+                        let! rows = db.execReader "SELECT category, extracted_text FROM documents WHERE id = @id" [ ("@id", Database.boxVal docId) ]
+                        match rows |> List.tryHead with
+                        | Some row ->
+                            let r = Prelude.RowReader(row)
+                            let cat = r.String "category" ""
+                            let text = r.OptString "extracted_text"
+                            if (cat = "unsorted" || cat = "unclassified") && text.IsSome then
+                                // Try content rules first (fast, no LLM)
+                                let! classified =
+                                    match ContentClassifier.classify text.Value [] None contentRules with
+                                    | Some (newCat, conf) ->
+                                        task {
+                                            let! moveResult = DocumentManagement.reclassify db fs archiveDir docId newCat
+                                            match moveResult with
+                                            | Ok () ->
+                                                let! _ = db.execNonQuery "UPDATE documents SET classification_tier = 'content', classification_confidence = @conf WHERE id = @id" [ ("@conf", Database.boxVal conf); ("@id", Database.boxVal docId) ]
+                                                return true
+                                            | Error _ -> return false
+                                        }
+                                    | None -> Task.FromResult false
 
-                    // Only run post-processors (including embedding) when extract queue is drained
+                                // If content rules didn't match, try LLM
+                                if not classified then
+                                    let! catRows = db.execReader "SELECT DISTINCT category FROM documents WHERE category NOT IN ('unsorted','unclassified') LIMIT 50" []
+                                    let categories =
+                                        catRows |> List.choose (fun r2 -> Prelude.RowReader(r2).OptString "category")
+                                    let seedCats = [ "invoices"; "bank-statements"; "receipts"; "tax"; "payslips"; "insurance"; "real-estate"; "travel"; "medical"; "utilities"; "legal"; "donations"; "contracts"; "correspondence" ]
+                                    let allCats = (categories @ seedCats) |> List.distinct
+                                    let prompt = ContentClassifier.buildClassificationPrompt text.Value allCats
+                                    let! llmResult = chatProvider.complete "You are a document classifier." prompt
+                                    match llmResult with
+                                    | Ok response ->
+                                        match ContentClassifier.parseClassificationResponse response with
+                                        | Some (newCat, conf, reasoning) when conf >= 0.4 ->
+                                            let! moveResult = DocumentManagement.reclassify db fs archiveDir docId newCat
+                                            match moveResult with
+                                            | Ok () ->
+                                                let tier = if conf >= 0.7 then "llm" else "llm_review"
+                                                let! _ = db.execNonQuery "UPDATE documents SET classification_tier = @tier, classification_confidence = @conf WHERE id = @id" [ ("@tier", Database.boxVal tier); ("@conf", Database.boxVal conf); ("@id", Database.boxVal docId) ]
+                                                logger.info $"[LLM-{consumerId}] Classified doc {docId} as {newCat} (conf={conf:F2}): {reasoning}"
+                                            | Error e -> logger.warn $"[LLM-{consumerId}] Move failed for doc {docId}: {e}"
+                                        | _ -> ()
+                                    | Error e -> logger.warn $"[LLM-{consumerId}] Classification failed for doc {docId}: {e}"
+                        | None -> ()
+                    with ex ->
+                        logger.warn $"[LLM-{consumerId}] Error classifying doc {docId}: {ex.Message}"
+            with :? OperationCanceledException -> ()
+            logger.debug $"LLM classify consumer {consumerId} stopped"
+        }
+
+    // ─── Stage 3b: Post-process (periodic, idle-aware) ──────────────
+
+    /// Periodic post-processor: runs reminders, embedding when pipeline is idle.
+    let postProcessRunner
+        (db: Algebra.Database) (fs: Algebra.FileSystem) (logger: Algebra.Logger)
+        (clock: Algebra.Clock) (plugins: Algebra.PostProcessor list)
+        (extractChannel: ChannelReader<int64>) (postChannel: ChannelReader<int64>)
+        (interval: TimeSpan)
+        (ct: CancellationToken) =
+        task {
+            try
+                while not ct.IsCancellationRequested do
+                    try do! Task.Delay(interval, ct) with :? OperationCanceledException -> ()
+                    if ct.IsCancellationRequested then () else
+
                     let extractPending = extractChannel.Count
-                    if extractPending > 0 then
-                        logger.debug $"Post-process deferred — {extractPending} docs still extracting"
+                    let postPending = postChannel.Count
+                    if extractPending > 0 || postPending > 0 then
+                        logger.debug $"Post-process deferred — extract:{extractPending} classify:{postPending} pending"
                     else
                         try
                             do! PostStage.run db fs logger clock plugins
                         with ex -> logger.warn $"Post-processing failed: {ex.Message}"
-                    batchCount <- 0
-                }
-            try
-                while not ct.IsCancellationRequested do
-                    let! _docId = input.ReadAsync(ct)
-                    batchCount <- batchCount + 1
-                    if batchCount >= 50 then
-                        do! processBacklog ()
-            with :? OperationCanceledException ->
-                if batchCount > 0 then
-                    do! processBacklog ()
-            logger.debug "Post consumer stopped"
+            with :? OperationCanceledException -> ()
+            logger.debug "Post-process runner stopped"
         }
 
     // ─── Producers ──────────────────────────────────────────────────
@@ -142,17 +195,16 @@ module Pipeline =
 
             while not ct.IsCancellationRequested do
                 // Sync all accounts concurrently
-                let tasks =
-                    config.Accounts
-                    |> List.map (fun account ->
-                        task {
-                            try
-                                let! provider = createProvider configDir account.Label
-                                let! _ = EmailSync.syncAccount fs db logger clock provider config account.Label
-                                ()
-                            with ex -> logger.warn $"Email sync failed for {account.Label}: {ex.Message}"
-                        } :> Task)
-                do! Task.WhenAll(tasks |> List.toArray)
+                let syncOneAccount (account: Domain.AccountConfig) : Task =
+                    task {
+                        try
+                            let! provider = createProvider configDir account.Label
+                            let! _ = EmailSync.syncAccount fs db logger clock provider config account.Label
+                            ()
+                        with ex -> logger.warn $"Email sync failed for {account.Label}: {ex.Message}"
+                    }
+
+                do! config.Accounts |> List.map syncOneAccount |> List.toArray |> Task.WhenAll
 
                 try do! Task.Delay(syncInterval, ct) with :? OperationCanceledException -> ()
         }
@@ -246,8 +298,11 @@ module Pipeline =
             let postProcessors = PostStage.defaultPlugins deps.Embedder deps.ChatProvider
 
             // Scale extraction to available CPU cores
-            let extractConcurrency = max 1 (Environment.ProcessorCount / 2)
-            logger.info $"Pipeline starting: {extractConcurrency} extract workers, 1 classify, 1 post"
+            let extractConcurrency =
+                if config.Pipeline.ExtractConcurrency > 0 then config.Pipeline.ExtractConcurrency
+                else max 1 (Environment.ProcessorCount / 2)
+            let llmConcurrency = max 1 config.Pipeline.LlmConcurrency
+            logger.info $"Pipeline starting: {extractConcurrency} extract, {llmConcurrency} LLM classify"
             onBusy ()
 
             // Recovery: seed channels from DB state
@@ -260,16 +315,23 @@ module Pipeline =
             tasks.Add(emailProducer fs db logger clock config configDir deps.CreateEmailProvider syncInterval (TimeSpan.FromSeconds(30.0)) ct)
             tasks.Add(folderProducer fs db logger clock config ch.Ingest.Writer (TimeSpan.FromSeconds(30.0)) ct)
 
-            // Stage 1: Classify (single consumer — fast, CPU-only)
+            // Stage 1: Classify (single consumer — rules only, fast)
             tasks.Add(classifyConsumer fs db logger clock rules archiveDir ch.Ingest.Reader ch.Extract.Writer ct)
 
-            // Stage 2: Extract (N concurrent consumers — CPU-bound, scales with cores)
+            // Stage 2: Extract (N concurrent consumers — CPU-bound)
             for i in 1..extractConcurrency do
                 tasks.Add(extractConsumer fs db logger clock deps.Extractor archiveDir ch.Extract.Reader ch.Post.Writer ch.DeadLetter.Writer ct)
-                logger.debug $"Extract worker {i}/{extractConcurrency} started"
 
-            // Stage 3: Post-process (single consumer — GPU-bound for LLM)
-            tasks.Add(postConsumer db fs logger clock deps.ChatProvider deps.ContentRules archiveDir postProcessors ch.Post.Reader ch.Extract.Reader ct)
+            // Stage 3a: LLM Classify (M concurrent consumers — network or GPU-bound)
+            match deps.ChatProvider with
+            | Some chat ->
+                for i in 1..llmConcurrency do
+                    tasks.Add(llmClassifyConsumer db fs logger clock chat deps.ContentRules archiveDir ch.Post.Reader i ct)
+            | None ->
+                logger.warn "No chat provider — LLM classification disabled"
+
+            // Stage 3b: Post-process (periodic — reminders, embedding, deferred until idle)
+            tasks.Add(postProcessRunner db fs logger clock postProcessors ch.Extract.Reader ch.Post.Reader (TimeSpan.FromMinutes(2.0)) ct)
 
             // Wait for all to complete (they run until cancelled)
             try

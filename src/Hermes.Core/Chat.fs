@@ -172,7 +172,7 @@ Answer briefly and specifically."""
                             | Error e -> Some $"(AI unavailable: {e})"
                     }
                 else
-                    task { return None }
+                    Task.FromResult None
 
             return { Query = queryText; Results = results; AiSummary = aiSummary }
         }

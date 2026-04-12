@@ -93,11 +93,11 @@ module Reminders =
                     | _ -> return count
                 }
 
-            let! created =
-                rows
-                |> List.fold
-                    (fun stateTask row -> task { let! state = stateTask in return! processRow state row })
-                    (task { return 0 })
+            let mutable created = 0
+
+            for row in rows do
+                let! count = processRow created row
+                created <- count
 
             return created
         }

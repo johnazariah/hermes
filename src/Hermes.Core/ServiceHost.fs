@@ -57,7 +57,7 @@ module ServiceHost =
         fs.writeAllText (Path.Combine(archiveDir, syncTriggerFileName)) (clock.utcNow().ToString("O"))
 
     let writeHeartbeat (fs: Algebra.FileSystem) (archiveDir: string) (status: ServiceStatus) =
-        task { do! fs.writeAllText (statusFilePath archiveDir) (JsonSerializer.Serialize(status, jsonOptions)) }
+        fs.writeAllText (statusFilePath archiveDir) (JsonSerializer.Serialize(status, jsonOptions))
 
     let readHeartbeat (fs: Algebra.FileSystem) (archiveDir: string) : Task<ServiceStatus option> =
         task {
@@ -94,21 +94,20 @@ module ServiceHost =
         (config: Domain.HermesConfig) (configDir: string) =
         task {
             // Run all accounts concurrently — each is an independent producer
-            let tasks =
-                config.Accounts
-                |> List.map (fun account ->
-                    task {
-                        try
-                            let! provider = createProvider configDir account.Label
-                            let! _ = EmailSync.syncAccount fs db logger clock provider config account.Label
-                            ()
-                        with ex -> logger.warn $"Email sync failed for {account.Label}: {ex.Message}"
-                    } :> Task)
-            do! Task.WhenAll(tasks |> List.toArray)
+            let syncOneAccount (account: Domain.AccountConfig) : Task =
+                task {
+                    try
+                        let! provider = createProvider configDir account.Label
+                        let! _ = EmailSync.syncAccount fs db logger clock provider config account.Label
+                        ()
+                    with ex -> logger.warn $"Email sync failed for {account.Label}: {ex.Message}"
+                }
+
+            do! config.Accounts |> List.map syncOneAccount |> List.toArray |> Task.WhenAll
         }
 
-    let private syncWatchFolders (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger) (clock: Algebra.Clock) (config: Domain.HermesConfig) =
-        task { let! _ = FolderWatcher.scanAll fs db logger clock config in () }
+    let private syncWatchFolders (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger) (clock: Algebra.Clock) (config: Domain.HermesConfig) : Task =
+        FolderWatcher.scanAll fs db logger clock config :> Task
 
     let private runBackfill
         (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)

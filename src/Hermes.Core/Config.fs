@@ -157,7 +157,10 @@ module Config =
                   ApiKey = ""
                   DeploymentName = "gpt-4o"
                   MaxTokens = 4096
-                  TimeoutSeconds = 300 } } }
+                  TimeoutSeconds = 300 } }
+          Pipeline =
+            { Domain.PipelineConfig.ExtractConcurrency = 0  // 0 = auto (ProcessorCount / 2)
+              LlmConcurrency = 1 } }
 
     // ─── DTO → Domain mapping ────────────────────────────────────────
 
@@ -273,7 +276,10 @@ module Config =
           Ollama = ollama
           Fallback = fallback
           Azure = azure
-          Chat = chat }
+          Chat = chat
+          Pipeline =
+            { Domain.PipelineConfig.ExtractConcurrency = 0  // 0 = auto
+              LlmConcurrency = 1 } }
 
     // ─── YAML deserializer ───────────────────────────────────────────
 
