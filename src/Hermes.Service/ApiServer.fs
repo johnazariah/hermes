@@ -21,6 +21,7 @@ module ApiServer =
         (db: Algebra.Database) (fs: Algebra.FileSystem) (logger: Algebra.Logger)
         (clock: Algebra.Clock) (observer: PipelineObserver.T)
         (chatProvider: Algebra.ChatProvider option)
+        (pipelineStatus: Pipeline.PipelineStatus)
         (archiveDir: string) (configDir: string) =
 
         // ── Pipeline state (SSE) ────────────────────────────────────
@@ -120,6 +121,16 @@ module ApiServer =
                 let! stats = Stats.getIndexStats db fs dbPath
                 return json stats
             })) |> ignore
+
+        // ── Pipeline dashboard ──────────────────────────────────────
+        app.MapGet("/api/pipeline", Func<IResult>(fun () ->
+            json {| inbox = pipelineStatus.InboxDepth
+                    reading = pipelineStatus.ReadingDepth
+                    filing = pipelineStatus.FilingDepth
+                    failed = pipelineStatus.FailedDepth
+                    received = pipelineStatus.TotalReceived
+                    read = pipelineStatus.TotalRead
+                    memorised = pipelineStatus.TotalMemorised |})) |> ignore
 
         // ── Reminders ───────────────────────────────────────────────
         app.MapGet("/api/reminders", Func<Task<IResult>>(fun () ->

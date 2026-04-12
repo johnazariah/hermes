@@ -73,10 +73,11 @@ let main _args =
     let observer = PipelineObserver.empty ()
 
     // Start channel-driven pipeline in background
+    let pipelineStatus = Pipeline.createStatus ()
     use cts = new CancellationTokenSource()
     let _ = System.Threading.Tasks.Task.Run(fun () ->
         task {
-            do! Pipeline.start fs db logger clock rules deps config configDir SleepGuard.preventSleep SleepGuard.allowSleep cts.Token
+            do! Pipeline.start fs db logger clock rules deps config configDir SleepGuard.preventSleep SleepGuard.allowSleep pipelineStatus cts.Token
         } :> System.Threading.Tasks.Task)
 
     // Build HTTP API
@@ -98,7 +99,7 @@ let main _args =
     app.UseStaticFiles() |> ignore
 
     // Map API routes
-    ApiServer.mapRoutes app db fs logger clock observer chatProvider archiveDir configDir
+    ApiServer.mapRoutes app db fs logger clock observer chatProvider pipelineStatus archiveDir configDir
 
     // SPA fallback: serve index.html for non-API, non-file routes
     app.MapFallbackToFile("index.html") |> ignore

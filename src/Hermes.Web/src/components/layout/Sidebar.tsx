@@ -63,7 +63,7 @@ export function Sidebar({
     const total = stats?.documentCount ?? 0;
     const extracted = stats?.extractedCount ?? 0;
     const embedded = stats?.embeddedCount ?? 0;
-    const extracting = total - extracted;
+    const reading = total - extracted;
     const unsorted =
         categories?.find((c) => c.category === "unsorted")?.count ?? 0;
 
@@ -111,18 +111,18 @@ export function Sidebar({
                         PIPELINE
                     </div>
                     <StageRow
-                        label="🔍 Extracted"
+                        label="� Read"
                         value={extracted}
                         total={total}
                     />
                     <StageRow
-                        label="🧠 Embedded"
+                        label="🧠 Memorised"
                         value={embedded}
                         total={total}
                     />
-                    {extracting > 0 && (
+                    {reading > 0 && (
                         <div className="text-xs text-blue-400">
-                            ⏳ {extracting.toLocaleString()} awaiting extraction
+                            ⏳ {reading.toLocaleString()} awaiting reading
                         </div>
                     )}
                     {stats && (
