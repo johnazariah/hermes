@@ -801,7 +801,7 @@ module EmailSync =
                 logger.info $"[{account}] Channel sync since {sinceStr} with {concurrency} consumers"
 
                 // Create the message ID channel
-                let idChannel = Channel.CreateBounded<string>(BoundedChannelOptions(1000, FullMode = BoundedChannelFullMode.Wait))
+                let idChannel = Channel.CreateBounded<string>(BoundedChannelOptions(10000, FullMode = BoundedChannelFullMode.Wait))
 
                 // Start enumeration producer
                 let enumTask = enumerateIds provider logger account query idChannel.Writer ct
