@@ -45,6 +45,7 @@
     <Compile Include="Recovery.fs" />
     <Compile Include="PipelineObserver.fs" />
     <Compile Include="ServiceHost.fs" />
+    <Compile Include="StageProcessors.fs" />
     <Compile Include="Pipeline.fs" />
     <Compile Include="ServiceInstaller.fs" />
     <Compile Include="McpTools.fs" />

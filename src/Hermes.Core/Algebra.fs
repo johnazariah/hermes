@@ -58,6 +58,28 @@ module Algebra =
           schemaVersion: unit -> Task<int>
           dispose: unit -> unit }
 
+    // ─── Stage queue (pipeline work queues) ──────────────────────────
+
+    /// A work item dequeued from a pipeline stage.
+    type StageItem =
+        { QueueId: int64
+          DocId: int64
+          Payload: string
+          Attempts: int }
+
+    /// Tagless-Final stage queue — abstracts over SQLite or in-memory for testing.
+    type StageQueue =
+        { /// Dequeue up to N items ordered by creation time.
+          dequeue: int -> Task<StageItem list>
+          /// Mark an item as complete (remove from queue).
+          complete: int64 -> Task<unit>
+          /// Record a failed attempt. Returns true if max attempts exceeded (dead-lettered).
+          fail: int64 -> string -> Task<bool>
+          /// Add an item to this queue.
+          enqueue: int64 -> string -> Task<unit>
+          /// Count of pending items.
+          count: unit -> Task<int64> }
+
     // ─── Email provider ──────────────────────────────────────────────
 
     /// A page of message ID stubs — no content, just IDs for enumeration.

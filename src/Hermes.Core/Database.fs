@@ -9,7 +9,7 @@ open Microsoft.Data.Sqlite
 [<RequireQualifiedAccess>]
 module Database =
 
-    let [<Literal>] CurrentSchemaVersion = 5
+    let [<Literal>] CurrentSchemaVersion = 6
 
     // ─── Schema DDL ──────────────────────────────────────────────────
 
@@ -168,6 +168,39 @@ module Database =
            "CREATE INDEX IF NOT EXISTS idx_tags_doc ON tags(document_id);"
            "CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag);"
            "CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_unique ON tags(document_id, tag);"
+
+           // ── Pipeline stage queues ────────────────────────────────────
+           """
+        CREATE TABLE IF NOT EXISTS stage_extract (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            doc_id      INTEGER NOT NULL REFERENCES documents(id),
+            file_path   TEXT NOT NULL,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            attempts    INTEGER NOT NULL DEFAULT 0
+        );
+        """
+           "CREATE INDEX IF NOT EXISTS idx_stage_extract_created ON stage_extract(created_at);"
+           "CREATE INDEX IF NOT EXISTS idx_stage_extract_doc ON stage_extract(doc_id);"
+
+           """
+        CREATE TABLE IF NOT EXISTS stage_classify (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            doc_id      INTEGER NOT NULL REFERENCES documents(id),
+            created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            attempts    INTEGER NOT NULL DEFAULT 0
+        );
+        """
+           "CREATE INDEX IF NOT EXISTS idx_stage_classify_created ON stage_classify(created_at);"
+
+           """
+        CREATE TABLE IF NOT EXISTS stage_embed (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            doc_id      INTEGER NOT NULL REFERENCES documents(id),
+            created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            attempts    INTEGER NOT NULL DEFAULT 0
+        );
+        """
+           "CREATE INDEX IF NOT EXISTS idx_stage_embed_created ON stage_embed(created_at);"
         |]
 
     let private ftsSql =

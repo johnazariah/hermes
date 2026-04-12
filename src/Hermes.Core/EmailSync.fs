@@ -198,7 +198,9 @@ module EmailSync =
                       ("@size", boxVal att.SizeBytes)
                       ("@sha", boxVal sha256) ]
 
-            return ()
+            let! idObj = db.execScalar "SELECT last_insert_rowid()" []
+            let docId = match idObj with :? int64 as i -> i | _ -> 0L
+            return docId
         }
 
     // ─── Sync state ──────────────────────────────────────────────────
@@ -733,15 +735,10 @@ module EmailSync =
                                             let bodyAtt : Domain.EmailAttachment = { FileName = bodyName; MimeType = "text/markdown"; SizeBytes = int64 bodyBytes.Length; Content = bodyBytes }
                                             let bodySidecar = buildSidecar account msg bodyAtt bodyName bodySha now
                                             do! fs.writeAllText (bodyPath + ".meta.json") (serialiseSidecar bodySidecar)
-                                            do! recordDocument db "email_body" account msg bodyAtt bodyName bodySha now
+                                            let! bodyDocId = recordDocument db "email_body" account msg bodyAtt bodyName bodySha now
+                                            do! StageProcessors.enqueueExtract db bodyDocId bodyPath
                                             downloaded <- downloaded + 1
                                             logger.info $"[{account}/{consumerId}] Saved email body: {bodyName}"
-
-                                            match ingestOutput with
-                                            | Some writer ->
-                                                try do! writer.WriteAsync(bodyPath, ct)
-                                                with :? OperationCanceledException -> ()
-                                            | None -> ()
 
                             // Fetch attachments
                             let! atts = provider.getAttachments messageId
@@ -757,16 +754,10 @@ module EmailSync =
                                     do! fs.writeAllBytes savePath att.Content
                                     let sidecar = buildSidecar account msg att name sha now
                                     do! fs.writeAllText (savePath + ".meta.json") (serialiseSidecar sidecar)
-                                    do! recordDocument db "email_attachment" account msg att name sha now
+                                    let! attDocId = recordDocument db "email_attachment" account msg att name sha now
+                                    do! StageProcessors.enqueueExtract db attDocId savePath
                                     downloaded <- downloaded + 1
                                     logger.info $"[{account}/{consumerId}] Downloaded: {name}"
-
-                                    // Push to downstream pipeline
-                                    match ingestOutput with
-                                    | Some writer ->
-                                        try do! writer.WriteAsync(savePath, ct)
-                                        with :? OperationCanceledException -> ()
-                                    | None -> ()
 
                             processed <- processed + 1
                             System.Threading.Interlocked.Increment(processedCount) |> ignore
