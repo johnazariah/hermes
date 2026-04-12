@@ -110,11 +110,7 @@ export function Sidebar({
                     <div className="text-[10px] font-semibold tracking-widest text-neutral-500">
                         PIPELINE
                     </div>
-                    <StageRow
-                        label="� Read"
-                        value={extracted}
-                        total={total}
-                    />
+                    <StageRow label="� Read" value={extracted} total={total} />
                     <StageRow
                         label="🧠 Memorised"
                         value={embedded}

@@ -614,6 +614,7 @@ module EmailSync =
         (account: string)
         (query: string)
         (output: ChannelWriter<string>)
+        (enumeratedCount: int ref)
         (ct: CancellationToken)
         : Task<int> =
         task {
@@ -627,6 +628,7 @@ module EmailSync =
                     for id in page.Ids do
                         do! output.WriteAsync(id, ct)
                     total <- total + page.Ids.Length
+                    enumeratedCount.Value <- total
 
                     match page.NextPageToken with
                     | Some t -> pageToken <- Some t
@@ -653,6 +655,7 @@ module EmailSync =
         (config: Domain.HermesConfig) (account: string)
         (input: ChannelReader<string>)
         (ingestOutput: ChannelWriter<string> option)
+        (processedCount: int ref)
         (consumerId: int)
         (ct: CancellationToken)
         : Task<int * int> =
@@ -766,6 +769,7 @@ module EmailSync =
                                     | None -> ()
 
                             processed <- processed + 1
+                            System.Threading.Interlocked.Increment(processedCount) |> ignore
                     with
                     | :? Google.GoogleApiException as ex when ex.HttpStatusCode = System.Net.HttpStatusCode.TooManyRequests ->
                         logger.warn $"[{account}/{consumerId}] Rate limited, backing off 60s"
@@ -788,6 +792,7 @@ module EmailSync =
         (config: Domain.HermesConfig) (account: string)
         (ingestOutput: ChannelWriter<string> option)
         (concurrency: int)
+        (enumeratedCounter: int ref) (processedCounter: int ref)
         (ct: CancellationToken)
         : Task<SyncResult> =
         task {
@@ -804,12 +809,12 @@ module EmailSync =
                 let idChannel = Channel.CreateBounded<string>(BoundedChannelOptions(10000, FullMode = BoundedChannelFullMode.Wait))
 
                 // Start enumeration producer
-                let enumTask = enumerateIds provider logger account query idChannel.Writer ct
+                let enumTask = enumerateIds provider logger account query idChannel.Writer enumeratedCounter ct
 
                 // Start N consumers
                 let consumerTasks =
                     [| for i in 1..concurrency ->
-                        processMessageConsumer fs db logger clock provider config account idChannel.Reader ingestOutput i ct |]
+                        processMessageConsumer fs db logger clock provider config account idChannel.Reader ingestOutput processedCounter i ct |]
 
                 // Wait for enumeration to finish (completes the channel)
                 let! totalEnumerated = enumTask

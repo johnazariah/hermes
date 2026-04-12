@@ -23,18 +23,20 @@ function ChannelBar({
     maxDepth,
     color,
     icon,
+    tooltip,
 }: {
     label: string;
     depth: number;
     maxDepth: number;
     color: string;
     icon: string;
+    tooltip: string;
 }) {
     const fill = maxDepth > 0 ? Math.min(depth / maxDepth, 1) * 100 : 0;
     const isActive = depth > 0;
 
     return (
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 group relative" title={tooltip}>
             <span className="text-lg w-8 text-center">{icon}</span>
             <div className="flex-1">
                 <div className="flex justify-between text-xs mb-1">
@@ -152,7 +154,8 @@ export function PipelineDashboard() {
                                 icon="📧"
                             />
                             <div className="text-[10px] text-neutral-500 text-right">
-                                {p.emailsProcessed.toLocaleString()} / {p.emailsQueued.toLocaleString()} fetched
+                                {p.emailsProcessed.toLocaleString()} /{" "}
+                                {p.emailsQueued.toLocaleString()} fetched
                             </div>
                             <FlowArrow active={emailsPending > 0} />
                         </>
@@ -218,9 +221,7 @@ export function PipelineDashboard() {
                     icon="💾"
                     label="Database"
                     value={
-                        stats
-                            ? `${stats.databaseSizeMb.toFixed(1)} MB`
-                            : "—"
+                        stats ? `${stats.databaseSizeMb.toFixed(1)} MB` : "—"
                     }
                 />
             </div>

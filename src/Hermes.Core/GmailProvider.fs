@@ -146,12 +146,19 @@ module GmailProvider =
                         if msg.Payload = null || msg.Payload.Parts = null then
                             return []
                         else
-                            let attParts =
-                                msg.Payload.Parts
-                                |> Seq.filter (fun p ->
-                                    not (String.IsNullOrEmpty(p.Filename)) &&
-                                    p.Body <> null &&
-                                    not (String.IsNullOrEmpty(p.Body.AttachmentId)))
+                            let isRealAttachment (p: MessagePart) =
+                                not (String.IsNullOrEmpty(p.Filename)) &&
+                                p.Body <> null &&
+                                not (String.IsNullOrEmpty(p.Body.AttachmentId)) &&
+                                // Skip inline images (signatures, tracking pixels, logos)
+                                // unless they're large enough to be real content (>50KB)
+                                (p.Headers = null ||
+                                 not (p.Headers |> Seq.exists (fun h ->
+                                    h.Name = "Content-Disposition" &&
+                                    h.Value <> null &&
+                                    h.Value.StartsWith("inline", StringComparison.OrdinalIgnoreCase))) ||
+                                 (p.Body.Size.HasValue && p.Body.Size.Value > 50000))
+                            let attParts = msg.Payload.Parts |> Seq.filter isRealAttachment
                             let! attachments = attParts |> Seq.map (fetchAttachment messageId) |> Task.WhenAll
                             return attachments |> Array.toList
                     with ex ->

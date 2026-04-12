@@ -241,22 +241,34 @@ module Pipeline =
             try do! Task.Delay(startupDelay, ct) with :? OperationCanceledException -> ()
 
             while not ct.IsCancellationRequested do
-                let mutable totalQueued = 0
-                let mutable totalProcessed = 0
+                let enumeratedCounter = ref 0
+                let processedCounter = ref 0
 
                 let syncOneAccount (account: Domain.AccountConfig) : Task =
                     task {
                         try
                             let! provider = createProvider configDir account.Label
-                            let! result = EmailSync.syncAccountChanneled fs db logger clock provider config account.Label (Some ingest) concurrency ct
-                            System.Threading.Interlocked.Add(&totalQueued, result.DuplicatesSkipped + result.MessagesProcessed) |> ignore
-                            System.Threading.Interlocked.Add(&totalProcessed, result.MessagesProcessed) |> ignore
+                            let! _ = EmailSync.syncAccountChanneled fs db logger clock provider config account.Label (Some ingest) concurrency enumeratedCounter processedCounter ct
+                            ()
                         with ex -> logger.warn $"Email sync failed for {account.Label}: {ex.Message}"
                     }
 
-                do! config.Accounts |> List.map syncOneAccount |> List.toArray |> Task.WhenAll
-                status.EmailsQueued <- totalQueued
-                status.EmailsProcessed <- totalProcessed
+                // Update status live while accounts sync
+                let updateStatus () =
+                    status.EmailsQueued <- enumeratedCounter.Value
+                    status.EmailsProcessed <- processedCounter.Value
+
+                let syncTask = 
+                    task {
+                        do! config.Accounts |> List.map syncOneAccount |> List.toArray |> Task.WhenAll
+                    }
+
+                // Poll status while sync runs
+                while not syncTask.IsCompleted do
+                    updateStatus ()
+                    try do! Task.Delay(TimeSpan.FromSeconds(2.0), ct) with :? OperationCanceledException -> ()
+                do! syncTask
+                updateStatus ()
 
                 try do! Task.Delay(syncInterval, ct) with :? OperationCanceledException -> ()
         }
