@@ -313,7 +313,7 @@ module EmailSync =
                 do! fs.writeAllBytes savePath att.Content
                 let sidecar = buildSidecar account msg att name sha now
                 do! fs.writeAllText (savePath + ".meta.json") (serialiseSidecar sidecar)
-                do! recordDocument db "email_attachment" account msg att name sha now
+                let! _ = recordDocument db "email_attachment" account msg att name sha now
                 logger.info $"[{account}] Downloaded: {name}"
                 return { accum with Downloaded = accum.Downloaded + 1 }
         }
@@ -543,7 +543,7 @@ module EmailSync =
                 do! fs.writeAllBytes destPath att.Content
                 let sidecar = buildSidecar account msg att name sha (clock.utcNow ())
                 do! fs.writeAllText (destPath + ".meta.json") (serialiseSidecar sidecar)
-                do! recordDocument db "email_attachment" account msg att name sha (clock.utcNow ())
+                let! _ = recordDocument db "email_attachment" account msg att name sha (clock.utcNow ())
                 return count + 1
             with ex ->
                 logger.warn $"[{account}] Backfill attachment error ({att.FileName}): {ex.Message}"
@@ -656,7 +656,7 @@ module EmailSync =
         (clock: Algebra.Clock) (provider: Algebra.EmailProvider)
         (config: Domain.HermesConfig) (account: string)
         (input: ChannelReader<string>)
-        (ingestOutput: ChannelWriter<string> option)
+        (extractQueue: Algebra.StageQueue)
         (processedCount: int ref)
         (consumerId: int)
         (ct: CancellationToken)
@@ -736,7 +736,7 @@ module EmailSync =
                                             let bodySidecar = buildSidecar account msg bodyAtt bodyName bodySha now
                                             do! fs.writeAllText (bodyPath + ".meta.json") (serialiseSidecar bodySidecar)
                                             let! bodyDocId = recordDocument db "email_body" account msg bodyAtt bodyName bodySha now
-                                            do! StageProcessors.enqueueExtract db bodyDocId bodyPath
+                                            do! extractQueue.enqueue bodyDocId bodyPath
                                             downloaded <- downloaded + 1
                                             logger.info $"[{account}/{consumerId}] Saved email body: {bodyName}"
 
@@ -755,7 +755,7 @@ module EmailSync =
                                     let sidecar = buildSidecar account msg att name sha now
                                     do! fs.writeAllText (savePath + ".meta.json") (serialiseSidecar sidecar)
                                     let! attDocId = recordDocument db "email_attachment" account msg att name sha now
-                                    do! StageProcessors.enqueueExtract db attDocId savePath
+                                    do! extractQueue.enqueue attDocId savePath
                                     downloaded <- downloaded + 1
                                     logger.info $"[{account}/{consumerId}] Downloaded: {name}"
 
@@ -781,7 +781,7 @@ module EmailSync =
         (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
         (clock: Algebra.Clock) (provider: Algebra.EmailProvider)
         (config: Domain.HermesConfig) (account: string)
-        (ingestOutput: ChannelWriter<string> option)
+        (extractQueue: Algebra.StageQueue)
         (concurrency: int)
         (enumeratedCounter: int ref) (processedCounter: int ref)
         (ct: CancellationToken)
@@ -805,7 +805,7 @@ module EmailSync =
                 // Start N consumers
                 let consumerTasks =
                     [| for i in 1..concurrency ->
-                        processMessageConsumer fs db logger clock provider config account idChannel.Reader ingestOutput processedCounter i ct |]
+                        processMessageConsumer fs db logger clock provider config account idChannel.Reader extractQueue processedCounter i ct |]
 
                 // Wait for enumeration to finish (completes the channel)
                 let! totalEnumerated = enumTask

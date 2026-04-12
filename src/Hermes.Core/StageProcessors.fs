@@ -21,22 +21,24 @@ module StageProcessors =
 
         let boxVal = Database.boxVal
 
+        let toItem (row: Map<string, obj>) : Algebra.StageItem option =
+            let r = Prelude.RowReader(row)
+            match r.OptInt64 "id", r.OptInt64 "doc_id" with
+            | Some qid, Some did ->
+                Some
+                    { Algebra.StageItem.QueueId = qid
+                      Algebra.StageItem.DocId = did
+                      Algebra.StageItem.Payload = r.String "file_path" ""
+                      Algebra.StageItem.Attempts = r.Int64 "attempts" 0L |> int }
+            | _ -> None
+
         { dequeue = fun batchSize ->
             task {
                 let! rows =
                     db.execReader
                         $"SELECT id, doc_id, file_path, attempts FROM {tableName} ORDER BY created_at LIMIT @lim"
                         [ ("@lim", boxVal (int64 batchSize)) ]
-                return
-                    rows |> List.choose (fun row ->
-                        let r = Prelude.RowReader(row)
-                        match r.OptInt64 "id", r.OptInt64 "doc_id" with
-                        | Some qid, Some did ->
-                            Some { Algebra.StageItem.QueueId = qid
-                                   DocId = did
-                                   Payload = r.String "file_path" ""
-                                   Attempts = r.Int64 "attempts" 0L |> int }
-                        | _ -> None)
+                return rows |> List.choose toItem
             }
 
           complete = fun queueId ->

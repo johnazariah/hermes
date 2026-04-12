@@ -49,7 +49,8 @@ if ($Uninstall) {
         }
         Write-Step 'Removing scheduled task...'
         Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
-    } else {
+    }
+    else {
         Write-Step 'No scheduled task found'
     }
 
@@ -62,7 +63,8 @@ if ($Uninstall) {
         if ($remove -eq 'y') {
             Remove-Item $InstallDir -Recurse -Force
             Write-Step 'Install directory removed'
-        } else {
+        }
+        else {
             Write-Step 'Install directory preserved'
         }
     }
@@ -96,7 +98,8 @@ if (-not $SkipBuild) {
     try {
         npm run build 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) { throw 'npm run build failed' }
-    } finally { Pop-Location }
+    }
+    finally { Pop-Location }
 
     # Publish .NET service
     Write-Step "Publishing to $InstallDir..."
@@ -148,7 +151,8 @@ Start-Sleep -Seconds 3
 $running = Get-Process -Name 'Hermes.Service' -ErrorAction SilentlyContinue
 if ($running) {
     Write-Host '✅ Hermes installed and running!' -ForegroundColor Green
-} else {
+}
+else {
     Write-Host '⚠️  Hermes installed but may not be running yet. Check Task Scheduler.' -ForegroundColor Yellow
 }
 

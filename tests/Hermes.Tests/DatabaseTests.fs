@@ -282,7 +282,7 @@ let ``Database_InitSchema_V3_SchemaVersionIs3`` () =
         try
             let! _ = db.initSchema ()
             let! v = db.schemaVersion ()
-            Assert.Equal(5, v)
+            Assert.Equal(6, v)
         finally db.dispose ()
     }
 
@@ -297,7 +297,7 @@ let ``Database_InitSchema_V3_IdempotentRunTwice`` () =
             let! r2 = db.initSchema ()
             Assert.True(Result.isOk r2)
             let! v = db.schemaVersion ()
-            Assert.Equal(5, v)
+            Assert.Equal(6, v)
         finally db.dispose ()
     }
 
@@ -328,7 +328,7 @@ let ``Database_SchemaVersion_FreshDb_ReturnsLatest`` () =
         try
             let! _ = db.initSchema ()
             let! v = db.schemaVersion ()
-            Assert.Equal(5, v)
+            Assert.Equal(6, v)
         finally db.dispose ()
     }
 

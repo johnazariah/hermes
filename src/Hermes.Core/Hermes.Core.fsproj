@@ -20,6 +20,7 @@
     <Compile Include="Embeddings.fs" />
     <Compile Include="Markdown.fs" />
     <Compile Include="SemanticSearch.fs" />
+    <Compile Include="StageProcessors.fs" />
     <Compile Include="FolderWatcher.fs" />
     <Compile Include="EmailSync.fs" />
     <Compile Include="GmailProvider.fs" />
@@ -45,7 +46,6 @@
     <Compile Include="Recovery.fs" />
     <Compile Include="PipelineObserver.fs" />
     <Compile Include="ServiceHost.fs" />
-    <Compile Include="StageProcessors.fs" />
     <Compile Include="Pipeline.fs" />
     <Compile Include="ServiceInstaller.fs" />
     <Compile Include="McpTools.fs" />

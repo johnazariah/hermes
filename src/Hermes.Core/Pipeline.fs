@@ -213,7 +213,7 @@ module Pipeline =
         (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
         (clock: Algebra.Clock) (config: Domain.HermesConfig) (configDir: string)
         (createProvider: string -> string -> Task<Algebra.EmailProvider>)
-        (ingest: ChannelWriter<string>)
+        (extractQueue: Algebra.StageQueue)
         (status: PipelineStatus)
         (concurrency: int)
         (syncInterval: TimeSpan) (startupDelay: TimeSpan)
@@ -230,7 +230,7 @@ module Pipeline =
                     task {
                         try
                             let! provider = createProvider configDir account.Label
-                            let! _ = EmailSync.syncAccountChanneled fs db logger clock provider config account.Label (Some ingest) concurrency enumeratedCounter processedCounter ct
+                            let! _ = EmailSync.syncAccountChanneled fs db logger clock provider config account.Label extractQueue concurrency enumeratedCounter processedCounter ct
                             ()
                         with ex -> logger.warn $"Email sync failed for {account.Label}: {ex.Message}"
                     }
@@ -352,12 +352,17 @@ module Pipeline =
             logger.info $"Pipeline starting: {extractConcurrency} extract, {llmConcurrency} LLM classify"
             onBusy ()
 
+            // Stage queues (SQLite-backed)
+            let extractQueue = StageProcessors.fromSqlite db logger clock "stage_extract" 3
+            let classifyQueue = StageProcessors.fromSqlite db logger clock "stage_classify" 3
+            let embedQueue = StageProcessors.fromSqlite db logger clock "stage_embed" 3
+
             // Build task list — start consumers BEFORE recovery so channels can drain
             let tasks = ResizeArray<Task>()
 
-            // Producers — email producer now pushes file paths directly to ingest channel
+            // Producers — email producer enqueues directly to stage_extract
             let emailConcurrency = max 1 config.Pipeline.EmailConcurrency
-            tasks.Add(emailProducer fs db logger clock config configDir deps.CreateEmailProvider ch.Ingest.Writer status emailConcurrency syncInterval (TimeSpan.FromSeconds(30.0)) ct)
+            tasks.Add(emailProducer fs db logger clock config configDir deps.CreateEmailProvider extractQueue status emailConcurrency syncInterval (TimeSpan.FromSeconds(30.0)) ct)
             tasks.Add(folderProducer fs db logger clock config ch.Ingest.Writer (TimeSpan.FromSeconds(30.0)) ct)
 
             // Stage 1: Classify (single consumer — rules only, fast)
@@ -375,10 +380,79 @@ module Pipeline =
             | None ->
                 logger.warn "No chat provider — LLM classification disabled"
 
-            // Stage 3b: Post-process (periodic — reminders, embedding, deferred until idle)
-            tasks.Add(postProcessRunner db fs logger clock postProcessors ch.Ingest.Reader ch.Extract.Reader ch.Post.Reader ch.DeadLetter.Reader (TimeSpan.FromSeconds(30.0)) ct)
+            // ── Stage queue processors (poll SQLite queue tables) ────
 
-            // Recovery: seed channels from DB state (consumers are already running to drain)
+            // Extract stage processor
+            let extractFn (item: Algebra.StageItem) =
+                task {
+                    let! result = Extraction.processDocument fs db logger clock deps.Extractor archiveDir item.DocId item.Payload false
+                    return result |> Result.map ignore
+                }
+            for _ in 1..extractConcurrency do
+                tasks.Add(StageProcessors.runLoop "extract" logger extractQueue (Some classifyQueue) extractFn 10 (TimeSpan.FromSeconds(2.0)) ct)
+
+            // Classify stage processor
+            match deps.ChatProvider with
+            | Some chat ->
+                let classifyFn (item: Algebra.StageItem) =
+                    task {
+                        // Reuse the existing classify logic from llmClassifyConsumer inline
+                        let! docRows = db.execReader "SELECT category, extracted_text FROM documents WHERE id = @id" [ ("@id", Database.boxVal item.DocId) ]
+                        match docRows |> List.tryHead with
+                        | Some docRow ->
+                            let dr = Prelude.RowReader(docRow)
+                            let cat = dr.String "category" ""
+                            let text = dr.OptString "extracted_text"
+                            if (cat = "unsorted" || cat = "unclassified") && text.IsSome then
+                                let mutable classified = false
+                                match ContentClassifier.classify text.Value [] None deps.ContentRules with
+                                | Some (newCat, conf) ->
+                                    let! moveResult = DocumentManagement.reclassify db fs archiveDir item.DocId newCat
+                                    match moveResult with
+                                    | Ok () ->
+                                        let! _ = db.execNonQuery "UPDATE documents SET classification_tier = 'content', classification_confidence = @conf WHERE id = @id" [ ("@conf", Database.boxVal conf); ("@id", Database.boxVal item.DocId) ]
+                                        classified <- true
+                                    | Error _ -> ()
+                                | None -> ()
+                                if not classified then
+                                    let! catRows = db.execReader "SELECT DISTINCT category FROM documents WHERE category NOT IN ('unsorted','unclassified') LIMIT 50" []
+                                    let categories = catRows |> List.choose (fun r2 -> Prelude.RowReader(r2).OptString "category")
+                                    let seedCats = [ "invoices"; "bank-statements"; "receipts"; "tax"; "payslips"; "insurance"; "real-estate"; "travel"; "medical"; "utilities"; "legal"; "donations"; "contracts"; "correspondence" ]
+                                    let allCats = (categories @ seedCats) |> List.distinct
+                                    let prompt = ContentClassifier.buildClassificationPrompt text.Value allCats
+                                    let! llmResult = chat.complete "You are a document classifier." prompt
+                                    match llmResult with
+                                    | Ok response ->
+                                        match ContentClassifier.parseClassificationResponse response with
+                                        | Some (newCat, conf, reasoning) when conf >= 0.4 ->
+                                            let! moveResult = DocumentManagement.reclassify db fs archiveDir item.DocId newCat
+                                            match moveResult with
+                                            | Ok () ->
+                                                let tier = if conf >= 0.7 then "llm" else "llm_review"
+                                                let! _ = db.execNonQuery "UPDATE documents SET classification_tier = @tier, classification_confidence = @conf WHERE id = @id" [ ("@tier", Database.boxVal tier); ("@conf", Database.boxVal conf); ("@id", Database.boxVal item.DocId) ]
+                                                logger.info $"Classified doc {item.DocId} as {newCat} (conf={conf:F2}): {reasoning}"
+                                            | Error e -> logger.warn $"Classify move failed for doc {item.DocId}: {e}"
+                                        | _ -> ()
+                                    | Error e -> logger.warn $"LLM classification failed for doc {item.DocId}: {e}"
+                            return Ok ()
+                        | None -> return Ok ()
+                    }
+                for _ in 1..llmConcurrency do
+                    tasks.Add(StageProcessors.runLoop "classify" logger classifyQueue (Some embedQueue) classifyFn 1 (TimeSpan.FromSeconds(2.0)) ct)
+            | None ->
+                logger.warn "No chat provider — stage classify disabled"
+
+            // Embed stage processor — currently deferred to PostStage
+            // TODO: wire embed stage processor when ready
+
+            // Dashboard logger
+            tasks.Add(StageProcessors.dashboardLoop db logger extractQueue classifyQueue embedQueue (TimeSpan.FromSeconds(30.0)) ct)
+
+            // Folder watcher still uses channels (TODO: migrate to stage tables)
+            tasks.Add(folderProducer fs db logger clock config ch.Ingest.Writer (TimeSpan.FromSeconds(30.0)) ct)
+            tasks.Add(classifyConsumer fs db logger clock rules archiveDir ch.Ingest.Reader ch.Extract.Writer ct)
+
+            // Recovery: seed channels from DB state (for folder watcher path only)
             do! recover fs db logger archiveDir ch.Ingest.Writer ch.Extract.Writer ch.Post.Writer ct
 
             // Wait for all to complete (they run until cancelled)
