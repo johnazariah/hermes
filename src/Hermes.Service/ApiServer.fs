@@ -124,14 +124,7 @@ module ApiServer =
 
         // ── Pipeline dashboard ──────────────────────────────────────
         app.MapGet("/api/pipeline", Func<IResult>(fun () ->
-            json {| inbox = pipelineStatus.InboxDepth
-                    reading = pipelineStatus.ReadingDepth
-                    filing = pipelineStatus.FilingDepth
-                    failed = pipelineStatus.FailedDepth
-                    received = pipelineStatus.TotalReceived
-                    read = pipelineStatus.TotalRead
-                    memorised = pipelineStatus.TotalMemorised
-                    emailsQueued = pipelineStatus.EmailsQueued
+            json {| emailsQueued = pipelineStatus.EmailsQueued
                     emailsProcessed = pipelineStatus.EmailsProcessed |})) |> ignore
 
         // ── Reminders ───────────────────────────────────────────────

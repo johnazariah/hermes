@@ -11,22 +11,14 @@ open System.Threading.Tasks
 [<RequireQualifiedAccess>]
 module Pipeline =
 
-    /// Live pipeline status — updated every tick, readable by API.
+    /// Live pipeline status — email download progress, readable by API.
+    /// Document stats come from /api/stats (direct DB queries).
     type PipelineStatus =
-        { mutable InboxDepth: int
-          mutable ReadingDepth: int
-          mutable FilingDepth: int
-          mutable FailedDepth: int
-          mutable TotalReceived: int64
-          mutable TotalRead: int64
-          mutable TotalMemorised: int64
-          mutable EmailsQueued: int
+        { mutable EmailsQueued: int
           mutable EmailsProcessed: int }
 
     let createStatus () =
-        { InboxDepth = 0; ReadingDepth = 0; FilingDepth = 0; FailedDepth = 0
-          TotalReceived = 0L; TotalRead = 0L; TotalMemorised = 0L
-          EmailsQueued = 0; EmailsProcessed = 0 }
+        { EmailsQueued = 0; EmailsProcessed = 0 }
 
     /// Pipeline channels connecting the stages.
     type Channels =
@@ -176,7 +168,6 @@ module Pipeline =
     let postProcessRunner
         (db: Algebra.Database) (fs: Algebra.FileSystem) (logger: Algebra.Logger)
         (clock: Algebra.Clock) (plugins: Algebra.PostProcessor list)
-        (status: PipelineStatus)
         (ingestChannel: ChannelReader<string>)
         (extractChannel: ChannelReader<int64>) (postChannel: ChannelReader<int64>)
         (deadLetterChannel: ChannelReader<Domain.DeadLetter>)
@@ -193,22 +184,13 @@ module Pipeline =
                     let postDepth = postChannel.Count
                     let deadDepth = deadLetterChannel.Count
 
-                    // Pipeline dashboard
+                    // Pipeline dashboard log
                     let! docCount = db.execScalar "SELECT COUNT(*) FROM documents" []
                     let! extractedCount = db.execScalar "SELECT COUNT(*) FROM documents WHERE extracted_at IS NOT NULL" []
                     let! embeddedCount = db.execScalar "SELECT COUNT(*) FROM documents WHERE embedded_at IS NOT NULL" []
                     let dc = match docCount with null -> 0L | v -> v :?> int64
                     let ec = match extractedCount with null -> 0L | v -> v :?> int64
                     let bc = match embeddedCount with null -> 0L | v -> v :?> int64
-
-                    // Update shared status for API
-                    status.InboxDepth <- ingestDepth
-                    status.ReadingDepth <- extractDepth
-                    status.FilingDepth <- postDepth
-                    status.FailedDepth <- deadDepth
-                    status.TotalReceived <- dc
-                    status.TotalRead <- ec
-                    status.TotalMemorised <- bc
 
                     logger.info $"⚡ inbox:{ingestDepth} → reading:{extractDepth} → filing:{postDepth} | {dc} received, {ec} read, {bc} memorised, {deadDepth} failed"
 
@@ -258,7 +240,7 @@ module Pipeline =
                     status.EmailsQueued <- enumeratedCounter.Value
                     status.EmailsProcessed <- processedCounter.Value
 
-                let syncTask = 
+                let syncTask =
                     task {
                         do! config.Accounts |> List.map syncOneAccount |> List.toArray |> Task.WhenAll
                     }
@@ -394,7 +376,7 @@ module Pipeline =
                 logger.warn "No chat provider — LLM classification disabled"
 
             // Stage 3b: Post-process (periodic — reminders, embedding, deferred until idle)
-            tasks.Add(postProcessRunner db fs logger clock postProcessors status ch.Ingest.Reader ch.Extract.Reader ch.Post.Reader ch.DeadLetter.Reader (TimeSpan.FromSeconds(30.0)) ct)
+            tasks.Add(postProcessRunner db fs logger clock postProcessors ch.Ingest.Reader ch.Extract.Reader ch.Post.Reader ch.DeadLetter.Reader (TimeSpan.FromSeconds(30.0)) ct)
 
             // Recovery: seed channels from DB state (consumers are already running to drain)
             do! recover fs db logger archiveDir ch.Ingest.Writer ch.Extract.Writer ch.Post.Writer ct

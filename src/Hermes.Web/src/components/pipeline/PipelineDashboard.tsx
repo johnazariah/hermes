@@ -2,19 +2,19 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchStats } from "../../api/hermes";
 
 interface PipelineStatus {
-    inbox: number;
-    reading: number;
-    filing: number;
-    failed: number;
-    received: number;
-    read: number;
-    memorised: number;
     emailsQueued: number;
     emailsProcessed: number;
 }
 
 async function fetchPipeline(): Promise<PipelineStatus> {
     return (await fetch("/api/pipeline")).json();
+}
+
+interface IndexStats {
+    documentCount: number;
+    extractedCount: number;
+    embeddedCount: number;
+    databaseSizeMb: number;
 }
 
 function ProgressBar({
@@ -100,29 +100,21 @@ export function PipelineDashboard() {
         refetchInterval: 5000,
     });
 
-    const { data: stats } = useQuery({
+    const { data: stats } = useQuery<IndexStats>({
         queryKey: ["stats"],
         queryFn: fetchStats,
-        refetchInterval: 10000,
+        refetchInterval: 5000,
     });
 
-    const p = pipeline ?? {
-        inbox: 0,
-        reading: 0,
-        filing: 0,
-        failed: 0,
-        received: 0,
-        read: 0,
-        memorised: 0,
-        emailsQueued: 0,
-        emailsProcessed: 0,
-    };
-
-    const total = p.received;
-    const awaitingReading = total - p.read;
-    const awaitingMemorising = p.read - p.memorised;
-    const anyActive = total > 0 && (awaitingReading > 0 || awaitingMemorising > 0 || p.emailsQueued > p.emailsProcessed);
-    const emailsPending = p.emailsQueued - p.emailsProcessed;
+    const total = stats?.documentCount ?? 0;
+    const read = stats?.extractedCount ?? 0;
+    const memorised = stats?.embeddedCount ?? 0;
+    const emailsQueued = pipeline?.emailsQueued ?? 0;
+    const emailsProcessed = pipeline?.emailsProcessed ?? 0;
+    const emailsPending = emailsQueued - emailsProcessed;
+    const awaitingReading = total - read;
+    const awaitingMemorising = read - memorised;
+    const anyActive = awaitingReading > 0 || awaitingMemorising > 0 || emailsPending > 0;
 
     return (
         <div className="space-y-6">
@@ -138,7 +130,7 @@ export function PipelineDashboard() {
                             ● ACTIVE
                         </span>
                     )}
-                    {!anyActive && p.received > 0 && (
+                    {!anyActive && total > 0 && (
                         <span className="ml-auto text-[10px] text-neutral-500">
                             ● IDLE
                         </span>
@@ -146,12 +138,12 @@ export function PipelineDashboard() {
                 </div>
 
                 <div className="space-y-1">
-                    {p.emailsQueued > 0 && (
+                    {emailsQueued > 0 && (
                         <>
                             <ProgressBar
                                 label="Downloading emails"
-                                done={p.emailsProcessed}
-                                total={p.emailsQueued}
+                                done={emailsProcessed}
+                                total={emailsQueued}
                                 color="bg-green-500"
                                 icon="📧"
                                 tooltip="Fetching emails from Gmail — each email is checked for attachments and saved locally"
@@ -161,7 +153,7 @@ export function PipelineDashboard() {
                     )}
                     <ProgressBar
                         label="Reading documents"
-                        done={p.read}
+                        done={read}
                         total={total}
                         color="bg-blue-500"
                         icon="📖"
@@ -170,25 +162,12 @@ export function PipelineDashboard() {
                     <FlowArrow active={awaitingReading > 0} />
                     <ProgressBar
                         label="Memorising"
-                        done={p.memorised}
-                        total={p.read}
+                        done={memorised}
+                        total={read}
                         color="bg-purple-500"
                         icon="🧠"
                         tooltip="Creating searchable memory — documents are indexed so you can find them by asking questions"
                     />
-                    {p.failed > 0 && (
-                        <>
-                            <FlowArrow active={true} />
-                            <ProgressBar
-                                label="Failed"
-                                done={p.failed}
-                                total={p.failed}
-                                color="bg-red-500"
-                                icon="❌"
-                                tooltip="Documents that couldn't be processed — check the dead letter panel for details"
-                            />
-                        </>
-                    )}
                 </div>
             </div>
 
@@ -197,19 +176,19 @@ export function PipelineDashboard() {
                 <StatCard
                     icon="📨"
                     label="Received"
-                    value={p.received.toLocaleString()}
+                    value={total.toLocaleString()}
                 />
                 <StatCard
                     icon="📖"
                     label="Read"
-                    value={p.read.toLocaleString()}
-                    highlight={p.read < p.received}
+                    value={read.toLocaleString()}
+                    highlight={read < total}
                 />
                 <StatCard
                     icon="🧠"
                     label="Memorised"
-                    value={p.memorised.toLocaleString()}
-                    highlight={p.memorised < p.read}
+                    value={memorised.toLocaleString()}
+                    highlight={memorised < read}
                 />
                 <StatCard
                     icon="💾"
