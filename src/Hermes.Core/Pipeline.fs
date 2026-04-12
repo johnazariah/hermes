@@ -155,10 +155,13 @@ module Pipeline =
     // ─── Stage 3b: Post-process (periodic, idle-aware) ──────────────
 
     /// Periodic post-processor: runs reminders, embedding when pipeline is idle.
+    /// Also logs channel depths as a pipeline dashboard.
     let postProcessRunner
         (db: Algebra.Database) (fs: Algebra.FileSystem) (logger: Algebra.Logger)
         (clock: Algebra.Clock) (plugins: Algebra.PostProcessor list)
+        (ingestChannel: ChannelReader<string>)
         (extractChannel: ChannelReader<int64>) (postChannel: ChannelReader<int64>)
+        (deadLetterChannel: ChannelReader<Domain.DeadLetter>)
         (interval: TimeSpan)
         (ct: CancellationToken) =
         task {
@@ -167,10 +170,22 @@ module Pipeline =
                     try do! Task.Delay(interval, ct) with :? OperationCanceledException -> ()
                     if ct.IsCancellationRequested then () else
 
-                    let extractPending = extractChannel.Count
-                    let postPending = postChannel.Count
-                    if extractPending > 0 || postPending > 0 then
-                        logger.debug $"Post-process deferred — extract:{extractPending} classify:{postPending} pending"
+                    let ingestDepth = ingestChannel.Count
+                    let extractDepth = extractChannel.Count
+                    let postDepth = postChannel.Count
+                    let deadDepth = deadLetterChannel.Count
+
+                    // Pipeline dashboard
+                    let! docCount = db.execScalar "SELECT COUNT(*) FROM documents" []
+                    let! extractedCount = db.execScalar "SELECT COUNT(*) FROM documents WHERE extracted_at IS NOT NULL" []
+                    let! embeddedCount = db.execScalar "SELECT COUNT(*) FROM documents WHERE embedded_at IS NOT NULL" []
+                    let dc = match docCount with null -> 0L | v -> v :?> int64
+                    let ec = match extractedCount with null -> 0L | v -> v :?> int64
+                    let bc = match embeddedCount with null -> 0L | v -> v :?> int64
+                    logger.info $"⚡ inbox:{ingestDepth} → reading:{extractDepth} → filing:{postDepth} | {dc} received, {ec} read, {bc} memorised, {deadDepth} failed"
+
+                    if extractDepth > 0 || postDepth > 0 then
+                        logger.debug $"Post-process deferred — extract:{extractDepth} classify:{postDepth} pending"
                     else
                         try
                             do! PostStage.run db fs logger clock plugins
@@ -334,7 +349,7 @@ module Pipeline =
                 logger.warn "No chat provider — LLM classification disabled"
 
             // Stage 3b: Post-process (periodic — reminders, embedding, deferred until idle)
-            tasks.Add(postProcessRunner db fs logger clock postProcessors ch.Extract.Reader ch.Post.Reader (TimeSpan.FromMinutes(2.0)) ct)
+            tasks.Add(postProcessRunner db fs logger clock postProcessors ch.Ingest.Reader ch.Extract.Reader ch.Post.Reader ch.DeadLetter.Reader (TimeSpan.FromSeconds(30.0)) ct)
 
             // Wait for all to complete (they run until cancelled)
             try
