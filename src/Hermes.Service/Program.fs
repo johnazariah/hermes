@@ -104,8 +104,12 @@ let main _args =
     // SPA fallback: serve index.html for non-API, non-file routes
     app.MapFallbackToFile("index.html") |> ignore
 
-    logger.info "Hermes service starting on http://localhost:21741"
-    app.Run("http://localhost:21741")
+    let port =
+        match System.Environment.GetEnvironmentVariable("HERMES_PORT") with
+        | null | "" -> "21741"
+        | p -> p
+    logger.info $"Hermes service starting on http://localhost:{port}"
+    app.Run($"http://localhost:{port}")
 
     cts.Cancel()
     db.dispose ()

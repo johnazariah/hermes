@@ -186,12 +186,16 @@ module Interpreters =
     let systemEnvironment : Algebra.Environment =
         { homeDirectory = fun () -> System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile)
           configDirectory = fun () ->
-              let appData =
-                  if System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows) then
-                      System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData)
-                  else
-                      Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile), ".config")
-              Path.Combine(appData, "hermes")
+              // HERMES_CONFIG_DIR env var overrides default (for dev vs production separation)
+              match System.Environment.GetEnvironmentVariable("HERMES_CONFIG_DIR") with
+              | null | "" ->
+                  let appData =
+                      if System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows) then
+                          System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData)
+                      else
+                          Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile), ".config")
+                  Path.Combine(appData, "hermes")
+              | dir -> dir
           documentsDirectory = fun () -> System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments) }
 
     let nullTextExtractor: Algebra.TextExtractor =
