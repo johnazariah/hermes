@@ -248,34 +248,33 @@ module ServiceHost =
             // Delay initial sync to avoid slamming Gmail on rapid restarts
             logger.info "Waiting 30s before first sync..."
             try do! Task.Delay(TimeSpan.FromSeconds(30.0), ct) with :? OperationCanceledException -> ()
-            if ct.IsCancellationRequested then () else
 
-            // Initial backlog processing
-            do! runOneSyncCycle fs db logger clock rules deps configDir state onBusy onIdle
-            do! writeStatusFromState fs db serviceConfig.ArchiveDir startedAt state true
+            if not ct.IsCancellationRequested then
+                // Initial backlog processing
+                do! runOneSyncCycle fs db logger clock rules deps configDir state onBusy onIdle
+                do! writeStatusFromState fs db serviceConfig.ArchiveDir startedAt state true
 
-            let heartbeatInterval = TimeSpan.FromSeconds(float serviceConfig.HeartbeatIntervalSeconds)
+                let heartbeatInterval = TimeSpan.FromSeconds(float serviceConfig.HeartbeatIntervalSeconds)
 
-            while not ct.IsCancellationRequested do
-                try do! Task.Delay(TimeSpan.FromSeconds(5.0), ct) with :? OperationCanceledException -> ()
-                if ct.IsCancellationRequested then ()
-                else
-                let now = clock.utcNow ()
+                while not ct.IsCancellationRequested do
+                    try do! Task.Delay(TimeSpan.FromSeconds(5.0), ct) with :? OperationCanceledException -> ()
+                    if not ct.IsCancellationRequested then
+                        let now = clock.utcNow ()
 
-                if now - state.LastHeartbeat >= heartbeatInterval then
-                    do! writeStatusFromState fs db serviceConfig.ArchiveDir startedAt state true
-                    state.LastHeartbeat <- now
+                        if now - state.LastHeartbeat >= heartbeatInterval then
+                            do! writeStatusFromState fs db serviceConfig.ArchiveDir startedAt state true
+                            state.LastHeartbeat <- now
 
-                let syncInterval = TimeSpan.FromMinutes(float state.LiveConfig.SyncIntervalMinutes)
-                if shouldSync clock fs serviceConfig.ArchiveDir syncInterval state && not state.SyncRunning then
-                    try
-                        do! reloadConfig fs env logger configPath state
-                        do! runOneSyncCycle fs db logger clock rules deps configDir state onBusy onIdle
-                    with ex ->
-                        logger.error $"Sync cycle crashed (will retry next interval): {ex.Message}"
-                        state.LastSyncAt <- Some(clock.utcNow())
-                        state.LastSyncOk <- false
-                        state.LastError <- Some ex.Message
+                        let syncInterval = TimeSpan.FromMinutes(float state.LiveConfig.SyncIntervalMinutes)
+                        if shouldSync clock fs serviceConfig.ArchiveDir syncInterval state && not state.SyncRunning then
+                            try
+                                do! reloadConfig fs env logger configPath state
+                                do! runOneSyncCycle fs db logger clock rules deps configDir state onBusy onIdle
+                            with ex ->
+                                logger.error $"Sync cycle crashed (will retry next interval): {ex.Message}"
+                                state.LastSyncAt <- Some(clock.utcNow())
+                                state.LastSyncOk <- false
+                                state.LastError <- Some ex.Message
 
             logger.info "Hermes service stopping..."
             do! writeStatusFromState fs db serviceConfig.ArchiveDir startedAt state false
