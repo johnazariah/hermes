@@ -1,3 +1,157 @@
+# Wave v2b: Pipeline Stage Tables (CQRS-lite Architecture)
+
+## Summary
+
+Replace the fragile channel-only pipeline with durable stage queue tables. Each pipeline stage owns a SQLite table as its work queue. The `documents` table becomes the read model — progressively enriched as stages complete. This kills 4 of the 6 reported bugs architecturally and makes the pipeline observable, debuggable, and crash-proof.
+
+## Problem
+
+The current pipeline uses in-memory `Channel<T>` as the sole coordination mechanism. This causes:
+- **Bug 2 (extract stall)**: Email sync inserts into `documents` AND saves the file. The classify consumer sees the SHA as duplicate and drops the doc — it never reaches the extract channel.
+- **Bug 5 (no visibility)**: Channel depth is ephemeral — items flow through in milliseconds. No way to query "what's stuck."
+- **Bug 6 (counter race)**: Shared mutable `int ref` counters across concurrent accounts produce `processed > queued`.
+- **Crash fragility**: Channels are lost on restart. Recovery code tries to re-seed from DB but deadlocks on bounded channels.
+
+## Solution: Stage Queue Tables
+
+```
+Email Sync ──► stage_extract ──► stage_classify ──► stage_embed
+                    │                  │                 │
+Folder Watch ──►    │                  │                 │
+                    ▼                  ▼                 ▼
+              [extract proc]    [classify proc]    [embed proc]
+                    │                  │                 │
+                    └──────── documents (read model) ────┘
+```
+
+### Schema
+
+```sql
+-- Work queue: documents awaiting text extraction
+CREATE TABLE stage_extract (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    doc_id      INTEGER NOT NULL REFERENCES documents(id),
+    file_path   TEXT NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    attempts    INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_stage_extract_created ON stage_extract(created_at);
+
+-- Work queue: documents awaiting LLM classification
+CREATE TABLE stage_classify (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    doc_id      INTEGER NOT NULL REFERENCES documents(id),
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    attempts    INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_stage_classify_created ON stage_classify(created_at);
+
+-- Work queue: documents awaiting embedding
+CREATE TABLE stage_embed (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    doc_id      INTEGER NOT NULL REFERENCES documents(id),
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    attempts    INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_stage_embed_created ON stage_embed(created_at);
+```
+
+### Processor pattern (each stage)
+
+```
+loop:
+  SELECT doc_id, file_path FROM stage_X ORDER BY created_at LIMIT batch_size
+  for each row:
+    do work (extract text / classify / embed)
+    UPDATE documents SET <stage columns> WHERE id = doc_id
+    INSERT INTO stage_Y (doc_id, ...) VALUES (...)   -- next stage's queue
+    DELETE FROM stage_X WHERE id = row.id
+  sleep(interval) if no work found
+```
+
+### Entry points
+
+- **Email sync**: `recordDocument` → INSERT into `documents` + INSERT into `stage_extract`
+- **Folder watcher**: `Classifier.processFile` → INSERT into `documents` + INSERT into `stage_extract`
+- **Recovery on startup**: No recovery needed — queue tables persist. Just start processors.
+
+### Dashboard reads
+
+```sql
+SELECT COUNT(*) FROM stage_extract   -- "awaiting reading"
+SELECT COUNT(*) FROM stage_classify  -- "awaiting filing"
+SELECT COUNT(*) FROM stage_embed     -- "awaiting memorising"
+```
+
+Always accurate. No mutable counters. No polling lag. No race conditions.
+
+## Goals
+
+- Every document that enters the pipeline completes all stages (no drops)
+- Pipeline state survives crashes — no recovery logic needed
+- Dashboard numbers are always accurate (direct DB queries on queue tables)
+- Each stage is independently observable and debuggable
+- Adding a new pipeline stage = new table + new processor
+- `documents` table is the clean read model for MCP, search, and UI
+
+## Non-Goals
+
+- Removing in-memory channels entirely (they become optional prefetch acceleration)
+- Changing the classification algorithm or extraction logic
+- Redesigning the email sync enumeration (that works fine)
+- UI changes beyond fixing the sidebar (v2c handles dashboard polish)
+
+## Acceptance Criteria
+
+1. **Stage tables exist**: `stage_extract`, `stage_classify`, `stage_embed` created in schema.
+2. **Email sync writes to stage_extract**: After `recordDocument`, doc ID is inserted into `stage_extract`.
+3. **Folder watcher writes to stage_extract**: After `processFile`, doc ID is inserted into `stage_extract`.
+4. **Extract processor reads stage_extract**: Polls table, extracts text, updates `documents`, inserts into `stage_classify`, deletes from `stage_extract`.
+5. **Classify processor reads stage_classify**: Polls table, runs LLM classification, updates `documents.category`, inserts into `stage_embed`, deletes from `stage_classify`.
+6. **Embed processor reads stage_embed**: Polls table, embeds document, updates `documents.embedded_at`, deletes from `stage_embed`.
+7. **No recovery logic needed**: On restart, processors find pending work in their queue tables. No channel seeding.
+8. **Dashboard accuracy**: `/api/stats` includes `awaitingExtract`, `awaitingClassify`, `awaitingEmbed` counts from queue tables.
+9. **Bug 2 fixed**: Email documents flow through extract → classify → embed without being dropped.
+10. **Bug 6 fixed**: No mutable counters — all progress comes from DB queries.
+11. **Sidebar shows 4-stage funnel**: Compact progress bars reading from queue table counts.
+12. **Dead letter handling**: After N failed attempts (default 3), doc moves to `dead_letters` table with error details.
+13. **All existing tests pass**: No regression.
+
+## Complexity
+
+- **Score**: CS-3 (medium)
+- **Confidence**: 0.85
+- **Phases**:
+  1. Schema: Add stage tables to Database.fs
+  2. Processors: Extract, Classify, Embed stage processors (replace channel consumers)
+  3. Entry points: Email sync + folder watcher write to stage_extract
+  4. Pipeline.start: Launch processors instead of channel consumers
+  5. API + Dashboard: Read queue table counts
+  6. Remove channel recovery code
+  7. Tests
+
+## Open Questions (RESOLVED)
+
+1. **Polling interval**: 2 seconds per stage.
+2. **Batch size**: 10 per poll.
+3. **Max attempts before dead letter**: 3 attempts, then move to dead_letters.
+4. **Channel removal**: Keep channels as optional prefetch. Processors primarily read from DB.
+5. **Bug 1 (categories)**: Not a bug — reclassify does update the category column. Sidebar just needed scrolling.
+6. **Bug 3 (sidebar)**: Sidebar becomes the single pipeline display with compact progress bars.
+7. **Bug 4 (activity log)**: Stage processors log to activity_log table on completion (batch summary).
+
+## Risks & Assumptions
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| SQLite write contention on queue tables | Pipeline throughput drop | WAL mode + short transactions. Batch deletes. |
+| Polling adds latency vs channels | Slower processing | 2-second poll is acceptable. Channels can prefetch. |
+| Migration from channel-based to queue-based | Test breakage | Phased: add queue tables first, then wire processors, then remove old code |
+
+**Assumptions**:
+- SQLite WAL mode handles concurrent reads (dashboard) + writes (processors) without contention
+- 2-second polling is responsive enough for the pipeline (not latency-sensitive)
+- The `documents` table schema stays unchanged — stage tables are additive
 # Wave v2b: Pipeline Bug Fixes
 
 **Mode**: Simple

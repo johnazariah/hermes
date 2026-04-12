@@ -175,7 +175,7 @@ module EmailSync =
         (savedPath: string)
         (sha256: string)
         (now: DateTimeOffset)
-        =
+        : Task<int64> =
         task {
             let! _ =
                 db.execNonQuery
