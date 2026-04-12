@@ -13,6 +13,7 @@ module Stats =
     type IndexStats =
         { DocumentCount: int64
           ExtractedCount: int64
+          ClassifiedCount: int64
           EmbeddedCount: int64
           DatabaseSizeMb: float }
 
@@ -32,6 +33,7 @@ module Stats =
         task {
             let! docCount = db.execScalar "SELECT COUNT(*) FROM documents" []
             let! extractedCount = db.execScalar "SELECT COUNT(*) FROM documents WHERE extracted_text IS NOT NULL" []
+            let! classifiedCount = db.execScalar "SELECT COUNT(*) FROM documents WHERE extracted_text IS NOT NULL AND category NOT IN ('unsorted', 'unclassified')" []
             let! embeddedCount = db.execScalar "SELECT COUNT(*) FROM documents WHERE embedded_at IS NOT NULL" []
 
             let toInt64 (v: obj | null) =
@@ -49,6 +51,7 @@ module Stats =
             return
                 { DocumentCount = toInt64 docCount
                   ExtractedCount = toInt64 extractedCount
+                  ClassifiedCount = toInt64 classifiedCount
                   EmbeddedCount = toInt64 embeddedCount
                   DatabaseSizeMb = sizeMb }
         }

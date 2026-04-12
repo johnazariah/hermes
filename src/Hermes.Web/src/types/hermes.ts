@@ -47,6 +47,7 @@ export interface DocumentDetail {
 export interface IndexStats {
   documentCount: number;
   extractedCount: number;
+  classifiedCount: number;
   embeddedCount: number;
   databaseSizeMb: number;
 }

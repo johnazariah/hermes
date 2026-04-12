@@ -103,12 +103,12 @@ module GmailProvider =
                     try
                         let req = service.Users.Messages.List("me")
                         req.MaxResults <- 100L |> Nullable
-                        req.Q <- "has:attachment"
+                        req.Q <- ""
 
                         match sinceOpt with
                         | Some since ->
                             let epoch = since.ToUnixTimeSeconds()
-                            req.Q <- $"has:attachment after:{epoch}"
+                            req.Q <- $"after:{epoch}"
                         | None -> ()
 
                         let! response = req.ExecuteAsync()
@@ -207,7 +207,7 @@ module GmailProvider =
 
                         match query with
                         | Some q -> req.Q <- q
-                        | None -> req.Q <- "has:attachment"
+                        | None -> ()
 
                         match pageToken with
                         | Some t -> req.PageToken <- t
@@ -242,7 +242,7 @@ module GmailProvider =
 
                         match query with
                         | Some q -> req.Q <- q
-                        | None -> req.Q <- "has:attachment"
+                        | None -> ()
 
                         match pageToken with
                         | Some t -> req.PageToken <- t

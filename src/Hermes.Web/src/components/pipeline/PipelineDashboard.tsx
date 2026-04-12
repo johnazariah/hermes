@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { fetchStats } from "../../api/hermes";
+import type { IndexStats } from "../../types/hermes";
 
 interface PipelineStatus {
     emailsQueued: number;
@@ -8,13 +9,6 @@ interface PipelineStatus {
 
 async function fetchPipeline(): Promise<PipelineStatus> {
     return (await fetch("/api/pipeline")).json();
-}
-
-interface IndexStats {
-    documentCount: number;
-    extractedCount: number;
-    embeddedCount: number;
-    databaseSizeMb: number;
 }
 
 function ProgressBar({
@@ -108,13 +102,15 @@ export function PipelineDashboard() {
 
     const total = stats?.documentCount ?? 0;
     const read = stats?.extractedCount ?? 0;
+    const classified = stats?.classifiedCount ?? 0;
     const memorised = stats?.embeddedCount ?? 0;
     const emailsQueued = pipeline?.emailsQueued ?? 0;
     const emailsProcessed = pipeline?.emailsProcessed ?? 0;
     const emailsPending = emailsQueued - emailsProcessed;
     const awaitingReading = total - read;
-    const awaitingMemorising = read - memorised;
-    const anyActive = awaitingReading > 0 || awaitingMemorising > 0 || emailsPending > 0;
+    const awaitingFiling = read - classified;
+    const awaitingMemorising = classified - memorised;
+    const anyActive = awaitingReading > 0 || awaitingFiling > 0 || awaitingMemorising > 0 || emailsPending > 0;
 
     return (
         <div className="space-y-6">
@@ -138,19 +134,15 @@ export function PipelineDashboard() {
                 </div>
 
                 <div className="space-y-1">
-                    {emailsQueued > 0 && (
-                        <>
-                            <ProgressBar
-                                label="Downloading emails"
-                                done={emailsProcessed}
-                                total={emailsQueued}
-                                color="bg-green-500"
-                                icon="📧"
-                                tooltip="Fetching emails from Gmail — each email is checked for attachments and saved locally"
-                            />
-                            <FlowArrow active={emailsPending > 0} />
-                        </>
-                    )}
+                    <ProgressBar
+                        label="Downloading emails"
+                        done={emailsProcessed}
+                        total={Math.max(emailsQueued, total > 0 ? 1 : 0)}
+                        color="bg-green-500"
+                        icon="📧"
+                        tooltip="Fetching emails from Gmail — each email is checked for attachments and saved locally"
+                    />
+                    <FlowArrow active={emailsPending > 0} />
                     <ProgressBar
                         label="Reading documents"
                         done={read}
@@ -161,9 +153,18 @@ export function PipelineDashboard() {
                     />
                     <FlowArrow active={awaitingReading > 0} />
                     <ProgressBar
+                        label="Filing"
+                        done={classified}
+                        total={read}
+                        color="bg-amber-500"
+                        icon="🗂️"
+                        tooltip="Sorting documents into categories like invoices, tax, medical using AI"
+                    />
+                    <FlowArrow active={awaitingFiling > 0} />
+                    <ProgressBar
                         label="Memorising"
                         done={memorised}
-                        total={read}
+                        total={classified}
                         color="bg-purple-500"
                         icon="🧠"
                         tooltip="Creating searchable memory — documents are indexed so you can find them by asking questions"
@@ -172,7 +173,7 @@ export function PipelineDashboard() {
             </div>
 
             {/* Summary cards */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
                 <StatCard
                     icon="📨"
                     label="Received"
@@ -185,10 +186,16 @@ export function PipelineDashboard() {
                     highlight={read < total}
                 />
                 <StatCard
+                    icon="🗂️"
+                    label="Filed"
+                    value={classified.toLocaleString()}
+                    highlight={classified < read}
+                />
+                <StatCard
                     icon="🧠"
                     label="Memorised"
                     value={memorised.toLocaleString()}
-                    highlight={memorised < read}
+                    highlight={memorised < classified}
                 />
                 <StatCard
                     icon="💾"

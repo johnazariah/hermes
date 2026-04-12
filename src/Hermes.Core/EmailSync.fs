@@ -802,7 +802,7 @@ module EmailSync =
                 let sinceStr = syncSince.ToString("yyyy-MM-dd")
                 let queryTimestamp = clock.utcNow ()
                 let epoch = syncSince.ToUnixTimeSeconds()
-                let query = $"has:attachment after:{epoch}"
+                let query = $"after:{epoch}"
                 logger.info $"[{account}] Channel sync since {sinceStr} with {concurrency} consumers"
 
                 // Create the message ID channel
