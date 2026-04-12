@@ -63,12 +63,13 @@ Six bugs discovered during live testing of the channel-driven pipeline prevent H
 3. Pipeline processes email-sourced documents through all stages
 4. If a channel is at capacity, the producer awaits (backpressure) rather than dropping items
 
-### Bug 3: Sidebar pipeline section duplicates dashboard
+### Bug 3: Sidebar is the single pipeline display — remove main-page dashboard
 
 **Acceptance criteria**:
-1. Pipeline progress is shown in exactly one location (dashboard OR sidebar, not both)
-2. If sidebar retains a pipeline indicator, it is a compact summary that links to the dashboard
-3. No conflicting numbers visible to the user at any time
+1. The sidebar pipeline section is the single, always-visible pipeline progress display
+2. The main-page PipelineDashboard component is removed — the home page shows summary cards and sync config only
+3. Sidebar shows the full 4-stage funnel (Downloading → Reading → Filing → Memorising) in compact form
+4. All numbers in the sidebar match `/api/stats` and `/api/pipeline` exactly
 
 ### Bug 4: Activity panel empty — pipeline events not logged to activity_log table
 
@@ -92,11 +93,13 @@ Six bugs discovered during live testing of the channel-driven pipeline prevent H
 3. After all accounts finish enumeration, the total is stable and accurate
 4. No lock contention on the hot path
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Bug 3 resolution**: Remove sidebar pipeline section entirely, or replace with compact summary?
-2. **Activity log granularity**: Every single document event, or batch/summarise?
-3. **Current-item tracking scope**: Track per-stage or per-consumer?
+1. **Bug 3 resolution**: Keep sidebar pipeline section as the single compact pipeline view. Remove the main-page PipelineDashboard component — sidebar is always visible so it should be the effective display.
+
+2. **Activity log granularity**: Batch — log one entry per stage completion batch (e.g., "Read 50 documents"), not 50 individual entries. User can email us their log for debugging.
+
+3. **Current-item tracking scope**: Per-stage (simpler). Show one document name per stage.
 
 ## Workshop Opportunities
 

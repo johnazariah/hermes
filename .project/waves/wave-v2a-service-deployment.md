@@ -73,15 +73,15 @@ Running `dotnet run` from the source tree locks build output DLLs, preventing de
 
 10. **SleepGuard integration**: The Windows service uses the existing `SleepGuard.fs` to prevent sleep during active sync operations.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Install directory choice (Windows)**: `C:\Program Files\Hermes\` requires elevation. Should we default to `%LOCALAPPDATA%\Hermes\` instead to avoid the UAC prompt?
+1. **Install directory**: `%LOCALAPPDATA%\Hermes\` — no elevation needed. Dad shouldn't need admin rights.
 
-2. **Service account (Windows)**: Should the service run as the logged-in user (requires password at install), or as `LocalService` with appropriate file/network permissions granted?
+2. **Service account**: Current user via Task Scheduler with "Run whether user is logged on or not". No password prompt, no `sc.exe` user credential friction.
 
-3. **Log location**: Where should service logs go? Options: install directory, config directory, or system log (Event Log / syslog).
+3. **Log location**: Config directory (`%APPDATA%\hermes\logs\`) — same place as config, easy to find and send for debugging.
 
-4. **Frontend build integration**: Is the React frontend (`Hermes.Web`) build already wired into the `dotnet publish` pipeline, or does the install script need to run `npm run build` separately?
+4. **Frontend build**: Install script runs `npm run build` then `dotnet publish`. Not wired into MSBuild.
 
 ## Risks & Assumptions
 

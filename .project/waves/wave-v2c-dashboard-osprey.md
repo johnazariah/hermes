@@ -80,13 +80,13 @@ The Hermes dashboard needs refinement for dad-friendliness — clear, self-expla
 
 11. **SSE streaming resolution**: Pipeline state available via SSE or polling. Dead endpoints removed. If SSE retained, events emit within 2 seconds.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Activity log retention**: Cap at last 1,000 events, or unbounded for now?
-2. **Tooltip content review**: Draft all tooltip copy in spec, or iterate during implementation?
-3. **"Currently processing" granularity**: Just document name, or stage-specific detail?
-4. **Per-account progress source**: Does email sync already expose per-account state?
-5. **MCP partial results boundary**: Queryable after extraction only, or also after classification?
+1. **Activity log retention**: Unbounded for now. Having someone mail us their log should be enough for debugging. Cap in future wave if needed.
+2. **Tooltip content review**: Iterate during implementation — don't block on copywriting.
+3. **Currently processing granularity**: Just document name.
+4. **Per-account progress source**: Needs modification — current sync loop shares one counter across accounts. Add per-account counters.
+5. **MCP partial results boundary**: Queryable after extraction (post-read). Classification is optional enrichment, not a gate for searchability.
 
 ## Risks & Assumptions
 
