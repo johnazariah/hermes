@@ -348,10 +348,7 @@ module Pipeline =
             logger.info $"Pipeline starting: {extractConcurrency} extract, {llmConcurrency} LLM classify"
             onBusy ()
 
-            // Recovery: seed channels from DB state
-            do! recover fs db logger archiveDir ch.Ingest.Writer ch.Extract.Writer ch.Post.Writer ct
-
-            // Build task list
+            // Build task list — start consumers BEFORE recovery so channels can drain
             let tasks = ResizeArray<Task>()
 
             // Producers — email producer now pushes file paths directly to ingest channel
@@ -376,6 +373,9 @@ module Pipeline =
 
             // Stage 3b: Post-process (periodic — reminders, embedding, deferred until idle)
             tasks.Add(postProcessRunner db fs logger clock postProcessors status ch.Ingest.Reader ch.Extract.Reader ch.Post.Reader ch.DeadLetter.Reader (TimeSpan.FromSeconds(30.0)) ct)
+
+            // Recovery: seed channels from DB state (consumers are already running to drain)
+            do! recover fs db logger archiveDir ch.Ingest.Writer ch.Extract.Writer ch.Post.Writer ct
 
             // Wait for all to complete (they run until cancelled)
             try
