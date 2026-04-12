@@ -144,10 +144,15 @@ let createRawDb () : Algebra.Database =
 let private emptyPage : Algebra.MessagePage =
     { Messages = []; NextPageToken = None; ResultSizeEstimate = 0L }
 
+let private emptyStubPage : Algebra.StubPage =
+    { Ids = []; NextPageToken = None; ResultSizeEstimate = 0L }
+
 let emptyProvider : Algebra.EmailProvider =
     { listNewMessages = fun _ -> task { return [] }
       getAttachments = fun _ -> task { return [] }
       getMessageBody = fun _ -> task { return None }
+      getFullMessage = fun _ -> task { return failwith "no messages" }
+      listStubPage = fun _ _ _ -> Task.FromResult emptyStubPage
       listMessagePage = fun _ _ _ -> task { return emptyPage } }
 
 let mockProvider
@@ -157,6 +162,8 @@ let mockProvider
     { listNewMessages = fun _ -> task { return messages }
       getAttachments = fun id -> task { return attachments |> Map.tryFind id |> Option.defaultValue [] }
       getMessageBody = fun _ -> task { return None }
+      getFullMessage = fun id -> task { return messages |> List.find (fun m -> m.ProviderId = id) }
+      listStubPage = fun _ _ _ -> Task.FromResult emptyStubPage
       listMessagePage = fun _ _ _ -> task { return emptyPage } }
 
 // ─── Mock embedding client ───────────────────────────────────────────
@@ -206,7 +213,8 @@ let testConfig (archiveDir: string) : Domain.HermesConfig =
         { Domain.ChatConfig.Provider = Domain.ChatProviderKind.Ollama
           AzureOpenAI =
             { Domain.AzureOpenAIConfig.Endpoint = ""; ApiKey = ""; DeploymentName = "gpt-4o"
-              MaxTokens = 4096; TimeoutSeconds = 300 } } }
+              MaxTokens = 4096; TimeoutSeconds = 300 } }
+      Pipeline = { Domain.PipelineConfig.ExtractConcurrency = 1; LlmConcurrency = 1 } }
 
 // ─── Default rules YAML ──────────────────────────────────────────────
 

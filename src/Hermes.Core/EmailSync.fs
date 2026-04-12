@@ -4,6 +4,8 @@ open System
 open System.IO
 open System.Security.Cryptography
 open System.Text.Json
+open System.Threading
+open System.Threading.Channels
 open System.Threading.Tasks
 
 /// Email sync logic parameterised over algebras.
@@ -596,4 +598,181 @@ module EmailSync =
             do! saveBackfillState db account.Label newState
             logger.info $"[{account.Label}] Backfill: {newCount} new, {page.Messages.Length} scanned, completed={completed}"
             return (newCount, completed)
+        }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Channel-based sync: enumerate IDs → channel → N concurrent consumers
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// Producer: page through all Gmail stubs for an account, push IDs to a channel.
+    /// Completes the channel writer when all pages are exhausted.
+    let enumerateIds
+        (provider: Algebra.EmailProvider)
+        (logger: Algebra.Logger)
+        (account: string)
+        (query: string)
+        (output: ChannelWriter<string>)
+        (ct: CancellationToken)
+        : Task<int> =
+        task {
+            let mutable pageToken : string option = None
+            let mutable total = 0
+            let mutable hasMore = true
+
+            while hasMore && not ct.IsCancellationRequested do
+                try
+                    let! page = provider.listStubPage pageToken (Some query) 500
+                    for id in page.Ids do
+                        do! output.WriteAsync(id, ct)
+                    total <- total + page.Ids.Length
+
+                    match page.NextPageToken with
+                    | Some t -> pageToken <- Some t
+                    | None -> hasMore <- false
+
+                    if page.Ids.Length > 0 then
+                        logger.debug $"[{account}] Enumerated {total} message IDs so far"
+                with
+                | :? OperationCanceledException -> hasMore <- false
+                | ex ->
+                    logger.warn $"[{account}] Enumerate page failed: {ex.Message}, retrying in 30s"
+                    try do! Task.Delay(TimeSpan.FromSeconds(30.0), ct) with :? OperationCanceledException -> hasMore <- false
+
+            output.Complete()
+            logger.info $"[{account}] Enumeration complete: {total} message IDs"
+            return total
+        }
+
+    /// Consumer: pull message IDs from channel, check DB, fetch + save if new.
+    /// Pushes saved file paths to the ingest channel for downstream pipeline.
+    let processMessageConsumer
+        (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
+        (clock: Algebra.Clock) (provider: Algebra.EmailProvider)
+        (config: Domain.HermesConfig) (account: string)
+        (input: ChannelReader<string>)
+        (ingestOutput: ChannelWriter<string> option)
+        (consumerId: int)
+        (ct: CancellationToken)
+        : Task<int * int> =
+        task {
+            let mutable processed = 0
+            let mutable downloaded = 0
+            let unclassifiedDir = Path.Combine(config.ArchiveDir, "unclassified")
+
+            try
+                while not ct.IsCancellationRequested do
+                    let! messageId = input.ReadAsync(ct)
+                    try
+                        let! exists = messageExists db account messageId
+                        if not exists then
+                            let! msg = provider.getFullMessage messageId
+                            let now = clock.utcNow ()
+                            do! recordMessage db account msg now
+
+                            // Fetch and store body text
+                            if msg.BodyText.IsSome then
+                                let clean = stripHtml msg.BodyText.Value
+                                if not (System.String.IsNullOrWhiteSpace(clean)) then
+                                    let! _ =
+                                        db.execNonQuery
+                                            "UPDATE messages SET body_text = @body WHERE account = @acc AND gmail_id = @gid"
+                                            [ ("@body", boxVal clean); ("@acc", boxVal account); ("@gid", boxVal messageId) ]
+                                    ()
+
+                            // Fetch attachments
+                            let! atts = provider.getAttachments messageId
+                            let valid = atts |> List.filter (fun a -> a.SizeBytes >= int64 config.MinAttachmentSize)
+
+                            for att in valid do
+                                let sha = computeSha256 att.Content
+                                let! isDup = hashExists db sha
+                                if not isDup then
+                                    let name = buildStandardName msg.Date msg.Sender att.FileName
+                                    let savePath = Path.Combine(unclassifiedDir, name)
+                                    fs.createDirectory unclassifiedDir
+                                    do! fs.writeAllBytes savePath att.Content
+                                    let sidecar = buildSidecar account msg att name sha now
+                                    do! fs.writeAllText (savePath + ".meta.json") (serialiseSidecar sidecar)
+                                    do! recordDocument db account msg att name sha now
+                                    downloaded <- downloaded + 1
+                                    logger.info $"[{account}/{consumerId}] Downloaded: {name}"
+
+                                    // Push to downstream pipeline
+                                    match ingestOutput with
+                                    | Some writer ->
+                                        try do! writer.WriteAsync(savePath, ct)
+                                        with :? OperationCanceledException -> ()
+                                    | None -> ()
+
+                            processed <- processed + 1
+                    with
+                    | :? Google.GoogleApiException as ex when ex.HttpStatusCode = System.Net.HttpStatusCode.TooManyRequests ->
+                        logger.warn $"[{account}/{consumerId}] Rate limited, backing off 60s"
+                        try do! Task.Delay(TimeSpan.FromSeconds(60.0), ct) with :? OperationCanceledException -> ()
+                    | ex ->
+                        logger.warn $"[{account}/{consumerId}] Error processing {messageId}: {ex.Message}"
+            with
+            | :? OperationCanceledException -> ()
+            | :? ChannelClosedException -> ()
+
+            logger.debug $"[{account}/{consumerId}] Consumer done: {processed} processed, {downloaded} downloaded"
+            return (processed, downloaded)
+        }
+
+    /// Run a full channel-based sync for one account.
+    /// Enumerates all message IDs, processes concurrently, advances watermark when done.
+    let syncAccountChanneled
+        (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
+        (clock: Algebra.Clock) (provider: Algebra.EmailProvider)
+        (config: Domain.HermesConfig) (account: string)
+        (ingestOutput: ChannelWriter<string> option)
+        (concurrency: int)
+        (ct: CancellationToken)
+        : Task<SyncResult> =
+        task {
+            try
+                let! lastSync = loadSyncState db account
+                let syncSince = lastSync |> Option.defaultWith (fun () -> defaultHighWaterMark clock)
+                let sinceStr = syncSince.ToString("yyyy-MM-dd")
+                let queryTimestamp = clock.utcNow ()
+                let epoch = syncSince.ToUnixTimeSeconds()
+                let query = $"has:attachment after:{epoch}"
+                logger.info $"[{account}] Channel sync since {sinceStr} with {concurrency} consumers"
+
+                // Create the message ID channel
+                let idChannel = Channel.CreateBounded<string>(BoundedChannelOptions(1000, FullMode = BoundedChannelFullMode.Wait))
+
+                // Start enumeration producer
+                let enumTask = enumerateIds provider logger account query idChannel.Writer ct
+
+                // Start N consumers
+                let consumerTasks =
+                    [| for i in 1..concurrency ->
+                        processMessageConsumer fs db logger clock provider config account idChannel.Reader ingestOutput i ct |]
+
+                // Wait for enumeration to finish (completes the channel)
+                let! totalEnumerated = enumTask
+
+                // Wait for all consumers to drain the channel
+                let! results = Task.WhenAll(consumerTasks)
+
+                let totalProcessed = results |> Array.sumBy fst
+                let totalDownloaded = results |> Array.sumBy snd
+
+                // Advance watermark: enumeration is complete and channel is drained
+                if totalEnumerated > 0 then
+                    do! saveSyncState db account totalProcessed queryTimestamp
+                    logger.info $"[{account}] Sync complete: {totalEnumerated} enumerated, {totalProcessed} new, {totalDownloaded} attachments"
+
+                return
+                    { Account = account
+                      MessagesProcessed = totalProcessed
+                      AttachmentsDownloaded = totalDownloaded
+                      DuplicatesSkipped = totalEnumerated - totalProcessed
+                      Errors = [] }
+            with ex ->
+                logger.error $"[{account}] Channel sync failed: {ex.Message}"
+                return
+                    { Account = account; MessagesProcessed = 0; AttachmentsDownloaded = 0
+                      DuplicatesSkipped = 0; Errors = [ ex.Message ] }
         }

@@ -181,12 +181,15 @@ module Pipeline =
 
     // ─── Producers ──────────────────────────────────────────────────
 
-    /// Email producer: syncs all accounts, writes file paths to ingest channel.
+    /// Email producer: syncs all accounts using channel-based enumeration.
+    /// Pushes downloaded file paths directly to the ingest channel.
     /// Runs on a timer, pauses between cycles.
     let emailProducer
         (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
         (clock: Algebra.Clock) (config: Domain.HermesConfig) (configDir: string)
         (createProvider: string -> string -> Task<Algebra.EmailProvider>)
+        (ingest: ChannelWriter<string>)
+        (concurrency: int)
         (syncInterval: TimeSpan) (startupDelay: TimeSpan)
         (ct: CancellationToken) =
         task {
@@ -194,12 +197,11 @@ module Pipeline =
             try do! Task.Delay(startupDelay, ct) with :? OperationCanceledException -> ()
 
             while not ct.IsCancellationRequested do
-                // Sync all accounts concurrently
                 let syncOneAccount (account: Domain.AccountConfig) : Task =
                     task {
                         try
                             let! provider = createProvider configDir account.Label
-                            let! _ = EmailSync.syncAccount fs db logger clock provider config account.Label
+                            let! _ = EmailSync.syncAccountChanneled fs db logger clock provider config account.Label (Some ingest) concurrency ct
                             ()
                         with ex -> logger.warn $"Email sync failed for {account.Label}: {ex.Message}"
                     }
@@ -311,8 +313,9 @@ module Pipeline =
             // Build task list
             let tasks = ResizeArray<Task>()
 
-            // Producers
-            tasks.Add(emailProducer fs db logger clock config configDir deps.CreateEmailProvider syncInterval (TimeSpan.FromSeconds(30.0)) ct)
+            // Producers — email producer now pushes file paths directly to ingest channel
+            let emailConcurrency = max 1 (config.Pipeline.LlmConcurrency) // reuse LLM concurrency as a proxy for network-bound work
+            tasks.Add(emailProducer fs db logger clock config configDir deps.CreateEmailProvider ch.Ingest.Writer emailConcurrency syncInterval (TimeSpan.FromSeconds(30.0)) ct)
             tasks.Add(folderProducer fs db logger clock config ch.Ingest.Writer (TimeSpan.FromSeconds(30.0)) ct)
 
             // Stage 1: Classify (single consumer — rules only, fast)

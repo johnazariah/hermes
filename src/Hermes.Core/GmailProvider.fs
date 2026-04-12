@@ -77,6 +77,27 @@ module GmailProvider =
                            BodyText = Some (extractBodyText msg.Payload) } : Domain.EmailMessage)
                 }
 
+            let getMessageById (messageId: string) : Task<Domain.EmailMessage> =
+                task {
+                    let getReq = service.Users.Messages.Get("me", messageId)
+                    getReq.Format <- UsersResource.MessagesResource.GetRequest.FormatEnum.Full |> Nullable
+                    let! msg = getReq.ExecuteAsync()
+                    let headers = msg.Payload.Headers |> Seq.map (fun h -> h.Name, h.Value) |> dict
+                    let tryHeader key = match headers.TryGetValue(key) with true, v -> Some v | _ -> None
+
+                    return
+                        ({ ProviderId = msg.Id
+                           ThreadId = if msg.ThreadId <> null then msg.ThreadId else ""
+                           Sender = tryHeader "From"
+                           Subject = tryHeader "Subject"
+                           Date =
+                             tryHeader "Date"
+                             |> Option.bind (fun s -> match DateTimeOffset.TryParse(s) with true, d -> Some d | _ -> None)
+                           Labels = (if msg.LabelIds <> null then msg.LabelIds |> Seq.toList else [])
+                           HasAttachments = true
+                           BodyText = Some (extractBodyText msg.Payload) } : Domain.EmailMessage)
+                }
+
             let listMessages (sinceOpt: DateTimeOffset option) : Task<Domain.EmailMessage list> =
                 task {
                     try
@@ -171,6 +192,41 @@ module GmailProvider =
                            BodyText = None } : Domain.EmailMessage)
                 }
 
+            let listStubs (pageToken: string option) (query: string option) (maxResults: int) : Task<Algebra.StubPage> =
+                task {
+                    try
+                        let req = service.Users.Messages.List("me")
+                        req.MaxResults <- int64 maxResults |> Nullable
+
+                        match query with
+                        | Some q -> req.Q <- q
+                        | None -> req.Q <- "has:attachment"
+
+                        match pageToken with
+                        | Some t -> req.PageToken <- t
+                        | None -> ()
+
+                        let! response = req.ExecuteAsync()
+
+                        if response.Messages = null || response.Messages.Count = 0 then
+                            return ({ Ids = []; NextPageToken = None; ResultSizeEstimate = 0L } : Algebra.StubPage)
+                        else
+                            let ids = response.Messages |> Seq.map (fun m -> m.Id) |> Seq.toList
+
+                            let nextToken =
+                                match response.NextPageToken with
+                                | null -> None
+                                | t -> Some t
+
+                            return
+                                { Ids = ids
+                                  NextPageToken = nextToken
+                                  ResultSizeEstimate = response.ResultSizeEstimate |> Option.ofNullable |> Option.map int64 |> Option.defaultValue 0L }
+                    with ex ->
+                        logger.error $"Gmail listStubs failed for {label}: {ex.Message}"
+                        return ({ Ids = []; NextPageToken = None; ResultSizeEstimate = 0L } : Algebra.StubPage)
+                }
+
             let listPage (pageToken: string option) (query: string option) (maxResults: int) : Task<Algebra.MessagePage> =
                 task {
                     try
@@ -211,6 +267,8 @@ module GmailProvider =
                 { listNewMessages = listMessages
                   getAttachments = getAtts
                   getMessageBody = getBody
+                  getFullMessage = getMessageById
+                  listStubPage = listStubs
                   listMessagePage = listPage }
             return provider
         }

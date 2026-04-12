@@ -60,6 +60,12 @@ module Algebra =
 
     // ─── Email provider ──────────────────────────────────────────────
 
+    /// A page of message ID stubs — no content, just IDs for enumeration.
+    type StubPage =
+        { Ids: string list
+          NextPageToken: string option
+          ResultSizeEstimate: int64 }
+
     type MessagePage =
         { Messages: Domain.EmailMessage list
           NextPageToken: string option
@@ -69,6 +75,8 @@ module Algebra =
         { listNewMessages: DateTimeOffset option -> Task<Domain.EmailMessage list>
           getAttachments: string -> Task<Domain.EmailAttachment list>
           getMessageBody: string -> Task<string option>
+          getFullMessage: string -> Task<Domain.EmailMessage>
+          listStubPage: string option -> string option -> int -> Task<StubPage>
           listMessagePage: string option -> string option -> int -> Task<MessagePage> }
 
     // ─── Rules engine ────────────────────────────────────────────────

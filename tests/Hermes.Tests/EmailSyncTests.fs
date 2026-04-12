@@ -425,7 +425,8 @@ let private fakePageProvider (messages: Domain.EmailMessage list) (nextToken: st
             task {
                 return
                     ({ Messages = messages; NextPageToken = nextToken; ResultSizeEstimate = int64 messages.Length } : Algebra.MessagePage)
-            } }
+            }
+        getFullMessage = fun id -> task { return messages |> List.find (fun m -> m.ProviderId = id) } }
 
 [<Fact>]
 [<Trait("Category", "Integration")>]

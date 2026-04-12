@@ -352,6 +352,8 @@ let ``EmailSync_SyncAccount_FetchesBodyWhenMissing`` () =
             { listNewMessages = fun _ -> task { return [ msg ] }
               getAttachments = fun _ -> task { return [] }
               getMessageBody = fun _ -> task { return Some "<p>Hello <b>World</b></p>" }
+              getFullMessage = fun _ -> task { return msg }
+              listStubPage = fun _ _ _ -> Task.FromResult ({ Algebra.StubPage.Ids = []; NextPageToken = None; ResultSizeEstimate = 0L })
               listMessagePage = fun _ _ _ -> task { return { Algebra.MessagePage.Messages = []; NextPageToken = None; ResultSizeEstimate = 0L } } }
         try
             let! _ = db.initSchema ()
@@ -391,6 +393,8 @@ let ``EmailSync_SyncAccount_SkipsBodyFetchWhenPresent`` () =
                   bodyFetched <- true
                   return Some "Should not be called"
               }
+              getFullMessage = fun _ -> task { return msg }
+              listStubPage = fun _ _ _ -> Task.FromResult ({ Algebra.StubPage.Ids = []; NextPageToken = None; ResultSizeEstimate = 0L })
               listMessagePage = fun _ _ _ -> task { return { Algebra.MessagePage.Messages = []; NextPageToken = None; ResultSizeEstimate = 0L } } }
         try
             let! _ = db.initSchema ()
