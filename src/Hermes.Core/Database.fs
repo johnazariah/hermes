@@ -9,7 +9,7 @@ open Microsoft.Data.Sqlite
 [<RequireQualifiedAccess>]
 module Database =
 
-    let [<Literal>] CurrentSchemaVersion = 4
+    let [<Literal>] CurrentSchemaVersion = 5
 
     // ─── Schema DDL ──────────────────────────────────────────────────
 
@@ -72,6 +72,7 @@ module Database =
             extracted_at    TEXT,
             embedded_at     TEXT,
             chunk_count     INTEGER,
+            starred         INTEGER NOT NULL DEFAULT 0,
             ingested_at     TEXT NOT NULL DEFAULT (datetime('now')),
             FOREIGN KEY (account, gmail_id) REFERENCES messages(account, gmail_id)
         );
@@ -136,6 +137,37 @@ module Database =
         );
         """
            "CREATE INDEX IF NOT EXISTS idx_activity_log_ts ON activity_log(timestamp DESC);"
+
+           // ── Dead letters ─────────────────────────────────────────────
+           """
+        CREATE TABLE IF NOT EXISTS dead_letters (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            doc_id        INTEGER NOT NULL,
+            stage         TEXT NOT NULL,
+            error         TEXT NOT NULL,
+            retryable     INTEGER NOT NULL DEFAULT 0,
+            failed_at     TEXT NOT NULL,
+            retry_count   INTEGER NOT NULL DEFAULT 0,
+            original_name TEXT,
+            dismissed     INTEGER NOT NULL DEFAULT 0
+        );
+        """
+
+           // ── Tags ─────────────────────────────────────────────────────
+           """
+        CREATE TABLE IF NOT EXISTS tags (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            document_id INTEGER NOT NULL REFERENCES documents(id),
+            tag         TEXT NOT NULL,
+            source      TEXT NOT NULL DEFAULT 'user',
+            confidence  REAL,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            created_by  TEXT
+        );
+        """
+           "CREATE INDEX IF NOT EXISTS idx_tags_doc ON tags(document_id);"
+           "CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag);"
+           "CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_unique ON tags(document_id, tag);"
         |]
 
     let private ftsSql =
@@ -280,144 +312,10 @@ module Database =
 
     // ─── Migrations ─────────────────────────────────────────────────
 
-    let private migrateV2toV3 (conn: SqliteConnection) =
-        let alterStmts =
-            [| "ALTER TABLE sync_state ADD COLUMN backfill_page_token TEXT"
-               "ALTER TABLE sync_state ADD COLUMN backfill_total_estimate INTEGER"
-               "ALTER TABLE sync_state ADD COLUMN backfill_scanned INTEGER NOT NULL DEFAULT 0"
-               "ALTER TABLE sync_state ADD COLUMN backfill_completed INTEGER NOT NULL DEFAULT 0"
-               "ALTER TABLE sync_state ADD COLUMN backfill_started_at TEXT"
-               "ALTER TABLE documents ADD COLUMN extraction_confidence REAL"
-               "ALTER TABLE documents ADD COLUMN classification_tier TEXT"
-               "ALTER TABLE documents ADD COLUMN classification_confidence REAL" |]
-        let createStmts =
-            [| """CREATE TABLE IF NOT EXISTS reminders (
-                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                    document_id     INTEGER REFERENCES documents(id),
-                    vendor          TEXT,
-                    amount          REAL,
-                    due_date        TEXT,
-                    category        TEXT NOT NULL,
-                    status          TEXT NOT NULL DEFAULT 'active',
-                    snoozed_until   TEXT,
-                    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-                    completed_at    TEXT,
-                    dismissed_at    TEXT,
-                    trigger_name    TEXT,
-                    notes           TEXT
-                )"""
-               "CREATE INDEX IF NOT EXISTS idx_reminder_status ON reminders(status)"
-               "CREATE INDEX IF NOT EXISTS idx_reminder_due ON reminders(due_date)"
-               "CREATE INDEX IF NOT EXISTS idx_reminder_doc ON reminders(document_id)"
-               """CREATE TABLE IF NOT EXISTS activity_log (
-                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp   TEXT NOT NULL DEFAULT (datetime('now')),
-                    level       TEXT NOT NULL DEFAULT 'info',
-                    category    TEXT NOT NULL,
-                    message     TEXT NOT NULL,
-                    document_id INTEGER,
-                    details     TEXT
-                )"""
-               "CREATE INDEX IF NOT EXISTS idx_activity_log_ts ON activity_log(timestamp DESC)" |]
-        task {
-            // ALTER TABLE may fail if column already exists — that's fine
-            for sql in alterStmts do
-                try
-                    let! _ = execNonQuery conn sql []
-                    ()
-                with _ -> ()
-
-            for sql in createStmts do
-                let! _ = execNonQuery conn sql []
-                ()
-
-            let! _ =
-                execNonQuery conn "INSERT OR IGNORE INTO schema_version (version) VALUES (@v)" [ ("@v", boxVal 3) ]
-            ()
-        }
-
-    let private migrateV3toV4 (conn: SqliteConnection) =
-        task {
-            let stmts =
-                [| "ALTER TABLE documents ADD COLUMN extracted_markdown TEXT" |]
-            for sql in stmts do
-                try
-                    let! _ = execNonQuery conn sql []
-                    ()
-                with _ -> ()
-            let! _ =
-                execNonQuery conn "INSERT OR IGNORE INTO schema_version (version) VALUES (@v)" [ ("@v", boxVal 4) ]
-            ()
-        }
-
-    let private runMigrations (conn: SqliteConnection) =
-        task {
-            let! currentVersion = schemaVersionImpl conn
-
-            if currentVersion < 3 && currentVersion >= 2 then
-                do! migrateV2toV3 conn
-
-            let! v = schemaVersionImpl conn
-            if v < 4 && v >= 3 then
-                do! migrateV3toV4 conn
-
-            // Always ensure required columns exist (handles partial migrations)
-            let ensureCols =
-                [| "ALTER TABLE documents ADD COLUMN extraction_confidence REAL"
-                   "ALTER TABLE documents ADD COLUMN classification_tier TEXT"
-                   "ALTER TABLE documents ADD COLUMN classification_confidence REAL"
-                   "ALTER TABLE documents ADD COLUMN extracted_markdown TEXT" |]
-            for sql in ensureCols do
-                try let! _ = execNonQuery conn sql [] in ()
-                with _ -> () // column already exists — fine
-
-            // Ensure dead_letters table exists
-            let! _ =
-                execNonQuery conn
-                    """CREATE TABLE IF NOT EXISTS dead_letters (
-                        id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                        doc_id        INTEGER NOT NULL,
-                        stage         TEXT NOT NULL,
-                        error         TEXT NOT NULL,
-                        retryable     INTEGER NOT NULL DEFAULT 0,
-                        failed_at     TEXT NOT NULL,
-                        retry_count   INTEGER NOT NULL DEFAULT 0,
-                        original_name TEXT,
-                        dismissed     INTEGER NOT NULL DEFAULT 0
-                    )""" []
-
-            // Tags table
-            let! _ =
-                execNonQuery conn
-                    """CREATE TABLE IF NOT EXISTS tags (
-                        id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                        document_id INTEGER NOT NULL REFERENCES documents(id),
-                        tag         TEXT NOT NULL,
-                        source      TEXT NOT NULL DEFAULT 'user',
-                        confidence  REAL,
-                        created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-                        created_by  TEXT
-                    )""" []
-            let! _ = execNonQuery conn "CREATE INDEX IF NOT EXISTS idx_tags_doc ON tags(document_id)" []
-            let! _ = execNonQuery conn "CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag)" []
-            let! _ = execNonQuery conn "CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_unique ON tags(document_id, tag)" []
-
-            // Starred column
-            let starcols = [| "ALTER TABLE documents ADD COLUMN starred INTEGER NOT NULL DEFAULT 0" |]
-            for sql in starcols do
-                try let! _ = execNonQuery conn sql [] in ()
-                with _ -> ()
-
-            // Thread ID on documents
-            let threadCols = [| "ALTER TABLE documents ADD COLUMN thread_id TEXT" |]
-            for sql in threadCols do
-                try let! _ = execNonQuery conn sql [] in ()
-                with _ -> ()
-            let! _ = execNonQuery conn "CREATE INDEX IF NOT EXISTS idx_doc_thread ON documents(thread_id, account)" []
-            ()
-
-            ()
-        }
+    /// No-op: all tables and columns are in coreSchemaSql.
+    /// Schema version 5 = clean slate, no migration path needed.
+    let private runMigrations (_conn: SqliteConnection) =
+        task { () }
 
     let private initSchemaImpl (conn: SqliteConnection) =
         task {
