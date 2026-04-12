@@ -19,11 +19,14 @@ module Pipeline =
           mutable FailedDepth: int
           mutable TotalReceived: int64
           mutable TotalRead: int64
-          mutable TotalMemorised: int64 }
+          mutable TotalMemorised: int64
+          mutable EmailsQueued: int
+          mutable EmailsProcessed: int }
 
     let createStatus () =
         { InboxDepth = 0; ReadingDepth = 0; FilingDepth = 0; FailedDepth = 0
-          TotalReceived = 0L; TotalRead = 0L; TotalMemorised = 0L }
+          TotalReceived = 0L; TotalRead = 0L; TotalMemorised = 0L
+          EmailsQueued = 0; EmailsProcessed = 0 }
 
     /// Pipeline channels connecting the stages.
     type Channels =
@@ -229,6 +232,7 @@ module Pipeline =
         (clock: Algebra.Clock) (config: Domain.HermesConfig) (configDir: string)
         (createProvider: string -> string -> Task<Algebra.EmailProvider>)
         (ingest: ChannelWriter<string>)
+        (status: PipelineStatus)
         (concurrency: int)
         (syncInterval: TimeSpan) (startupDelay: TimeSpan)
         (ct: CancellationToken) =
@@ -237,16 +241,22 @@ module Pipeline =
             try do! Task.Delay(startupDelay, ct) with :? OperationCanceledException -> ()
 
             while not ct.IsCancellationRequested do
+                let mutable totalQueued = 0
+                let mutable totalProcessed = 0
+
                 let syncOneAccount (account: Domain.AccountConfig) : Task =
                     task {
                         try
                             let! provider = createProvider configDir account.Label
-                            let! _ = EmailSync.syncAccountChanneled fs db logger clock provider config account.Label (Some ingest) concurrency ct
-                            ()
+                            let! result = EmailSync.syncAccountChanneled fs db logger clock provider config account.Label (Some ingest) concurrency ct
+                            System.Threading.Interlocked.Add(&totalQueued, result.DuplicatesSkipped + result.MessagesProcessed) |> ignore
+                            System.Threading.Interlocked.Add(&totalProcessed, result.MessagesProcessed) |> ignore
                         with ex -> logger.warn $"Email sync failed for {account.Label}: {ex.Message}"
                     }
 
                 do! config.Accounts |> List.map syncOneAccount |> List.toArray |> Task.WhenAll
+                status.EmailsQueued <- totalQueued
+                status.EmailsProcessed <- totalProcessed
 
                 try do! Task.Delay(syncInterval, ct) with :? OperationCanceledException -> ()
         }
@@ -353,7 +363,7 @@ module Pipeline =
 
             // Producers — email producer now pushes file paths directly to ingest channel
             let emailConcurrency = max 1 (config.Pipeline.LlmConcurrency) // reuse LLM concurrency as a proxy for network-bound work
-            tasks.Add(emailProducer fs db logger clock config configDir deps.CreateEmailProvider ch.Ingest.Writer emailConcurrency syncInterval (TimeSpan.FromSeconds(30.0)) ct)
+            tasks.Add(emailProducer fs db logger clock config configDir deps.CreateEmailProvider ch.Ingest.Writer status emailConcurrency syncInterval (TimeSpan.FromSeconds(30.0)) ct)
             tasks.Add(folderProducer fs db logger clock config ch.Ingest.Writer (TimeSpan.FromSeconds(30.0)) ct)
 
             // Stage 1: Classify (single consumer — rules only, fast)

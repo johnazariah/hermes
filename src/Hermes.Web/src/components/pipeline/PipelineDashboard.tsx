@@ -9,6 +9,8 @@ interface PipelineStatus {
     received: number;
     read: number;
     memorised: number;
+    emailsQueued: number;
+    emailsProcessed: number;
 }
 
 async function fetchPipeline(): Promise<PipelineStatus> {
@@ -110,10 +112,13 @@ export function PipelineDashboard() {
         received: 0,
         read: 0,
         memorised: 0,
+        emailsQueued: 0,
+        emailsProcessed: 0,
     };
 
     const maxChannel = Math.max(p.inbox, p.reading, p.filing, 1);
     const anyActive = p.inbox > 0 || p.reading > 0 || p.filing > 0;
+    const emailsPending = p.emailsQueued - p.emailsProcessed;
 
     return (
         <div className="space-y-6">
@@ -137,6 +142,21 @@ export function PipelineDashboard() {
                 </div>
 
                 <div className="space-y-1">
+                    {p.emailsQueued > 0 && (
+                        <>
+                            <ChannelBar
+                                label="Emails"
+                                depth={emailsPending > 0 ? emailsPending : 0}
+                                maxDepth={Math.max(p.emailsQueued, 1)}
+                                color="bg-green-500"
+                                icon="📧"
+                            />
+                            <div className="text-[10px] text-neutral-500 text-right">
+                                {p.emailsProcessed.toLocaleString()} / {p.emailsQueued.toLocaleString()} fetched
+                            </div>
+                            <FlowArrow active={emailsPending > 0} />
+                        </>
+                    )}
                     <ChannelBar
                         label="Inbox"
                         depth={p.inbox}

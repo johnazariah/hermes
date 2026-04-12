@@ -130,7 +130,9 @@ module ApiServer =
                     failed = pipelineStatus.FailedDepth
                     received = pipelineStatus.TotalReceived
                     read = pipelineStatus.TotalRead
-                    memorised = pipelineStatus.TotalMemorised |})) |> ignore
+                    memorised = pipelineStatus.TotalMemorised
+                    emailsQueued = pipelineStatus.EmailsQueued
+                    emailsProcessed = pipelineStatus.EmailsProcessed |})) |> ignore
 
         // ── Reminders ───────────────────────────────────────────────
         app.MapGet("/api/reminders", Func<Task<IResult>>(fun () ->
