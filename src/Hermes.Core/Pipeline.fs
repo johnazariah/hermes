@@ -44,6 +44,7 @@ module Pipeline =
         (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
         (clock: Algebra.Clock) (rules: Algebra.RulesEngine) (archiveDir: string)
         (input: ChannelReader<string>) (output: ChannelWriter<int64>)
+        (extractQueue: Algebra.StageQueue)
         (ct: CancellationToken) =
         task {
             try
@@ -53,6 +54,10 @@ module Pipeline =
                         let! result = Classifier.processFile fs db logger clock rules archiveDir filePath
                         match result with
                         | Ok (Some docId) ->
+                            // Enqueue into stage_extract for the stage processor
+                            let! rows = db.execReader "SELECT saved_path FROM documents WHERE id = @id" [ ("@id", Database.boxVal docId) ]
+                            let savedPath = rows |> List.tryHead |> Option.bind (fun r -> Prelude.RowReader(r).OptString "saved_path") |> Option.defaultValue ""
+                            do! extractQueue.enqueue docId savedPath
                             do! output.WriteAsync(docId, ct)
                         | _ -> ()
                     with ex ->
@@ -366,7 +371,7 @@ module Pipeline =
             tasks.Add(folderProducer fs db logger clock config ch.Ingest.Writer (TimeSpan.FromSeconds(30.0)) ct)
 
             // Stage 1: Classify (single consumer — rules only, fast)
-            tasks.Add(classifyConsumer fs db logger clock rules archiveDir ch.Ingest.Reader ch.Extract.Writer ct)
+            tasks.Add(classifyConsumer fs db logger clock rules archiveDir ch.Ingest.Reader ch.Extract.Writer extractQueue ct)
 
             // Stage 2: Extract (N concurrent consumers — CPU-bound)
             for i in 1..extractConcurrency do
@@ -450,7 +455,7 @@ module Pipeline =
 
             // Folder watcher still uses channels (TODO: migrate to stage tables)
             tasks.Add(folderProducer fs db logger clock config ch.Ingest.Writer (TimeSpan.FromSeconds(30.0)) ct)
-            tasks.Add(classifyConsumer fs db logger clock rules archiveDir ch.Ingest.Reader ch.Extract.Writer ct)
+            tasks.Add(classifyConsumer fs db logger clock rules archiveDir ch.Ingest.Reader ch.Extract.Writer extractQueue ct)
 
             // Recovery: seed channels from DB state (for folder watcher path only)
             do! recover fs db logger archiveDir ch.Ingest.Writer ch.Extract.Writer ch.Post.Writer ct

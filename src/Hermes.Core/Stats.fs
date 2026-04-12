@@ -15,6 +15,9 @@ module Stats =
           ExtractedCount: int64
           ClassifiedCount: int64
           EmbeddedCount: int64
+          AwaitingExtract: int64
+          AwaitingClassify: int64
+          AwaitingEmbed: int64
           DatabaseSizeMb: float }
 
     /// Per-category document count.
@@ -35,6 +38,9 @@ module Stats =
             let! extractedCount = db.execScalar "SELECT COUNT(*) FROM documents WHERE extracted_text IS NOT NULL" []
             let! classifiedCount = db.execScalar "SELECT COUNT(*) FROM documents WHERE extracted_text IS NOT NULL AND category NOT IN ('unsorted', 'unclassified')" []
             let! embeddedCount = db.execScalar "SELECT COUNT(*) FROM documents WHERE embedded_at IS NOT NULL" []
+            let! awaitExtract = db.execScalar "SELECT COUNT(*) FROM stage_extract" []
+            let! awaitClassify = db.execScalar "SELECT COUNT(*) FROM stage_classify" []
+            let! awaitEmbed = db.execScalar "SELECT COUNT(*) FROM stage_embed" []
 
             let toInt64 (v: obj | null) =
                 match v with
@@ -53,6 +59,9 @@ module Stats =
                   ExtractedCount = toInt64 extractedCount
                   ClassifiedCount = toInt64 classifiedCount
                   EmbeddedCount = toInt64 embeddedCount
+                  AwaitingExtract = toInt64 awaitExtract
+                  AwaitingClassify = toInt64 awaitClassify
+                  AwaitingEmbed = toInt64 awaitEmbed
                   DatabaseSizeMb = sizeMb }
         }
 

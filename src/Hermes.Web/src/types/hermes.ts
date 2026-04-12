@@ -49,6 +49,9 @@ export interface IndexStats {
   extractedCount: number;
   classifiedCount: number;
   embeddedCount: number;
+  awaitingExtract: number;
+  awaitingClassify: number;
+  awaitingEmbed: number;
   databaseSizeMb: number;
 }
 

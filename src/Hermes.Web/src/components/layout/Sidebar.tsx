@@ -62,8 +62,11 @@ export function Sidebar({
 
     const total = stats?.documentCount ?? 0;
     const extracted = stats?.extractedCount ?? 0;
+    const classified = stats?.classifiedCount ?? 0;
     const embedded = stats?.embeddedCount ?? 0;
-    const reading = total - extracted;
+    const awaitExtract = stats?.awaitingExtract ?? 0;
+    const awaitClassify = stats?.awaitingClassify ?? 0;
+    const awaitEmbed = stats?.awaitingEmbed ?? 0;
     const unsorted =
         categories?.find((c) => c.category === "unsorted")?.count ?? 0;
 
@@ -110,15 +113,14 @@ export function Sidebar({
                     <div className="text-[10px] font-semibold tracking-widest text-neutral-500">
                         PIPELINE
                     </div>
-                    <StageRow label="� Read" value={extracted} total={total} />
-                    <StageRow
-                        label="🧠 Memorised"
-                        value={embedded}
-                        total={extracted}
-                    />
-                    {reading > 0 && (
-                        <div className="text-xs text-blue-400">
-                            ⏳ {reading.toLocaleString()} awaiting reading
+                    <StageRow label="📖 Read" value={extracted} total={total} />
+                    <StageRow label="🗂️ Filed" value={classified} total={extracted} />
+                    <StageRow label="🧠 Memorised" value={embedded} total={classified} />
+                    {(awaitExtract > 0 || awaitClassify > 0 || awaitEmbed > 0) && (
+                        <div className="text-[10px] text-blue-400 space-y-0.5">
+                            {awaitExtract > 0 && <div>⏳ {awaitExtract.toLocaleString()} awaiting reading</div>}
+                            {awaitClassify > 0 && <div>⏳ {awaitClassify.toLocaleString()} awaiting filing</div>}
+                            {awaitEmbed > 0 && <div>⏳ {awaitEmbed.toLocaleString()} awaiting memorising</div>}
                         </div>
                     )}
                     {stats && (
