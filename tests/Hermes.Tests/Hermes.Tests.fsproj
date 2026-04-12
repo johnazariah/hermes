@@ -41,6 +41,7 @@
     <Compile Include="ExcelExtractionTests.fs" />
     <Compile Include="WordExtractionTests.fs" />
     <Compile Include="OspreyParityTests.fs" />
+    <Compile Include="StageProcessorTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

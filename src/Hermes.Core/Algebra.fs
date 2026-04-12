@@ -60,23 +60,29 @@ module Algebra =
 
     // ─── Stage queue (pipeline work queues) ──────────────────────────
 
-    /// A work item dequeued from a pipeline stage.
-    type StageItem =
+    /// Work item for the extract stage — includes file path.
+    type ExtractItem =
         { QueueId: int64
           DocId: int64
-          Payload: string
+          FilePath: string
           Attempts: int }
 
-    /// Tagless-Final stage queue — abstracts over SQLite or in-memory for testing.
-    type StageQueue =
+    /// Work item for classify/embed stages — doc ID only.
+    type DocItem =
+        { QueueId: int64
+          DocId: int64
+          Attempts: int }
+
+    /// Tagless-Final stage queue parameterised over item type.
+    type StageQueue<'Item> =
         { /// Dequeue up to N items ordered by creation time.
-          dequeue: int -> Task<StageItem list>
+          dequeue: int -> Task<'Item list>
           /// Mark an item as complete (remove from queue).
-          complete: int64 -> Task<unit>
+          complete: 'Item -> Task<unit>
           /// Record a failed attempt. Returns true if max attempts exceeded (dead-lettered).
-          fail: int64 -> string -> Task<bool>
+          fail: 'Item -> Logger -> Clock -> string -> Task<bool>
           /// Add an item to this queue.
-          enqueue: int64 -> string -> Task<unit>
+          enqueue: 'Item -> Task<unit>
           /// Count of pending items.
           count: unit -> Task<int64> }
 

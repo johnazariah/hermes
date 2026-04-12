@@ -44,7 +44,7 @@ module Pipeline =
         (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
         (clock: Algebra.Clock) (rules: Algebra.RulesEngine) (archiveDir: string)
         (input: ChannelReader<string>) (output: ChannelWriter<int64>)
-        (extractQueue: Algebra.StageQueue)
+        (extractQueue: Algebra.StageQueue<Algebra.ExtractItem>)
         (ct: CancellationToken) =
         task {
             try
@@ -57,7 +57,7 @@ module Pipeline =
                             // Enqueue into stage_extract for the stage processor
                             let! rows = db.execReader "SELECT saved_path FROM documents WHERE id = @id" [ ("@id", Database.boxVal docId) ]
                             let savedPath = rows |> List.tryHead |> Option.bind (fun r -> Prelude.RowReader(r).OptString "saved_path") |> Option.defaultValue ""
-                            do! extractQueue.enqueue docId savedPath
+                            do! StageProcessors.enqueueExtract extractQueue docId savedPath
                             do! output.WriteAsync(docId, ct)
                         | _ -> ()
                     with ex ->
@@ -218,7 +218,7 @@ module Pipeline =
         (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
         (clock: Algebra.Clock) (config: Domain.HermesConfig) (configDir: string)
         (createProvider: string -> string -> Task<Algebra.EmailProvider>)
-        (extractQueue: Algebra.StageQueue)
+        (extractQueue: Algebra.StageQueue<Algebra.ExtractItem>)
         (status: PipelineStatus)
         (concurrency: int)
         (syncInterval: TimeSpan) (startupDelay: TimeSpan)
@@ -358,50 +358,37 @@ module Pipeline =
             onBusy ()
 
             // Stage queues (SQLite-backed)
-            let extractQueue = StageProcessors.fromSqlite db logger clock "stage_extract" 3
-            let classifyQueue = StageProcessors.fromSqlite db logger clock "stage_classify" 3
-            let embedQueue = StageProcessors.fromSqlite db logger clock "stage_embed" 3
+            let extractQ = StageProcessors.extractQueue db
+            let classifyQ = StageProcessors.classifyQueue db
+            let embedQ = StageProcessors.embedQueue db
 
             // Build task list — start consumers BEFORE recovery so channels can drain
             let tasks = ResizeArray<Task>()
 
             // Producers — email producer enqueues directly to stage_extract
             let emailConcurrency = max 1 config.Pipeline.EmailConcurrency
-            tasks.Add(emailProducer fs db logger clock config configDir deps.CreateEmailProvider extractQueue status emailConcurrency syncInterval (TimeSpan.FromSeconds(30.0)) ct)
+            tasks.Add(emailProducer fs db logger clock config configDir deps.CreateEmailProvider extractQ status emailConcurrency syncInterval (TimeSpan.FromSeconds(30.0)) ct)
+
+            // Folder watcher uses channels → classifyConsumer → stage_extract
             tasks.Add(folderProducer fs db logger clock config ch.Ingest.Writer (TimeSpan.FromSeconds(30.0)) ct)
-
-            // Stage 1: Classify (single consumer — rules only, fast)
-            tasks.Add(classifyConsumer fs db logger clock rules archiveDir ch.Ingest.Reader ch.Extract.Writer extractQueue ct)
-
-            // Stage 2: Extract (N concurrent consumers — CPU-bound)
-            for i in 1..extractConcurrency do
-                tasks.Add(extractConsumer fs db logger clock deps.Extractor archiveDir ch.Extract.Reader ch.Post.Writer ch.DeadLetter.Writer ct)
-
-            // Stage 3a: LLM Classify (M concurrent consumers — network or GPU-bound)
-            match deps.ChatProvider with
-            | Some chat ->
-                for i in 1..llmConcurrency do
-                    tasks.Add(llmClassifyConsumer db fs logger clock chat deps.ContentRules archiveDir ch.Post.Reader i ct)
-            | None ->
-                logger.warn "No chat provider — LLM classification disabled"
+            tasks.Add(classifyConsumer fs db logger clock rules archiveDir ch.Ingest.Reader ch.Extract.Writer extractQ ct)
 
             // ── Stage queue processors (poll SQLite queue tables) ────
 
-            // Extract stage processor
-            let extractFn (item: Algebra.StageItem) =
+            // Extract stage: read file → extract text → forward to classify
+            let extractFn (item: Algebra.ExtractItem) =
                 task {
-                    let! result = Extraction.processDocument fs db logger clock deps.Extractor archiveDir item.DocId item.Payload false
-                    return result |> Result.map ignore
+                    let! result = Extraction.processDocument fs db logger clock deps.Extractor archiveDir item.DocId item.FilePath false
+                    return result |> Result.map (fun _ -> item.DocId)
                 }
             for _ in 1..extractConcurrency do
-                tasks.Add(StageProcessors.runLoop "extract" logger extractQueue (Some classifyQueue) extractFn 10 (TimeSpan.FromSeconds(2.0)) ct)
+                tasks.Add(StageProcessors.runExtractLoop "extract" logger clock extractQ classifyQ extractFn 10 (TimeSpan.FromSeconds(2.0)) ct)
 
-            // Classify stage processor
+            // Classify stage: LLM classification → forward to embed
             match deps.ChatProvider with
             | Some chat ->
-                let classifyFn (item: Algebra.StageItem) =
+                let classifyFn (item: Algebra.DocItem) =
                     task {
-                        // Reuse the existing classify logic from llmClassifyConsumer inline
                         let! docRows = db.execReader "SELECT category, extracted_text FROM documents WHERE id = @id" [ ("@id", Database.boxVal item.DocId) ]
                         match docRows |> List.tryHead with
                         | Some docRow ->
@@ -443,19 +430,12 @@ module Pipeline =
                         | None -> return Ok ()
                     }
                 for _ in 1..llmConcurrency do
-                    tasks.Add(StageProcessors.runLoop "classify" logger classifyQueue (Some embedQueue) classifyFn 1 (TimeSpan.FromSeconds(2.0)) ct)
+                    tasks.Add(StageProcessors.runDocLoop "classify" logger clock classifyQ (Some embedQ) classifyFn 1 (TimeSpan.FromSeconds(2.0)) ct)
             | None ->
                 logger.warn "No chat provider — stage classify disabled"
 
-            // Embed stage processor — currently deferred to PostStage
-            // TODO: wire embed stage processor when ready
-
             // Dashboard logger
-            tasks.Add(StageProcessors.dashboardLoop db logger extractQueue classifyQueue embedQueue (TimeSpan.FromSeconds(30.0)) ct)
-
-            // Folder watcher still uses channels (TODO: migrate to stage tables)
-            tasks.Add(folderProducer fs db logger clock config ch.Ingest.Writer (TimeSpan.FromSeconds(30.0)) ct)
-            tasks.Add(classifyConsumer fs db logger clock rules archiveDir ch.Ingest.Reader ch.Extract.Writer extractQueue ct)
+            tasks.Add(StageProcessors.dashboardLoop db logger extractQ classifyQ embedQ (TimeSpan.FromSeconds(30.0)) ct)
 
             // Recovery: seed channels from DB state (for folder watcher path only)
             do! recover fs db logger archiveDir ch.Ingest.Writer ch.Extract.Writer ch.Post.Writer ct

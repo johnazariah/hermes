@@ -656,7 +656,7 @@ module EmailSync =
         (clock: Algebra.Clock) (provider: Algebra.EmailProvider)
         (config: Domain.HermesConfig) (account: string)
         (input: ChannelReader<string>)
-        (extractQueue: Algebra.StageQueue)
+        (extractQueue: Algebra.StageQueue<Algebra.ExtractItem>)
         (processedCount: int ref)
         (consumerId: int)
         (ct: CancellationToken)
@@ -736,7 +736,7 @@ module EmailSync =
                                             let bodySidecar = buildSidecar account msg bodyAtt bodyName bodySha now
                                             do! fs.writeAllText (bodyPath + ".meta.json") (serialiseSidecar bodySidecar)
                                             let! bodyDocId = recordDocument db "email_body" account msg bodyAtt bodyName bodySha now
-                                            do! extractQueue.enqueue bodyDocId bodyPath
+                                            do! StageProcessors.enqueueExtract extractQueue bodyDocId bodyPath
                                             downloaded <- downloaded + 1
                                             logger.info $"[{account}/{consumerId}] Saved email body: {bodyName}"
 
@@ -755,7 +755,7 @@ module EmailSync =
                                     let sidecar = buildSidecar account msg att name sha now
                                     do! fs.writeAllText (savePath + ".meta.json") (serialiseSidecar sidecar)
                                     let! attDocId = recordDocument db "email_attachment" account msg att name sha now
-                                    do! extractQueue.enqueue attDocId savePath
+                                    do! StageProcessors.enqueueExtract extractQueue attDocId savePath
                                     downloaded <- downloaded + 1
                                     logger.info $"[{account}/{consumerId}] Downloaded: {name}"
 
@@ -781,7 +781,7 @@ module EmailSync =
         (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
         (clock: Algebra.Clock) (provider: Algebra.EmailProvider)
         (config: Domain.HermesConfig) (account: string)
-        (extractQueue: Algebra.StageQueue)
+        (extractQueue: Algebra.StageQueue<Algebra.ExtractItem>)
         (concurrency: int)
         (enumeratedCounter: int ref) (processedCounter: int ref)
         (ct: CancellationToken)
