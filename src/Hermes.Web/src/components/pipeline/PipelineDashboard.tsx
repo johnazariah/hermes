@@ -118,8 +118,10 @@ export function PipelineDashboard() {
         emailsProcessed: 0,
     };
 
-    const maxChannel = Math.max(p.inbox, p.reading, p.filing, 1);
-    const anyActive = p.inbox > 0 || p.reading > 0 || p.filing > 0;
+    const total = p.received;
+    const awaitingReading = total - p.read;
+    const awaitingMemorising = p.read - p.memorised;
+    const anyActive = total > 0 && (awaitingReading > 0 || awaitingMemorising > 0 || p.emailsQueued > p.emailsProcessed);
     const emailsPending = p.emailsQueued - p.emailsProcessed;
 
     return (
@@ -147,51 +149,57 @@ export function PipelineDashboard() {
                     {p.emailsQueued > 0 && (
                         <>
                             <ChannelBar
-                                label="Emails"
-                                depth={emailsPending > 0 ? emailsPending : 0}
+                                label="Downloading emails"
+                                depth={p.emailsProcessed}
                                 maxDepth={Math.max(p.emailsQueued, 1)}
                                 color="bg-green-500"
                                 icon="📧"
+                                tooltip="Fetching emails from Gmail — each email is checked for attachments and saved locally"
                             />
                             <div className="text-[10px] text-neutral-500 text-right">
                                 {p.emailsProcessed.toLocaleString()} /{" "}
-                                {p.emailsQueued.toLocaleString()} fetched
+                                {p.emailsQueued.toLocaleString()} emails
                             </div>
                             <FlowArrow active={emailsPending > 0} />
                         </>
                     )}
                     <ChannelBar
-                        label="Inbox"
-                        depth={p.inbox}
-                        maxDepth={maxChannel}
-                        color="bg-amber-500"
-                        icon="📬"
-                    />
-                    <FlowArrow active={p.inbox > 0} />
-                    <ChannelBar
-                        label="Reading"
-                        depth={p.reading}
-                        maxDepth={maxChannel}
+                        label="Reading documents"
+                        depth={p.read}
+                        maxDepth={Math.max(total, 1)}
                         color="bg-blue-500"
                         icon="📖"
+                        tooltip="Extracting text from PDFs, emails, spreadsheets, and other documents so they can be searched"
                     />
-                    <FlowArrow active={p.reading > 0} />
+                    {awaitingReading > 0 && (
+                        <div className="text-[10px] text-neutral-500 text-right">
+                            {awaitingReading.toLocaleString()} awaiting reading
+                        </div>
+                    )}
+                    <FlowArrow active={awaitingReading > 0} />
                     <ChannelBar
-                        label="Filing"
-                        depth={p.filing}
-                        maxDepth={maxChannel}
+                        label="Memorising"
+                        depth={p.memorised}
+                        maxDepth={Math.max(p.read, 1)}
                         color="bg-purple-500"
-                        icon="🗂️"
+                        icon="🧠"
+                        tooltip="Creating searchable memory — documents are indexed so you can find them by asking questions"
                     />
+                    {awaitingMemorising > 0 && (
+                        <div className="text-[10px] text-neutral-500 text-right">
+                            {awaitingMemorising.toLocaleString()} awaiting memorising
+                        </div>
+                    )}
                     {p.failed > 0 && (
                         <>
                             <FlowArrow active={true} />
                             <ChannelBar
                                 label="Failed"
                                 depth={p.failed}
-                                maxDepth={maxChannel}
+                                maxDepth={Math.max(total, 1)}
                                 color="bg-red-500"
                                 icon="❌"
+                                tooltip="Documents that couldn't be processed — check the dead letter panel for details"
                             />
                         </>
                     )}
