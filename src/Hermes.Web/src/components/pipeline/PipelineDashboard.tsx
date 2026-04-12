@@ -17,34 +17,34 @@ async function fetchPipeline(): Promise<PipelineStatus> {
     return (await fetch("/api/pipeline")).json();
 }
 
-function ChannelBar({
+function ProgressBar({
     label,
-    depth,
-    maxDepth,
+    done,
+    total,
     color,
     icon,
     tooltip,
 }: {
     label: string;
-    depth: number;
-    maxDepth: number;
+    done: number;
+    total: number;
     color: string;
     icon: string;
     tooltip: string;
 }) {
-    const fill = maxDepth > 0 ? Math.min(depth / maxDepth, 1) * 100 : 0;
-    const isActive = depth > 0;
+    const fill = total > 0 ? Math.min(done / total, 1) * 100 : 0;
+    const active = done < total && total > 0;
 
     return (
-        <div className="flex items-center gap-3 group relative" title={tooltip}>
+        <div className="flex items-center gap-3" title={tooltip}>
             <span className="text-lg w-8 text-center">{icon}</span>
             <div className="flex-1">
                 <div className="flex justify-between text-xs mb-1">
                     <span className="text-neutral-300">{label}</span>
                     <span
-                        className={`font-mono ${isActive ? "text-white" : "text-neutral-600"}`}
+                        className={`font-mono ${active ? "text-white" : "text-neutral-500"}`}
                     >
-                        {depth.toLocaleString()}
+                        {done.toLocaleString()} / {total.toLocaleString()}
                     </span>
                 </div>
                 <div className="h-2 bg-neutral-800 rounded-full overflow-hidden">
@@ -148,55 +148,41 @@ export function PipelineDashboard() {
                 <div className="space-y-1">
                     {p.emailsQueued > 0 && (
                         <>
-                            <ChannelBar
+                            <ProgressBar
                                 label="Downloading emails"
-                                depth={p.emailsProcessed}
-                                maxDepth={Math.max(p.emailsQueued, 1)}
+                                done={p.emailsProcessed}
+                                total={p.emailsQueued}
                                 color="bg-green-500"
                                 icon="📧"
                                 tooltip="Fetching emails from Gmail — each email is checked for attachments and saved locally"
                             />
-                            <div className="text-[10px] text-neutral-500 text-right">
-                                {p.emailsProcessed.toLocaleString()} /{" "}
-                                {p.emailsQueued.toLocaleString()} emails
-                            </div>
                             <FlowArrow active={emailsPending > 0} />
                         </>
                     )}
-                    <ChannelBar
+                    <ProgressBar
                         label="Reading documents"
-                        depth={p.read}
-                        maxDepth={Math.max(total, 1)}
+                        done={p.read}
+                        total={total}
                         color="bg-blue-500"
                         icon="📖"
                         tooltip="Extracting text from PDFs, emails, spreadsheets, and other documents so they can be searched"
                     />
-                    {awaitingReading > 0 && (
-                        <div className="text-[10px] text-neutral-500 text-right">
-                            {awaitingReading.toLocaleString()} awaiting reading
-                        </div>
-                    )}
                     <FlowArrow active={awaitingReading > 0} />
-                    <ChannelBar
+                    <ProgressBar
                         label="Memorising"
-                        depth={p.memorised}
-                        maxDepth={Math.max(p.read, 1)}
+                        done={p.memorised}
+                        total={p.read}
                         color="bg-purple-500"
                         icon="🧠"
                         tooltip="Creating searchable memory — documents are indexed so you can find them by asking questions"
                     />
-                    {awaitingMemorising > 0 && (
-                        <div className="text-[10px] text-neutral-500 text-right">
-                            {awaitingMemorising.toLocaleString()} awaiting memorising
-                        </div>
-                    )}
                     {p.failed > 0 && (
                         <>
                             <FlowArrow active={true} />
-                            <ChannelBar
+                            <ProgressBar
                                 label="Failed"
-                                depth={p.failed}
-                                maxDepth={Math.max(total, 1)}
+                                done={p.failed}
+                                total={p.failed}
                                 color="bg-red-500"
                                 icon="❌"
                                 tooltip="Documents that couldn't be processed — check the dead letter panel for details"
