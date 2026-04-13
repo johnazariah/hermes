@@ -150,19 +150,39 @@ module Pipeline =
             | None ->
                 logger.warn "No chat provider — classify stage disabled"
 
-            // Embed: generate embeddings → done
+            // Embed: generate embeddings → done (defers while classify/extract has work)
             match deps.Embedder with
             | Some embedder ->
-                let embedFn (item: Algebra.DocItem) =
-                    task {
-                        let! avail = embedder.isAvailable ()
-                        if not avail then return Error "Embedding service unavailable"
-                        else
-                        // Embed just this one document
-                        let! _ = Embeddings.batchEmbed db logger clock embedder false (Some 1) None
-                        return Ok ()
-                    }
-                tasks.Add(StageProcessors.runDocLoop "embed" logger clock embedQ None embedFn 5 (TimeSpan.FromSeconds(5.0)) ct)
+                tasks.Add(task {
+                    logger.info "Stage processor 'embed' started"
+                    try
+                        while not ct.IsCancellationRequested do
+                            let! classifyPending = classifyQ.count ()
+                            let! extractPending = extractQ.count ()
+                            if classifyPending > 0L || extractPending > 0L then
+                                logger.debug $"Embed deferred — extract:{extractPending} classify:{classifyPending} pending"
+                                try do! Task.Delay(TimeSpan.FromSeconds(30.0), ct) with :? OperationCanceledException -> ()
+                            else
+                                let! items = embedQ.dequeue 5
+                                if items.IsEmpty then
+                                    try do! Task.Delay(TimeSpan.FromSeconds(10.0), ct) with :? OperationCanceledException -> ()
+                                else
+                                    let! avail = embedder.isAvailable ()
+                                    if avail then
+                                        for item in items do
+                                            try
+                                                let! _ = Embeddings.batchEmbed db logger clock embedder false (Some 1) None
+                                                do! embedQ.complete item
+                                            with ex ->
+                                                logger.warn $"Embed failed for doc {item.DocId}: {ex.Message}"
+                                                let! _ = embedQ.fail item logger clock ex.Message
+                                                ()
+                                    else
+                                        logger.debug "Embed deferred — embedding service unavailable"
+                                        try do! Task.Delay(TimeSpan.FromSeconds(30.0), ct) with :? OperationCanceledException -> ()
+                    with :? OperationCanceledException -> ()
+                    logger.info "Stage processor 'embed' stopped"
+                })
             | None ->
                 logger.warn "No embedder — embed stage disabled"
 

@@ -729,14 +729,15 @@ module EmailSync =
                                                 | None -> ()
 
                                             let bodyName = buildStandardName msg.Date msg.Sender $"{subject}.md" |> fun n -> if n.Length > 200 then n.Substring(0, 200) else n
-                                            let bodyPath = Path.Combine(unclassifiedDir, bodyName)
-                                            fs.createDirectory unclassifiedDir
-                                            do! fs.writeAllBytes bodyPath bodyBytes
+                                            let bodyRelPath = Path.Combine("unclassified", bodyName)
+                                            let bodyAbsPath = Path.Combine(config.ArchiveDir, bodyRelPath)
+                                            fs.createDirectory (Path.GetDirectoryName(bodyAbsPath) |> Option.ofObj |> Option.defaultValue (Path.Combine(config.ArchiveDir, "unclassified")))
+                                            do! fs.writeAllBytes bodyAbsPath bodyBytes
                                             let bodyAtt : Domain.EmailAttachment = { FileName = bodyName; MimeType = "text/markdown"; SizeBytes = int64 bodyBytes.Length; Content = bodyBytes }
                                             let bodySidecar = buildSidecar account msg bodyAtt bodyName bodySha now
-                                            do! fs.writeAllText (bodyPath + ".meta.json") (serialiseSidecar bodySidecar)
-                                            let! bodyDocId = recordDocument db "email_body" account msg bodyAtt bodyName bodySha now
-                                            do! StageProcessors.enqueueExtract extractQueue bodyDocId bodyPath
+                                            do! fs.writeAllText (bodyAbsPath + ".meta.json") (serialiseSidecar bodySidecar)
+                                            let! bodyDocId = recordDocument db "email_body" account msg bodyAtt bodyRelPath bodySha now
+                                            do! StageProcessors.enqueueExtract extractQueue bodyDocId bodyRelPath
                                             downloaded <- downloaded + 1
                                             logger.info $"[{account}/{consumerId}] Saved email body: {bodyName}"
 
@@ -749,13 +750,14 @@ module EmailSync =
                                 let! isDup = hashExists db sha
                                 if not isDup then
                                     let name = buildStandardName msg.Date msg.Sender att.FileName
-                                    let savePath = Path.Combine(unclassifiedDir, name)
-                                    fs.createDirectory unclassifiedDir
-                                    do! fs.writeAllBytes savePath att.Content
+                                    let relPath = Path.Combine("unclassified", name)
+                                    let absPath = Path.Combine(config.ArchiveDir, relPath)
+                                    fs.createDirectory (Path.GetDirectoryName(absPath) |> Option.ofObj |> Option.defaultValue (Path.Combine(config.ArchiveDir, "unclassified")))
+                                    do! fs.writeAllBytes absPath att.Content
                                     let sidecar = buildSidecar account msg att name sha now
-                                    do! fs.writeAllText (savePath + ".meta.json") (serialiseSidecar sidecar)
-                                    let! attDocId = recordDocument db "email_attachment" account msg att name sha now
-                                    do! StageProcessors.enqueueExtract extractQueue attDocId savePath
+                                    do! fs.writeAllText (absPath + ".meta.json") (serialiseSidecar sidecar)
+                                    let! attDocId = recordDocument db "email_attachment" account msg att relPath sha now
+                                    do! StageProcessors.enqueueExtract extractQueue attDocId relPath
                                     downloaded <- downloaded + 1
                                     logger.info $"[{account}/{consumerId}] Downloaded: {name}"
 
