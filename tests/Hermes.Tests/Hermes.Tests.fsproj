@@ -40,6 +40,7 @@
     <Compile Include="WordExtractionTests.fs" />
     <Compile Include="OspreyParityTests.fs" />
     <Compile Include="StageProcessorTests.fs" />
+    <Compile Include="PipelineTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
