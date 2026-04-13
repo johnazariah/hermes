@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>FS3511</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="ApiServer.fs" />
+    <Compile Include="SleepGuard.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Hermes.Core\Hermes.Core.fsproj" />
+  </ItemGroup>
+
+</Project>
