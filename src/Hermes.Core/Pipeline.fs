@@ -95,8 +95,8 @@ module Pipeline =
                     let! result = Extraction.processDocument fs db logger clock deps.Extractor archiveDir item.DocId currentPath false
                     return result |> Result.map (fun _ -> item.DocId)
                 }
-            for _ in 1..extractConcurrency do
-                tasks.Add(StageProcessors.runExtractLoop "extract" logger clock extractQ classifyQ extractFn 10 (TimeSpan.FromSeconds(2.0)) ct)
+            // Single extract processor — SQLite doesn't support competing consumers safely
+            tasks.Add(StageProcessors.runExtractLoop "extract" logger clock extractQ classifyQ extractFn 10 (TimeSpan.FromSeconds(2.0)) ct)
 
             // Classify: LLM/rules classification → forward to embed
             match deps.ChatProvider with
