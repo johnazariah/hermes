@@ -2,4 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/Hermes.Core/Hermes.Core.fsproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Hermes.Tests/Hermes.Tests.fsproj" />
+  </Folder>
 </Solution>

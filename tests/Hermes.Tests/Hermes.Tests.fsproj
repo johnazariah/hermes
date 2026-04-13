@@ -1,0 +1,56 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <GenerateProgramFile>false</GenerateProgramFile>
+    <!-- Coverage thresholds — enforced by CI -->
+    <CollectCoverage>true</CollectCoverage>
+    <CoverletOutputFormat>cobertura</CoverletOutputFormat>
+    <ThresholdType>line,branch</ThresholdType>
+    <!-- Ratchet toward 85% — raise these as coverage improves -->
+    <Threshold>55</Threshold>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="TestHelpers.fs" />
+    <Compile Include="ConfigTests.fs" />
+    <Compile Include="DatabaseTests.fs" />
+    <Compile Include="RulesTests.fs" />
+    <Compile Include="ClassifierTests.fs" />
+    <Compile Include="EmailSyncTests.fs" />
+    <Compile Include="FolderWatcherTests.fs" />
+    <Compile Include="EmbeddingTests.fs" />
+    <Compile Include="SearchTests.fs" />
+    <Compile Include="McpTests.fs" />
+    <Compile Include="EmailBodyTests.fs" />
+    <Compile Include="MarkdownTests.fs" />
+    <Compile Include="ReminderTests.fs" />
+    <Compile Include="ChatTests.fs" />
+    <Compile Include="StatsTests.fs" />
+    <Compile Include="DomainTests.fs" />
+    <Compile Include="ExtractionFieldTests.fs" />
+    <Compile Include="PdfStructureTests.fs" />
+    <Compile Include="DocumentFeedTests.fs" />
+    <Compile Include="ContentClassifierTests.fs" />
+    <Compile Include="SemanticSearchTests.fs" />
+    <Compile Include="CsvExtractionTests.fs" />
+    <Compile Include="ActivityLogTests.fs" />
+    <Compile Include="DocumentBrowserTests.fs" />
+    <Compile Include="DocumentManagementTests.fs" />
+    <Compile Include="ThreadsTests.fs" />
+    <Compile Include="ExcelExtractionTests.fs" />
+    <Compile Include="WordExtractionTests.fs" />
+    <Compile Include="OspreyParityTests.fs" />
+    <Compile Include="StageProcessorTests.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.2" />
+    <PackageReference Include="DocumentFormat.OpenXml" Version="3.2.0" />
+    <PackageReference Include="FsCheck.Xunit" Version="2.16.6" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Hermes.Core\Hermes.Core.fsproj" />
+  </ItemGroup>
+</Project>
