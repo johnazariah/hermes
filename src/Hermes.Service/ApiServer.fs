@@ -133,7 +133,7 @@ module ApiServer =
                 let get key = counts |> Map.tryFind key |> Option.defaultValue 0L
                 return json {| received = get "received"
                                extracted = get "extracted"
-                               classified = get "classified"
+                               understood = get "understood"
                                embedded = get "embedded"
                                failed = get "failed" |}
             })) |> ignore

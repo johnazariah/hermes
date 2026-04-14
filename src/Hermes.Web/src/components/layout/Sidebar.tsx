@@ -62,10 +62,10 @@ export function Sidebar({
 
     const total = stats?.documentCount ?? 0;
     const extracted = stats?.extractedCount ?? 0;
-    const classified = stats?.classifiedCount ?? 0;
+    const understood = stats?.understoodCount ?? 0;
     const embedded = stats?.embeddedCount ?? 0;
     const awaitExtract = stats?.awaitingExtract ?? 0;
-    const awaitClassify = stats?.awaitingClassify ?? 0;
+    const awaitUnderstand = stats?.awaitingUnderstand ?? 0;
     const awaitEmbed = stats?.awaitingEmbed ?? 0;
     const unsorted =
         categories?.find((c) => c.category === "unsorted")?.count ?? 0;
@@ -115,8 +115,8 @@ export function Sidebar({
                     </div>
                     <StageRow label="📖 Read" value={extracted} total={total} />
                     <StageRow
-                        label="🗂️ Filed"
-                        value={classified}
+                        label="� Understood"
+                        value={understood}
                         total={extracted}
                     />
                     <StageRow
@@ -125,7 +125,7 @@ export function Sidebar({
                         total={extracted}
                     />
                     {(awaitExtract > 0 ||
-                        awaitClassify > 0 ||
+                        awaitUnderstand > 0 ||
                         awaitEmbed > 0) && (
                         <div className="text-[10px] text-blue-400 space-y-0.5">
                             {awaitExtract > 0 && (
@@ -134,10 +134,10 @@ export function Sidebar({
                                     reading
                                 </div>
                             )}
-                            {awaitClassify > 0 && (
+                            {awaitUnderstand > 0 && (
                                 <div>
-                                    ⏳ {awaitClassify.toLocaleString()} awaiting
-                                    filing
+                                    ⏳ {awaitUnderstand.toLocaleString()}{" "}
+                                    awaiting understanding
                                 </div>
                             )}
                             {awaitEmbed > 0 && (

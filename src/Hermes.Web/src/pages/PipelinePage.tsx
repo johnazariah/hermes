@@ -6,7 +6,7 @@ import type { IndexStats, DocumentSummary } from "../types/hermes";
 type Stage =
     | "received"
     | "extracted"
-    | "classified"
+    | "understood"
     | "embedded"
     | "failed"
     | null;
@@ -14,7 +14,7 @@ type Stage =
 interface StageCounts {
     received: number;
     extracted: number;
-    classified: number;
+    understood: number;
     embedded: number;
     failed: number;
 }
@@ -136,7 +136,7 @@ function DocumentJourney({ doc }: { doc: any }) {
     if (!doc) return null;
     const s = doc.summary || doc;
     const stage = s.stage || "received";
-    const stageOrder = ["received", "extracted", "classified", "embedded"];
+    const stageOrder = ["received", "extracted", "understood", "embedded"];
     const stageIdx = stageOrder.indexOf(stage);
 
     return (
@@ -160,10 +160,10 @@ function DocumentJourney({ doc }: { doc: any }) {
                 }
             />
             <JourneyStep
-                label="Filed"
-                icon="🗂️"
+                label="Understood"
+                icon="💡"
                 done={stageIdx >= 2}
-                active={stage === "classified" && stageIdx === 2}
+                active={stage === "understood" && stageIdx === 2}
                 detail={
                     s.classificationTier
                         ? `→ ${s.category} (${s.classificationTier}, ${(s.classificationConfidence || 0).toFixed(2)})`
@@ -291,7 +291,7 @@ export function PipelinePage() {
     const c = counts ?? {
         received: 0,
         extracted: 0,
-        classified: 0,
+        understood: 0,
         embedded: 0,
         failed: 0,
     };
@@ -358,17 +358,17 @@ export function PipelinePage() {
                         }
                     />
                     <StageBadge
-                        label="Filed"
-                        count={c.classified}
-                        icon="🗂️"
+                        label="Understood"
+                        count={c.understood}
+                        icon="💡"
                         color="text-amber-400"
-                        active={c.classified > 0}
-                        selected={selectedStage === "classified"}
+                        active={c.understood > 0}
+                        selected={selectedStage === "understood"}
                         onClick={() =>
                             setSelectedStage(
-                                selectedStage === "classified"
+                                selectedStage === "understood"
                                     ? null
-                                    : "classified",
+                                    : "understood",
                             )
                         }
                     />

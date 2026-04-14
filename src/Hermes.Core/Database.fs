@@ -70,6 +70,8 @@ module Database =
             extraction_confidence REAL,
             classification_tier TEXT,
             classification_confidence REAL,
+            comprehension   TEXT,
+            comprehension_schema TEXT,
             extracted_at    TEXT,
             embedded_at     TEXT,
             chunk_count     INTEGER,

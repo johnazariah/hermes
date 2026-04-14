@@ -19,18 +19,19 @@ module Pipeline =
           Embedder: Algebra.EmbeddingClient option
           ChatProvider: Algebra.ChatProvider option
           ContentRules: Domain.ContentRule list
+          ComprehensionPrompt: PromptLoader.ParsedPrompt option
           CreateEmailProvider: string -> string -> Task<Algebra.EmailProvider> }
 
     /// The channels connecting pipeline stages.
     type Channels =
         { Extract: Channel<Document.T>
-          Classify: Channel<Document.T>
+          Understand: Channel<Document.T>
           Embed: Channel<Document.T> }
 
     /// Create unbounded channels for the pipeline.
     let createChannels () : Channels =
         { Extract = Channel.CreateUnbounded<Document.T>()
-          Classify = Channel.CreateUnbounded<Document.T>()
+          Understand = Channel.CreateUnbounded<Document.T>()
           Embed = Channel.CreateUnbounded<Document.T>() }
 
     /// Insert a new document into the DB and write it to the extract channel.
@@ -165,7 +166,7 @@ module Pipeline =
                     let! counts = Document.stageCounts db
                     let total = counts |> Map.values |> Seq.sum
                     let summary =
-                        [ "received", "reading"; "classified", "filed"; "embedded", "memorised"; "failed", "failed" ]
+                        [ "received", "reading"; "understood", "understood"; "embedded", "memorised"; "failed", "failed" ]
                         |> List.map (fun (key, label) -> $"{label}:{counts |> Map.tryFind key |> Option.defaultValue 0L}")
                         |> String.concat " "
 
@@ -188,7 +189,7 @@ module Pipeline =
                 else max 1 (Environment.ProcessorCount / 2)
             let llmConcurrency = max 1 config.Pipeline.LlmConcurrency
 
-            logger.info $"Pipeline starting: extract={extractConcurrency}, classify={llmConcurrency}"
+            logger.info $"Pipeline starting: extract={extractConcurrency}, understand={llmConcurrency}"
 
             // Create channels
             let channels = createChannels ()
@@ -198,9 +199,10 @@ module Pipeline =
                 { Fs = fs; Db = db; Logger = logger; Clock = clock
                   Extractor = deps.Extractor; Embedder = deps.Embedder
                   ChatProvider = deps.ChatProvider; ContentRules = deps.ContentRules
+                  ComprehensionPrompt = deps.ComprehensionPrompt
                   ArchiveDir = archiveDir }
 
-            // GPU resource lock: shared semaphore when Ollama serves both classify and embed
+            // GPU resource lock: shared semaphore when Ollama serves both understand and embed
             let resourceLock =
                 if config.Ollama.Enabled && config.Ollama.SharedGpu then
                     logger.info $"GPU mutex enabled: burst hold {config.Ollama.MaxHoldSeconds}s"
@@ -218,14 +220,14 @@ module Pipeline =
             // ── Step 2: Launch consumers ─────────────────────────
             let tasks = ResizeArray<Task>()
 
-            // Extract consumers: extractCh → classifyCh
+            // Extract consumers: extractCh → understandCh
             let extractStage = stages |> List.find (fun s -> s.Name = "extract")
-            for t in Workflow.launchConsumers extractStage db logger extractConcurrency channels.Extract.Reader (Some channels.Classify.Writer) ct do
+            for t in Workflow.launchConsumers extractStage db logger extractConcurrency channels.Extract.Reader (Some channels.Understand.Writer) ct do
                 tasks.Add(t)
 
-            // Classify consumers: classifyCh → embedCh
-            let classifyStage = stages |> List.find (fun s -> s.Name = "classify")
-            for t in Workflow.launchConsumers classifyStage db logger llmConcurrency channels.Classify.Reader (Some channels.Embed.Writer) ct do
+            // Understand consumers: understandCh → embedCh
+            let understandStage = stages |> List.find (fun s -> s.Name = "understand")
+            for t in Workflow.launchConsumers understandStage db logger llmConcurrency channels.Understand.Reader (Some channels.Embed.Writer) ct do
                 tasks.Add(t)
 
             // Embed consumers: embedCh → done

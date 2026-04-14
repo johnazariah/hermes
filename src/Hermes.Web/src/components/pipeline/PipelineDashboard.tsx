@@ -102,17 +102,17 @@ export function PipelineDashboard() {
 
     const total = stats?.documentCount ?? 0;
     const read = stats?.extractedCount ?? 0;
-    const classified = stats?.classifiedCount ?? 0;
+    const understood = stats?.understoodCount ?? 0;
     const memorised = stats?.embeddedCount ?? 0;
     const emailsQueued = pipeline?.emailsQueued ?? 0;
     const emailsProcessed = pipeline?.emailsProcessed ?? 0;
     const emailsPending = emailsQueued - emailsProcessed;
     const awaitingReading = total - read;
-    const awaitingFiling = read - classified;
-    const awaitingMemorising = classified - memorised;
+    const awaitingUnderstanding = read - understood;
+    const awaitingMemorising = understood - memorised;
     const anyActive =
         awaitingReading > 0 ||
-        awaitingFiling > 0 ||
+        awaitingUnderstanding > 0 ||
         awaitingMemorising > 0 ||
         emailsPending > 0;
 
@@ -159,12 +159,12 @@ export function PipelineDashboard() {
                     <div className="flex gap-4">
                         <div className="flex-1">
                             <ProgressBar
-                                label="Filing"
-                                done={classified}
+                                label="Understanding"
+                                done={understood}
                                 total={read}
                                 color="bg-amber-500"
-                                icon="🗂️"
-                                tooltip="Sorting documents into categories like invoices, tax, medical using AI"
+                                icon="💡"
+                                tooltip="Comprehending documents — extracting structured data, document type, and key fields using AI"
                             />
                         </div>
                         <div className="flex-1">
@@ -195,16 +195,16 @@ export function PipelineDashboard() {
                     highlight={read < total}
                 />
                 <StatCard
-                    icon="🗂️"
-                    label="Filed"
-                    value={classified.toLocaleString()}
-                    highlight={classified < read}
+                    icon="�"
+                    label="Understood"
+                    value={understood.toLocaleString()}
+                    highlight={understood < read}
                 />
                 <StatCard
                     icon="🧠"
                     label="Memorised"
                     value={memorised.toLocaleString()}
-                    highlight={memorised < classified}
+                    highlight={memorised < understood}
                 />
                 <StatCard
                     icon="💾"

@@ -61,6 +61,7 @@ module Document =
            "extracted_amount"; "extracted_vendor"; "extracted_abn"
            "ocr_confidence"; "extraction_method"; "extraction_confidence"
            "classification_tier"; "classification_confidence"
+           "comprehension"; "comprehension_schema"
            "extracted_at"; "embedded_at"; "chunk_count"; "starred"
            "ingested_at" |]
 
@@ -107,6 +108,13 @@ module Document =
                     []
             return rows |> List.map fromRow
         }
+
+    /// Normalise legacy stage values to current names.
+    /// 'classified' → 'understood' for data created before the comprehension stage.
+    let normaliseStage (s: string) =
+        match s with
+        | "classified" -> "understood"
+        | other -> other
 
     /// Query pipeline stage counts for the dashboard.
     let stageCounts (db: Algebra.Database) : Task<Map<string, int64>> =

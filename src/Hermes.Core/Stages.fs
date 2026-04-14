@@ -22,6 +22,7 @@ module Stages =
           Embedder: Algebra.EmbeddingClient option
           ChatProvider: Algebra.ChatProvider option
           ContentRules: Domain.ContentRule list
+          ComprehensionPrompt: PromptLoader.ParsedPrompt option
           ArchiveDir: string }
 
     // ─── Extract stage ───────────────────────────────────────────
@@ -71,70 +72,115 @@ module Stages =
                     |> Document.encode "stage" (box "extracted")
         }
 
-    // ─── Classify stage ──────────────────────────────────────────
+    // ─── Understand stage ──────────────────────────────────────
 
-    /// Classify a document using content rules and LLM fallback.
-    /// Category is metadata only — files stay where they are.
-    let classify (deps: Deps) (doc: Document.T) : Task<Document.T> =
+    /// Maximum characters of document text to send to the LLM.
+    let private maxComprehensionChars = 3000
+
+    /// Build context string from extracted metadata.
+    let private buildContext (doc: Document.T) : string =
+        let vendor = doc |> Document.decode<string> "extracted_vendor" |> Option.defaultValue ""
+        let amount = doc |> Document.decode<float> "extracted_amount"
+        let sender = doc |> Document.decode<string> "sender" |> Option.defaultValue ""
+        let subject = doc |> Document.decode<string> "subject" |> Option.defaultValue ""
+        let contextParts =
+            [ if vendor <> "" then $"Known vendor: {vendor}"
+              if amount.IsSome then $"Detected amount: {amount.Value}"
+              if sender <> "" then $"Email sender: {sender}"
+              if subject <> "" then $"Email subject: {subject}" ]
+
+        if contextParts.IsEmpty then ""
+        else "\nContext from prior extraction:\n" + (contextParts |> String.concat "\n") + "\n"
+
+    /// Fallback prompts when no external prompt file is loaded.
+    let private fallbackSystemPrompt =
+        "You are a document intelligence system. You read documents and produce structured JSON understanding. Be precise with monetary amounts and dates."
+
+    let private fallbackUserPrompt (text: string) (context: string) : string =
+        let truncated =
+            if text.Length <= maxComprehensionChars then text
+            else text.Substring(0, maxComprehensionChars) + "\n[... truncated]"
+        $"""Read the following document text and produce a JSON understanding.
+{context}
+Include:
+- document_type: what kind of document this is
+- confidence: 0.0-1.0 how confident you are
+- summary: a 1-2 sentence human-readable summary
+- fields: an object with the key structured data extracted
+
+Extract all monetary amounts, dates, names, account numbers, and identifiers you can find.
+Respond with ONLY a JSON object, no explanation.
+
+Document text:
+{truncated}"""
+
+    /// Understand a document: produce structured comprehension via LLM.
+    /// Falls back to content rules for fast-path classification when no LLM is available.
+    let understand (deps: Deps) (doc: Document.T) : Task<Document.T> =
         let docId = Document.id doc
         let text = doc |> Document.decode<string> "extracted_text" |> Option.defaultValue ""
 
-        let classified category tier confidence =
+        let understood category tier confidence =
             doc
             |> Document.encode "category" (box category)
             |> Document.encode "classification_tier" (box tier)
             |> Document.encode "classification_confidence" (box confidence)
-            |> Document.encode "stage" (box "classified")
+            |> Document.encode "stage" (box "understood")
 
         let passThrough () =
-            doc |> Document.encode "stage" (box "classified")
+            doc |> Document.encode "stage" (box "understood")
 
         task {
             if String.IsNullOrWhiteSpace(text) then
-                deps.Logger.debug $"Classify skip doc {docId}: empty extracted text"
+                deps.Logger.debug $"Understand skip doc {docId}: empty extracted text"
                 return passThrough ()
             else
 
-            // Fast path: content rules (no LLM)
+            // Fast path: content rules (no LLM needed)
             match ContentClassifier.classify text [] None deps.ContentRules with
             | Some (category, confidence) ->
-                deps.Logger.info $"Classified doc {docId} as '{category}' via content rules (conf={confidence:F2})"
-                return classified category "content" confidence
+                let canonical = ComprehensionSchema.normaliseCategory category
+                deps.Logger.info $"Understood doc {docId} as '{canonical}' via content rules (conf={confidence:F2})"
+                return understood canonical "content" confidence
 
             | None ->
-                // Slow path: LLM fallback
+                // LLM comprehension path
                 match deps.ChatProvider with
                 | None ->
-                    deps.Logger.debug $"Classify skip doc {docId}: no chat provider"
+                    deps.Logger.debug $"Understand skip doc {docId}: no chat provider"
                     return passThrough ()
 
                 | Some chat ->
-                    let! catRows = deps.Db.execReader "SELECT DISTINCT category FROM documents WHERE category NOT IN ('unsorted','unclassified') LIMIT 50" []
-                    let existingCats = catRows |> List.choose (fun r -> Prelude.RowReader(r).OptString "category")
-                    let seedCats = [ "invoices"; "bank-statements"; "receipts"; "tax"; "payslips"; "insurance"; "real-estate"; "travel"; "medical"; "utilities"; "legal"; "donations"; "contracts"; "correspondence" ]
-                    let allCats = (existingCats @ seedCats) |> List.distinct
-                    let prompt = ContentClassifier.buildClassificationPrompt text allCats
+                    let context = buildContext doc
 
-                    let! llmResult = chat.complete "You are a document classifier." prompt
+                    let systemPrompt, userPrompt =
+                        match deps.ComprehensionPrompt with
+                        | Some p -> p.System, PromptLoader.render p text context
+                        | None -> fallbackSystemPrompt, fallbackUserPrompt text context
+
+                    let! llmResult = chat.complete systemPrompt userPrompt
                     match llmResult with
                     | Error e ->
-                        deps.Logger.warn $"LLM classification failed for doc {docId}: {e}"
+                        deps.Logger.warn $"Comprehension failed for doc {docId}: {e}"
                         return passThrough ()
 
                     | Ok response ->
-                        match ContentClassifier.parseClassificationResponse response with
-                        | Some (category, confidence, reasoning) when confidence >= 0.4 ->
-                            let tier = if confidence >= 0.7 then "llm" else "llm_review"
-                            deps.Logger.info $"Classified doc {docId} as '{category}' ({tier}, conf={confidence:F2}): {reasoning}"
-                            return classified category tier confidence
+                        match ComprehensionSchema.normaliseResponse response with
+                        | Ok parsed ->
+                            let tier = if parsed.Confidence >= 0.7 then "comprehension" else "comprehension_review"
+                            deps.Logger.info $"Understood doc {docId} as '{parsed.CanonicalCategory}' ({parsed.DocumentType}, {tier}, conf={parsed.Confidence:F2}): {parsed.Summary}"
+                            return
+                                doc
+                                |> Document.encode "category" (box parsed.CanonicalCategory)
+                                |> Document.encode "classification_tier" (box tier)
+                                |> Document.encode "classification_confidence" (box parsed.Confidence)
+                                |> Document.encode "comprehension" (box parsed.RawJson)
+                                |> Document.encode "comprehension_schema" (box "v2")
+                                |> Document.encode "stage" (box "understood")
 
-                        | Some (_, confidence, _) ->
-                            deps.Logger.info $"Classify doc {docId}: LLM confidence too low ({confidence:F2})"
-                            return passThrough ()
-
-                        | None ->
+                        | Error parseErr ->
                             let preview = response.[..min 200 (response.Length - 1)]
-                            deps.Logger.warn $"Classify doc {docId}: could not parse LLM response: {preview}"
+                            deps.Logger.warn $"Understand doc {docId}: {parseErr}: {preview}"
                             return passThrough ()
         }
 
@@ -187,10 +233,10 @@ module Stages =
             ResourceLock = None          // CPU-only, no GPU contention
             MaxHoldTime = TimeSpan.Zero }
 
-          { Name = "classify"
-            OutputKey = "classification_tier"
+          { Name = "understand"
+            OutputKey = "comprehension_schema"
             RequiredKeys = [ "extracted_text" ]
-            Process = classify deps
+            Process = understand deps
             ResourceLock = resourceLock   // shares GPU with embed
             MaxHoldTime = maxHoldTime }
 
@@ -198,5 +244,5 @@ module Stages =
             OutputKey = "embedded_at"
             RequiredKeys = [ "extracted_text" ]
             Process = embed deps
-            ResourceLock = resourceLock   // shares GPU with classify
+            ResourceLock = resourceLock   // shares GPU with understand
             MaxHoldTime = maxHoldTime } ]

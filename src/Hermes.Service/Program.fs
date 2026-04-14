@@ -91,11 +91,28 @@ let main args =
 
     let rules = Rules.fromFile fs logger (Path.Combine(configDir, "rules.yaml")) |> Async.AwaitTask |> Async.RunSynchronously
 
+    // Load comprehension prompt from config dir, falling back to bundled copy
+    let assemblyDir =
+        match Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) with
+        | null -> "."
+        | dir -> dir
+    let comprehensionPrompt =
+        PromptLoader.loadWithFallback fs configDir assemblyDir
+        |> Async.AwaitTask |> Async.RunSynchronously
+        |> function
+           | Ok p ->
+               logger.info "Loaded comprehension prompt"
+               Some p
+           | Error e ->
+               logger.warn $"Comprehension prompt not loaded: {e} — using fallback"
+               None
+
     let deps : Pipeline.Deps =
         { Extractor = extractor
           Embedder = embedder
           ChatProvider = chatProvider
           ContentRules = contentRules
+          ComprehensionPrompt = comprehensionPrompt
           CreateEmailProvider = fun cfgDir label ->
             task {
                 let credPath = config.Credentials

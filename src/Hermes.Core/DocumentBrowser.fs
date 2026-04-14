@@ -17,10 +17,11 @@ module DocumentBrowser =
           ClassificationConfidence: float option }
 
     type PipelineStatus =
-        { Classified: bool; Extracted: bool; Embedded: bool }
+        { Understood: bool; Extracted: bool; Embedded: bool }
 
     type DocumentDetail =
         { Summary: DocumentSummary; ExtractedText: string option
+          Comprehension: string option
           FilePath: string; Vendor: string option
           IngestedAt: string; ExtractedAt: string option
           EmbeddedAt: string option; PipelineStatus: PipelineStatus }
@@ -77,6 +78,7 @@ module DocumentBrowser =
             let! rows =
                 db.execReader
                     """SELECT id, original_name, category, saved_path, extracted_text,
+                              comprehension,
                               extracted_date, extracted_amount, extracted_vendor, sender,
                               source_type, account, source_path,
                               classification_tier, classification_confidence,
@@ -101,11 +103,12 @@ module DocumentBrowser =
                           ClassificationTier = r.OptString "classification_tier"
                           ClassificationConfidence = r.OptFloat "classification_confidence" }
                     let pipeline =
-                        { Classified = summary.Category <> "unsorted" && summary.Category <> "unclassified"
+                        { Understood = summary.Category <> "unsorted" && summary.Category <> "unclassified"
                           Extracted = (r.OptString "extracted_at").IsSome
                           Embedded = (r.OptString "embedded_at").IsSome }
                     { Summary = summary
                       ExtractedText = r.OptString "extracted_text"
+                      Comprehension = r.OptString "comprehension"
                       FilePath = r.String "saved_path" ""
                       Vendor = r.OptString "extracted_vendor"
                       IngestedAt = r.String "ingested_at" ""

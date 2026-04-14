@@ -28,6 +28,7 @@
     <Compile Include="CsvExtraction.fs" />
     <Compile Include="Extraction.fs" />
     <Compile Include="ContentClassifier.fs" />
+    <Compile Include="PromptLoader.fs" />
     <Compile Include="DocumentFeed.fs" />
     <Compile Include="DocumentManagement.fs" />
     <Compile Include="Classifier.fs" />
@@ -59,6 +60,10 @@
     <PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
     <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
     <PackageReference Include="YamlDotNet" Version="16.3.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="prompts\comprehension.md" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

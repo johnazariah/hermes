@@ -13,10 +13,10 @@ module Stats =
     type IndexStats =
         { DocumentCount: int64
           ExtractedCount: int64
-          ClassifiedCount: int64
+          UnderstoodCount: int64
           EmbeddedCount: int64
           AwaitingExtract: int64
-          AwaitingClassify: int64
+          AwaitingUnderstand: int64
           AwaitingEmbed: int64
           DatabaseSizeMb: float }
 
@@ -36,11 +36,11 @@ module Stats =
         task {
             let! docCount = db.execScalar "SELECT COUNT(*) FROM documents" []
             let! extractedCount = db.execScalar "SELECT COUNT(*) FROM documents WHERE extracted_text IS NOT NULL" []
-            let! classifiedCount = db.execScalar "SELECT COUNT(*) FROM documents WHERE extracted_text IS NOT NULL AND category NOT IN ('unsorted', 'unclassified')" []
+            let! classifiedCount = db.execScalar "SELECT COUNT(*) FROM documents WHERE comprehension IS NOT NULL OR (extracted_text IS NOT NULL AND category NOT IN ('unsorted', 'unclassified'))" []
             let! embeddedCount = db.execScalar "SELECT COUNT(*) FROM documents WHERE embedded_at IS NOT NULL" []
             let! awaitExtract = db.execScalar "SELECT COUNT(*) FROM documents WHERE stage = 'received'" []
             let! awaitClassify = db.execScalar "SELECT COUNT(*) FROM documents WHERE stage = 'extracted'" []
-            let! awaitEmbed = db.execScalar "SELECT COUNT(*) FROM documents WHERE stage = 'classified'" []
+            let! awaitEmbed = db.execScalar "SELECT COUNT(*) FROM documents WHERE stage = 'understood'" []
 
             let toInt64 (v: obj | null) =
                 match v with
@@ -57,10 +57,10 @@ module Stats =
             return
                 { DocumentCount = toInt64 docCount
                   ExtractedCount = toInt64 extractedCount
-                  ClassifiedCount = toInt64 classifiedCount
+                  UnderstoodCount = toInt64 classifiedCount
                   EmbeddedCount = toInt64 embeddedCount
                   AwaitingExtract = toInt64 awaitExtract
-                  AwaitingClassify = toInt64 awaitClassify
+                  AwaitingUnderstand = toInt64 awaitClassify
                   AwaitingEmbed = toInt64 awaitEmbed
                   DatabaseSizeMb = sizeMb }
         }

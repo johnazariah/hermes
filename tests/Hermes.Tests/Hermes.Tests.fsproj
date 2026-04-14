@@ -41,6 +41,7 @@
     <Compile Include="OspreyParityTests.fs" />
     <Compile Include="DocumentTests.fs" />
     <Compile Include="WorkflowTests.fs" />
+    <Compile Include="PromptLoaderTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

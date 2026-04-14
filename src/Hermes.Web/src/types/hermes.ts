@@ -32,13 +32,14 @@ export interface DocumentSummary {
 export interface DocumentDetail {
   summary: DocumentSummary;
   extractedText: string | null;
+  comprehension: string | null;
   filePath: string;
   vendor: string | null;
   ingestedAt: string;
   extractedAt: string | null;
   embeddedAt: string | null;
   pipelineStatus: {
-    classified: boolean;
+    understood: boolean;
     extracted: boolean;
     embedded: boolean;
   };
@@ -47,10 +48,10 @@ export interface DocumentDetail {
 export interface IndexStats {
   documentCount: number;
   extractedCount: number;
-  classifiedCount: number;
+  understoodCount: number;
   embeddedCount: number;
   awaitingExtract: number;
-  awaitingClassify: number;
+  awaitingUnderstand: number;
   awaitingEmbed: number;
   databaseSizeMb: number;
 }
