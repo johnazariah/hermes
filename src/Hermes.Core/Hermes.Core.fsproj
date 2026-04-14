@@ -16,8 +16,8 @@
     <Compile Include="Config.fs" />
     <Compile Include="Logging.fs" />
     <Compile Include="Database.fs" />
+    <Compile Include="Document.fs" />
     <Compile Include="Rules.fs" />
-    <Compile Include="StageProcessors.fs" />
     <Compile Include="Embeddings.fs" />
     <Compile Include="Markdown.fs" />
     <Compile Include="SemanticSearch.fs" />
@@ -40,6 +40,8 @@
     <Compile Include="Chat.fs" />
     <Compile Include="EmailSync.fs" />
     <Compile Include="GmailProvider.fs" />
+    <Compile Include="Workflow.fs" />
+    <Compile Include="Stages.fs" />
     <Compile Include="Pipeline.fs" />
     <Compile Include="McpTools.fs" />
     <Compile Include="McpServer.fs" />

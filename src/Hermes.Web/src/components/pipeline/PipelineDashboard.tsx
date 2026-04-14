@@ -156,23 +156,28 @@ export function PipelineDashboard() {
                         tooltip="Extracting text from PDFs, emails, spreadsheets, and other documents so they can be searched"
                     />
                     <FlowArrow active={awaitingReading > 0} />
-                    <ProgressBar
-                        label="Filing"
-                        done={classified}
-                        total={read}
-                        color="bg-amber-500"
-                        icon="🗂️"
-                        tooltip="Sorting documents into categories like invoices, tax, medical using AI"
-                    />
-                    <FlowArrow active={awaitingFiling > 0} />
-                    <ProgressBar
-                        label="Memorising"
-                        done={memorised}
-                        total={classified}
-                        color="bg-purple-500"
-                        icon="🧠"
-                        tooltip="Creating searchable memory — documents are indexed so you can find them by asking questions"
-                    />
+                    <div className="flex gap-4">
+                        <div className="flex-1">
+                            <ProgressBar
+                                label="Filing"
+                                done={classified}
+                                total={read}
+                                color="bg-amber-500"
+                                icon="🗂️"
+                                tooltip="Sorting documents into categories like invoices, tax, medical using AI"
+                            />
+                        </div>
+                        <div className="flex-1">
+                            <ProgressBar
+                                label="Memorising"
+                                done={memorised}
+                                total={read}
+                                color="bg-purple-500"
+                                icon="🧠"
+                                tooltip="Creating searchable memory — documents are indexed so you can find them by asking questions"
+                            />
+                        </div>
+                    </div>
                 </div>
             </div>
 

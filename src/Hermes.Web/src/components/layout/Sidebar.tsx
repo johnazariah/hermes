@@ -114,13 +114,38 @@ export function Sidebar({
                         PIPELINE
                     </div>
                     <StageRow label="📖 Read" value={extracted} total={total} />
-                    <StageRow label="🗂️ Filed" value={classified} total={extracted} />
-                    <StageRow label="🧠 Memorised" value={embedded} total={classified} />
-                    {(awaitExtract > 0 || awaitClassify > 0 || awaitEmbed > 0) && (
+                    <StageRow
+                        label="🗂️ Filed"
+                        value={classified}
+                        total={extracted}
+                    />
+                    <StageRow
+                        label="🧠 Memorised"
+                        value={embedded}
+                        total={extracted}
+                    />
+                    {(awaitExtract > 0 ||
+                        awaitClassify > 0 ||
+                        awaitEmbed > 0) && (
                         <div className="text-[10px] text-blue-400 space-y-0.5">
-                            {awaitExtract > 0 && <div>⏳ {awaitExtract.toLocaleString()} awaiting reading</div>}
-                            {awaitClassify > 0 && <div>⏳ {awaitClassify.toLocaleString()} awaiting filing</div>}
-                            {awaitEmbed > 0 && <div>⏳ {awaitEmbed.toLocaleString()} awaiting memorising</div>}
+                            {awaitExtract > 0 && (
+                                <div>
+                                    ⏳ {awaitExtract.toLocaleString()} awaiting
+                                    reading
+                                </div>
+                            )}
+                            {awaitClassify > 0 && (
+                                <div>
+                                    ⏳ {awaitClassify.toLocaleString()} awaiting
+                                    filing
+                                </div>
+                            )}
+                            {awaitEmbed > 0 && (
+                                <div>
+                                    ⏳ {awaitEmbed.toLocaleString()} awaiting
+                                    memorising
+                                </div>
+                            )}
                         </div>
                     )}
                     {stats && (

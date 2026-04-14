@@ -206,7 +206,8 @@ let testConfig (archiveDir: string) : Domain.HermesConfig =
       WatchFolders = []
       Ollama =
         { Domain.OllamaConfig.Enabled = false; BaseUrl = "http://localhost:11434"
-          EmbeddingModel = "nomic-embed-text"; VisionModel = "llava"; InstructModel = "llama3.2" }
+          EmbeddingModel = "nomic-embed-text"; VisionModel = "llava"; InstructModel = "llama3.2"
+          SharedGpu = true; MaxHoldSeconds = 180 }
       Fallback = { Domain.FallbackConfig.Embedding = "onnx"; Ocr = "none" }
       Azure = { Domain.AzureConfig.DocumentIntelligenceEndpoint = ""; DocumentIntelligenceKey = "" }
       Chat =

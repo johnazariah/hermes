@@ -99,7 +99,11 @@ module Domain =
           BaseUrl: string
           EmbeddingModel: string
           VisionModel: string
-          InstructModel: string }
+          InstructModel: string
+          /// When true, classify and embed share one GPU — acquire a mutex.
+          SharedGpu: bool
+          /// Burst duration (seconds) before yielding the GPU to the other stage.
+          MaxHoldSeconds: int }
 
     /// Fallback configuration when Ollama is unavailable.
     type FallbackConfig =

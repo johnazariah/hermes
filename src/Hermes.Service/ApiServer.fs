@@ -21,9 +21,6 @@ module ApiServer =
         (db: Algebra.Database) (fs: Algebra.FileSystem) (logger: Algebra.Logger)
         (clock: Algebra.Clock)
         (chatProvider: Algebra.ChatProvider option)
-        (extractQ: Algebra.StageQueue<Algebra.ExtractItem>)
-        (classifyQ: Algebra.StageQueue<Algebra.DocItem>)
-        (embedQ: Algebra.StageQueue<Algebra.DocItem>)
         (archiveDir: string) (configDir: string) =
 
         // ── Categories ──────────────────────────────────────────────
@@ -35,10 +32,39 @@ module ApiServer =
         app.MapGet("/api/documents", Func<HttpContext, Task<IResult>>(fun ctx ->
             task {
                 let category = ctx.Request.Query["category"].ToString()
+                let stage = ctx.Request.Query["stage"].ToString()
                 let offset = ctx.Request.Query["offset"].ToString() |> fun s -> if String.IsNullOrEmpty s then 0 else int s
                 let limit = ctx.Request.Query["limit"].ToString() |> fun s -> if String.IsNullOrEmpty s then 50 else int s
-                let! docs = DocumentBrowser.listDocuments db category offset limit
-                return json docs
+                if not (String.IsNullOrEmpty stage) then
+                    // Filter by pipeline stage
+                    let! rows =
+                        db.execReader
+                            """SELECT id, original_name, category, extracted_date, extracted_amount,
+                               sender, extracted_vendor AS vendor, source_type, account, source_path,
+                               classification_tier, classification_confidence, stage, extraction_method
+                               FROM documents WHERE stage = @stage ORDER BY id DESC LIMIT @lim OFFSET @off"""
+                            [ ("@stage", Database.boxVal stage); ("@lim", Database.boxVal (int64 limit)); ("@off", Database.boxVal (int64 offset)) ]
+                    let docs =
+                        rows |> List.map (fun row ->
+                            let r = Prelude.RowReader(row)
+                            {| id = r.Int64 "id" 0L
+                               originalName = r.String "original_name" ""
+                               category = r.String "category" ""
+                               extractedDate = r.OptString "extracted_date"
+                               extractedAmount = r.OptFloat "extracted_amount"
+                               sender = r.OptString "sender"
+                               vendor = r.OptString "vendor"
+                               sourceType = r.OptString "source_type"
+                               account = r.OptString "account"
+                               sourcePath = r.OptString "source_path"
+                               classificationTier = r.OptString "classification_tier"
+                               classificationConfidence = r.OptFloat "classification_confidence"
+                               stage = r.OptString "stage"
+                               extractionMethod = r.OptString "extraction_method" |})
+                    return json docs
+                else
+                    let! docs = DocumentBrowser.listDocuments db category offset limit
+                    return json docs
             })) |> ignore
 
         app.MapGet("/api/documents/{id:long}", Func<int64, Task<IResult>>(fun id ->
@@ -63,7 +89,14 @@ module ApiServer =
                 let! detail = DocumentBrowser.getDocumentDetail db id
                 match detail with
                 | Some d ->
-                    let fullPath = Path.Combine(archiveDir, d.FilePath)
+                    let primaryPath = Path.Combine(archiveDir, d.FilePath)
+                    // Fallback: try category folder if saved_path is stale
+                    let fileName = Path.GetFileName(d.FilePath) |> Option.ofObj |> Option.defaultValue ""
+                    let categoryPath = Path.Combine(archiveDir, d.Summary.Category, fileName)
+                    let fullPath =
+                        if File.Exists(primaryPath) then primaryPath
+                        elif File.Exists(categoryPath) then categoryPath
+                        else primaryPath
                     if File.Exists(fullPath) then
                         let name = d.Summary.OriginalName
                         let dot = name.LastIndexOf('.')
@@ -96,12 +129,13 @@ module ApiServer =
         // ── Pipeline dashboard ──────────────────────────────────────
         app.MapGet("/api/pipeline", Func<Task<IResult>>(fun () ->
             task {
-                let! extractPending = extractQ.count ()
-                let! classifyPending = classifyQ.count ()
-                let! embedPending = embedQ.count ()
-                return json {| awaitingExtract = extractPending
-                               awaitingClassify = classifyPending
-                               awaitingEmbed = embedPending |}
+                let! counts = Document.stageCounts db
+                let get key = counts |> Map.tryFind key |> Option.defaultValue 0L
+                return json {| received = get "received"
+                               extracted = get "extracted"
+                               classified = get "classified"
+                               embedded = get "embedded"
+                               failed = get "failed" |}
             })) |> ignore
 
         // ── Reminders ───────────────────────────────────────────────

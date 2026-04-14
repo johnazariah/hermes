@@ -650,13 +650,13 @@ module EmailSync =
         }
 
     /// Consumer: pull message IDs from channel, check DB, fetch + save if new.
-    /// Pushes saved file paths to the ingest channel for downstream pipeline.
+    /// Calls onIngest callback for each new document (docId, relativePath).
     let processMessageConsumer
         (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
         (clock: Algebra.Clock) (provider: Algebra.EmailProvider)
         (config: Domain.HermesConfig) (account: string)
         (input: ChannelReader<string>)
-        (extractQueue: Algebra.StageQueue<Algebra.ExtractItem>)
+        (onIngest: int64 -> string -> Task<unit>)
         (processedCount: int ref)
         (consumerId: int)
         (ct: CancellationToken)
@@ -737,7 +737,7 @@ module EmailSync =
                                             let bodySidecar = buildSidecar account msg bodyAtt bodyName bodySha now
                                             do! fs.writeAllText (bodyAbsPath + ".meta.json") (serialiseSidecar bodySidecar)
                                             let! bodyDocId = recordDocument db "email_body" account msg bodyAtt bodyRelPath bodySha now
-                                            do! StageProcessors.enqueueExtract extractQueue bodyDocId bodyRelPath
+                                            do! onIngest bodyDocId bodyRelPath
                                             downloaded <- downloaded + 1
                                             logger.info $"[{account}/{consumerId}] Saved email body: {bodyName}"
 
@@ -757,7 +757,7 @@ module EmailSync =
                                     let sidecar = buildSidecar account msg att name sha now
                                     do! fs.writeAllText (absPath + ".meta.json") (serialiseSidecar sidecar)
                                     let! attDocId = recordDocument db "email_attachment" account msg att relPath sha now
-                                    do! StageProcessors.enqueueExtract extractQueue attDocId relPath
+                                    do! onIngest attDocId relPath
                                     downloaded <- downloaded + 1
                                     logger.info $"[{account}/{consumerId}] Downloaded: {name}"
 
@@ -779,13 +779,13 @@ module EmailSync =
 
     /// Run a full channel-based sync for one account.
     /// Enumerates all message IDs, processes concurrently, advances watermark when done.
-    let syncAccountChanneled
+    /// Writes new documents to the pipeline's extract channel via onIngest callback.
+    let syncAccountWithChannel
         (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
         (clock: Algebra.Clock) (provider: Algebra.EmailProvider)
         (config: Domain.HermesConfig) (account: string)
-        (extractQueue: Algebra.StageQueue<Algebra.ExtractItem>)
+        (extractWriter: ChannelWriter<Document.T>)
         (concurrency: int)
-        (enumeratedCounter: int ref) (processedCounter: int ref)
         (ct: CancellationToken)
         : Task<SyncResult> =
         task {
@@ -798,6 +798,18 @@ module EmailSync =
                 let query = $"after:{epoch}"
                 logger.info $"[{account}] Channel sync since {sinceStr} with {concurrency} consumers"
 
+                // Callback to ingest into pipeline channel
+                let onIngest (docId: int64) (_relPath: string) =
+                    task {
+                        let! rows = db.execReader "SELECT * FROM documents WHERE id = @id" [ ("@id", Database.boxVal docId) ]
+                        match rows |> List.tryHead with
+                        | Some row -> do! extractWriter.WriteAsync(Document.fromRow row)
+                        | None -> ()
+                    }
+
+                let enumeratedCounter = ref 0
+                let processedCounter = ref 0
+
                 // Create the message ID channel
                 let idChannel = Channel.CreateBounded<string>(BoundedChannelOptions(10000, FullMode = BoundedChannelFullMode.Wait))
 
@@ -807,7 +819,7 @@ module EmailSync =
                 // Start N consumers
                 let consumerTasks =
                     [| for i in 1..concurrency ->
-                        processMessageConsumer fs db logger clock provider config account idChannel.Reader extractQueue processedCounter i ct |]
+                        processMessageConsumer fs db logger clock provider config account idChannel.Reader onIngest processedCounter i ct |]
 
                 // Wait for enumeration to finish (completes the channel)
                 let! totalEnumerated = enumTask

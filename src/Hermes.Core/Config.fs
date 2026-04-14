@@ -53,7 +53,11 @@ module Config =
           [<YamlMember(Alias = "vision_model")>]
           VisionModel: string
           [<YamlMember(Alias = "instruct_model")>]
-          InstructModel: string }
+          InstructModel: string
+          [<YamlMember(Alias = "shared_gpu")>]
+          SharedGpu: bool
+          [<YamlMember(Alias = "max_hold_seconds")>]
+          MaxHoldSeconds: int }
 
     [<CLIMutable>]
     type FallbackDto =
@@ -145,7 +149,9 @@ module Config =
               BaseUrl = "http://localhost:11434"
               EmbeddingModel = "nomic-embed-text"
               VisionModel = "llava"
-              InstructModel = "llama3.2" }
+              InstructModel = "llama3.2"
+              SharedGpu = true
+              MaxHoldSeconds = 180 }
           Fallback = { Domain.FallbackConfig.Embedding = "onnx"; Ocr = "azure-document-intelligence" }
           Azure =
             { Domain.AzureConfig.DocumentIntelligenceEndpoint = ""
@@ -220,7 +226,9 @@ module Config =
                   BaseUrl = dto.Ollama.BaseUrl |> orDefault def.Ollama.BaseUrl
                   EmbeddingModel = dto.Ollama.EmbeddingModel |> orDefault def.Ollama.EmbeddingModel
                   VisionModel = dto.Ollama.VisionModel |> orDefault def.Ollama.VisionModel
-                  InstructModel = dto.Ollama.InstructModel |> orDefault def.Ollama.InstructModel }
+                  InstructModel = dto.Ollama.InstructModel |> orDefault def.Ollama.InstructModel
+                  SharedGpu = if dto.Ollama.SharedGpu then true elif dto.Ollama.MaxHoldSeconds > 0 then true else def.Ollama.SharedGpu
+                  MaxHoldSeconds = if dto.Ollama.MaxHoldSeconds > 0 then dto.Ollama.MaxHoldSeconds else def.Ollama.MaxHoldSeconds }
 
         let fallback =
             if isNull (box dto.Fallback) then

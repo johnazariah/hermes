@@ -5,17 +5,29 @@ open System.IO
 open System.Net.Http
 open System.Threading
 open Microsoft.AspNetCore.Builder
+open Microsoft.AspNetCore.Http
 open Microsoft.Extensions.DependencyInjection
 open Hermes.Core
 open Serilog.Events
 
 [<EntryPoint>]
-let main _args =
+let main args =
     let fs = Interpreters.realFileSystem
     let env = Interpreters.systemEnvironment
     let clock = Interpreters.systemClock
     let configDir = Config.configDir env
     let configPath = Path.Combine(configDir, "config.yaml")
+
+    // Parse --initial-sync-days N (limits first email sync to N days ago)
+    let initialSyncDays =
+        args
+        |> Array.tryFindIndex (fun a -> a = "--initial-sync-days")
+        |> Option.bind (fun i ->
+            if i + 1 < args.Length then
+                match Int32.TryParse(args.[i + 1]) with
+                | true, n when n > 0 -> Some n
+                | _ -> None
+            else None)
 
     // Load config
     let config =
@@ -31,6 +43,28 @@ let main _args =
     let logger = Logging.configure configDir LogEventLevel.Information
     let db = Database.fromPath (Path.Combine(archiveDir, "db.sqlite"))
     let _ = db.initSchema () |> Async.AwaitTask |> Async.RunSynchronously
+    Embeddings.initSchema db |> Async.AwaitTask |> Async.RunSynchronously
+
+    // Seed sync_state for --initial-sync-days (only if account has no existing state)
+    match initialSyncDays with
+    | Some days ->
+        let watermark = DateTimeOffset.UtcNow.AddDays(float -days)
+        let wmStr = watermark.ToString("yyyy-MM-dd")
+        logger.info $"--initial-sync-days {days}: seeding sync_state with watermark {wmStr}"
+        for account in config.Accounts do
+            let existing = EmailSync.loadSyncState db account.Label |> Async.AwaitTask |> Async.RunSynchronously
+            if existing.IsNone then
+                db.execNonQuery
+                    """INSERT INTO sync_state (account, last_sync_at, message_count)
+                       VALUES (@acc, @ts, 0)
+                       ON CONFLICT(account) DO NOTHING"""
+                    [ ("@acc", Database.boxVal account.Label)
+                      ("@ts", Database.boxVal (watermark.ToString("o"))) ]
+                |> Async.AwaitTask |> Async.RunSynchronously |> ignore
+                logger.info $"  Seeded {account.Label} -> {wmStr}"
+            else
+                logger.info $"  {account.Label} already has sync state, skipping"
+    | None -> ()
 
     // Build pipeline deps
     let extractor : Algebra.TextExtractor =
@@ -70,11 +104,6 @@ let main _args =
                 return! GmailProvider.create credBytes tokenDir label logger
             } }
 
-    // Stage queues (shared with API for live counts)
-    let extractQ = StageProcessors.extractQueue db
-    let classifyQ = StageProcessors.classifyQueue db
-    let embedQ = StageProcessors.embedQueue db
-
     // Start pipeline in background
     use cts = new CancellationTokenSource()
     let _ = System.Threading.Tasks.Task.Run(fun () ->
@@ -97,10 +126,17 @@ let main _args =
     app.UseStaticFiles() |> ignore
 
     // Map API routes
-    ApiServer.mapRoutes app db fs logger clock chatProvider extractQ classifyQ embedQ archiveDir configDir
+    ApiServer.mapRoutes app db fs logger clock chatProvider archiveDir configDir
 
-    // SPA fallback
-    app.MapFallbackToFile("index.html") |> ignore
+    // SPA fallback — serve index.html for non-API routes (client-side routing)
+    app.MapFallback(Func<HttpContext, System.Threading.Tasks.Task<IResult>>(fun ctx ->
+        task {
+            if ctx.Request.Path.StartsWithSegments("/api") then
+                return Results.NotFound()
+            else
+                let indexPath = Path.Combine(app.Environment.WebRootPath, "index.html")
+                return Results.File(indexPath, "text/html")
+        })) |> ignore
 
     let port =
         match System.Environment.GetEnvironmentVariable("HERMES_PORT") with
