@@ -6,70 +6,65 @@
 
 ## Documentation
 
-Before creating or modifying any project documentation, read `.project/GOVERNANCE.md`. It defines the directory structure, rules for STATUS.md / wave files / design docs / prompts, and prevents duplication.
+Before creating or modifying any project documentation, read `.project/GOVERNANCE.md`.
 
 - **Project status**: `.project/STATUS.md` (read first — 50 lines)
-- **Active wave detail**: `.project/waves/wave-*.md` (append-only)
+- **Architecture**: `.project/design/23-pipeline-v4-architecture.md` (the canonical design doc)
+- **Comprehension**: `.project/design/24-comprehension-stage.md` (next to implement)
 - **Design reference**: `.project/design/*.md` (what/why, not status)
-- **Agent prompts**: `.github/prompts/*.prompt.md` (how, references waves)
 
 ## Project Overview
 
-Hermes is a local-first document intelligence service for macOS and Windows. It connects to email accounts, watches local folders, and continuously ingests, classifies, and indexes documents — exposing everything through an MCP server for AI agents.
+Hermes is a local-first document intelligence service. It ingests documents from email and local folders, understands them through LLM comprehension, and exposes structured knowledge via MCP server and web UI.
 
-| Concept      | Description                                                               |
-| ------------ | ------------------------------------------------------------------------- |
-| **Archive**  | `~/Documents/Hermes/` — categorised document storage                      |
-| **Intake**   | `unclassified/` folder — universal queue for all document sources         |
-| **Pipeline** | Classify → Extract → Embed (async `Channel<T>` stages)                    |
-| **Rules**    | YAML-configured cascade: sender domain → filename → subject → `unsorted/` |
-| **Index**    | SQLite + FTS5 (keyword) + sqlite-vec (semantic)                           |
-| **MCP**      | Streamable HTTP on `localhost:21740`, stdio shim for compat               |
+| Concept       | Description                                                               |
+| ------------- | ------------------------------------------------------------------------- |
+| **Archive**   | `~/Documents/Hermes/` — all files live in `unclassified/`, never moved    |
+| **Pipeline**  | ingest → Extract → Comprehend → Embed (`Channel<Document>` stages)        |
+| **Document**  | `Map<string, obj>` property bag — stages add keys, never remove           |
+| **Workflow**  | `runStage` monad — idempotency, write-aside, GPU lock, error handling     |
+| **Index**     | SQLite + FTS5 (keyword) + sqlite-vec (semantic)                           |
+| **MCP**       | Streamable HTTP on `localhost:21741` (prod) / `21742` (dev)               |
 
 ## Architecture
 
 ```
-Hermes Process (.NET 10)
-├── Producers: Email Sync, Folder Watchers → unclassified/
-├── Pipeline: Classifier → Extractor → Embedder (Channel<T>)
-├── Store: db.sqlite (tables + FTS5 + sqlite-vec)
-├── MCP Server: HTTP on localhost (+ stdio shim)
-└── UI: Avalonia tray icon + shell window
+Producers                Pipeline (Channel<Document>)           Consumers
+──────────              ─────────────────────────               ──────────
+Email Sync ──┐          Extract → Comprehend → Embed            React Web UI
+(N accounts)  ├──→                                              MCP Server
+Folder Watch ─┘          ↑ hydrate on restart                   Osprey (tax)
 ```
 
 ## Technology Stack
 
 | Component  | Choice                                               |
 | ---------- | ---------------------------------------------------- |
-| Runtime    | .NET 10, self-contained                              |
-| Language   | F# (core logic), C# (Avalonia UI)                    |
-| UI         | Avalonia (cross-platform tray + shell)               |
+| Runtime    | .NET 10, F#                                          |
+| UI         | React 19 + Vite + Tailwind                           |
 | Database   | SQLite via `Microsoft.Data.Sqlite`                   |
 | Email      | `Google.Apis.Gmail.v1`                               |
 | PDF        | PdfPig (`UglyToad.PdfPig`)                           |
-| Embeddings | Ollama REST API / ONNX Runtime fallback              |
-| OCR        | Ollama `llava` / Azure Document Intelligence         |
-| Config     | YAML via `YamlDotNet`                                |
-| Hosting    | `Microsoft.Extensions.Hosting` (`BackgroundService`) |
+| LLM        | Ollama llama3:8b (comprehension)                     |
+| Embeddings | Ollama nomic-embed-text                              |
 | Pipeline   | `System.Threading.Channels`                          |
-| Testing    | xUnit + FsCheck                                      |
+| Testing    | xUnit + FsCheck (F#), Playwright (UI)                |
 | Logging    | Serilog                                              |
 
 ## Solution Structure
 
 ```
 src/
-├── Hermes.Core/          F# library — domain, pipeline, DB, config
-├── Hermes.App/           Avalonia entry point — tray, shell, service host
-└── Hermes.Cli/           CLI entry point — thin wrapper calling Core
+├── Hermes.Core/          F# library — pipeline, extraction, comprehension, DB
+├── Hermes.Service/       F# service — HTTP API, MCP server, pipeline host
+└── Hermes.Web/           React 19 — five-page web UI
 tests/
-└── Hermes.Tests/         xUnit + FsCheck
+├── Hermes.Tests/         xUnit + FsCheck (700 tests)
+└── Hermes.Web/tests/     Playwright smoke tests (9 tests)
 .project/
-├── design/               Architecture & design docs
-├── specs/                Phase specs with task checklists
-├── phases.md             Dependency graph for automated planning
-├── testing-register.md   Test catalog
-└── STATUS.md             Project status dashboard
+├── STATUS.md             Project dashboard
+├── design/               10 active design docs
+└── archive/              Historical pre-v4 material
 ```
 
 ## Development Commands
@@ -77,10 +72,14 @@ tests/
 ```bash
 dotnet build                              # build all
 dotnet test                               # run all tests
-dotnet run --project src/Hermes.Cli       # run CLI
-dotnet run --project src/Hermes.App       # run app (tray + service)
-dotnet publish -c Release -r win-x64 --self-contained   # publish Windows
-dotnet publish -c Release -r osx-arm64 --self-contained  # publish macOS
+
+# Dev mode (separate port, config, archive):
+$env:HERMES_CONFIG_DIR = "$env:APPDATA\hermes-dev"
+$env:HERMES_PORT = "21742"
+dotnet run --project src/Hermes.Service -- --initial-sync-days 90
+
+# Playwright UI tests:
+cd src/Hermes.Web && npx playwright test tests/smoke.spec.ts
 ```
 
 ## Code Conventions
