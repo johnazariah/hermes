@@ -1,51 +1,73 @@
 # Hermes — Project Status
 
-> **Canonical status hub.** Tiny by design — points to wave files for detail.  
-> Updated after each wave completes. Agents: read this first, then the active wave file.
+> **Canonical status hub.** Tiny by design — points to design docs for detail.
+> Updated at each checkpoint. Agents: read this first.
 
-## Current State (April 8, 2026)
+## Current State (April 14, 2026)
 
 | Metric | Value |
 |--------|-------|
-| Tests | 818 passing, 6 skipped (3 projects) |
-| Coverage | 86% line |
-| Tagless-Final | PASS |
-| Branch | `main` |
-| MCP tools | 13 |
-| Documents indexed | 7,555+ |
-| Design docs | 16 |
+| Architecture | Pipeline v4 — channels, property bags, workflow monad |
+| Tests | 700 (694 F# passing, 6 skipped) + 9 Playwright |
+| Branch | `v3-clean` |
+| Pipeline | ingest → extract → comprehend → embed |
+| UI | React 19 five-page app (Pipeline, Documents, Search, Chat, Settings) |
+| Models | llama3:8b (comprehension), nomic-embed-text (embeddings) |
+| Documents processed | 4,000+ (dev, 90-day email sync) |
 
-## Active Wave
+## Active Work
 
-**v2: Channel Pipeline + React UI** → [20-pipeline-v2-endstate.md](design/20-pipeline-v2-endstate.md) / [21-v2-implementation-plan.md](design/21-v2-implementation-plan.md)
+**Comprehension stage** — replace coarse classification with LLM-driven structured understanding. This is Hermes' core value and the critical path for Osprey integration.
 
-## Wave Roadmap
+See: [24-comprehension-stage.md](design/24-comprehension-stage.md)
 
-| Wave | Name | Status | File |
-|------|------|--------|------|
-| 1 | Backfill + Reminders | ✅ Done | [wave-1-backfill-reminders.md](waves/wave-1-backfill-reminders.md) |
-| 1a | Tagless-Final Cleanup | ✅ Done | [wave-1a-tagless-final.md](waves/wave-1a-tagless-final.md) |
-| 1b | Coverage Push | ✅ Done | [wave-1b-coverage.md](waves/wave-1b-coverage.md) |
-| 1.5 | Osprey Parity Validation | ✅ Done | [wave-1.5-osprey-parity.md](waves/wave-1.5-osprey-parity.md) |
-| 2 | Wire Structured Extraction | ✅ Done | [wave-2-extraction.md](waves/wave-2-extraction.md) |
-| 3 | Smart Classification Wiring | ✅ Done | [wave-3-classification.md](waves/wave-3-classification.md) |
-| 4 | UI: Pipeline Funnel | ✅ Done | [wave-4-ui.md](waves/wave-4-ui.md) |
-| 5 | Coverage Final | ✅ Done | — |
-| 4b | Interactive Pipeline Controls | ✅ Done | [wave-4b-pipeline-controls.md](waves/wave-4b-pipeline-controls.md) |
-| 5.5 | UI Testing | ✅ Done | [wave-5.5-ui-testing.md](waves/wave-5.5-ui-testing.md) |
-| **v2** | **Channel Pipeline + React UI** | **⏳ Starting** | [endstate](design/20-pipeline-v2-endstate.md) / [plan](design/21-v2-implementation-plan.md) |
-| 6 | Pelican Integration | Blocked on v2 | [wave-6-pelican.md](waves/wave-6-pelican.md) |
+## Architecture
+
+See: [23-pipeline-v4-architecture.md](design/23-pipeline-v4-architecture.md)
+
+Key principles:
+- **Document = Map<string, obj>** — property bag, typed access via `decode<T>`
+- **Channel<Document>** — runtime flow, no polling, no SQLite queues
+- **Workflow.runStage** — generic monad (idempotency, write-aside, error handling)
+- **Files never move** — `saved_path` is immutable, category is metadata
+- **Comprehension replaces classification** — understanding produces type + fields as byproducts
+- **GPU resource lock** — SemaphoreSlim burst-hold for Ollama model contention
+
+## Roadmap
+
+| Priority | Item | Status |
+|----------|------|--------|
+| 🔴 | Comprehension stage | Design complete, implementation next |
+| 🔴 | Osprey integration via MCP | Blocked on comprehension |
+| 🟡 | Search + Chat testing with live data | UI exists, untested |
+| 🟡 | Testing register regeneration | 258 listed vs 700 actual |
+| 🟢 | Tray app / browser wrap | Future |
+| 🟢 | CI/CD release pipeline | Future |
+
+## Completed Waves (historical)
+
+| Wave | Name | Status |
+|------|------|--------|
+| 1 | Backfill + Reminders | ✅ |
+| 1a | Tagless-Final | ✅ |
+| 1b | Coverage | ✅ |
+| 1.5 | Osprey Parity | ✅ |
+| 2 | Extraction | ✅ |
+| 3 | Classification | ✅ (superseded by comprehension) |
+| 4/4b | Avalonia UI | ✅ (superseded by React) |
+| 5.5 | UI Testing | ✅ (superseded by Playwright) |
+| **v4** | **Channel pipeline + React UI** | **✅ Committed: 5dff01b** |
 
 ## Key Design Docs
 
-| Doc | Topic |
-|-----|-------|
-| [15](design/15-rich-ui.md) | Pipeline Funnel UI |
-| [17](design/17-pdf-to-markdown.md) | Document-to-Markdown Extraction |
-| [18](design/18-smart-classification.md) | Smart Classification (3-tier) |
-| [13](design/13-document-feed-and-consumers.md) | Document Feed & Consumer Model |
-| [**20**](design/20-pipeline-v2-endstate.md) | **v2 Pipeline & UI End-State** |
-| [**21**](design/21-v2-implementation-plan.md) | **v2 Implementation Plan** |
+| Doc | Topic | Status |
+|-----|-------|--------|
+| [**23**](design/23-pipeline-v4-architecture.md) | **Pipeline v4 Architecture** | Current |
+| [**24**](design/24-comprehension-stage.md) | **Comprehension Stage** | Design |
+| [17](design/17-pdf-to-markdown.md) | PDF Extraction | Current |
+| [13](design/13-document-feed-and-consumers.md) | Document Feed & Consumers | Current |
+| [10](design/10-agent-evolution.md) | Agent Evolution (triggers/skills) | Aspirational |
+| [22](design/22-smart-tagging-review-queue.md) | Smart Tagging & Review Queue | Aspirational |
 
 ## Blockers
 
