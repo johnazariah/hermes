@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Allow cross-compilation on macOS/Linux CI runners -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <!-- MSB3277: WebView2 NuGet pulls in a WPF assembly referencing WindowsBase v5,
+         which conflicts with net9.0's v4. Harmless for WinForms. -->
+    <NoWarn>MSB3277</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3912.50" />
+  </ItemGroup>
+</Project>

@@ -145,6 +145,10 @@ let main args =
     // Map API routes
     ApiServer.mapRoutes app db fs logger clock chatProvider archiveDir configDir
 
+    // Health endpoint for tray app / orchestrator polling
+    app.MapGet("/health", Func<IResult>(fun () ->
+        Results.Json({| status = "healthy"; service = "hermes" |}))) |> ignore
+
     // SPA fallback — serve index.html for non-API routes (client-side routing)
     app.MapFallback(Func<HttpContext, System.Threading.Tasks.Task<IResult>>(fun ctx ->
         task {
