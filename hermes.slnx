@@ -3,6 +3,7 @@
     <Project Path="src/Hermes.Core/Hermes.Core.fsproj" />
     <Project Path="src/Hermes.Service/Hermes.Service.fsproj" />
     <Project Path="src/Hermes.Tray/Hermes.Tray.csproj" />
+    <Project Path="src/Hermes.UI/Hermes.UI.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Hermes.Tests/Hermes.Tests.fsproj" />

@@ -1,0 +1,23 @@
+@using Microsoft.AspNetCore.Components.Routing
+
+<NavLink href="@Href"
+         Match="@Match"
+         class="px-4 py-2 text-sm font-medium rounded-lg transition-colors text-neutral-400 hover:text-white hover:bg-neutral-800/50"
+         ActiveClass="bg-neutral-800 text-white">
+    <span class="flex items-center gap-2">
+        @Label
+        @if (Badge is > 0)
+        {
+            <span class="inline-flex items-center justify-center w-5 h-5 text-[10px] font-bold bg-blue-500 text-white rounded-full animate-pulse">
+                @(Badge > 99 ? "99+" : Badge)
+            </span>
+        }
+    </span>
+</NavLink>
+
+@code {
+    [Parameter, EditorRequired] public string Href { get; set; } = "";
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+    [Parameter] public int? Badge { get; set; }
+    [Parameter] public NavLinkMatch Match { get; set; } = NavLinkMatch.Prefix;
+}

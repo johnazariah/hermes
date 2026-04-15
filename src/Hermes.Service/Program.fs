@@ -131,6 +131,19 @@ let main args =
     // Build HTTP API
     let builder = WebApplication.CreateBuilder()
     builder.Services.AddCors() |> ignore
+
+    // Blazor Server services
+    builder.Services.AddRazorComponents()
+        .AddInteractiveServerComponents() |> ignore
+    builder.Services.AddScoped<Hermes.UI.Services.IHermesClient>(fun sp ->
+        let http = new System.Net.Http.HttpClient()
+        let blazorPort =
+            match System.Environment.GetEnvironmentVariable("HERMES_PORT") with
+            | null | "" -> "21741"
+            | p -> p
+        http.BaseAddress <- System.Uri($"http://localhost:{blazorPort}")
+        Hermes.UI.Services.HttpHermesClient(http) :> Hermes.UI.Services.IHermesClient) |> ignore
+
     let wwwrootPath = Path.Combine(AppContext.BaseDirectory, "wwwroot")
     let srcWwwroot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "wwwroot"))
     if Directory.Exists(srcWwwroot) then builder.Environment.WebRootPath <- srcWwwroot
@@ -141,6 +154,7 @@ let main args =
         policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader() |> ignore) |> ignore
     app.UseDefaultFiles() |> ignore
     app.UseStaticFiles() |> ignore
+    app.UseAntiforgery() |> ignore
 
     // Map API routes
     ApiServer.mapRoutes app db fs logger clock chatProvider archiveDir configDir
@@ -149,10 +163,16 @@ let main args =
     app.MapGet("/health", Func<IResult>(fun () ->
         Results.Json({| status = "healthy"; service = "hermes" |}))) |> ignore
 
-    // SPA fallback — serve index.html for non-API routes (client-side routing)
+    // Blazor Server — mounted at /app
+    app.MapRazorComponents<Hermes.UI.Routes>()
+        .AddInteractiveServerRenderMode() |> ignore
+
+    // SPA fallback — serve React index.html for non-API, non-Blazor routes
     app.MapFallback(Func<HttpContext, System.Threading.Tasks.Task<IResult>>(fun ctx ->
         task {
-            if ctx.Request.Path.StartsWithSegments("/api") then
+            if ctx.Request.Path.StartsWithSegments("/api")
+               || ctx.Request.Path.StartsWithSegments("/app")
+               || ctx.Request.Path.StartsWithSegments("/_blazor") then
                 return Results.NotFound()
             else
                 let indexPath = Path.Combine(app.Environment.WebRootPath, "index.html")

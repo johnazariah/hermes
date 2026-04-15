@@ -1,0 +1,9 @@
+<div>
+    <div class="text-neutral-500 text-[10px] uppercase tracking-wider">@Label</div>
+    <div class="text-neutral-300">@Value</div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+    [Parameter, EditorRequired] public string Value { get; set; } = "";
+}

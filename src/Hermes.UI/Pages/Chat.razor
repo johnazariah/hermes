@@ -1,0 +1,91 @@
+@page "/app/chat"
+@inject IHermesClient Client
+@using Hermes.UI.Services
+@using Hermes.UI.Models
+
+<PageTitle>Chat — Hermes</PageTitle>
+
+<div class="max-w-4xl mx-auto flex flex-col h-[calc(100vh-8rem)]">
+    @* Message area *@
+    <div class="flex-1 overflow-y-auto space-y-4 pb-4">
+        @if (_messages.Count == 0)
+        {
+            <div class="text-center py-20 text-neutral-600">
+                <p class="text-lg">💬 Ask Hermes about your documents</p>
+                <p class="text-sm mt-2">Try: "What invoices came in last month?"</p>
+            </div>
+        }
+        @foreach (var msg in _messages)
+        {
+            <div class="@MessageClass(msg.Role)">
+                <div class="text-xs text-neutral-500 mb-1">@(msg.Role == "user" ? "You" : "Hermes")</div>
+                <div class="text-sm text-neutral-200 whitespace-pre-wrap">@msg.Content</div>
+                @if (msg.Sources is { Count: > 0 })
+                {
+                    <div class="mt-2 space-y-1">
+                        <div class="text-xs text-neutral-500">Sources:</div>
+                        @foreach (var s in msg.Sources)
+                        {
+                            <div class="text-xs text-neutral-400">📄 @s.OriginalName (@(s.Category ?? "—"))</div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+        @if (_sending)
+        {
+            <div class="bg-neutral-900 rounded-xl p-4">
+                <div class="text-xs text-neutral-500 mb-1">Hermes</div>
+                <div class="text-sm text-neutral-400 animate-pulse">Thinking…</div>
+            </div>
+        }
+    </div>
+
+    @* Input *@
+    <div class="bg-neutral-900 rounded-xl p-3">
+        <form @onsubmit="SendMessage" class="flex gap-3">
+            <input type="text" @bind="_input" @bind:event="oninput" placeholder="Ask about your documents…"
+                   disabled="@_sending"
+                   class="flex-1 bg-neutral-800 text-neutral-200 rounded-lg px-4 py-2 text-sm border border-neutral-700 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            <button type="submit" disabled="@_sending"
+                    class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-500 disabled:opacity-50">
+                Send
+            </button>
+        </form>
+    </div>
+</div>
+
+@code {
+    private string _input = "";
+    private bool _sending;
+    private List<ChatMessage> _messages = [];
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(_input) || _sending) return;
+
+        var userMsg = new ChatMessage("user", _input);
+        _messages.Add(userMsg);
+        var query = _input;
+        _input = "";
+        _sending = true;
+        StateHasChanged();
+
+        try
+        {
+            var response = await Client.ChatAsync(query);
+            _messages.Add(response);
+        }
+        catch (Exception ex)
+        {
+            _messages.Add(new ChatMessage("assistant", $"Error: {ex.Message}"));
+        }
+
+        _sending = false;
+    }
+
+    private static string MessageClass(string role) =>
+        role == "user"
+            ? "bg-neutral-800 rounded-xl p-4 ml-12"
+            : "bg-neutral-900 rounded-xl p-4 mr-12";
+}

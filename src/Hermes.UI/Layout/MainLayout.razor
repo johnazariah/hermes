@@ -1,0 +1,79 @@
+@inherits LayoutComponentBase
+@inject IHermesClient Client
+@using Hermes.UI.Services
+@using Hermes.UI.Models
+
+<div class="min-h-screen bg-neutral-950 text-neutral-100 flex flex-col">
+    @* Top navigation bar *@
+    <header class="border-b border-neutral-800 bg-neutral-900/80 backdrop-blur-sm sticky top-0 z-50">
+        <div class="max-w-[1600px] mx-auto px-4 h-12 flex items-center gap-1">
+            <a href="/app" class="flex items-center gap-2 mr-6">
+                <span class="text-lg">⚡</span>
+                <span class="font-bold text-sm tracking-wide">HERMES</span>
+            </a>
+
+            <nav class="flex items-center gap-1">
+                <NavTab Href="/app" Label="Pipeline" Badge="@_pending" Match="NavLinkMatch.All" />
+                <NavTab Href="/app/documents" Label="Documents" />
+                <NavTab Href="/app/search" Label="Search" />
+                <NavTab Href="/app/chat" Label="Chat" />
+                <NavTab Href="/app/settings" Label="Settings" />
+            </nav>
+
+            @if (_stats is not null)
+            {
+                <div class="ml-auto flex items-center gap-4 text-xs text-neutral-500">
+                    <span>@_stats.DocumentCount.ToString("N0") docs</span>
+                    <span>DB: @_stats.DatabaseSizeMb.ToString("F1") MB</span>
+                    @if (_isProcessing)
+                    {
+                        <span class="text-green-400 animate-pulse">● Processing</span>
+                    }
+                </div>
+            }
+        </div>
+    </header>
+
+    @* Page content *@
+    <main class="flex-1 max-w-[1600px] mx-auto w-full px-4 py-6">
+        @Body
+    </main>
+</div>
+
+@code {
+    private IndexStats? _stats;
+    private bool _isProcessing;
+    private int? _pending;
+    private Timer? _refreshTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshStats();
+        _refreshTimer = new Timer(async _ =>
+        {
+            await RefreshStats();
+            await InvokeAsync(StateHasChanged);
+        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+    }
+
+    private async Task RefreshStats()
+    {
+        try
+        {
+            _stats = await Client.GetStatsAsync();
+            var total = _stats.DocumentCount;
+            var embedded = _stats.EmbeddedCount;
+            _isProcessing = total > 0 && embedded < total;
+            _pending = _isProcessing ? total - embedded : null;
+        }
+        catch
+        {
+            // Stats unavailable — leave as-is
+        }
+    }
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
+    }
+}

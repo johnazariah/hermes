@@ -1,0 +1,12 @@
+<Router AppAssembly="typeof(Routes).Assembly">
+    <Found Context="routeData">
+        <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
+    </Found>
+    <NotFound>
+        <LayoutView Layout="typeof(Layout.MainLayout)">
+            <div class="text-center py-20">
+                <h1 class="text-2xl font-bold text-neutral-400">Page not found</h1>
+            </div>
+        </LayoutView>
+    </NotFound>
+</Router>

@@ -1,0 +1,27 @@
+<button class="@ButtonClass" @onclick="OnClick">
+    <span class="text-lg">@Icon</span>
+    <div class="flex-1 min-w-0">
+        <div class="text-xs text-neutral-400">@Label</div>
+        <div class="text-lg font-bold font-mono">@Count.ToString("N0")</div>
+    </div>
+    @if (Active && Count > 0)
+    {
+        <span class="w-2 h-2 rounded-full @DotColor animate-pulse"></span>
+    }
+</button>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+    [Parameter, EditorRequired] public string Icon { get; set; } = "";
+    [Parameter] public int Count { get; set; }
+    [Parameter] public string Color { get; set; } = "text-neutral-400";
+    [Parameter] public bool Active { get; set; }
+    [Parameter] public bool Selected { get; set; }
+    [Parameter] public EventCallback OnClick { get; set; }
+
+    private string ButtonClass =>
+        $"w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all " +
+        (Selected ? $"{Color} bg-opacity-10 ring-1 ring-current" : "hover:bg-neutral-800/50");
+
+    private string DotColor => Color.Replace("text-", "bg-");
+}

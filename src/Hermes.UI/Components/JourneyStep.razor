@@ -1,0 +1,20 @@
+<div class="flex items-start gap-3 py-2">
+    <span class="text-base mt-0.5">@StatusIcon</span>
+    <div class="flex-1">
+        <div class="text-sm font-medium @TextColor">@Icon @Label</div>
+        @if (!string.IsNullOrEmpty(Detail))
+        {
+            <div class="text-xs text-neutral-500 mt-0.5">@Detail</div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+    [Parameter, EditorRequired] public string Icon { get; set; } = "";
+    [Parameter] public bool Done { get; set; }
+    [Parameter] public string Detail { get; set; } = "";
+
+    private string StatusIcon => Done ? "✅" : "⏳";
+    private string TextColor => Done ? "text-neutral-300" : "text-neutral-600";
+}

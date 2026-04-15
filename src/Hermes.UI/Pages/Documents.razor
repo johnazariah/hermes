@@ -1,0 +1,119 @@
+@page "/app/documents"
+@inject IHermesClient Client
+@using Hermes.UI.Services
+@using Hermes.UI.Models
+
+<PageTitle>Documents — Hermes</PageTitle>
+
+<div class="grid grid-cols-12 gap-6">
+    @* Left: category sidebar *@
+    <div class="col-span-2">
+        <div class="bg-neutral-900 rounded-xl p-4 space-y-1">
+            <h2 class="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-3">Categories</h2>
+            @foreach (var cat in _categories)
+            {
+                <button class="@CategoryClass(cat.Category)" @onclick="() => SelectCategory(cat.Category)">
+                    <span class="flex-1 truncate">@cat.Category</span>
+                    <span class="text-neutral-600 text-xs">@cat.Count</span>
+                </button>
+            }
+        </div>
+    </div>
+
+    @* Centre: document list *@
+    <div class="col-span-5">
+        <div class="bg-neutral-900 rounded-xl p-4">
+            <h2 class="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-3">
+                @(_selectedCategory ?? "All Documents")
+                <span class="ml-2 text-neutral-600">(@_documents.Count)</span>
+            </h2>
+            <div class="space-y-1 max-h-[700px] overflow-y-auto">
+                @foreach (var doc in _documents)
+                {
+                    <button class="@DocClass(doc.Id)" @onclick="() => SelectDocument(doc.Id)">
+                        <div class="flex-1 min-w-0">
+                            <div class="text-sm text-neutral-200 truncate">@doc.OriginalName</div>
+                            <div class="text-xs text-neutral-500">@(doc.Sender ?? doc.Vendor ?? "—")</div>
+                        </div>
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+
+    @* Right: detail + preview *@
+    <div class="col-span-5">
+        @if (_detail is not null)
+        {
+            <div class="bg-neutral-900 rounded-xl p-4 space-y-4">
+                <h3 class="text-sm font-semibold text-neutral-200 truncate">@_detail.Summary.OriginalName</h3>
+                <div class="grid grid-cols-2 gap-2 text-xs">
+                    <MetaField Label="Category" Value="@(_detail.Summary.Category ?? "—")" />
+                    <MetaField Label="Sender" Value="@(_detail.Summary.Sender ?? "—")" />
+                    <MetaField Label="Vendor" Value="@(_detail.Summary.Vendor ?? "—")" />
+                    <MetaField Label="Ingested" Value="@_detail.IngestedAt" />
+                </div>
+
+                @if (_content is not null)
+                {
+                    <div>
+                        <h4 class="text-xs font-semibold text-neutral-500 uppercase mb-1">Content</h4>
+                        <pre class="text-xs text-neutral-400 bg-neutral-800 rounded p-3 max-h-96 overflow-y-auto whitespace-pre-wrap">@_content</pre>
+                    </div>
+                }
+
+                @if (_detail.Comprehension is not null)
+                {
+                    <div>
+                        <h4 class="text-xs font-semibold text-neutral-500 uppercase mb-1">Comprehension</h4>
+                        <pre class="text-xs text-neutral-400 bg-neutral-800 rounded p-3 max-h-48 overflow-y-auto whitespace-pre-wrap">@_detail.Comprehension</pre>
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="bg-neutral-900 rounded-xl p-8 text-center text-neutral-600">
+                <p class="text-sm">Select a document to view details</p>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private string? _selectedCategory;
+    private long? _selectedDocId;
+    private List<CategoryCount> _categories = [];
+    private List<DocumentSummary> _documents = [];
+    private DocumentDetail? _detail;
+    private string? _content;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _categories = await Client.GetCategoriesAsync();
+    }
+
+    private async Task SelectCategory(string category)
+    {
+        _selectedCategory = category;
+        _detail = null;
+        _content = null;
+        _selectedDocId = null;
+        _documents = await Client.GetDocumentsAsync(category, 0, 200);
+    }
+
+    private async Task SelectDocument(long id)
+    {
+        _selectedDocId = id;
+        _detail = await Client.GetDocumentAsync(id);
+        _content = await Client.GetDocumentContentAsync(id);
+    }
+
+    private string CategoryClass(string cat) =>
+        $"w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left text-sm transition-all " +
+        (cat == _selectedCategory ? "bg-neutral-800 text-white" : "text-neutral-400 hover:bg-neutral-800/50");
+
+    private string DocClass(long id) =>
+        $"w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-all cursor-pointer " +
+        (id == _selectedDocId ? "bg-neutral-800 ring-1 ring-neutral-600" : "hover:bg-neutral-800/50");
+}

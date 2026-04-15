@@ -1,0 +1,78 @@
+@page "/app/search"
+@inject IHermesClient Client
+@using Hermes.UI.Services
+@using Hermes.UI.Models
+
+<PageTitle>Search — Hermes</PageTitle>
+
+<div class="max-w-4xl mx-auto space-y-6">
+    <div class="bg-neutral-900 rounded-xl p-4">
+        <form @onsubmit="DoSearch" class="flex gap-3">
+            <input type="text" @bind="_query" @bind:event="oninput" placeholder="Search documents…"
+                   class="flex-1 bg-neutral-800 text-neutral-200 rounded-lg px-4 py-2 text-sm border border-neutral-700 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            <button type="submit" disabled="@_searching"
+                    class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-500 disabled:opacity-50">
+                @(_searching ? "Searching…" : "Search")
+            </button>
+        </form>
+    </div>
+
+    @if (_results.Count > 0)
+    {
+        <div class="space-y-2">
+            <p class="text-xs text-neutral-500">@_results.Count results</p>
+            @foreach (var r in _results)
+            {
+                <div class="bg-neutral-900 rounded-xl p-4 hover:bg-neutral-800/50 transition-all">
+                    <div class="flex items-start justify-between">
+                        <div class="flex-1 min-w-0">
+                            <div class="text-sm font-medium text-neutral-200 truncate">@r.OriginalName</div>
+                            <div class="text-xs text-neutral-500">
+                                @(r.Category ?? "—")
+                                @if (r.Sender is not null) { <span> · @r.Sender</span> }
+                            </div>
+                        </div>
+                        <span class="text-xs text-neutral-600 font-mono">@r.Score.ToString("F2")</span>
+                    </div>
+                    @if (!string.IsNullOrEmpty(r.Snippet))
+                    {
+                        <p class="text-xs text-neutral-400 mt-2 line-clamp-2">@r.Snippet</p>
+                    }
+                </div>
+            }
+        </div>
+    }
+    else if (_searched)
+    {
+        <div class="text-center py-12 text-neutral-600">
+            <p class="text-sm">No results for "@_query"</p>
+        </div>
+    }
+</div>
+
+@code {
+    private string _query = "";
+    private bool _searching;
+    private bool _searched;
+    private List<SearchResult> _results = [];
+
+    private async Task DoSearch()
+    {
+        if (string.IsNullOrWhiteSpace(_query)) return;
+        _searching = true;
+        _searched = false;
+        StateHasChanged();
+
+        try
+        {
+            _results = await Client.SearchAsync(_query);
+        }
+        catch
+        {
+            _results = [];
+        }
+
+        _searching = false;
+        _searched = true;
+    }
+}

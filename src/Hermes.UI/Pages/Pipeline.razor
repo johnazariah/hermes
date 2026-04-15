@@ -1,0 +1,236 @@
+@page "/app"
+@inject IHermesClient Client
+@using Hermes.UI.Services
+@using Hermes.UI.Models
+@implements IDisposable
+
+<PageTitle>Pipeline — Hermes</PageTitle>
+
+<div class="grid grid-cols-12 gap-6">
+    @* Left: stage navigator + activity feed *@
+    <div class="col-span-3 space-y-4">
+        <div class="bg-neutral-900 rounded-xl p-4 space-y-1">
+            <h2 class="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-3">Pipeline Stages</h2>
+            <StageButton Label="Received" Icon="📨" Count="@_received" Color="text-blue-400"
+                         Active="@_isProcessing" Selected="@(_selectedStage == "received")"
+                         OnClick="@(() => SelectStage("received"))" />
+            <StageButton Label="Read" Icon="📖" Count="@_extracted" Color="text-purple-400"
+                         Active="@_isProcessing" Selected="@(_selectedStage == "extracted")"
+                         OnClick="@(() => SelectStage("extracted"))" />
+            <StageButton Label="Understood" Icon="💡" Count="@_understood" Color="text-amber-400"
+                         Active="@_isProcessing" Selected="@(_selectedStage == "understood")"
+                         OnClick="@(() => SelectStage("understood"))" />
+            <StageButton Label="Memorised" Icon="🧠" Count="@_embedded" Color="text-green-400"
+                         Active="false" Selected="@(_selectedStage == "embedded")"
+                         OnClick="@(() => SelectStage("embedded"))" />
+            @if (_failed > 0)
+            {
+                <StageButton Label="Failed" Icon="❌" Count="@_failed" Color="text-red-400"
+                             Active="false" Selected="@(_selectedStage == "failed")"
+                             OnClick="@(() => SelectStage("failed"))" />
+            }
+        </div>
+
+        @* Progress bar *@
+        @if (_total > 0)
+        {
+            <div class="bg-neutral-900 rounded-xl p-4">
+                <div class="flex justify-between text-xs text-neutral-400 mb-2">
+                    <span>Progress</span>
+                    <span>@_embedded / @_total</span>
+                </div>
+                <div class="w-full bg-neutral-800 rounded-full h-2">
+                    <div class="bg-green-500 h-2 rounded-full transition-all"
+                         style="width: @((_total > 0 ? (double)_embedded / _total * 100 : 0).ToString("F1"))%"></div>
+                </div>
+            </div>
+        }
+
+        @* Activity feed *@
+        <div class="bg-neutral-900 rounded-xl p-4">
+            <h2 class="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-3">Activity</h2>
+            <div class="space-y-2 max-h-[400px] overflow-y-auto">
+                @if (_activity.Count == 0)
+                {
+                    <p class="text-sm text-neutral-600">No recent activity</p>
+                }
+                @foreach (var entry in _activity)
+                {
+                    <div class="flex items-start gap-2 text-xs">
+                        <span class="text-neutral-600 font-mono shrink-0">@FormatTime(entry.Timestamp)</span>
+                        <span class="text-neutral-400">@entry.Stage</span>
+                        <span class="text-neutral-300 truncate">@entry.FileName</span>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    @* Centre: document list for selected stage *@
+    <div class="col-span-5">
+        <div class="bg-neutral-900 rounded-xl p-4">
+            <h2 class="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-3">
+                @(_selectedStage ?? "All") Documents
+                @if (_documents.Count > 0)
+                {
+                    <span class="ml-2 text-neutral-600">(@_documents.Count)</span>
+                }
+            </h2>
+            <div class="space-y-1 max-h-[600px] overflow-y-auto">
+                @if (_documents.Count == 0)
+                {
+                    <p class="text-sm text-neutral-600">Select a stage to browse documents</p>
+                }
+                @foreach (var doc in _documents)
+                {
+                    <button class="@DocumentRowClass(doc.Id)" @onclick="() => SelectDocument(doc.Id)">
+                        <div class="flex-1 min-w-0">
+                            <div class="text-sm text-neutral-200 truncate">@doc.OriginalName</div>
+                            <div class="text-xs text-neutral-500">
+                                @(doc.Category ?? "uncategorised")
+                                @if (doc.Sender is not null)
+                                {
+                                    <span> · @doc.Sender</span>
+                                }
+                            </div>
+                        </div>
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+
+    @* Right: document detail *@
+    <div class="col-span-4">
+        @if (_detail is not null)
+        {
+            <div class="bg-neutral-900 rounded-xl p-4 space-y-4">
+                <h3 class="text-sm font-semibold text-neutral-200 truncate">@_detail.Summary.OriginalName</h3>
+
+                @* Journey timeline *@
+                <div class="space-y-1">
+                    <JourneyStep Label="Received" Icon="📨" Done="true" Detail="@($"source: {_detail.Summary.SourceType ?? "unknown"}")" />
+                    <JourneyStep Label="Read" Icon="📖" Done="@_detail.PipelineStatus.Extracted" Detail="@(_detail.ExtractedAt ?? "")" />
+                    <JourneyStep Label="Understood" Icon="💡" Done="@_detail.PipelineStatus.Understood"
+                                 Detail="@(_detail.Summary.Category ?? "")" />
+                    <JourneyStep Label="Memorised" Icon="🧠" Done="@_detail.PipelineStatus.Embedded" Detail="@(_detail.EmbeddedAt ?? "")" />
+                </div>
+
+                @* Metadata *@
+                <div class="grid grid-cols-2 gap-2 text-xs">
+                    <MetaField Label="Category" Value="@(_detail.Summary.Category ?? "—")" />
+                    <MetaField Label="Vendor" Value="@(_detail.Summary.Vendor ?? "—")" />
+                    <MetaField Label="Sender" Value="@(_detail.Summary.Sender ?? "—")" />
+                    <MetaField Label="Ingested" Value="@FormatTime(_detail.IngestedAt)" />
+                </div>
+
+                @* Comprehension excerpt *@
+                @if (_detail.Comprehension is not null)
+                {
+                    <div>
+                        <h4 class="text-xs font-semibold text-neutral-500 uppercase mb-1">Comprehension</h4>
+                        <pre class="text-xs text-neutral-400 bg-neutral-800 rounded p-2 max-h-48 overflow-y-auto whitespace-pre-wrap">@_detail.Comprehension</pre>
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="bg-neutral-900 rounded-xl p-8 text-center text-neutral-600">
+                <p class="text-sm">Select a document to view details</p>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private string? _selectedStage;
+    private long? _selectedDocId;
+    private int _total, _received, _extracted, _understood, _embedded, _failed;
+    private bool _isProcessing;
+    private List<DocumentSummary> _documents = [];
+    private List<ActivityEntry> _activity = [];
+    private DocumentDetail? _detail;
+    private Timer? _refreshTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshData();
+        _refreshTimer = new Timer(async _ =>
+        {
+            await RefreshData();
+            await InvokeAsync(StateHasChanged);
+        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+    }
+
+    private async Task RefreshData()
+    {
+        try
+        {
+            var stats = await Client.GetStatsAsync();
+            _total = stats.DocumentCount;
+            _extracted = stats.ExtractedCount;
+            _understood = stats.UnderstoodCount;
+            _embedded = stats.EmbeddedCount;
+            _received = _total;
+            _failed = 0;
+            _isProcessing = _total > 0 && _embedded < _total;
+
+            _activity = await Client.GetActivityAsync(30);
+        }
+        catch
+        {
+            // Data unavailable — keep stale
+        }
+    }
+
+    private async Task SelectStage(string stage)
+    {
+        _selectedStage = _selectedStage == stage ? null : stage;
+        _detail = null;
+        _selectedDocId = null;
+
+        if (_selectedStage is not null)
+        {
+            try
+            {
+                _documents = await Client.GetDocumentsAsync(category: null, offset: 0, limit: 50);
+            }
+            catch
+            {
+                _documents = [];
+            }
+        }
+        else
+        {
+            _documents = [];
+        }
+    }
+
+    private async Task SelectDocument(long id)
+    {
+        _selectedDocId = id;
+        try
+        {
+            _detail = await Client.GetDocumentAsync(id);
+        }
+        catch
+        {
+            _detail = null;
+        }
+    }
+
+    private string DocumentRowClass(long id) =>
+        $"w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-all cursor-pointer " +
+        (id == _selectedDocId ? "bg-neutral-800 ring-1 ring-neutral-600" : "hover:bg-neutral-800/50");
+
+    private static string FormatTime(string? timestamp)
+    {
+        if (string.IsNullOrEmpty(timestamp)) return "—";
+        return DateTimeOffset.TryParse(timestamp, out var dt)
+            ? dt.ToLocalTime().ToString("HH:mm:ss")
+            : timestamp;
+    }
+
+    public void Dispose() => _refreshTimer?.Dispose();
+}

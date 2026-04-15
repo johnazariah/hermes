@@ -1,0 +1,101 @@
+@page "/app/settings"
+@inject IHermesClient Client
+@using Hermes.UI.Services
+@using Hermes.UI.Models
+
+<PageTitle>Settings — Hermes</PageTitle>
+
+<div class="max-w-4xl mx-auto space-y-6">
+    @* Email accounts *@
+    <div class="bg-neutral-900 rounded-xl p-4">
+        <div class="flex items-center justify-between mb-3">
+            <h2 class="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Email Accounts</h2>
+            <button @onclick="TriggerSync"
+                    class="px-3 py-1 bg-blue-600 text-white text-xs font-medium rounded hover:bg-blue-500">
+                Sync Now
+            </button>
+        </div>
+        @if (_accounts.Count == 0)
+        {
+            <p class="text-sm text-neutral-600">No email accounts configured</p>
+        }
+        @foreach (var acc in _accounts)
+        {
+            <div class="flex items-center gap-3 py-2 border-b border-neutral-800 last:border-0">
+                <span class="text-sm text-neutral-200">@acc.Email</span>
+                <span class="text-xs px-2 py-0.5 rounded-full @StatusClass(acc.Status)">@acc.Status</span>
+                <span class="text-xs text-neutral-500 ml-auto">@acc.MessageCount msgs</span>
+            </div>
+        }
+    </div>
+
+    @* Config editor *@
+    <div class="bg-neutral-900 rounded-xl p-4">
+        <div class="flex items-center justify-between mb-3">
+            <h2 class="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Configuration (YAML)</h2>
+            <div class="flex gap-2">
+                @if (_saved)
+                {
+                    <span class="text-xs text-green-400">✓ Saved</span>
+                }
+                <button @onclick="SaveSettings" disabled="@_saving"
+                        class="px-3 py-1 bg-green-600 text-white text-xs font-medium rounded hover:bg-green-500 disabled:opacity-50">
+                    @(_saving ? "Saving…" : "Save")
+                </button>
+            </div>
+        </div>
+        <textarea @bind="_configYaml" rows="20"
+                  class="w-full bg-neutral-800 text-neutral-200 font-mono text-xs p-3 rounded-lg border border-neutral-700 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-y"></textarea>
+    </div>
+</div>
+
+@code {
+    private string _configYaml = "";
+    private bool _saving;
+    private bool _saved;
+    private List<SyncAccount> _accounts = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _configYaml = await Client.GetSettingsYamlAsync();
+            _accounts = await Client.GetSyncAccountsAsync();
+        }
+        catch
+        {
+            _configYaml = "# Failed to load settings";
+        }
+    }
+
+    private async Task SaveSettings()
+    {
+        _saving = true;
+        _saved = false;
+        StateHasChanged();
+
+        try
+        {
+            await Client.SaveSettingsYamlAsync(_configYaml);
+            _saved = true;
+        }
+        catch
+        {
+            _saved = false;
+        }
+
+        _saving = false;
+    }
+
+    private async Task TriggerSync()
+    {
+        try { await Client.TriggerSyncAsync(); } catch { /* best-effort */ }
+    }
+
+    private static string StatusClass(string status) => status switch
+    {
+        "active" => "bg-green-900 text-green-300",
+        "error" => "bg-red-900 text-red-300",
+        _ => "bg-neutral-800 text-neutral-400",
+    };
+}
