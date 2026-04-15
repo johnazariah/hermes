@@ -145,6 +145,55 @@ hermes_contact_detail { abn: "12345678901" }
 This gives Osprey the agent ABN for rental deductions and the employer
 details for PAYG summaries without re-parsing documents.
 
+## Tax Relevance & Learning
+
+Contacts gain a `tax_relevant` flag (nullable boolean — null = unknown,
+true = tax-relevant, false = not). User sets this once per contact;
+it applies to all future documents from that sender.
+
+```sql
+ALTER TABLE contacts ADD COLUMN tax_relevant INTEGER; -- null/0/1
+```
+
+### Automatic behaviour based on tax relevance
+
+| tax_relevant | Effect                                                    |
+| ------------ | --------------------------------------------------------- |
+| true         | Auto-trigger Pass 2 deep extraction; queue for Osprey     |
+| false        | Standard Pass 1 only; skip deep extraction                |
+| null         | Default — behave as today, user hasn't decided yet        |
+
+### Training loop
+
+User marks contacts as tax-relevant via UI or MCP tool. This creates a
+feedback signal:
+
+1. **Immediate** — new docs from tax-relevant contacts auto-queue for
+   deep extraction. No manual MCP call needed.
+2. **Sender hints** — Pass 1 prompt gets "This sender is marked as
+   tax-relevant" alongside the sender classification.
+3. **Pattern learning** (future) — aggregate tax-relevant contacts to
+   discover new patterns. E.g., if user marks 3 property managers as
+   tax-relevant, auto-suggest for new property managers.
+
+### MCP tool
+
+```
+hermes_contact_set_tax_relevant { contact_id, tax_relevant: true|false }
+```
+
+### Osprey integration
+
+Osprey queries only tax-relevant contacts and their documents:
+```
+hermes_contacts { tax_relevant: true }
+  → all contacts that matter for tax
+  → each with deep-extracted documents ready for processing
+```
+
+This eliminates Osprey's need to scan all documents — it gets a
+pre-filtered, pre-enriched feed of tax-relevant material.
+
 ## Open Questions
 
 1. **Should contacts be editable?** User might want to correct a name or
