@@ -120,12 +120,19 @@ module Config =
 
     /// Expand ~ to the user home directory.
     let expandHome (env: Algebra.Environment) (path: string) =
-        if path.StartsWith("~/") || path.StartsWith("~\\") then
-            Path.Combine(env.homeDirectory (), path.Substring(2))
-        elif path = "~" then
-            env.homeDirectory ()
+        let expanded =
+            if path.StartsWith("~/") || path.StartsWith("~\\") then
+                Path.Combine(env.homeDirectory (), path.Substring(2))
+            elif path = "~" then
+                env.homeDirectory ()
+            else
+                path
+        // Normalise mixed separators: only replace forward slashes when the path
+        // contains a drive letter (e.g. C:/Users/...) to avoid mangling Unix paths
+        if expanded.Length >= 2 && expanded.[1] = ':' then
+            expanded.Replace('/', '\\')
         else
-            path
+            expanded
 
     /// Get the platform-specific config directory.
     let configDir (env: Algebra.Environment) =
