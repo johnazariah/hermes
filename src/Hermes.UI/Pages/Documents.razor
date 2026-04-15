@@ -28,6 +28,10 @@
                 @(_selectedCategory ?? "All Documents")
                 <span class="ml-2 text-neutral-600">(@_documents.Count)</span>
             </h2>
+            @if (_error is not null)
+            {
+                <pre class="text-xs text-red-400 bg-red-900/20 rounded p-2 mb-2 whitespace-pre-wrap">@_error</pre>
+            }
             <div class="space-y-1 max-h-[700px] overflow-y-auto">
                 @foreach (var doc in _documents)
                 {
@@ -94,13 +98,24 @@
         _categories = await Client.GetCategoriesAsync();
     }
 
+    private string? _error;
+
     private async Task SelectCategory(string category)
     {
         _selectedCategory = category;
         _detail = null;
         _content = null;
         _selectedDocId = null;
-        _documents = await Client.GetDocumentsAsync(category, 0, 200);
+        _error = null;
+        try
+        {
+            _documents = await Client.GetDocumentsAsync(category, 0, 200);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.ToString();
+            _documents = [];
+        }
     }
 
     private async Task SelectDocument(long id)

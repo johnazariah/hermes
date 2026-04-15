@@ -24,9 +24,18 @@ module ApiServer =
         (archiveDir: string) (configDir: string) =
 
         // ── Categories ──────────────────────────────────────────────
-        app.MapGet("/api/categories", Func<IResult>(fun () ->
-            let counts = Stats.getCategoryCounts fs archiveDir
-            json counts)) |> ignore
+        app.MapGet("/api/categories", Func<Task<IResult>>(fun () ->
+            task {
+                let! rows =
+                    db.execReader
+                        "SELECT category, COUNT(*) AS doc_count FROM documents WHERE category IS NOT NULL AND category != '' GROUP BY category ORDER BY doc_count DESC"
+                        []
+                let results =
+                    rows |> List.map (fun row ->
+                        let r = Prelude.RowReader(row)
+                        {| category = r.String "category" ""; count = r.Int64 "doc_count" 0L |})
+                return json results
+            })) |> ignore
 
         // ── Documents ───────────────────────────────────────────────
         app.MapGet("/api/documents", Func<HttpContext, Task<IResult>>(fun ctx ->

@@ -164,7 +164,7 @@ let main args =
         Results.Json({| status = "healthy"; service = "hermes" |}))) |> ignore
 
     // Blazor Server — mounted at /app
-    app.MapRazorComponents<Hermes.UI.Routes>()
+    app.MapRazorComponents<Hermes.UI.App>()
         .AddInteractiveServerRenderMode() |> ignore
 
     // SPA fallback — serve React index.html for non-API, non-Blazor routes
