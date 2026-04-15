@@ -18,6 +18,7 @@
     <Compile Include="Database.fs" />
     <Compile Include="Document.fs" />
     <Compile Include="Rules.fs" />
+    <Compile Include="SenderClassification.fs" />
     <Compile Include="Embeddings.fs" />
     <Compile Include="Markdown.fs" />
     <Compile Include="SemanticSearch.fs" />
@@ -29,6 +30,7 @@
     <Compile Include="Extraction.fs" />
     <Compile Include="ContentClassifier.fs" />
     <Compile Include="PromptLoader.fs" />
+    <Compile Include="DeepExtraction.fs" />
     <Compile Include="DocumentFeed.fs" />
     <Compile Include="DocumentManagement.fs" />
     <Compile Include="Classifier.fs" />
@@ -64,6 +66,7 @@
 
   <ItemGroup>
     <Content Include="prompts\comprehension.md" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="prompts\deep\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

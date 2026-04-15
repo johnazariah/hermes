@@ -139,7 +139,7 @@ module ComprehensionSchema =
           Summary: string
           RawJson: string }
 
-    let private stripCodeFences (text: string) =
+    let stripCodeFences (text: string) =
         let trimmed = text.Trim()
 
         if trimmed.StartsWith("```") then

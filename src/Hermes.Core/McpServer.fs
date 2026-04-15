@@ -65,6 +65,12 @@ module McpServer =
         p["description"] <- JsonValue.Create(desc)
         p
 
+    let private boolProp (desc: string) : JsonObject =
+        let p = JsonObject()
+        p["type"] <- JsonValue.Create("boolean")
+        p["description"] <- JsonValue.Create(desc)
+        p
+
     let toolDefinitions: ToolDef list =
         [ { Name = "hermes_search"
             Description =
@@ -149,7 +155,15 @@ module McpServer =
             Description =
                 "Get processing queue overview: unclassified, unextracted, and unembedded document counts."
             InputSchema =
-                mkSchema [ "limit", intProp "Sample IDs per stage (default 10)" ] [] } ]
+                mkSchema [ "limit", intProp "Sample IDs per stage (default 10)" ] [] }
+          { Name = "hermes_deep_extract"
+            Description =
+                "Run deep field extraction (Pass 2) on a comprehended document. Uses a type-specific prompt to extract detailed structured data (earnings, transactions, expenses). Returns enriched comprehension with deep_fields."
+            InputSchema =
+                mkSchema
+                    [ "document_id", intProp "Document ID (required)"
+                      "force", boolProp "Re-extract even if cached (default false)" ]
+                    [ "document_id" ] } ]
 
     // ─── Request parsing ─────────────────────────────────────────────
 
@@ -250,6 +264,7 @@ module McpServer =
         (logger: Algebra.Logger)
         (clock: Algebra.Clock)
         (archiveDir: string)
+        (deepDeps: McpTools.DeepExtractionDeps option)
         (toolName: string)
         (args: JsonNode option)
         : Task<Result<JsonNode, string>> =
@@ -300,6 +315,12 @@ module McpServer =
             | "hermes_get_processing_queue" ->
                 let! result = McpTools.getProcessingQueue db toolArgs
                 return Ok result
+            | "hermes_deep_extract" ->
+                match deepDeps with
+                | None -> return Error "Deep extraction not configured (no chat provider)"
+                | Some deps ->
+                    let! result = McpTools.deepExtract db deps toolArgs
+                    return Ok result
             | unknown ->
                 logger.warn $"Unknown tool: {unknown}"
                 return Error $"Unknown tool: {unknown}"
@@ -314,6 +335,7 @@ module McpServer =
         (logger: Algebra.Logger)
         (clock: Algebra.Clock)
         (archiveDir: string)
+        (deepDeps: McpTools.DeepExtractionDeps option)
         (request: JsonRpcRequest)
         : Task<JsonRpcResponse> =
         task {
@@ -368,7 +390,7 @@ module McpServer =
                         | Some p -> tryGetNode p "arguments"
                         | None -> None
 
-                    let! callResult = handleToolCall db fs logger clock archiveDir name toolArgs
+                    let! callResult = handleToolCall db fs logger clock archiveDir deepDeps name toolArgs
 
                     match callResult with
                     | Ok resultNode ->
@@ -398,6 +420,7 @@ module McpServer =
         (logger: Algebra.Logger)
         (clock: Algebra.Clock)
         (archiveDir: string)
+        (deepDeps: McpTools.DeepExtractionDeps option)
         (message: string)
         : Task<string> =
         task {
@@ -406,6 +429,6 @@ module McpServer =
                 let resp = makeError None -32700 msg
                 return serialiseResponse resp
             | Ok request ->
-                let! resp = handleRequest db fs logger clock archiveDir request
+                let! resp = handleRequest db fs logger clock archiveDir deepDeps request
                 return serialiseResponse resp
         }

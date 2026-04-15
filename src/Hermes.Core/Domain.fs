@@ -190,6 +190,11 @@ module Domain =
           LlmConcurrency: int
           EmailConcurrency: int }
 
+    /// Deep extraction configuration: which provider + model for on-demand Pass 2.
+    type DeepExtractionConfig =
+        { Provider: ChatProviderKind
+          Model: string }
+
     type HermesConfig =
         { ArchiveDir: string
           Credentials: string
@@ -201,7 +206,8 @@ module Domain =
           Fallback: FallbackConfig
           Azure: AzureConfig
           Chat: ChatConfig
-          Pipeline: PipelineConfig }
+          Pipeline: PipelineConfig
+          DeepExtraction: DeepExtractionConfig }
 
     // ─── Email sync domain types ─────────────────────────────────────
 

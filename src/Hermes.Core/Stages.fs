@@ -83,8 +83,14 @@ module Stages =
         let amount = doc |> Document.decode<float> "extracted_amount"
         let sender = doc |> Document.decode<string> "sender" |> Option.defaultValue ""
         let subject = doc |> Document.decode<string> "subject" |> Option.defaultValue ""
+
+        let senderHint =
+            if sender <> "" then SenderClassification.classify sender |> SenderClassification.formatHint
+            else ""
+
         let contextParts =
-            [ if vendor <> "" then $"Known vendor: {vendor}"
+            [ if senderHint <> "" then senderHint
+              if vendor <> "" then $"Known vendor: {vendor}"
               if amount.IsSome then $"Detected amount: {amount.Value}"
               if sender <> "" then $"Email sender: {sender}"
               if subject <> "" then $"Email subject: {subject}" ]

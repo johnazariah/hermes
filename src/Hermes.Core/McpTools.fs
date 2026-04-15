@@ -497,3 +497,105 @@ module McpTools =
             obj["unembedded"] <- stageToJson queue.Unembedded
             return obj :> JsonNode
         }
+
+    /// Deep extraction dependencies (optional, only needed for hermes_deep_extract).
+    type DeepExtractionDeps =
+        { Chat: Algebra.ChatProvider
+          Registry: Map<string, PromptLoader.ParsedPrompt>
+          Provider: string
+          Model: string }
+
+    let deepExtract
+        (db: Algebra.Database)
+        (deps: DeepExtractionDeps)
+        (args: JsonNode)
+        : Task<JsonNode> =
+        task {
+            match tryGetInt64 args "document_id" with
+            | None ->
+                let err = JsonObject()
+                err["error"] <- JsonValue.Create("document_id is required")
+                return err :> JsonNode
+            | Some docId ->
+                let force =
+                    tryGetNode args "force"
+                    |> Option.map (fun n -> n.GetValue<bool>())
+                    |> Option.defaultValue false
+
+                // Load document
+                let! rows =
+                    db.execReader
+                        "SELECT extracted_text, comprehension FROM documents WHERE id = @id"
+                        [ ("@id", Database.boxVal docId) ]
+
+                match rows |> List.tryHead with
+                | None ->
+                    let err = JsonObject()
+                    err["error"] <- JsonValue.Create($"Document {docId} not found")
+                    return err :> JsonNode
+                | Some row ->
+                    let r = Prelude.RowReader(row)
+                    let text = r.String "extracted_text" ""
+                    let comprehension = r.String "comprehension" ""
+
+                    if String.IsNullOrWhiteSpace(comprehension) then
+                        let err = JsonObject()
+                        err["error"] <- JsonValue.Create($"Document {docId} has no comprehension (run Pass 1 first)")
+                        return err :> JsonNode
+                    else
+
+                    // Get document type from comprehension
+                    match DeepExtraction.getDocumentType comprehension with
+                    | None ->
+                        let err = JsonObject()
+                        err["error"] <- JsonValue.Create($"Cannot determine document_type from comprehension")
+                        return err :> JsonNode
+                    | Some docType ->
+
+                    // Check if deep prompt exists
+                    match DeepExtraction.promptFileForType docType with
+                    | None ->
+                        let err = JsonObject()
+                        err["error"] <- JsonValue.Create($"No deep extraction prompt for document type: {docType}")
+                        return err :> JsonNode
+                    | Some _ ->
+
+                    // Check cache
+                    let sourceHash = DeepExtraction.computeHash text
+                    if not force && DeepExtraction.hasValidDeepExtraction comprehension sourceHash then
+                        let obj = JsonObject()
+                        obj["status"] <- JsonValue.Create("cached")
+                        obj["document_id"] <- JsonValue.Create(docId)
+                        obj["comprehension"] <- JsonNode.Parse(comprehension)
+                        return obj :> JsonNode
+                    else
+
+                    // Run deep extraction
+                    let! result =
+                        DeepExtraction.extract deps.Chat deps.Registry deps.Provider deps.Model docType text ""
+
+                    match result with
+                    | Error e ->
+                        let err = JsonObject()
+                        err["error"] <- JsonValue.Create(e)
+                        return err :> JsonNode
+                    | Ok deep ->
+                        match DeepExtraction.mergeIntoComprehension comprehension deep with
+                        | Error e ->
+                            let err = JsonObject()
+                            err["error"] <- JsonValue.Create(e)
+                            return err :> JsonNode
+                        | Ok merged ->
+                            // Store back with targeted SQL update
+                            let! _ =
+                                db.execNonQuery
+                                    "UPDATE documents SET comprehension = @comp WHERE id = @id"
+                                    [ ("@comp", Database.boxVal merged)
+                                      ("@id", Database.boxVal docId) ]
+
+                            let obj = JsonObject()
+                            obj["status"] <- JsonValue.Create("extracted")
+                            obj["document_id"] <- JsonValue.Create(docId)
+                            obj["comprehension"] <- JsonNode.Parse(merged)
+                            return obj :> JsonNode
+        }

@@ -167,7 +167,10 @@ module Config =
           Pipeline =
             { Domain.PipelineConfig.ExtractConcurrency = 0  // 0 = auto (ProcessorCount / 2)
               LlmConcurrency = 1
-              EmailConcurrency = 5 } }
+              EmailConcurrency = 5 }
+          DeepExtraction =
+            { Domain.DeepExtractionConfig.Provider = Domain.ChatProviderKind.AzureOpenAI
+              Model = "gpt-4o" } }
 
     // ─── DTO → Domain mapping ────────────────────────────────────────
 
@@ -289,7 +292,8 @@ module Config =
           Pipeline =
             { Domain.PipelineConfig.ExtractConcurrency = 0  // 0 = auto
               LlmConcurrency = 1
-              EmailConcurrency = 5 } }
+              EmailConcurrency = 5 }
+          DeepExtraction = def.DeepExtraction }
 
     // ─── YAML deserializer ───────────────────────────────────────────
 

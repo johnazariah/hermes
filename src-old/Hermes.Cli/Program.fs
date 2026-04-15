@@ -523,7 +523,7 @@ let private mcpCmd () =
                 | "" -> ()
                 | msg ->
                     let response =
-                        McpServer.processMessage db fs logger clock config.ArchiveDir msg
+                        McpServer.processMessage db fs logger clock config.ArchiveDir None msg
                         |> Async.AwaitTask
                         |> Async.RunSynchronously
 
