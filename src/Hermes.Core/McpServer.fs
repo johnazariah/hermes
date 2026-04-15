@@ -163,7 +163,37 @@ module McpServer =
                 mkSchema
                     [ "document_id", intProp "Document ID (required)"
                       "force", boolProp "Re-extract even if cached (default false)" ]
-                    [ "document_id" ] } ]
+                    [ "document_id" ] }
+          { Name = "hermes_contacts"
+            Description =
+                "List or search contacts in the address book. Contacts are automatically harvested from document comprehension."
+            InputSchema =
+                mkSchema
+                    [ "query", stringProp "Search by name, email, or ABN"
+                      "contact_type", stringProp "Filter: supplier, employer, government, unknown"
+                      "tax_relevant", stringProp "Filter: true, false, or omit for all"
+                      "limit", intProp "Max results (default 50)" ]
+                    [] }
+          { Name = "hermes_contact_detail"
+            Description =
+                "Get contact details with linked documents."
+            InputSchema =
+                mkSchema
+                    [ "contact_id", stringProp "Contact ID (required)" ]
+                    [ "contact_id" ] }
+          { Name = "hermes_contact_set_tax_relevant"
+            Description =
+                "Mark a contact as tax-relevant or not. Tax-relevant contacts auto-trigger deep extraction for future documents."
+            InputSchema =
+                mkSchema
+                    [ "contact_id", stringProp "Contact ID (required)"
+                      "tax_relevant", stringProp "true, false, or null to clear" ]
+                    [ "contact_id" ] }
+          { Name = "hermes_contacts_backfill"
+            Description =
+                "Backfill contacts from already-comprehended documents that haven't been linked yet. Run once after enabling the address book."
+            InputSchema =
+                mkSchema [] [] } ]
 
     // ─── Request parsing ─────────────────────────────────────────────
 
@@ -321,6 +351,18 @@ module McpServer =
                 | Some deps ->
                     let! result = McpTools.deepExtract db deps toolArgs
                     return Ok result
+            | "hermes_contacts" ->
+                let! result = McpTools.listContacts db toolArgs
+                return Ok result
+            | "hermes_contact_detail" ->
+                let! result = McpTools.contactDetail db toolArgs
+                return Ok result
+            | "hermes_contact_set_tax_relevant" ->
+                let! result = McpTools.setTaxRelevant db toolArgs
+                return Ok result
+            | "hermes_contacts_backfill" ->
+                let! result = McpTools.contactsBackfill db logger toolArgs
+                return Ok result
             | unknown ->
                 logger.warn $"Unknown tool: {unknown}"
                 return Error $"Unknown tool: {unknown}"

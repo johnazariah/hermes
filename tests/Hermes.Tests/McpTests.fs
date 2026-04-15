@@ -129,7 +129,7 @@ let ``McpServer_Dispatch_ToolsList_ReturnsAllTools`` () =
             let doc = JsonDocument.Parse(response)
             let result = doc.RootElement.GetProperty("result")
             let tools = result.GetProperty("tools")
-            Assert.Equal(14, tools.GetArrayLength())
+            Assert.Equal(18, tools.GetArrayLength())
 
             let toolNames =
                 [ for i in 0 .. tools.GetArrayLength() - 1 ->

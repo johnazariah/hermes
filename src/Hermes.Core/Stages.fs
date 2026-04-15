@@ -175,6 +175,11 @@ Document text:
                         | Ok parsed ->
                             let tier = if parsed.Confidence >= 0.7 then "comprehension" else "comprehension_review"
                             deps.Logger.info $"Understood doc {docId} as '{parsed.CanonicalCategory}' ({parsed.DocumentType}, {tier}, conf={parsed.Confidence:F2}): {parsed.Summary}"
+
+                            // Harvest contact from comprehension (best-effort, never blocks pipeline)
+                            let sender = doc |> Document.decode<string> "sender"
+                            do! ContactExtraction.harvestAndLink deps.Db deps.Logger docId parsed.RawJson sender
+
                             return
                                 doc
                                 |> Document.encode "category" (box parsed.CanonicalCategory)

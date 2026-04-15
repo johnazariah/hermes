@@ -599,3 +599,185 @@ module McpTools =
                             obj["comprehension"] <- JsonNode.Parse(merged)
                             return obj :> JsonNode
         }
+
+    // ─── Contact tools ──────────────────────────────────────────────
+
+    let private mapContactRow (row: Map<string, obj>) : JsonObject =
+        let r = Prelude.RowReader(row)
+        let obj = JsonObject()
+        obj["id"] <- JsonValue.Create(r.String "id" "")
+        obj["name"] <- JsonValue.Create(r.String "name" "")
+        obj["contact_type"] <- JsonValue.Create(r.String "contact_type" "unknown")
+        obj["doc_count"] <- JsonValue.Create(r.Int64 "doc_count" 0L)
+
+        r.OptString "email" |> Option.iter (fun v -> obj["email"] <- JsonValue.Create(v))
+        r.OptString "abn" |> Option.iter (fun v -> obj["abn"] <- JsonValue.Create(v))
+        r.OptString "phone" |> Option.iter (fun v -> obj["phone"] <- JsonValue.Create(v))
+        r.OptString "address" |> Option.iter (fun v -> obj["address"] <- JsonValue.Create(v))
+        r.OptString "source_sender" |> Option.iter (fun v -> obj["source_sender"] <- JsonValue.Create(v))
+        r.OptInt64 "tax_relevant" |> Option.iter (fun v ->
+            let boolVal : bool = (v = 1L)
+            obj["tax_relevant"] <- JsonValue.Create(boolVal))
+        obj["first_seen_at"] <- JsonValue.Create(r.String "first_seen_at" "")
+        obj["last_seen_at"] <- JsonValue.Create(r.String "last_seen_at" "")
+        obj
+
+    /// List/search contacts with optional filters.
+    let listContacts (db: Algebra.Database) (args: JsonNode) : Task<JsonNode> =
+        task {
+            let query = tryGetString args "query"
+            let contactType = tryGetString args "contact_type"
+            let taxRelevant = tryGetString args "tax_relevant"
+            let limit = tryGetInt args "limit" 50
+
+            let mutable sql = "SELECT c.*, (SELECT COUNT(*) FROM document_contacts dc WHERE dc.contact_id = c.id) AS doc_count FROM contacts c WHERE 1=1"
+            let mutable parms : (string * obj) list = []
+
+            match query with
+            | Some q ->
+                sql <- sql + " AND (c.name LIKE @q OR c.canonical_name LIKE @q OR c.email LIKE @q OR c.abn LIKE @q)"
+                parms <- ("@q", Database.boxVal $"%%{q}%%") :: parms
+            | None -> ()
+
+            match contactType with
+            | Some t ->
+                sql <- sql + " AND c.contact_type = @type"
+                parms <- ("@type", Database.boxVal t) :: parms
+            | None -> ()
+
+            match taxRelevant with
+            | Some "true" -> sql <- sql + " AND c.tax_relevant = 1"
+            | Some "false" -> sql <- sql + " AND c.tax_relevant = 0"
+            | _ -> ()
+
+            sql <- sql + " ORDER BY c.last_seen_at DESC LIMIT @limit"
+            parms <- ("@limit", Database.boxVal (int64 limit)) :: parms
+
+            let! rows = db.execReader sql parms
+
+            let result = JsonObject()
+            let arr = JsonArray()
+            for row in rows do arr.Add(mapContactRow row)
+            result["contacts"] <- arr
+            result["count"] <- JsonValue.Create(rows.Length)
+            return result :> JsonNode
+        }
+
+    /// Get contact detail with linked documents.
+    let contactDetail (db: Algebra.Database) (args: JsonNode) : Task<JsonNode> =
+        task {
+            let contactId = tryGetString args "contact_id" |> Option.defaultValue ""
+
+            if String.IsNullOrWhiteSpace(contactId) then
+                let err = JsonObject()
+                err["error"] <- JsonValue.Create("contact_id parameter is required")
+                return err :> JsonNode
+            else
+
+            let! contacts =
+                db.execReader
+                    "SELECT c.*, (SELECT COUNT(*) FROM document_contacts dc WHERE dc.contact_id = c.id) AS doc_count FROM contacts c WHERE c.id = @id"
+                    [ ("@id", Database.boxVal contactId) ]
+
+            match contacts with
+            | [] ->
+                let err = JsonObject()
+                err["error"] <- JsonValue.Create($"Contact not found: {contactId}")
+                return err :> JsonNode
+            | contactRow :: _ ->
+                let! docRows =
+                    db.execReader
+                        """SELECT d.id, d.original_name, d.category, dc.role,
+                                  d.sender, d.email_date
+                           FROM document_contacts dc
+                           JOIN documents d ON d.id = dc.document_id
+                           WHERE dc.contact_id = @id
+                           ORDER BY d.email_date DESC
+                           LIMIT 50"""
+                        [ ("@id", Database.boxVal contactId) ]
+
+                let contact = mapContactRow contactRow
+                let arr = JsonArray()
+                for dRow in docRows do
+                    let dr = Prelude.RowReader(dRow)
+                    let docObj = JsonObject()
+                    docObj["id"] <- JsonValue.Create(dr.Int64 "id" 0L)
+                    dr.OptString "original_name" |> Option.iter (fun v -> docObj["original_name"] <- JsonValue.Create(v))
+                    dr.OptString "category" |> Option.iter (fun v -> docObj["category"] <- JsonValue.Create(v))
+                    dr.OptString "role" |> Option.iter (fun v -> docObj["role"] <- JsonValue.Create(v))
+                    dr.OptString "sender" |> Option.iter (fun v -> docObj["sender"] <- JsonValue.Create(v))
+                    dr.OptString "email_date" |> Option.iter (fun v -> docObj["email_date"] <- JsonValue.Create(v))
+                    arr.Add(docObj)
+
+                contact["documents"] <- arr
+                return contact :> JsonNode
+        }
+
+    /// Set tax_relevant flag on a contact.
+    let setTaxRelevant (db: Algebra.Database) (args: JsonNode) : Task<JsonNode> =
+        task {
+            let contactId = tryGetString args "contact_id" |> Option.defaultValue ""
+            let taxRelevant = tryGetString args "tax_relevant"
+
+            if String.IsNullOrWhiteSpace(contactId) then
+                let err = JsonObject()
+                err["error"] <- JsonValue.Create("contact_id parameter is required")
+                return err :> JsonNode
+            else
+
+            let taxVal : obj =
+                match taxRelevant with
+                | Some "true" -> Database.boxVal 1L
+                | Some "false" -> Database.boxVal 0L
+                | _ -> box DBNull.Value
+
+            let! rows =
+                db.execNonQuery
+                    "UPDATE contacts SET tax_relevant = @tax WHERE id = @id"
+                    [ ("@id", Database.boxVal contactId)
+                      ("@tax", taxVal) ]
+
+            let result = JsonObject()
+            if rows > 0 then
+                result["status"] <- JsonValue.Create("updated")
+                result["contact_id"] <- JsonValue.Create(contactId)
+                result["tax_relevant"] <- JsonValue.Create(taxRelevant |> Option.defaultValue "null")
+            else
+                result["error"] <- JsonValue.Create($"Contact not found: {contactId}")
+            return result :> JsonNode
+        }
+
+    /// Backfill contacts from already-comprehended documents.
+    let contactsBackfill (db: Algebra.Database) (logger: Algebra.Logger) (_args: JsonNode) : Task<JsonNode> =
+        task {
+            let! unlinked =
+                db.execReader
+                    """SELECT d.id, d.comprehension, d.sender
+                       FROM documents d
+                       WHERE d.comprehension IS NOT NULL
+                         AND d.id NOT IN (SELECT document_id FROM document_contacts)
+                       LIMIT 500"""
+                    []
+
+            let mutable linked = 0
+            let mutable skipped = 0
+
+            for row in unlinked do
+                let r = Prelude.RowReader(row)
+                let docId = r.Int64 "id" 0L
+                let comp = r.String "comprehension" ""
+                let sender = r.OptString "sender"
+
+                if not (String.IsNullOrWhiteSpace(comp)) then
+                    do! ContactExtraction.harvestAndLink db logger docId comp sender
+                    linked <- linked + 1
+                else
+                    skipped <- skipped + 1
+
+            let result = JsonObject()
+            result["status"] <- JsonValue.Create("backfill_complete")
+            result["processed"] <- JsonValue.Create(linked)
+            result["skipped"] <- JsonValue.Create(skipped)
+            result["remaining"] <- JsonValue.Create(unlinked.Length - linked - skipped)
+            return result :> JsonNode
+        }

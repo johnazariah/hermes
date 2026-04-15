@@ -9,7 +9,7 @@ open Microsoft.Data.Sqlite
 [<RequireQualifiedAccess>]
 module Database =
 
-    let [<Literal>] CurrentSchemaVersion = 6
+    let [<Literal>] CurrentSchemaVersion = 7
 
     // ─── Schema DDL ──────────────────────────────────────────────────
 
@@ -172,6 +172,39 @@ module Database =
            "CREATE INDEX IF NOT EXISTS idx_tags_doc ON tags(document_id);"
            "CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag);"
            "CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_unique ON tags(document_id, tag);"
+
+           // ── Contacts (address book) ──────────────────────────────────
+           """
+        CREATE TABLE IF NOT EXISTS contacts (
+            id              TEXT PRIMARY KEY,
+            name            TEXT NOT NULL,
+            canonical_name  TEXT NOT NULL,
+            email           TEXT,
+            abn             TEXT,
+            phone           TEXT,
+            address         TEXT,
+            contact_type    TEXT NOT NULL DEFAULT 'unknown',
+            tax_relevant    INTEGER,
+            source_sender   TEXT,
+            first_seen_at   TEXT NOT NULL DEFAULT (datetime('now')),
+            last_seen_at    TEXT NOT NULL DEFAULT (datetime('now')),
+            metadata        TEXT
+        );
+        """
+           "CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_abn ON contacts(abn) WHERE abn IS NOT NULL;"
+           "CREATE INDEX IF NOT EXISTS idx_contacts_type ON contacts(contact_type);"
+           "CREATE INDEX IF NOT EXISTS idx_contacts_canonical ON contacts(canonical_name);"
+
+           """
+        CREATE TABLE IF NOT EXISTS document_contacts (
+            document_id INTEGER NOT NULL REFERENCES documents(id),
+            contact_id  TEXT NOT NULL REFERENCES contacts(id),
+            role        TEXT NOT NULL DEFAULT 'issuer',
+            confidence  REAL DEFAULT 1.0,
+            PRIMARY KEY (document_id, contact_id, role)
+        );
+        """
+           "CREATE INDEX IF NOT EXISTS idx_doc_contacts_contact ON document_contacts(contact_id);"
         |]
 
     let private ftsSql =

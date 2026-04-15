@@ -44,6 +44,7 @@
     <Compile Include="PromptLoaderTests.fs" />
     <Compile Include="SenderClassificationTests.fs" />
     <Compile Include="DeepExtractionTests.fs" />
+    <Compile Include="ContactExtractionTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

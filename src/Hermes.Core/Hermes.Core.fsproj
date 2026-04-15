@@ -37,6 +37,7 @@
     <Compile Include="DocumentBrowser.fs" />
     <Compile Include="Threads.fs" />
     <Compile Include="ActivityLog.fs" />
+    <Compile Include="ContactExtraction.fs" />
     <Compile Include="Search.fs" />
     <Compile Include="Stats.fs" />
     <Compile Include="Reminders.fs" />
