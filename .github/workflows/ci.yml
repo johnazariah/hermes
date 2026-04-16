@@ -39,16 +39,24 @@ jobs:
           cache-dependency-path: src/Hermes.Web/package-lock.json
 
       - name: Install npm dependencies
-        run: npm install --prefix src/Hermes.Web
+        working-directory: src/Hermes.Web
+        run: npm install
 
       - name: Build Blazor CSS
-        run: npm run build:blazor --prefix src/Hermes.Web
+        working-directory: src/Hermes.Web
+        run: npm run build:blazor
 
-      - name: Restore
-        run: dotnet restore hermes.slnx
+      - name: Restore (core + service + tests only)
+        run: |
+          dotnet restore src/Hermes.Core/Hermes.Core.fsproj
+          dotnet restore src/Hermes.Service/Hermes.Service.fsproj
+          dotnet restore tests/Hermes.Tests/Hermes.Tests.fsproj
 
       - name: Build
-        run: dotnet build hermes.slnx --no-restore -c Release -v q
+        run: |
+          dotnet build src/Hermes.Core/Hermes.Core.fsproj --no-restore -c Release -v q
+          dotnet build src/Hermes.Service/Hermes.Service.fsproj --no-restore -c Release -v q
+          dotnet build tests/Hermes.Tests/Hermes.Tests.fsproj --no-restore -c Release -v q
 
       - name: Test
         run: dotnet test tests/Hermes.Tests/Hermes.Tests.fsproj --no-build -c Release -v q --collect:"XPlat Code Coverage"
@@ -150,10 +158,12 @@ jobs:
           cache-dependency-path: src/Hermes.Web/package-lock.json
 
       - name: Install npm dependencies
-        run: npm install --prefix src/Hermes.Web
+        working-directory: src/Hermes.Web
+        run: npm install
 
       - name: Build Blazor CSS
-        run: npm run build:blazor --prefix src/Hermes.Web
+        working-directory: src/Hermes.Web
+        run: npm run build:blazor
 
       - name: Publish service
         run: dotnet publish src/Hermes.Service/Hermes.Service.fsproj -c Release -r ${{ matrix.rid }} --self-contained -o publish/service
