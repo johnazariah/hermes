@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:blazor": "npx @tailwindcss/cli -i blazor.css -o ../Hermes.Service/wwwroot/css/app.min.css --content \"../Hermes.UI/**/*.razor\" --minify",
     "lint": "eslint .",
     "preview": "vite preview"
   },

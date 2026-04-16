@@ -92,12 +92,12 @@ Get-Process -Name 'Hermes.Service' -ErrorAction SilentlyContinue | Stop-Process 
 Start-Sleep -Seconds 1
 
 if (-not $SkipBuild) {
-    # Build React frontend
-    Write-Step 'Building React frontend...'
+    # Build Blazor UI CSS (Tailwind)
+    Write-Step 'Building Blazor UI CSS...'
     Push-Location $WebDir
     try {
-        npm run build 2>&1 | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw 'npm run build failed' }
+        npm run build:blazor 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'Blazor CSS build failed' }
     }
     finally { Pop-Location }
 

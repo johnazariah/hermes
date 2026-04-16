@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-const BASE = 'http://localhost:21742/app';
+const BASE = 'http://localhost:21742';
 
 test.describe('Hermes Blazor UI Smoke Tests', () => {
 
@@ -39,10 +39,12 @@ test.describe('Hermes Blazor UI Smoke Tests', () => {
         await expect(page.getByRole('heading', { name: 'Activity' })).toBeVisible();
     });
 
-    test('Pipeline page shows progress bar', async ({ page }) => {
+    test('Pipeline page shows stage counts', async ({ page }) => {
         await page.goto(BASE);
         await page.waitForTimeout(5000);
-        await expect(page.getByText('Progress')).toBeVisible({ timeout: 10000 });
+        // Stage buttons always render (even with 0 docs)
+        await expect(page.getByText('Received')).toBeVisible({ timeout: 10000 });
+        await expect(page.getByText('Memorised')).toBeVisible({ timeout: 10000 });
     });
 
     test('Documents page shows categories', async ({ page }) => {
@@ -81,7 +83,7 @@ test.describe('Hermes Blazor UI Smoke Tests', () => {
     test('Settings page loads config', async ({ page }) => {
         await page.goto(BASE + '/settings');
         await page.waitForTimeout(3000);
-        await expect(page.getByText('Email Accounts')).toBeVisible();
+        await expect(page.getByRole('heading', { name: 'Email Accounts' })).toBeVisible();
         await expect(page.getByText('Configuration (YAML)')).toBeVisible();
         // Config textarea should have content
         const textarea = page.locator('textarea');

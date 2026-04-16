@@ -10,7 +10,6 @@ body {
     -webkit-font-smoothing: antialiased;
 }
 
-/* Blazor error UI */
 #blazor-error-ui {
     background: #1a1a1a;
     color: #ef4444;

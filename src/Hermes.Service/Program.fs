@@ -163,21 +163,9 @@ let main args =
     app.MapGet("/health", Func<IResult>(fun () ->
         Results.Json({| status = "healthy"; service = "hermes" |}))) |> ignore
 
-    // Blazor Server — mounted at /app
+    // Blazor Server — serves the UI at /
     app.MapRazorComponents<Hermes.UI.App>()
         .AddInteractiveServerRenderMode() |> ignore
-
-    // SPA fallback — serve React index.html for non-API, non-Blazor routes
-    app.MapFallback(Func<HttpContext, System.Threading.Tasks.Task<IResult>>(fun ctx ->
-        task {
-            if ctx.Request.Path.StartsWithSegments("/api")
-               || ctx.Request.Path.StartsWithSegments("/app")
-               || ctx.Request.Path.StartsWithSegments("/_blazor") then
-                return Results.NotFound()
-            else
-                let indexPath = Path.Combine(app.Environment.WebRootPath, "index.html")
-                return Results.File(indexPath, "text/html")
-        })) |> ignore
 
     let port =
         match System.Environment.GetEnvironmentVariable("HERMES_PORT") with

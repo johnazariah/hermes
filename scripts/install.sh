@@ -64,9 +64,9 @@ if launchctl list | grep -q "$TASK_LABEL" 2>/dev/null; then
 fi
 
 if [[ "${1:-}" != "--skip-build" ]]; then
-    # Build React frontend
-    step "Building React frontend..."
-    (cd "$WEB_DIR" && npm run build) > /dev/null 2>&1
+    # Build Blazor UI CSS (Tailwind)
+    step "Building Blazor UI CSS..."
+    (cd "$WEB_DIR" && npm run build:blazor) > /dev/null 2>&1
 
     # Publish .NET service
     step "Publishing to $INSTALL_DIR..."
