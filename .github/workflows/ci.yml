@@ -2,18 +2,26 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [main]
   pull_request:
-    branches: [main, master]
+    branches: [main]
+
+env:
+  DOTNET_VERSION: '9.0.x'
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
 
 jobs:
+  # ── Core build + test (cross-platform) ───────────────────────────
   build-and-test:
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-          - os: [self-hosted, Windows, X64, buildbeast]
-          - os: [self-hosted, macOS, ARM64]
+          - os: windows-latest
+            rid: win-x64
+          - os: macos-latest
+            rid: osx-arm64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -21,13 +29,141 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: src/Hermes.Web/package-lock.json
+
+      - name: Install npm dependencies
+        run: npm ci --prefix src/Hermes.Web
+
+      - name: Build Blazor CSS
+        run: npm run build:blazor --prefix src/Hermes.Web
 
       - name: Restore
-        run: dotnet restore
+        run: dotnet restore hermes.slnx
 
       - name: Build
-        run: dotnet build --no-restore --configuration Release
+        run: dotnet build hermes.slnx --no-restore -c Release -v q
 
       - name: Test
-        run: dotnet test --no-build --configuration Release --verbosity normal
+        run: dotnet test tests/Hermes.Tests/Hermes.Tests.fsproj --no-build -c Release -v q --collect:"XPlat Code Coverage"
+
+      - name: Check coverage threshold
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $xml = [xml](Get-Content (Get-ChildItem tests/Hermes.Tests/TestResults -Recurse -Filter "coverage.cobertura.xml" | Select-Object -First 1).FullName)
+          $line = [math]::Round([double]$xml.coverage.'line-rate' * 100, 1)
+          $branch = [math]::Round([double]$xml.coverage.'branch-rate' * 100, 1)
+          Write-Host "Line coverage: $line%"
+          Write-Host "Branch coverage: $branch%"
+          if ($line -lt 75) { Write-Host "::error::Line coverage $line% is below 75% threshold"; exit 1 }
+
+      - name: Upload coverage
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: tests/Hermes.Tests/TestResults/**/coverage.cobertura.xml
+
+  # ── Windows Tray app ─────────────────────────────────────────────
+  build-tray:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Build Tray app
+        run: dotnet build src/Hermes.Tray/Hermes.Tray.csproj -c Release -v q
+
+  # ── MAUI Shell (Windows) ─────────────────────────────────────────
+  build-shell-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Install MAUI workload
+        run: dotnet workload install maui-windows
+
+      - name: Build Shell
+        run: dotnet build src/Hermes.Shell/Hermes.Shell.csproj -c Release -v q
+
+  # ── MAUI Shell (macOS) ───────────────────────────────────────────
+  build-shell-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Install MAUI workload
+        run: dotnet workload install maui-maccatalyst
+
+      - name: Build Shell
+        run: dotnet build src/Hermes.Shell/Hermes.Shell.csproj -c Release -v q
+
+  # ── Publish artifacts ────────────────────────────────────────────
+  publish:
+    needs: [build-and-test, build-tray]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+            artifact: hermes-windows
+          - os: macos-latest
+            rid: osx-arm64
+            artifact: hermes-macos
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: src/Hermes.Web/package-lock.json
+
+      - name: Install npm dependencies
+        run: npm ci --prefix src/Hermes.Web
+
+      - name: Build Blazor CSS
+        run: npm run build:blazor --prefix src/Hermes.Web
+
+      - name: Publish service
+        run: dotnet publish src/Hermes.Service/Hermes.Service.fsproj -c Release -r ${{ matrix.rid }} --self-contained -o publish/service
+
+      - name: Publish tray (Windows only)
+        if: matrix.rid == 'win-x64'
+        run: dotnet publish src/Hermes.Tray/Hermes.Tray.csproj -c Release -r win-x64 --self-contained -o publish/tray
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: publish/
+          retention-days: 14
