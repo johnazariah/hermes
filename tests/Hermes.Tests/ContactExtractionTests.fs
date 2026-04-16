@@ -172,3 +172,79 @@ let ``ContactExtraction_harvestFromComprehension_AbnFromTopLevel_Extracted`` () 
     let contact = result.Value
     Assert.Equal(Some "98765432100", contact.Abn)
     Assert.Equal("supplier", contact.ContactType)
+
+// ─── harvestAndLink integration tests ────────────────────────────────
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``ContactExtraction_harvestAndLink_InsertsContactAndLinks`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! _ =
+                db.execNonQuery
+                    "INSERT INTO documents (original_name, saved_path, source_type, category, sha256) VALUES (@n, @p, @s, 'unsorted', 'sha1')"
+                    [ ("@n", Database.boxVal "test.pdf"); ("@p", Database.boxVal "test.pdf"); ("@s", Database.boxVal "email") ]
+
+            let compJson = """{"document_type":"payslip","sender_name":"Acme Corp Pty Ltd","fields":{"employer":"Acme Corp Pty Ltd","abn":"12345678901"}}"""
+
+            do! ContactExtraction.harvestAndLink db TestHelpers.silentLogger 1L compJson (Some "noreply@acme.com")
+
+            let! contacts = db.execReader "SELECT * FROM contacts" []
+            Assert.Equal(1, contacts.Length)
+            let r = Prelude.RowReader(contacts.[0])
+            Assert.Equal("Acme Corp Pty Ltd", r.String "name" "")
+            Assert.Equal("acme corp", r.String "canonical_name" "")
+            Assert.Equal(Some "12345678901", r.OptString "abn")
+            Assert.Equal("employer", r.String "contact_type" "")
+
+            let! links = db.execReader "SELECT * FROM document_contacts" []
+            Assert.Equal(1, links.Length)
+        finally
+            db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``ContactExtraction_harvestAndLink_DuplicateContact_UpdatesLastSeen`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! _ =
+                db.execNonQuery
+                    "INSERT INTO documents (original_name, saved_path, source_type, category, sha256) VALUES ('a.pdf', 'a.pdf', 'email', 'unsorted', 'sha1')" []
+            let! _ =
+                db.execNonQuery
+                    "INSERT INTO documents (original_name, saved_path, source_type, category, sha256) VALUES ('b.pdf', 'b.pdf', 'email', 'unsorted', 'sha2')" []
+
+            let comp = """{"document_type":"invoice","sender_name":"CommBank"}"""
+
+            do! ContactExtraction.harvestAndLink db TestHelpers.silentLogger 1L comp (Some "noreply@commbank.com.au")
+            do! ContactExtraction.harvestAndLink db TestHelpers.silentLogger 2L comp (Some "noreply@commbank.com.au")
+
+            let! contacts = db.execReader "SELECT * FROM contacts" []
+            Assert.Equal(1, contacts.Length)
+
+            let! links = db.execReader "SELECT * FROM document_contacts" []
+            Assert.Equal(2, links.Length)
+        finally
+            db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``ContactExtraction_harvestAndLink_NoName_NoContact`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! _ =
+                db.execNonQuery
+                    "INSERT INTO documents (original_name, saved_path, source_type, category, sha256) VALUES ('a.pdf', 'a.pdf', 'email', 'unsorted', 'sha1')" []
+
+            do! ContactExtraction.harvestAndLink db TestHelpers.silentLogger 1L """{"document_type":"unknown"}""" None
+
+            let! contacts = db.execReader "SELECT * FROM contacts" []
+            Assert.Equal(0, contacts.Length)
+        finally
+            db.dispose ()
+    }

@@ -1048,3 +1048,32 @@ let ``McpServer_Dispatch_ToolsCallReextract_ReturnsResult`` () =
             Assert.True(doc.RootElement.TryGetProperty("result") |> fst)
         finally db.dispose ()
     }
+
+// ─── hermes_deep_extract dispatch (deepDeps = None) ──────────────────
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``McpServer_Dispatch_DeepExtract_NoDeps_ReturnsError`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        let logger = TestHelpers.silentLogger
+        try
+            let! _ =
+                db.execNonQuery
+                    """INSERT INTO documents (original_name, saved_path, source_type, category, comprehension, extracted_text, sha256)
+                       VALUES (@n, @p, @s, @c, @comp, @t, @sha)"""
+                    [ ("@n", Database.boxVal "test.pdf"); ("@p", Database.boxVal "unclassified/test.pdf")
+                      ("@s", Database.boxVal "email"); ("@c", Database.boxVal "payslips")
+                      ("@comp", Database.boxVal """{"document_type":"payslip"}""")
+                      ("@t", Database.boxVal "some extracted text")
+                      ("@sha", Database.boxVal "deadbeef01234567") ]
+            let json =
+                """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"hermes_deep_extract","arguments":{"document_id":1}}}"""
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" None json
+            let doc = JsonDocument.Parse(response)
+            let root = doc.RootElement
+            Assert.True(root.TryGetProperty("error") |> fst)
+        finally
+            db.dispose ()
+    }

@@ -45,6 +45,7 @@
     <Compile Include="SenderClassificationTests.fs" />
     <Compile Include="DeepExtractionTests.fs" />
     <Compile Include="ContactExtractionTests.fs" />
+    <Compile Include="McpContactTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
