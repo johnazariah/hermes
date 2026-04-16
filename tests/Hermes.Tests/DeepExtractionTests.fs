@@ -152,3 +152,143 @@ let ``DeepExtraction_getDocumentType_Missing_ReturnsNone`` () =
 [<Trait("Category", "Unit")>]
 let ``DeepExtraction_getDocumentType_InvalidJson_ReturnsNone`` () =
     Assert.True((DeepExtraction.getDocumentType "not valid json").IsNone)
+
+// ─── DeepExtraction.extract tests ────────────────────────────────────
+
+let private mkPrompt sys user : PromptLoader.ParsedPrompt =
+    { PromptLoader.ParsedPrompt.System = sys
+      PromptLoader.ParsedPrompt.UserTemplate = user }
+
+let private testRegistry : Map<string, PromptLoader.ParsedPrompt> =
+    [ "payslip", mkPrompt "Extract payslip fields." "Document:\n{{document_text}}\n\nContext: {{context}}"
+      "bank-statement", mkPrompt "Extract bank statement fields." "Document:\n{{document_text}}\n\nContext: {{context}}" ]
+    |> Map.ofList
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``DeepExtraction_extract_ValidPayslip_ReturnsOkWithMetadata`` () =
+    task {
+        let chat = TestHelpers.fakeChatProvider """{"gross_pay": 5000, "net_pay": 4000}"""
+        let! result = DeepExtraction.extract chat testRegistry "ollama" "llama3" "payslip" "Employee: John" ""
+        match result with
+        | Ok deep ->
+            Assert.Equal("ollama", deep.Metadata.Provider)
+            Assert.Equal("llama3", deep.Metadata.Model)
+            Assert.Equal("deep-v1", deep.Metadata.SchemaVersion)
+            Assert.Contains("gross_pay", deep.Fields)
+        | Error e -> failwith $"Expected Ok, got Error: {e}"
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``DeepExtraction_extract_UnsupportedType_ReturnsError`` () =
+    task {
+        let chat = TestHelpers.fakeChatProvider "{}"
+        let! result = DeepExtraction.extract chat testRegistry "ollama" "llama3" "invoice" "Text" ""
+        match result with
+        | Error msg -> Assert.Contains("No deep extraction prompt", msg)
+        | Ok _ -> failwith "Expected Error"
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``DeepExtraction_extract_MissingFromRegistry_ReturnsError`` () =
+    task {
+        let chat = TestHelpers.fakeChatProvider "{}"
+        let! result = DeepExtraction.extract chat Map.empty "ollama" "llama3" "payslip" "Text" ""
+        match result with
+        | Error msg -> Assert.Contains("not loaded", msg)
+        | Ok _ -> failwith "Expected Error"
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``DeepExtraction_extract_ChatFailure_ReturnsError`` () =
+    task {
+        let! result = DeepExtraction.extract TestHelpers.failingChatProvider testRegistry "ollama" "llama3" "payslip" "Text" ""
+        match result with
+        | Error msg -> Assert.Contains("LLM", msg)
+        | Ok _ -> failwith "Expected Error"
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``DeepExtraction_extract_CodeFencedJson_StripsAndSucceeds`` () =
+    task {
+        let chat = TestHelpers.fakeChatProvider "```json\n{\"gross_pay\": 3000}\n```"
+        let! result = DeepExtraction.extract chat testRegistry "ollama" "llama3" "payslip" "Text" ""
+        match result with
+        | Ok deep -> Assert.Contains("gross_pay", deep.Fields)
+        | Error e -> failwith $"Expected Ok, got Error: {e}"
+    }
+
+// ─── McpTools.deepExtract integration tests ──────────────────────────
+
+let private mkDeepDeps (chatResponse: string) : McpTools.DeepExtractionDeps =
+    { Chat = TestHelpers.fakeChatProvider chatResponse
+      Registry = testRegistry
+      Provider = "ollama"
+      Model = "llama3" }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``McpTools_deepExtract_ValidDocument_ReturnsMergedResult`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let comp = """{"document_type":"payslip","summary":"test payslip"}"""
+            let! _ =
+                db.execNonQuery
+                    """INSERT INTO documents (original_name, source_type, saved_path, category, sha256, extracted_text, comprehension)
+                       VALUES ('test.pdf', 'manual_drop', 'payslips/test.pdf', 'payslips', 'sha-deep-1', @text, @comp)"""
+                    [ ("@text", Database.boxVal "Employee: John"); ("@comp", Database.boxVal comp) ]
+            let deps = mkDeepDeps """{"gross_pay": 5000}"""
+            let args = JsonObject()
+            args["document_id"] <- JsonValue.Create(1L)
+            let! result = McpTools.deepExtract db deps (args :> JsonNode)
+            Assert.Equal("extracted", result["status"].GetValue<string>())
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``McpTools_deepExtract_MissingDocument_ReturnsError`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let args = JsonObject()
+            args["document_id"] <- JsonValue.Create(999L)
+            let! result = McpTools.deepExtract db (mkDeepDeps "{}") (args :> JsonNode)
+            Assert.Contains("not found", result["error"].GetValue<string>())
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``McpTools_deepExtract_NoComprehension_ReturnsError`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! _ =
+                db.execNonQuery
+                    """INSERT INTO documents (original_name, source_type, saved_path, category, sha256, extracted_text)
+                       VALUES ('test.pdf', 'manual_drop', 'payslips/test.pdf', 'payslips', 'sha-deep-2', 'Text')"""
+                    []
+            let args = JsonObject()
+            args["document_id"] <- JsonValue.Create(1L)
+            let! result = McpTools.deepExtract db (mkDeepDeps "{}") (args :> JsonNode)
+            Assert.Contains("no comprehension", result["error"].GetValue<string>())
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``McpTools_deepExtract_MissingDocumentId_ReturnsError`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let emptyArgs = JsonObject() :> JsonNode
+            let! result = McpTools.deepExtract db (mkDeepDeps "{}") emptyArgs
+            Assert.Contains("document_id is required", result["error"].GetValue<string>())
+        finally db.dispose ()
+    }
