@@ -36,7 +36,9 @@ module FolderWatcher =
     // ─── Filename standardisation ────────────────────────────────────
 
     let private invalidChars =
-        Path.GetInvalidFileNameChars() |> Set.ofArray
+        let platform = Path.GetInvalidFileNameChars() |> Set.ofArray
+        let windows = set [| '<'; '>'; ':'; '"'; '/'; '\\'; '|'; '?'; '*' |]
+        Set.union platform windows
 
     /// Remove invalid filename characters and collapse underscores.
     let sanitiseFileName (name: string) =

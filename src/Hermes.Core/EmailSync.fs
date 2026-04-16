@@ -19,8 +19,10 @@ module EmailSync =
     // ─── Filename sanitisation ───────────────────────────────────────
 
     let private invalidChars =
-        Path.GetInvalidFileNameChars()
-        |> Set.ofArray
+        // Use a cross-platform superset so files created on macOS are safe on Windows too
+        let platform = Path.GetInvalidFileNameChars() |> Set.ofArray
+        let windows = set [| '<'; '>'; ':'; '"'; '/'; '\\'; '|'; '?'; '*' |]
+        Set.union platform windows
 
     /// Remove invalid filename characters and collapse whitespace.
     let sanitiseFileName (name: string) =
