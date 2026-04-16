@@ -101,10 +101,14 @@ if [[ "$SKIP_BUILD" == "false" ]]; then
     dotnet publish "$SERVICE_PROJ" -c Release -r osx-arm64 --self-contained \
         -o "$INSTALL_DIR" --nologo -v q 2>&1 | grep -i error || true
 
-    # Build MAUI shell (if not service-only and workload is available)
+    # Build MAUI shell (if not service-only)
     if [[ "$SERVICE_ONLY" == "false" ]]; then
-        if dotnet workload list 2>/dev/null | grep -q "maui"; then
-            step "Building Hermes Shell (MAUI)..."
+        if ! dotnet workload list 2>/dev/null | grep -q "maui"; then
+            step "Installing MAUI workload..."
+            dotnet workload install maui-maccatalyst
+        fi
+
+        step "Building Hermes Shell (MAUI)..."
             dotnet publish "$SHELL_PROJ" -c Release -f net9.0-maccatalyst \
                 -o "$INSTALL_DIR/shell-publish" --nologo -v q 2>&1 | grep -i error || true
 
@@ -122,10 +126,6 @@ if [[ "$SKIP_BUILD" == "false" ]]; then
                 warn "MAUI build produced no .app bundle — skipping shell"
             fi
             rm -rf "$INSTALL_DIR/shell-publish"
-        else
-            warn "MAUI workload not installed — skipping shell build"
-            warn "Install with: dotnet workload install maui-maccatalyst"
-        fi
     fi
 fi
 
