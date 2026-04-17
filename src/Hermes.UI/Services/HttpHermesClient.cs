@@ -38,11 +38,13 @@ public sealed class HttpHermesClient : IHermesClient
         => await _http.GetFromJsonAsync<List<CategoryCount>>("/api/categories", JsonOptions)
            ?? [];
 
-    public async Task<List<DocumentSummary>> GetDocumentsAsync(string? category = null, int offset = 0, int limit = 50)
+    public async Task<List<DocumentSummary>> GetDocumentsAsync(string? category = null, string? stage = null, int offset = 0, int limit = 50)
     {
         var url = $"/api/documents?offset={offset}&limit={limit}";
         if (!string.IsNullOrEmpty(category))
             url += $"&category={Uri.EscapeDataString(category)}";
+        if (!string.IsNullOrEmpty(stage))
+            url += $"&stage={Uri.EscapeDataString(stage)}";
         return await _http.GetFromJsonAsync<List<DocumentSummary>>(url, JsonOptions) ?? [];
     }
 

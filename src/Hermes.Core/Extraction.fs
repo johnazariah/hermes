@@ -87,12 +87,14 @@ module Extraction =
     let tryExtractAmount (text: string) : decimal option =
         if String.IsNullOrEmpty(text) then None
         else
-            let m = Regex.Match(text, amountPattern, RegexOptions.IgnoreCase)
-            if m.Success then
+            let matches = Regex.Matches(text, amountPattern, RegexOptions.IgnoreCase)
+            matches
+            |> Seq.cast<Match>
+            |> Seq.choose (fun m ->
                 m.Groups.[1].Value.Replace(",", "")
                 |> Decimal.TryParse
-                |> function true, d -> Some d | _ -> None
-            else None
+                |> function true, d -> Some d | _ -> None)
+            |> Seq.fold (fun acc d -> match acc with Some a when a >= d -> Some a | _ -> Some d) None
 
     let private abnPattern = @"\bABN[:\s]*(\d{2}\s?\d{3}\s?\d{3}\s?\d{3})\b"
     let private acnPattern = @"\bACN[:\s]*(\d{3}\s?\d{3}\s?\d{3})\b"

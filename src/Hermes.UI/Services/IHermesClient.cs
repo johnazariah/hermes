@@ -20,7 +20,7 @@ public interface IHermesClient
     Task<List<CategoryCount>> GetCategoriesAsync();
 
     // ── Documents ───────────────────────────────────────────────────
-    Task<List<DocumentSummary>> GetDocumentsAsync(string? category = null, int offset = 0, int limit = 50);
+    Task<List<DocumentSummary>> GetDocumentsAsync(string? category = null, string? stage = null, int offset = 0, int limit = 50);
     Task<DocumentDetail?> GetDocumentAsync(long id);
     Task<string?> GetDocumentContentAsync(long id);
     Task<string?> GetDocumentFileUrlAsync(long id);

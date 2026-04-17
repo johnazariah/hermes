@@ -44,16 +44,22 @@ module DocumentBrowser =
     /// List documents in a category with offset-based pagination.
     let listDocuments (db: Algebra.Database) (category: string) (offset: int) (limit: int) : Task<DocumentSummary list> =
         task {
-            let! rows =
-                db.execReader
+            let sql, parms =
+                if System.String.IsNullOrEmpty(category) then
+                    """SELECT id, original_name, category, extracted_date, extracted_amount,
+                              sender, extracted_vendor, source_type, account, source_path,
+                              classification_tier, classification_confidence
+                       FROM documents ORDER BY id DESC LIMIT @lim OFFSET @off""",
+                    [ ("@lim", Database.boxVal (int64 limit)); ("@off", Database.boxVal (int64 offset)) ]
+                else
                     """SELECT id, original_name, category, extracted_date, extracted_amount,
                               sender, extracted_vendor, source_type, account, source_path,
                               classification_tier, classification_confidence
                        FROM documents WHERE category = @cat
-                       ORDER BY id DESC LIMIT @lim OFFSET @off"""
+                       ORDER BY id DESC LIMIT @lim OFFSET @off""",
                     [ ("@cat", Database.boxVal category)
-                      ("@lim", Database.boxVal (int64 limit))
-                      ("@off", Database.boxVal (int64 offset)) ]
+                      ("@lim", Database.boxVal (int64 limit)); ("@off", Database.boxVal (int64 offset)) ]
+            let! rows = db.execReader sql parms
             return rows |> List.choose (fun row ->
                 let r = Prelude.RowReader(row)
                 r.OptInt64 "id"

@@ -12,8 +12,8 @@
         <div class="bg-neutral-900 rounded-xl p-4 space-y-1">
             <h2 class="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-3">Pipeline Stages</h2>
             <StageButton Label="Received" Icon="📨" Count="@_received" Color="text-blue-400"
-                         Active="@_isProcessing" Selected="@(_selectedStage == "received")"
-                         OnClick="@(() => SelectStage("received"))" />
+                         Active="@_isProcessing" Selected="@(_selectedStage == "all")"
+                         OnClick="@(() => SelectStage("all"))" />
             <StageButton Label="Read" Icon="📖" Count="@_extracted" Color="text-purple-400"
                          Active="@_isProcessing" Selected="@(_selectedStage == "extracted")"
                          OnClick="@(() => SelectStage("extracted"))" />
@@ -132,6 +132,15 @@
                         <pre class="text-xs text-neutral-400 bg-neutral-800 rounded p-2 max-h-48 overflow-y-auto whitespace-pre-wrap">@_detail.Comprehension</pre>
                     </div>
                 }
+
+                @* Extracted text *@
+                @if (_detail.ExtractedText is not null)
+                {
+                    <div>
+                        <h4 class="text-xs font-semibold text-neutral-500 uppercase mb-1">Extracted Text</h4>
+                        <pre class="text-xs text-neutral-400 bg-neutral-800 rounded p-2 max-h-64 overflow-y-auto whitespace-pre-wrap">@_detail.ExtractedText</pre>
+                    </div>
+                }
             </div>
         }
         else
@@ -194,7 +203,8 @@
         {
             try
             {
-                _documents = await Client.GetDocumentsAsync(category: null, offset: 0, limit: 50);
+                var stageFilter = _selectedStage == "all" ? null : _selectedStage;
+                _documents = await Client.GetDocumentsAsync(stage: stageFilter, offset: 0, limit: 50);
             }
             catch
             {

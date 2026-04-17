@@ -108,7 +108,7 @@
         _error = null;
         try
         {
-            _documents = await Client.GetDocumentsAsync(category, 0, 200);
+            _documents = await Client.GetDocumentsAsync(category: category, offset: 0, limit: 200);
         }
         catch (Exception ex)
         {
