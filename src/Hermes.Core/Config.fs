@@ -142,6 +142,39 @@ module Config =
     let defaultArchiveDir (env: Algebra.Environment) =
         Path.Combine(env.documentsDirectory (), "hermes")
 
+    /// Resolve the Gmail OAuth client credentials.
+    /// Search order:
+    ///   1. HERMES_GOOGLE_CREDENTIALS env var (JSON content — for Docker/CI)
+    ///   2. HERMES_GOOGLE_CREDENTIALS_FILE env var (file path)
+    ///   3. config.yaml credentials field
+    ///   4. User config dir / gmail_credentials.json
+    ///   5. App binary dir / gmail_credentials.json
+    ///   6. App binary dir / credentials / gmail_credentials.json
+    let resolveCredentials (fs: Algebra.FileSystem) (env: Algebra.Environment) (configOverride: string) : string =
+        let envInline =
+            match System.Environment.GetEnvironmentVariable("HERMES_GOOGLE_CREDENTIALS") with
+            | null | "" -> None
+            | jsonContent ->
+                let tmpPath = Path.Combine(Path.GetTempPath(), "hermes_gmail_credentials.json")
+                File.WriteAllText(tmpPath, jsonContent)
+                Some tmpPath
+
+        let envFile =
+            System.Environment.GetEnvironmentVariable("HERMES_GOOGLE_CREDENTIALS_FILE")
+            |> Option.ofObj
+            |> Option.filter (fun p -> not (System.String.IsNullOrEmpty(p)))
+
+        let candidates =
+            [ yield! (envInline |> Option.toList)
+              yield! (envFile |> Option.toList)
+              configOverride
+              Path.Combine(configDir env, "gmail_credentials.json")
+              Path.Combine(AppContext.BaseDirectory, "gmail_credentials.json")
+              Path.Combine(AppContext.BaseDirectory, "credentials", "gmail_credentials.json") ]
+        candidates
+        |> List.tryFind fs.fileExists
+        |> Option.defaultValue configOverride
+
     // ─── Defaults ────────────────────────────────────────────────────
 
     let defaultConfig (env: Algebra.Environment) : Domain.HermesConfig =

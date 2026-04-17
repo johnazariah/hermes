@@ -17,4 +17,12 @@
     <ProjectReference Include="..\Hermes.UI\Hermes.UI.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Copy gmail_credentials.json to output if present (app-level OAuth client ID) -->
+    <None Include="credentials\gmail_credentials.json" Condition="Exists('credentials\gmail_credentials.json')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>credentials\gmail_credentials.json</Link>
+    </None>
+  </ItemGroup>
+
 </Project>

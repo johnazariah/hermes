@@ -115,7 +115,7 @@ let main args =
           ComprehensionPrompt = comprehensionPrompt
           CreateEmailProvider = fun cfgDir label ->
             task {
-                let credPath = config.Credentials
+                let credPath = Config.resolveCredentials fs env config.Credentials
                 let! credBytes = fs.readAllBytes credPath
                 let tokenDir = Path.Combine(cfgDir, "tokens")
                 return! GmailProvider.create credBytes tokenDir label logger
