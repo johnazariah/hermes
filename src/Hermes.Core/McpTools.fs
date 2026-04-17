@@ -43,11 +43,16 @@ module McpTools =
     /// Validate that a relative path stays within the archive directory.
     /// Rejects "..", absolute paths, and null/empty strings.
     let isPathSafe (archiveDir: string) (requestedPath: string) : Result<string, string> =
+        let isAbsolute (p: string) =
+            Path.IsPathRooted(p)
+            || (p.Length >= 2 && Char.IsLetter(p.[0]) && p.[1] = ':')  // Windows drive letter
+            || p.StartsWith(@"\\")                                      // UNC path
+
         if String.IsNullOrWhiteSpace(requestedPath) then
             Error "Path must not be empty"
         elif requestedPath.Contains("..") then
             Error "Path traversal (..) is not allowed"
-        elif Path.IsPathRooted(requestedPath) then
+        elif isAbsolute requestedPath then
             Error "Absolute paths are not allowed"
         else
             let full = Path.GetFullPath(Path.Combine(archiveDir, requestedPath))

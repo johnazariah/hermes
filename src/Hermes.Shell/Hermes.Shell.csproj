@@ -14,8 +14,8 @@
     <Nullable>enable</Nullable>
     <MauiXamlInflator>SourceGen</MauiXamlInflator>
 
-    <!-- Enable cross-compilation -->
-    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <!-- Enable cross-compilation (only on non-Windows to build Windows TFM) -->
+    <EnableWindowsTargeting Condition="!$([MSBuild]::IsOSPlatform('windows'))">false</EnableWindowsTargeting>
 
     <!-- Suppress trimming and platform warnings -->
     <TrimmerSingleWarn>false</TrimmerSingleWarn>

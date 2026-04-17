@@ -10,6 +10,9 @@ set -euo pipefail
 #   ./setup-mac.sh --service-only  # Service only (no MAUI shell)
 #   ./setup-mac.sh --uninstall  # Remove everything
 
+# Ensure user-local .NET SDK is on PATH (installed via dotnet-install.sh)
+export PATH="$HOME/.dotnet:$PATH"
+
 TASK_LABEL="com.hermes.service"
 INSTALL_DIR="$HOME/.local/lib/hermes"
 SHELL_INSTALL_DIR="/Applications/Hermes.app"
@@ -89,16 +92,16 @@ if [[ "$SKIP_BUILD" == "false" ]]; then
     # Install npm deps if needed
     if [[ ! -d "$WEB_DIR/node_modules" ]]; then
         step "Installing npm dependencies..."
-        (cd "$WEB_DIR" && npm ci --quiet) 2>&1 | tail -1
+        (cd "$WEB_DIR" && npm install --quiet) 2>&1 | tail -1
     fi
 
     # Build Blazor UI CSS
     step "Building Blazor UI CSS..."
-    (cd "$WEB_DIR" && npm run build:blazor) 2>&1 | tail -1
+    (cd "$WEB_DIR" && npm_config_cache="${NPM_CACHE:-$HOME/.npm}" npm run build:blazor) 2>&1 | tail -1
 
-    # Publish service
-    step "Publishing Hermes service (osx-arm64)..."
-    dotnet publish "$SERVICE_PROJ" -c Release -r osx-arm64 --self-contained \
+    # Publish service (framework-dependent — avoids macOS Gatekeeper blocking unsigned self-contained binaries)
+    step "Publishing Hermes service..."
+    dotnet publish "$SERVICE_PROJ" -c Release \
         -o "$INSTALL_DIR" --nologo -v q 2>&1 | grep -i error || true
 
     # Build MAUI shell (if not service-only)
@@ -108,34 +111,41 @@ if [[ "$SKIP_BUILD" == "false" ]]; then
             dotnet workload install maui-maccatalyst
         fi
 
-        step "Building Hermes Shell (MAUI)..."
-            dotnet publish "$SHELL_PROJ" -c Release -f net9.0-maccatalyst \
-                -o "$INSTALL_DIR/shell-publish" --nologo -v q 2>&1 | grep -i error || true
+        # Detect Xcode version; the MAUI SDK sometimes requires a newer minor release
+        # than what's installed — pass XcodeVersion to bypass the strict check.
+        XCODE_VER=$(xcodebuild -version 2>/dev/null | head -1 | awk '{print $2}')
+        XCODE_OVERRIDE=""
+        if [[ -n "$XCODE_VER" ]]; then
+            XCODE_OVERRIDE="-p:XcodeVersion=$XCODE_VER"
+        fi
 
-            # Move the .app bundle to /Applications
-            BUILT_APP=$(find "$INSTALL_DIR/shell-publish" -name "*.app" -maxdepth 1 | head -1)
-            if [[ -n "$BUILT_APP" ]]; then
+        step "Building Hermes Shell (MAUI)..."
+            dotnet build "$SHELL_PROJ" -f net9.0-maccatalyst \
+                $XCODE_OVERRIDE -p:UseInterpreter=true -p:RunAOTCompilation=false \
+                --nologo -v q 2>&1 | grep -i error || true
+
+            # The .app bundle lands in the bin tree
+            BUILT_APP="$SHELL_PROJ/bin/Debug/net9.0-maccatalyst/maccatalyst-arm64/Hermes.Shell.app"
+            if [[ -d "$BUILT_APP" ]]; then
                 step "Installing Hermes.app to /Applications..."
                 rm -rf "$SHELL_INSTALL_DIR"
                 cp -R "$BUILT_APP" "$SHELL_INSTALL_DIR"
-                # Copy service into the app bundle for child-process launch
-                mkdir -p "$SHELL_INSTALL_DIR/Contents/Resources/service"
-                cp -R "$INSTALL_DIR"/* "$SHELL_INSTALL_DIR/Contents/Resources/service/" 2>/dev/null || true
                 step "Shell app installed"
             else
                 warn "MAUI build produced no .app bundle — skipping shell"
             fi
-            rm -rf "$INSTALL_DIR/shell-publish"
     fi
 fi
 
 # Verify service
-EXE_PATH="$INSTALL_DIR/Hermes.Service"
-if [[ ! -f "$EXE_PATH" ]]; then
-    echo "❌ Service not found at $EXE_PATH"
+DLL_PATH="$INSTALL_DIR/Hermes.Service.dll"
+if [[ ! -f "$DLL_PATH" ]]; then
+    echo "❌ Service not found at $DLL_PATH"
     exit 1
 fi
-chmod +x "$EXE_PATH"
+
+# Find the dotnet host
+DOTNET_PATH="$(command -v dotnet)"
 
 # ── Config ────────────────────────────────────────────────────────
 
@@ -199,7 +209,8 @@ cat > "$PLIST_PATH" << EOF
     <string>${TASK_LABEL}</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${EXE_PATH}</string>
+        <string>${DOTNET_PATH}</string>
+        <string>${DLL_PATH}</string>
     </array>
     <key>WorkingDirectory</key>
     <string>${INSTALL_DIR}</string>
@@ -217,7 +228,9 @@ cat > "$PLIST_PATH" << EOF
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+        <string>${HOME}/.dotnet:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+        <key>DOTNET_ROOT</key>
+        <string>${HOME}/.dotnet</string>
         <key>HOME</key>
         <string>${HOME}</string>
     </dict>

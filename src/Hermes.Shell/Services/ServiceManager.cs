@@ -22,18 +22,29 @@ public sealed class ServiceManager : IDisposable
     public bool RestartFailed { get; private set; }
     public event Action<bool>? HealthChanged;
 
-    public Task StartAsync()
+    public async Task StartAsync()
     {
         _stopping = false;
         RestartCount = 0;
         RestartFailed = false;
 
         EnsureDirectories();
-        StartServiceProcess();
+
+        // If the service is already running (e.g. via launchd), skip child-process launch
+        if (!await IsServiceReachable())
+            StartServiceProcess();
 
         _healthTimer = new Timer(OnHealthCheck, null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5));
+    }
 
-        return Task.CompletedTask;
+    private async Task<bool> IsServiceReachable()
+    {
+        try
+        {
+            using var response = await _httpClient.GetAsync($"{ServiceUrl}/health");
+            return response.IsSuccessStatusCode;
+        }
+        catch { return false; }
     }
 
     public void Stop()
