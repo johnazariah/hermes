@@ -31,6 +31,10 @@ public interface IHermesClient
     // ── Chat ────────────────────────────────────────────────────────
     Task<ChatMessage> ChatAsync(string query, bool useAi = true);
 
+    // ── Corrections ─────────────────────────────────────────────────
+    Task CorrectDocumentAsync(long id, List<FieldCorrection> corrections, string? note = null);
+    Task RecomprehendDocumentAsync(long id);
+
     // ── Settings ────────────────────────────────────────────────────
     Task<string> GetSettingsYamlAsync();
     Task SaveSettingsYamlAsync(string yaml);

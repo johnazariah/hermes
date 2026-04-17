@@ -205,6 +205,20 @@ module Database =
         );
         """
            "CREATE INDEX IF NOT EXISTS idx_doc_contacts_contact ON document_contacts(contact_id);"
+
+           // ── Corrections (user feedback on comprehension) ──────────────
+           """
+        CREATE TABLE IF NOT EXISTS corrections (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            document_id     INTEGER NOT NULL REFERENCES documents(id),
+            field           TEXT NOT NULL,
+            original_value  TEXT,
+            corrected_value TEXT NOT NULL,
+            note            TEXT,
+            created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        """
+           "CREATE INDEX IF NOT EXISTS idx_corrections_doc ON corrections(document_id);"
         |]
 
     let private ftsSql =

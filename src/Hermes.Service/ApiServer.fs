@@ -288,6 +288,51 @@ module ApiServer =
                     | Error e -> return json {| error = e |}
             })) |> ignore
 
+        // ── Correct document fields ──────────────────────────────────
+        app.MapPost("/api/documents/{id:long}/correct", Func<int64, HttpContext, Task<IResult>>(fun id ctx ->
+            task {
+                use sr = new StreamReader(ctx.Request.Body)
+                let! bodyText = sr.ReadToEndAsync()
+                try
+                    let doc = JsonDocument.Parse(bodyText)
+                    let root = doc.RootElement
+                    let mutable noteEl = JsonElement()
+                    let note =
+                        if root.TryGetProperty("note", &noteEl) then
+                            noteEl.GetString() |> Option.ofObj
+                        else None
+                    let mutable errors = []
+                    let corrections = root.GetProperty("corrections")
+                    for item in corrections.EnumerateArray() do
+                        let field = item.GetProperty("field").GetString() |> Option.ofObj |> Option.defaultValue ""
+                        let value = item.GetProperty("value").GetString() |> Option.ofObj |> Option.defaultValue ""
+                        let! result = DocumentManagement.correctField db id field value note
+                        match result with
+                        | Error e -> errors <- e :: errors
+                        | Ok () -> ()
+                    if errors.IsEmpty then return json {| corrected = true |}
+                    else return json {| error = String.concat "; " errors |}
+                with ex ->
+                    return json {| error = ex.Message |}
+            })) |> ignore
+
+        // ── Re-comprehend document ───────────────────────────────────
+        app.MapPost("/api/documents/{id:long}/recomprehend", Func<int64, Task<IResult>>(fun id ->
+            task {
+                let! result = DocumentManagement.recomprehend db id
+                match result with
+                | Ok () -> return json {| requeued = true |}
+                | Error e -> return json {| error = e |}
+            })) |> ignore
+
+        // ── List corrections (for prompt tuning) ─────────────────────
+        app.MapGet("/api/corrections", Func<HttpContext, Task<IResult>>(fun ctx ->
+            task {
+                let limit = ctx.Request.Query["limit"].ToString() |> fun s -> if String.IsNullOrEmpty s then 100 else int s
+                let! corrections = DocumentManagement.listCorrections db limit
+                return json corrections
+            })) |> ignore
+
         // ── Star/unstar ─────────────────────────────────────────────
         app.MapPost("/api/documents/{id:long}/star", Func<int64, Task<IResult>>(fun id ->
             task {

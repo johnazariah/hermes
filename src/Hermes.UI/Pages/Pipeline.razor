@@ -116,13 +116,48 @@
                     <JourneyStep Label="Memorised" Icon="🧠" Done="@_detail.PipelineStatus.Embedded" Detail="@(_detail.EmbeddedAt ?? "")" />
                 </div>
 
-                @* Metadata *@
+                @* Metadata — editable corrections *@
                 <div class="grid grid-cols-2 gap-2 text-xs">
-                    <MetaField Label="Category" Value="@(_detail.Summary.Category ?? "—")" />
-                    <MetaField Label="Vendor" Value="@(_detail.Summary.Vendor ?? "—")" />
-                    <MetaField Label="Sender" Value="@(_detail.Summary.Sender ?? "—")" />
-                    <MetaField Label="Ingested" Value="@FormatTime(_detail.IngestedAt)" />
+                    <div>
+                        <label class="text-neutral-500 block mb-0.5">Category</label>
+                        <input class="w-full bg-neutral-800 text-neutral-200 rounded px-2 py-1 text-xs border border-neutral-700 focus:border-blue-500 outline-none"
+                               @bind="_editCategory" />
+                    </div>
+                    <div>
+                        <label class="text-neutral-500 block mb-0.5">Vendor</label>
+                        <input class="w-full bg-neutral-800 text-neutral-200 rounded px-2 py-1 text-xs border border-neutral-700 focus:border-blue-500 outline-none"
+                               @bind="_editVendor" />
+                    </div>
+                    <div>
+                        <label class="text-neutral-500 block mb-0.5">Amount</label>
+                        <input class="w-full bg-neutral-800 text-neutral-200 rounded px-2 py-1 text-xs border border-neutral-700 focus:border-blue-500 outline-none"
+                               @bind="_editAmount" />
+                    </div>
+                    <div>
+                        <label class="text-neutral-500 block mb-0.5">Date</label>
+                        <input class="w-full bg-neutral-800 text-neutral-200 rounded px-2 py-1 text-xs border border-neutral-700 focus:border-blue-500 outline-none"
+                               @bind="_editDate" />
+                    </div>
                 </div>
+
+                @* Action buttons *@
+                <div class="flex gap-2">
+                    @if (_hasEdits)
+                    {
+                        <button class="px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
+                                @onclick="SaveCorrections">
+                            💾 Save Corrections
+                        </button>
+                    }
+                    <button class="px-3 py-1.5 text-xs font-medium bg-neutral-700 hover:bg-neutral-600 text-neutral-200 rounded-lg transition-colors"
+                            @onclick="Recomprehend">
+                        🔄 Re-comprehend
+                    </button>
+                </div>
+                @if (_correctionStatus is not null)
+                {
+                    <p class="text-xs @(_correctionStatus.StartsWith("✅") ? "text-green-400" : "text-red-400")">@_correctionStatus</p>
+                }
 
                 @* Comprehension excerpt *@
                 @if (_detail.Comprehension is not null)
@@ -161,6 +196,30 @@
     private List<ActivityEntry> _activity = [];
     private DocumentDetail? _detail;
     private Timer? _refreshTimer;
+
+    // ── Correction edit fields ──────────────────────────────────────
+    private string _editCategory = "";
+    private string _editVendor = "";
+    private string _editAmount = "";
+    private string _editDate = "";
+    private string? _correctionStatus;
+
+    private bool _hasEdits =>
+        _detail is not null && (
+            _editCategory != (_detail.Summary.Category ?? "") ||
+            _editVendor != (_detail.Summary.Vendor ?? "") ||
+            _editAmount != (_detail.Summary.ExtractedAmount?.ToString() ?? "") ||
+            _editDate != (_detail.Summary.ExtractedDate ?? ""));
+
+    private void PopulateEditFields()
+    {
+        if (_detail is null) return;
+        _editCategory = _detail.Summary.Category ?? "";
+        _editVendor = _detail.Summary.Vendor ?? "";
+        _editAmount = _detail.Summary.ExtractedAmount?.ToString() ?? "";
+        _editDate = _detail.Summary.ExtractedDate ?? "";
+        _correctionStatus = null;
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -223,10 +282,55 @@
         try
         {
             _detail = await Client.GetDocumentAsync(id);
+            PopulateEditFields();
         }
         catch
         {
             _detail = null;
+        }
+    }
+
+    private async Task SaveCorrections()
+    {
+        if (_detail is null) return;
+        var corrections = new List<FieldCorrection>();
+        if (_editCategory != (_detail.Summary.Category ?? ""))
+            corrections.Add(new FieldCorrection("category", _editCategory));
+        if (_editVendor != (_detail.Summary.Vendor ?? ""))
+            corrections.Add(new FieldCorrection("extracted_vendor", _editVendor));
+        if (_editAmount != (_detail.Summary.ExtractedAmount?.ToString() ?? ""))
+            corrections.Add(new FieldCorrection("extracted_amount", _editAmount));
+        if (_editDate != (_detail.Summary.ExtractedDate ?? ""))
+            corrections.Add(new FieldCorrection("extracted_date", _editDate));
+
+        if (corrections.Count == 0) return;
+
+        try
+        {
+            await Client.CorrectDocumentAsync(_detail.Summary.Id, corrections);
+            _correctionStatus = $"✅ Saved {corrections.Count} correction(s)";
+            _detail = await Client.GetDocumentAsync(_detail.Summary.Id);
+            PopulateEditFields();
+        }
+        catch (Exception ex)
+        {
+            _correctionStatus = $"❌ {ex.Message}";
+        }
+    }
+
+    private async Task Recomprehend()
+    {
+        if (_detail is null) return;
+        try
+        {
+            await Client.RecomprehendDocumentAsync(_detail.Summary.Id);
+            _correctionStatus = "✅ Re-queued for comprehension";
+            _detail = await Client.GetDocumentAsync(_detail.Summary.Id);
+            PopulateEditFields();
+        }
+        catch (Exception ex)
+        {
+            _correctionStatus = $"❌ {ex.Message}";
         }
     }
 

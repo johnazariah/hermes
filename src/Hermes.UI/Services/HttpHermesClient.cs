@@ -90,4 +90,17 @@ public sealed class HttpHermesClient : IHermesClient
 
     public async Task TriggerSyncAsync()
         => await _http.PostAsync("/api/sync", null);
+
+    public async Task CorrectDocumentAsync(long id, List<FieldCorrection> corrections, string? note = null)
+    {
+        var payload = new { corrections, note };
+        var response = await _http.PostAsJsonAsync($"/api/documents/{id}/correct", payload, JsonOptions);
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task RecomprehendDocumentAsync(long id)
+    {
+        var response = await _http.PostAsync($"/api/documents/{id}/recomprehend", null);
+        response.EnsureSuccessStatusCode();
+    }
 }

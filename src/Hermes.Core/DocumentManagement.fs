@@ -105,3 +105,79 @@ module DocumentManagement =
             let! unembedded = getStage db "extracted_at IS NOT NULL AND embedded_at IS NULL" limit
             return { Unclassified = unclassified; Unextracted = unextracted; Unembedded = unembedded }
         }
+
+    // ─── Corrections (user feedback) ─────────────────────────────────
+
+    /// Allowed document columns that can be corrected by the user.
+    let private correctableColumns = set [ "category"; "extracted_amount"; "extracted_vendor"; "extracted_date" ]
+
+    /// Save a correction and update the document field.
+    let correctField
+        (db: Algebra.Database) (documentId: int64)
+        (field: string) (correctedValue: string) (note: string option)
+        : Task<Result<unit, string>> =
+        task {
+            if not (correctableColumns.Contains field) then
+                return Error $"Field '{field}' is not correctable"
+            else
+                // Read current value
+                let! rows =
+                    db.execReader
+                        $"SELECT {field} FROM documents WHERE id = @id"
+                        [ ("@id", Database.boxVal documentId) ]
+                match rows with
+                | [] -> return Error $"Document {documentId} not found"
+                | row :: _ ->
+                    let r = Prelude.RowReader(row)
+                    let originalValue = r.OptString field |> Option.defaultValue ""
+                    // Record the correction
+                    let! _ =
+                        db.execNonQuery
+                            """INSERT INTO corrections (document_id, field, original_value, corrected_value, note)
+                               VALUES (@doc, @field, @orig, @corr, @note)"""
+                            [ ("@doc", Database.boxVal documentId)
+                              ("@field", Database.boxVal field)
+                              ("@orig", Database.boxVal originalValue)
+                              ("@corr", Database.boxVal correctedValue)
+                              ("@note", Database.boxVal (note |> Option.defaultValue "")) ]
+                    // Update the document
+                    let! _ =
+                        db.execNonQuery
+                            $"UPDATE documents SET {field} = @val, classification_tier = 'manual' WHERE id = @id"
+                            [ ("@val", Database.boxVal correctedValue)
+                              ("@id", Database.boxVal documentId) ]
+                    return Ok ()
+        }
+
+    /// Reset comprehension fields so the document is re-queued for understanding.
+    let recomprehend (db: Algebra.Database) (documentId: int64) : Task<Result<unit, string>> =
+        task {
+            let! affected =
+                db.execNonQuery
+                    """UPDATE documents
+                       SET comprehension = NULL, comprehension_schema = NULL,
+                           category = 'unclassified', classification_tier = NULL,
+                           classification_confidence = NULL, stage = 'extracted'
+                       WHERE id = @id"""
+                    [ ("@id", Database.boxVal documentId) ]
+            if affected = 0 then return Error $"Document {documentId} not found"
+            else return Ok ()
+        }
+
+    /// List all corrections for prompt tuning export.
+    let listCorrections (db: Algebra.Database) (limit: int) : Task<{| DocumentId: int64; Field: string; OriginalValue: string; CorrectedValue: string; Note: string; CreatedAt: string |} list> =
+        task {
+            let! rows =
+                db.execReader
+                    """SELECT c.document_id, c.field, c.original_value, c.corrected_value, c.note, c.created_at
+                       FROM corrections c ORDER BY c.created_at DESC LIMIT @lim"""
+                    [ ("@lim", Database.boxVal (int64 limit)) ]
+            return rows |> List.map (fun row ->
+                let r = Prelude.RowReader(row)
+                {| DocumentId = r.Int64 "document_id" 0L
+                   Field = r.String "field" ""
+                   OriginalValue = r.String "original_value" ""
+                   CorrectedValue = r.String "corrected_value" ""
+                   Note = r.String "note" ""
+                   CreatedAt = r.String "created_at" "" |})
+        }

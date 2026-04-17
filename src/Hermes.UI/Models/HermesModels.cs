@@ -83,3 +83,6 @@ public sealed record SyncAccount(
     string Email,
     string Status,
     int MessageCount);
+
+/// <summary>A single field correction for a document.</summary>
+public sealed record FieldCorrection(string Field, string Value);
