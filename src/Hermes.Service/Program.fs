@@ -107,6 +107,22 @@ let main args =
                logger.warn $"Comprehension prompt not loaded: {e} — using fallback"
                None
 
+    // Load deep extraction prompt registry
+    let deepPromptDir = Path.Combine(assemblyDir, "prompts", "deep")
+    let deepRegistry =
+        DeepExtraction.loadPromptRegistry fs deepPromptDir
+        |> Async.AwaitTask |> Async.RunSynchronously
+    if deepRegistry.Count > 0 then
+        logger.info $"Loaded {deepRegistry.Count} deep extraction prompts"
+
+    // Build deep extraction deps (reuses the same ChatProvider as comprehension)
+    let deepDeps : McpTools.DeepExtractionDeps option =
+        chatProvider |> Option.map (fun chat ->
+            { McpTools.DeepExtractionDeps.Chat = chat
+              Registry = deepRegistry
+              Provider = if config.Ollama.Enabled then "ollama" else "azure"
+              Model = config.Ollama.InstructModel })
+
     let deps : Pipeline.Deps =
         { Extractor = extractor
           Embedder = embedder
@@ -162,6 +178,15 @@ let main args =
     // Health endpoint for tray app / orchestrator polling
     app.MapGet("/health", Func<IResult>(fun () ->
         Results.Json({| status = "healthy"; service = "hermes" |}))) |> ignore
+
+    // MCP endpoint — Streamable HTTP (JSON-RPC over POST)
+    app.MapPost("/mcp", Func<HttpContext, System.Threading.Tasks.Task<IResult>>(fun ctx ->
+        task {
+            use reader = new IO.StreamReader(ctx.Request.Body)
+            let! body = reader.ReadToEndAsync()
+            let! response = McpServer.processMessage db fs logger clock archiveDir deepDeps body
+            return Results.Text(response, "application/json")
+        })) |> ignore
 
     // Blazor Server — serves the UI at /
     app.MapRazorComponents<Hermes.UI.App>()
