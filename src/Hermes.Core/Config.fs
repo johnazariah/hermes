@@ -54,6 +54,8 @@ module Config =
           VisionModel: string
           [<YamlMember(Alias = "instruct_model")>]
           InstructModel: string
+          [<YamlMember(Alias = "triage_model")>]
+          TriageModel: string
           [<YamlMember(Alias = "shared_gpu")>]
           SharedGpu: bool
           [<YamlMember(Alias = "max_hold_seconds")>]
@@ -190,6 +192,7 @@ module Config =
               EmbeddingModel = "nomic-embed-text"
               VisionModel = "llava"
               InstructModel = "llama3.2"
+              TriageModel = ""
               SharedGpu = true
               MaxHoldSeconds = 180 }
           Fallback = { Domain.FallbackConfig.Embedding = "onnx"; Ocr = "azure-document-intelligence" }
@@ -270,6 +273,7 @@ module Config =
                   EmbeddingModel = dto.Ollama.EmbeddingModel |> orDefault def.Ollama.EmbeddingModel
                   VisionModel = dto.Ollama.VisionModel |> orDefault def.Ollama.VisionModel
                   InstructModel = dto.Ollama.InstructModel |> orDefault def.Ollama.InstructModel
+                  TriageModel = dto.Ollama.TriageModel |> orDefault def.Ollama.TriageModel
                   SharedGpu = if dto.Ollama.SharedGpu then true elif dto.Ollama.MaxHoldSeconds > 0 then true else def.Ollama.SharedGpu
                   MaxHoldSeconds = if dto.Ollama.MaxHoldSeconds > 0 then dto.Ollama.MaxHoldSeconds else def.Ollama.MaxHoldSeconds }
 

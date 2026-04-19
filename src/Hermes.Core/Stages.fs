@@ -21,6 +21,7 @@ module Stages =
           Extractor: Algebra.TextExtractor
           Embedder: Algebra.EmbeddingClient option
           ChatProvider: Algebra.ChatProvider option
+          TriageProvider: Algebra.ChatProvider option
           ContentRules: Domain.ContentRule list
           ComprehensionPrompt: PromptLoader.ParsedPrompt option
           ArchiveDir: string }
@@ -120,8 +121,32 @@ Respond with ONLY a JSON object, no explanation.
 Document text:
 {truncated}"""
 
-    /// Understand a document: produce structured comprehension via LLM.
-    /// Falls back to content rules for fast-path classification when no LLM is available.
+    /// Categories that warrant detailed extraction with the full model.
+    let private financialCategories =
+        set [ "receipts"; "payslips"; "invoices"; "bank-statements"; "tax"
+              "utilities"; "insurance"; "superannuation"; "medical"
+              "agent-statements"; "mortgage"; "depreciation"; "donations"
+              "dividends"; "espp"; "stock-vests"; "legal" ]
+
+    /// Fast triage prompt — classify only, no detailed extraction.
+    let private triageSystemPrompt =
+        "You are a document classifier. Respond with ONLY a JSON object. No explanation."
+
+    let private triageUserPrompt (text: string) (context: string) : string =
+        let truncated =
+            if text.Length <= 1500 then text
+            else text.Substring(0, 1500) + "\n[... truncated]"
+        $"""Classify this document. Respond with ONLY this JSON:
+{{"document_type": "<type>", "confidence": 0.0, "summary": "<one sentence>"}}
+
+Types: payslip, agent-statement, bank-statement, mortgage-statement, depreciation-schedule, donation-receipt, insurance-policy, utility-bill, council-rates, land-tax, tax-return, stock-vest, espp-statement, dividend-statement, expense-receipt, medical, legal, vehicle, superannuation, letter, notification, report, other
+{context}
+Document:
+{truncated}"""
+
+    /// Understand a document using two-phase approach:
+    /// 1. Triage (fast small model): classify document type
+    /// 2. Deep comprehension (full model): only for financially relevant documents
     let understand (deps: Deps) (doc: Document.T) : Task<Document.T> =
         let docId = Document.id doc
         let text = doc |> Document.decode<string> "extracted_text" |> Option.defaultValue ""
@@ -150,49 +175,83 @@ Document text:
                 return understood canonical "content" confidence
 
             | None ->
-                // LLM comprehension path
-                match deps.ChatProvider with
+                // Phase 1: Triage — use small model if available, else fall back to full model
+                let triageChat = deps.TriageProvider |> Option.orElse deps.ChatProvider
+                match triageChat with
                 | None ->
                     deps.Logger.debug $"Understand skip doc {docId}: no chat provider"
                     return passThrough ()
 
-                | Some chat ->
+                | Some triage ->
                     let context = buildContext doc
+                    let! triageResult = triage.complete triageSystemPrompt (triageUserPrompt text context)
 
-                    let systemPrompt, userPrompt =
-                        match deps.ComprehensionPrompt with
-                        | Some p -> p.System, PromptLoader.render p text context
-                        | None -> fallbackSystemPrompt, fallbackUserPrompt text context
-
-                    let! llmResult = chat.complete systemPrompt userPrompt
-                    match llmResult with
+                    match triageResult with
                     | Error e ->
-                        deps.Logger.warn $"Comprehension failed for doc {docId}: {e}"
+                        deps.Logger.warn $"Triage failed for doc {docId}: {e}"
                         return passThrough ()
 
-                    | Ok response ->
-                        match ComprehensionSchema.normaliseResponse response with
-                        | Ok parsed ->
-                            let tier = if parsed.Confidence >= 0.7 then "comprehension" else "comprehension_review"
-                            deps.Logger.info $"Understood doc {docId} as '{parsed.CanonicalCategory}' ({parsed.DocumentType}, {tier}, conf={parsed.Confidence:F2}): {parsed.Summary}"
-
-                            // Harvest contact from comprehension (best-effort, never blocks pipeline)
-                            let sender = doc |> Document.decode<string> "sender"
-                            do! ContactExtraction.harvestAndLink deps.Db deps.Logger docId parsed.RawJson sender
-
-                            return
-                                doc
-                                |> Document.encode "category" (box parsed.CanonicalCategory)
-                                |> Document.encode "classification_tier" (box tier)
-                                |> Document.encode "classification_confidence" (box parsed.Confidence)
-                                |> Document.encode "comprehension" (box parsed.RawJson)
-                                |> Document.encode "comprehension_schema" (box "v2")
-                                |> Document.encode "stage" (box "understood")
-
+                    | Ok triageResponse ->
+                        match ComprehensionSchema.normaliseResponse triageResponse with
                         | Error parseErr ->
-                            let preview = response.[..min 200 (response.Length - 1)]
-                            deps.Logger.warn $"Understand doc {docId}: {parseErr}: {preview}"
+                            let preview = triageResponse.[..min 200 (triageResponse.Length - 1)]
+                            deps.Logger.warn $"Triage parse doc {docId}: {parseErr}: {preview}"
                             return passThrough ()
+
+                        | Ok triaged ->
+                            let canonical = triaged.CanonicalCategory
+
+                            // Phase 2: If financially relevant and full model available, do deep comprehension
+                            if financialCategories.Contains canonical && deps.ChatProvider.IsSome then
+                                let chat = deps.ChatProvider.Value
+                                let systemPrompt, userPrompt =
+                                    match deps.ComprehensionPrompt with
+                                    | Some p -> p.System, PromptLoader.render p text context
+                                    | None -> fallbackSystemPrompt, fallbackUserPrompt text context
+
+                                let! llmResult = chat.complete systemPrompt userPrompt
+                                match llmResult with
+                                | Error e ->
+                                    deps.Logger.warn $"Deep comprehension failed for doc {docId}: {e}, using triage result"
+                                    return understood canonical "triage" triaged.Confidence
+
+                                | Ok response ->
+                                    match ComprehensionSchema.normaliseResponse response with
+                                    | Ok parsed ->
+                                        let tier = if parsed.Confidence >= 0.7 then "comprehension" else "comprehension_review"
+                                        deps.Logger.info $"Understood doc {docId} as '{parsed.CanonicalCategory}' ({parsed.DocumentType}, {tier}, conf={parsed.Confidence:F2}): {parsed.Summary}"
+
+                                        let sender = doc |> Document.decode<string> "sender"
+                                        do! ContactExtraction.harvestAndLink deps.Db deps.Logger docId parsed.RawJson sender
+
+                                        return
+                                            doc
+                                            |> Document.encode "category" (box parsed.CanonicalCategory)
+                                            |> Document.encode "classification_tier" (box tier)
+                                            |> Document.encode "classification_confidence" (box parsed.Confidence)
+                                            |> Document.encode "comprehension" (box parsed.RawJson)
+                                            |> Document.encode "comprehension_schema" (box "v2")
+                                            |> Document.encode "stage" (box "understood")
+
+                                    | Error parseErr ->
+                                        deps.Logger.warn $"Deep comprehension parse doc {docId}: {parseErr}, using triage"
+                                        return understood canonical "triage" triaged.Confidence
+                            else
+                                // Non-financial doc — triage classification is sufficient
+                                let tier = if triaged.Confidence >= 0.7 then "triage" else "triage_review"
+                                deps.Logger.info $"Triaged doc {docId} as '{canonical}' ({tier}, conf={triaged.Confidence:F2}): {triaged.Summary}"
+
+                                let sender = doc |> Document.decode<string> "sender"
+                                do! ContactExtraction.harvestAndLink deps.Db deps.Logger docId triaged.RawJson sender
+
+                                return
+                                    doc
+                                    |> Document.encode "category" (box canonical)
+                                    |> Document.encode "classification_tier" (box tier)
+                                    |> Document.encode "classification_confidence" (box triaged.Confidence)
+                                    |> Document.encode "comprehension" (box triaged.RawJson)
+                                    |> Document.encode "comprehension_schema" (box "v2")
+                                    |> Document.encode "stage" (box "understood")
         }
 
     // ─── Embed stage ─────────────────────────────────────────────

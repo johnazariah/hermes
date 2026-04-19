@@ -100,6 +100,8 @@ module Domain =
           EmbeddingModel: string
           VisionModel: string
           InstructModel: string
+          /// Fast small model for initial classification/triage. Falls back to InstructModel if empty.
+          TriageModel: string
           /// When true, classify and embed share one GPU — acquire a mutex.
           SharedGpu: bool
           /// Burst duration (seconds) before yielding the GPU to the other stage.

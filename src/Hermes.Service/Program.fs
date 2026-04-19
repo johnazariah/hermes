@@ -80,6 +80,15 @@ let main args =
         try Some (Chat.providerFromConfig (new HttpClient()) config.Chat config.Ollama.BaseUrl config.Ollama.InstructModel)
         with _ -> None
 
+    let triageProvider =
+        let triageModel = config.Ollama.TriageModel
+        if config.Ollama.Enabled && triageModel <> "" && triageModel <> config.Ollama.InstructModel then
+            try
+                logger.info $"Triage model: {triageModel} (instruct: {config.Ollama.InstructModel})"
+                Some (Chat.ollamaProvider (new HttpClient()) config.Ollama.BaseUrl triageModel)
+            with _ -> None
+        else None
+
     let contentRules =
         let rulesPath = Path.Combine(configDir, "rules.yaml")
         if fs.fileExists rulesPath then
@@ -127,6 +136,7 @@ let main args =
         { Extractor = extractor
           Embedder = embedder
           ChatProvider = chatProvider
+          TriageProvider = triageProvider
           ContentRules = contentRules
           ComprehensionPrompt = comprehensionPrompt
           CreateEmailProvider = fun cfgDir label ->

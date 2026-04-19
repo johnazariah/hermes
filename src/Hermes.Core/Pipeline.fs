@@ -18,6 +18,7 @@ module Pipeline =
         { Extractor: Algebra.TextExtractor
           Embedder: Algebra.EmbeddingClient option
           ChatProvider: Algebra.ChatProvider option
+          TriageProvider: Algebra.ChatProvider option
           ContentRules: Domain.ContentRule list
           ComprehensionPrompt: PromptLoader.ParsedPrompt option
           CreateEmailProvider: string -> string -> Task<Algebra.EmailProvider> }
@@ -198,7 +199,8 @@ module Pipeline =
             let stageDeps : Stages.Deps =
                 { Fs = fs; Db = db; Logger = logger; Clock = clock
                   Extractor = deps.Extractor; Embedder = deps.Embedder
-                  ChatProvider = deps.ChatProvider; ContentRules = deps.ContentRules
+                  ChatProvider = deps.ChatProvider; TriageProvider = deps.TriageProvider
+                  ContentRules = deps.ContentRules
                   ComprehensionPrompt = deps.ComprehensionPrompt
                   ArchiveDir = archiveDir }
 
