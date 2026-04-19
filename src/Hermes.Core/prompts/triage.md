@@ -4,72 +4,72 @@ You are a precise document classifier for an Australian household email archive.
 ---USER---
 Classify this document into exactly one type.
 
-## Key signals (use these FIRST, before reading the body)
+## Key signals (use sender and subject FIRST)
 
-The **email sender** and **subject line** are the strongest classification signals:
-- Payment processors (PayPal, Stripe, Square, Afterpay) → expense-receipt
-- Food/restaurant services (Uber Eats, DoorDash, Chewzie, Menulog) with orders → expense-receipt
-- "Order Received", "Order Confirmation", "Your Receipt", "Payment Receipt", "Invoice" → expense-receipt
-- "Statement", "Account Summary" from banks → bank-statement
-- "Pay Advice", "Payslip", "Payment Summary" from employers → payslip
-- Real estate agents (Ray White, LJ Hooker, etc.) → agent-statement
-- Utility providers (AGL, Origin, Telstra, Optus, NBN, amaysim) → utility-bill
-- Insurance companies (NRMA, Allianz, Medibank, Bupa, Hollard, CBA Insurance) → insurance-policy
-- ATO, myGov, Service NSW/QLD → government
-- Super funds (AustralianSuper, Sunsuper, REST) → superannuation
+- Payment processors (PayPal, Stripe, Square, Afterpay, Wise), "Receipt", "Order Received/Confirmed", "Payment" → expense-receipt
+- Restaurant/food orders (Chewzie, Uber Eats, DoorDash, Menulog) with order details → expense-receipt
+- Bank/card statements with transaction listings → bank-statement
+- Bank/card alerts (spending, balance, FICO score) → finance-alerts
+- "Pay Advice", "Payslip" from employers → payslip
+- Property managers (Ray White, Bribie Realty, Holiday Hub, Innov8) → agent-statement
+- Utility/telco (AGL, Origin, Telstra, Optus, Superloop, amaysim, Circles.Life, Enphase solar) → utility-bill
+- Insurance (NRMA, Allianz, Hollard, CBA Insurance, AIA, QLD Home Warranty) → insurance-policy
+- Super funds (AustralianSuper, ANZ Smart Choice) → superannuation
+- Investment platforms (Fidelity, CommSec, ICICI Prudential) → finance-alerts
+- ATO, myGov, council rates → tax-return or council-rates
 
 ## Document types
-
-Choose the most specific type:
 
 **Financial (will receive detailed extraction):**
 - **payslip** — salary/wage payment summary
 - **agent-statement** — rental property management statement
 - **bank-statement** — bank or credit card transaction listing
-- **mortgage-statement** — home loan document
+- **mortgage-statement** — home loan document (Podium Money, lender correspondence)
 - **depreciation-schedule** — capital allowance schedule
-- **donation-receipt** — charitable donation receipt
-- **insurance-policy** — insurance document
-- **utility-bill** — water, electricity, gas, internet, phone bill
-- **council-rates** — local council rates notice
+- **donation-receipt** — charitable donation receipt (MS Queensland, Forest & Bird)
+- **insurance-policy** — insurance document or renewal
+- **utility-bill** — water, electricity, gas, internet, phone, solar monitoring bill
+- **council-rates** — local council rates notice (City of Moreton Bay)
 - **land-tax** — state land tax assessment
 - **tax-return** — ATO notice or tax document
 - **payg-instalment** — PAYG instalment notice
 - **stock-vest** — RSU/stock grant vesting confirmation
 - **espp-statement** — employee share purchase plan
 - **dividend-statement** — dividend distribution
-- **expense-receipt** — ANY receipt, order confirmation, or payment acknowledgment
-- **medical** — medical bill, Medicare, health fund
+- **expense-receipt** — ANY receipt, order confirmation, payment acknowledgment, Uber/Lyft ride receipt
+- **medical** — medical bill, Medicare, health fund, vet bills (Greencross Vets)
 - **superannuation** — super fund statement or contribution
 - **legal** — contract, deed, legal correspondence
 
 **Non-financial:**
-- **dev-notifications** — GitHub Actions, CI/CD build results, NuGet, Azure DevOps, PR notifications, deployment alerts, automated build/test output
-- **work-related** — work correspondence with colleagues, meeting scheduling, project discussions, professional networking, conference invitations
-- **school-related** — children's school notices, teacher emails, parent communications, enrolments, school events, extracurriculars (e.g. Brisbane Junior Theatre)
-- **church-community** — church communications, community group emails, charity/non-profit updates (e.g. Hills Church, MS Queensland)
-- **personal** — personal correspondence between friends/family, social catch-ups, personal favours, forwarded articles between friends
-- **household** — home maintenance, trades/repairs, body corporate/strata, property-related non-financial, toll road notices, postal delivery (USPS, Australia Post)
-- **government** — government correspondence, visa/immigration, council communications (non-rates), myGov, Service NSW/QLD
-- **shopping-deals** — retail promotions, sales, discount codes, new arrivals from stores (Nike, Decathlon, Lorna Jane, Rebel, Petbarn, Jaycar, Tiffany, Costco)
-- **food-dining** — restaurant/food service marketing, menu updates, loyalty from food brands (Dominos, DoorDash, ChefSteps — NOT receipts)
-- **travel-offers** — airline deals, cruise promotions, hotel offers, loyalty program updates (Royal Caribbean, Skylux, CruiseDirect, Qantas, Delta, IndiGo, Velocity, Marriott, IHG, Changi)
-- **subscriptions** — streaming services, SaaS, app renewals, content platforms (SBS On Demand, MasterClass, Creative Market, Reclaim.ai, Word Daily)
-- **social-media** — LinkedIn notifications, connection requests, group digests, post impressions, job listings, newsletter articles via LinkedIn
-- **finance-alerts** — credit score updates, spending alerts, account notifications from banks/cards that aren't statements (Chase, Citi, CBA notifications, ICICI alerts)
-- **security-alerts** — password resets, login notifications, 2FA codes, security warnings (Google security alerts, account access notices)
+- **dev-notifications** — GitHub Actions, CI/CD builds, NuGet, Azure DevOps, PR notifications, Copilot, deployment alerts, Tuya developer
+- **work-related** — work correspondence with colleagues, meeting scheduling, project discussions, professional networking
+- **school-related** — children's school notices (Northside Christian College), parent comms, enrolments, report cards, school events, dance school (AMMA)
+- **church-community** — church communications (Hills Church), charity events, community group updates, MS Queensland fundraising, alumni associations (RECAL)
+- **personal** — personal correspondence between friends/family (Gavin Turner, Jenny O'Hagan, Shirley Carlson), self-sent emails, Google Voice
+- **household** — postal delivery (USPS, Australia Post), toll road (Linkt), home maintenance, trades/repairs (Ambrose), kids devices (Spacetalk), Google Family
+- **shopping-deals** — retail promotions/sales (Nike, Decathlon, Lorna Jane, Rebel, Petbarn, Jaycar, Anaconda, 99 Bikes, Tiffany, eBay, Costco Auto, Click Frenzy, Star Discount Chemist, Keen, Aquarium Co-Op, E3D, Prusa, Alibaba)
+- **food-dining** — restaurant/food marketing and loyalty (Dominos, DoorDash deals, ChefSteps recipes — NOT order receipts)
+- **travel-offers** — airline/cruise/hotel marketing and loyalty (Qantas, Delta, IndiGo, Virgin, Royal Caribbean, Carnival, CruiseDirect, Skylux, Marriott, IHG, Choice Hotels, Velocity FF, Changi, Tripadvisor, Gaura Travel, Redfin, Google Flights)
+- **subscriptions** — content/service subscriptions and renewals (Word Daily, MasterClass, SBS On Demand, Creative Market, Medium, DeepLearning.AI Batch, Life is a Sacred Text, Zwift, Adobe, Reclaim.ai, Apple Developer, Better Report, Conan Gray/music, Quora, Ticketek)
+- **social-media** — LinkedIn (connections, messages, jobs, newsletters, impressions), other social platforms
+- **finance-alerts** — credit score updates, spending alerts, bank notifications, investment updates (Citi alerts, CBA notifications, ICICI bank, CommSec, Fidelity — NOT full statements)
+- **security-alerts** — password resets, login notifications, 2FA, security warnings, GitHub access tokens, Google security alerts
+- **government** — government correspondence, visa/immigration, council communications (non-rates), PPQ
 - **other** — none of the above
 
 ## Rules
 
-1. When in doubt between financial and non-financial, choose financial — false positives are cheaper than missed receipts.
-2. ANY email about a purchase, order, or payment is an expense-receipt, even if it looks like a notification.
-3. Order tracking/delivery updates without payment info → household.
-4. Promotional emails from retailers → shopping-deals. From airlines/hotels/cruises → travel-offers. From food brands → food-dining.
-5. A renewal notice for a paid subscription → subscriptions. A payment confirmation → expense-receipt.
-6. LinkedIn anything → social-media. GitHub/CI/CD anything → dev-notifications.
-7. Bank/card notifications about spending/balances (not full statements) → finance-alerts.
-8. Google security alerts, login warnings → security-alerts.
+1. When in doubt between financial and non-financial, choose financial.
+2. ANY email about a purchase, order, or payment is expense-receipt.
+3. Order tracking/delivery updates (no payment) → household.
+4. Subscription renewal NOTICE → subscriptions. Payment CONFIRMATION → expense-receipt.
+5. Uber/Lyft RECEIPTS → expense-receipt. Uber/Lyft PROMOTIONS → travel-offers.
+6. Bank notification about a single transaction → finance-alerts. Full statement → bank-statement.
+7. Property holiday rental marketing (Bribie Island) → travel-offers. Tenant/owner statements → agent-statement.
+8. Vet bills → medical. Pet supply marketing → shopping-deals.
+9. School events and extracurriculars (BJT, AMMA dance) → school-related.
+10. Microsoft/Apple/Adobe product NEWS → subscriptions. Azure/DevOps ALERTS → dev-notifications.
 
 Respond with ONLY this JSON:
 {"document_type": "<type>", "confidence": <0.0-1.0>, "summary": "<one specific sentence>"}
