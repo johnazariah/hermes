@@ -116,6 +116,17 @@ let main args =
                logger.warn $"Comprehension prompt not loaded: {e} — using fallback"
                None
 
+    let triagePrompt =
+        PromptLoader.loadTriagePrompt fs configDir assemblyDir
+        |> Async.AwaitTask |> Async.RunSynchronously
+        |> function
+           | Ok p ->
+               logger.info "Loaded triage prompt"
+               Some p
+           | Error e ->
+               logger.warn $"Triage prompt not loaded: {e} — using inline fallback"
+               None
+
     // Load deep extraction prompt registry
     let deepPromptDir = Path.Combine(assemblyDir, "prompts", "deep")
     let deepRegistry =
@@ -139,6 +150,7 @@ let main args =
           TriageProvider = triageProvider
           ContentRules = contentRules
           ComprehensionPrompt = comprehensionPrompt
+          TriagePrompt = triagePrompt
           CreateEmailProvider = fun cfgDir label ->
             task {
                 let credPath = Config.resolveCredentials fs env config.Credentials

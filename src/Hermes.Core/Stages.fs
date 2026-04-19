@@ -24,6 +24,7 @@ module Stages =
           TriageProvider: Algebra.ChatProvider option
           ContentRules: Domain.ContentRule list
           ComprehensionPrompt: PromptLoader.ParsedPrompt option
+          TriagePrompt: PromptLoader.ParsedPrompt option
           ArchiveDir: string }
 
     // ─── Extract stage ───────────────────────────────────────────
@@ -130,24 +131,45 @@ Document text:
 
     /// Fast triage prompt — classify only, no detailed extraction.
     let private triageSystemPrompt =
-        "You are a document classifier. Respond with ONLY a JSON object. No explanation."
+        "You are a precise document classifier for an Australian household. You classify documents based on their content, sender, and subject line. Respond with ONLY a JSON object — no explanation, no markdown fencing."
 
     let private triageUserPrompt (text: string) (context: string) : string =
         let truncated =
-            if text.Length <= 1500 then text
-            else text.Substring(0, 1500) + "\n[... truncated]"
-        $"""Classify this document. Respond with ONLY this JSON:
-{{"document_type": "<type>", "confidence": 0.0, "summary": "<one sentence>"}}
+            if text.Length <= 2000 then text
+            else text.Substring(0, 2000) + "\n[... truncated]"
+        $"""Classify this document into exactly one type. Use the sender, subject, and content as signals.
 
-Types: payslip, agent-statement, bank-statement, mortgage-statement, depreciation-schedule, donation-receipt, insurance-policy, utility-bill, council-rates, land-tax, tax-return, stock-vest, espp-statement, dividend-statement, expense-receipt, medical, legal, vehicle, superannuation, letter, notification, report, other
+IMPORTANT classification rules:
+- "Order Received", "Order Confirmation", "Your Receipt", "Payment Receipt", "Invoice" → expense-receipt
+- Emails from payment processors (PayPal, Stripe, Square) about payments → expense-receipt
+- Emails from restaurants, food delivery, retailers about orders → expense-receipt
+- GitHub/CI/CD notifications, automated alerts, status updates → notification
+- Marketing emails, newsletters, promotions, deals → notification
+- Personal or business correspondence → letter
+- Bank/credit card transaction listings → bank-statement
+- Salary/wage payment summaries → payslip
+- Rental property management statements → agent-statement
+- Bills for water, electricity, gas, internet, phone → utility-bill
+- Insurance documents → insurance-policy
+- Super fund statements → superannuation
+- Medical bills, Medicare, health fund → medical
+- Tax documents, ATO notices → tax-return
+- Stock/RSU vesting confirmations → stock-vest
+- Dividend notices → dividend-statement
+- Contracts, legal docs → legal
+
+Respond with ONLY this JSON (no other text):
+{{"document_type": "<type>", "confidence": <0.0-1.0>, "summary": "<one specific sentence>"}}
+
+Valid types: payslip, agent-statement, bank-statement, mortgage-statement, depreciation-schedule, donation-receipt, insurance-policy, utility-bill, council-rates, land-tax, tax-return, payg-instalment, stock-vest, espp-statement, dividend-statement, expense-receipt, medical, legal, vehicle, superannuation, letter, notification, report, other
 {context}
-Document:
+Document text:
 {truncated}"""
 
     /// Understand a document using two-phase approach:
-    /// 1. Triage (fast small model): classify document type
-    /// 2. Deep comprehension (full model): only for financially relevant documents
-    let understand (deps: Deps) (doc: Document.T) : Task<Document.T> =
+    /// Phase 1 (triage): fast classification with small model → sets stage to "understood" or "triaged"
+    /// Phase 2 (deepComprehend): full extraction with large model → only for "triaged" (financial) docs
+    let triage (deps: Deps) (doc: Document.T) : Task<Document.T> =
         let docId = Document.id doc
         let text = doc |> Document.decode<string> "extracted_text" |> Option.defaultValue ""
 
@@ -163,7 +185,7 @@ Document:
 
         task {
             if String.IsNullOrWhiteSpace(text) then
-                deps.Logger.debug $"Understand skip doc {docId}: empty extracted text"
+                deps.Logger.debug $"Triage skip doc {docId}: empty extracted text"
                 return passThrough ()
             else
 
@@ -175,16 +197,21 @@ Document:
                 return understood canonical "content" confidence
 
             | None ->
-                // Phase 1: Triage — use small model if available, else fall back to full model
                 let triageChat = deps.TriageProvider |> Option.orElse deps.ChatProvider
                 match triageChat with
                 | None ->
-                    deps.Logger.debug $"Understand skip doc {docId}: no chat provider"
+                    deps.Logger.debug $"Triage skip doc {docId}: no chat provider"
                     return passThrough ()
 
-                | Some triage ->
+                | Some chat ->
                     let context = buildContext doc
-                    let! triageResult = triage.complete triageSystemPrompt (triageUserPrompt text context)
+
+                    let triageSys, triageUser =
+                        match deps.TriagePrompt with
+                        | Some p -> p.System, PromptLoader.renderTriage p text context
+                        | None -> triageSystemPrompt, triageUserPrompt text context
+
+                    let! triageResult = chat.complete triageSys triageUser
 
                     match triageResult with
                     | Error e ->
@@ -200,50 +227,25 @@ Document:
 
                         | Ok triaged ->
                             let canonical = triaged.CanonicalCategory
+                            let sender = doc |> Document.decode<string> "sender"
+                            do! ContactExtraction.harvestAndLink deps.Db deps.Logger docId triaged.RawJson sender
 
-                            // Phase 2: If financially relevant and full model available, do deep comprehension
-                            if financialCategories.Contains canonical && deps.ChatProvider.IsSome then
-                                let chat = deps.ChatProvider.Value
-                                let systemPrompt, userPrompt =
-                                    match deps.ComprehensionPrompt with
-                                    | Some p -> p.System, PromptLoader.render p text context
-                                    | None -> fallbackSystemPrompt, fallbackUserPrompt text context
-
-                                let! llmResult = chat.complete systemPrompt userPrompt
-                                match llmResult with
-                                | Error e ->
-                                    deps.Logger.warn $"Deep comprehension failed for doc {docId}: {e}, using triage result"
-                                    return understood canonical "triage" triaged.Confidence
-
-                                | Ok response ->
-                                    match ComprehensionSchema.normaliseResponse response with
-                                    | Ok parsed ->
-                                        let tier = if parsed.Confidence >= 0.7 then "comprehension" else "comprehension_review"
-                                        deps.Logger.info $"Understood doc {docId} as '{parsed.CanonicalCategory}' ({parsed.DocumentType}, {tier}, conf={parsed.Confidence:F2}): {parsed.Summary}"
-
-                                        let sender = doc |> Document.decode<string> "sender"
-                                        do! ContactExtraction.harvestAndLink deps.Db deps.Logger docId parsed.RawJson sender
-
-                                        return
-                                            doc
-                                            |> Document.encode "category" (box parsed.CanonicalCategory)
-                                            |> Document.encode "classification_tier" (box tier)
-                                            |> Document.encode "classification_confidence" (box parsed.Confidence)
-                                            |> Document.encode "comprehension" (box parsed.RawJson)
-                                            |> Document.encode "comprehension_schema" (box "v2")
-                                            |> Document.encode "stage" (box "understood")
-
-                                    | Error parseErr ->
-                                        deps.Logger.warn $"Deep comprehension parse doc {docId}: {parseErr}, using triage"
-                                        return understood canonical "triage" triaged.Confidence
+                            if financialCategories.Contains canonical then
+                                // Financial doc → mark for deep comprehension
+                                let tier = if triaged.Confidence >= 0.7 then "triage" else "triage_review"
+                                deps.Logger.info $"Triaged doc {docId} as '{canonical}' ({tier}, conf={triaged.Confidence:F2}) → queued for deep comprehension: {triaged.Summary}"
+                                return
+                                    doc
+                                    |> Document.encode "category" (box canonical)
+                                    |> Document.encode "classification_tier" (box tier)
+                                    |> Document.encode "classification_confidence" (box triaged.Confidence)
+                                    |> Document.encode "comprehension" (box triaged.RawJson)
+                                    |> Document.encode "comprehension_schema" (box "v2")
+                                    |> Document.encode "stage" (box "triaged")
                             else
-                                // Non-financial doc — triage classification is sufficient
+                                // Non-financial → done
                                 let tier = if triaged.Confidence >= 0.7 then "triage" else "triage_review"
                                 deps.Logger.info $"Triaged doc {docId} as '{canonical}' ({tier}, conf={triaged.Confidence:F2}): {triaged.Summary}"
-
-                                let sender = doc |> Document.decode<string> "sender"
-                                do! ContactExtraction.harvestAndLink deps.Db deps.Logger docId triaged.RawJson sender
-
                                 return
                                     doc
                                     |> Document.encode "category" (box canonical)
@@ -252,6 +254,52 @@ Document:
                                     |> Document.encode "comprehension" (box triaged.RawJson)
                                     |> Document.encode "comprehension_schema" (box "v2")
                                     |> Document.encode "stage" (box "understood")
+        }
+
+    /// Phase 2: Deep comprehension for financially relevant documents (stage = "triaged").
+    let deepComprehend (deps: Deps) (doc: Document.T) : Task<Document.T> =
+        let docId = Document.id doc
+        let text = doc |> Document.decode<string> "extracted_text" |> Option.defaultValue ""
+
+        task {
+            match deps.ChatProvider with
+            | None ->
+                deps.Logger.debug $"DeepComprehend skip doc {docId}: no chat provider"
+                return doc |> Document.encode "stage" (box "understood")
+            | Some chat ->
+                let context = buildContext doc
+                let systemPrompt, userPrompt =
+                    match deps.ComprehensionPrompt with
+                    | Some p -> p.System, PromptLoader.render p text context
+                    | None -> fallbackSystemPrompt, fallbackUserPrompt text context
+
+                let! llmResult = chat.complete systemPrompt userPrompt
+                match llmResult with
+                | Error e ->
+                    deps.Logger.warn $"Deep comprehension failed for doc {docId}: {e}, keeping triage result"
+                    return doc |> Document.encode "stage" (box "understood")
+
+                | Ok response ->
+                    match ComprehensionSchema.normaliseResponse response with
+                    | Ok parsed ->
+                        let tier = if parsed.Confidence >= 0.7 then "comprehension" else "comprehension_review"
+                        deps.Logger.info $"Understood doc {docId} as '{parsed.CanonicalCategory}' ({parsed.DocumentType}, {tier}, conf={parsed.Confidence:F2}): {parsed.Summary}"
+
+                        let sender = doc |> Document.decode<string> "sender"
+                        do! ContactExtraction.harvestAndLink deps.Db deps.Logger docId parsed.RawJson sender
+
+                        return
+                            doc
+                            |> Document.encode "category" (box parsed.CanonicalCategory)
+                            |> Document.encode "classification_tier" (box tier)
+                            |> Document.encode "classification_confidence" (box parsed.Confidence)
+                            |> Document.encode "comprehension" (box parsed.RawJson)
+                            |> Document.encode "comprehension_schema" (box "v2")
+                            |> Document.encode "stage" (box "understood")
+
+                    | Error parseErr ->
+                        deps.Logger.warn $"Deep comprehension parse doc {docId}: {parseErr}, keeping triage"
+                        return doc |> Document.encode "stage" (box "understood")
         }
 
     // ─── Embed stage ─────────────────────────────────────────────
@@ -292,7 +340,7 @@ Document:
 
     // ─── Stage definitions ───────────────────────────────────────
 
-    /// Build the three standard pipeline stage definitions.
+    /// Build the four standard pipeline stage definitions.
     /// resourceLock: shared GPU mutex (Some for Ollama, None for Azure/no contention)
     /// maxHoldTime: burst duration before yielding the lock
     let standardStages (deps: Deps) (resourceLock: SemaphoreSlim option) (maxHoldTime: TimeSpan) : Workflow.StageDefinition list =
@@ -303,11 +351,18 @@ Document:
             ResourceLock = None          // CPU-only, no GPU contention
             MaxHoldTime = TimeSpan.Zero }
 
+          { Name = "triage"
+            OutputKey = "comprehension_schema"
+            RequiredKeys = [ "extracted_text" ]
+            Process = triage deps
+            ResourceLock = resourceLock   // uses GPU (small model)
+            MaxHoldTime = maxHoldTime }
+
           { Name = "understand"
             OutputKey = "comprehension_schema"
             RequiredKeys = [ "extracted_text" ]
-            Process = understand deps
-            ResourceLock = resourceLock   // shares GPU with embed
+            Process = deepComprehend deps
+            ResourceLock = resourceLock   // uses GPU (large model)
             MaxHoldTime = maxHoldTime }
 
           { Name = "embed"

@@ -21,17 +21,20 @@ module Pipeline =
           TriageProvider: Algebra.ChatProvider option
           ContentRules: Domain.ContentRule list
           ComprehensionPrompt: PromptLoader.ParsedPrompt option
+          TriagePrompt: PromptLoader.ParsedPrompt option
           CreateEmailProvider: string -> string -> Task<Algebra.EmailProvider> }
 
     /// The channels connecting pipeline stages.
     type Channels =
         { Extract: Channel<Document.T>
+          Triage: Channel<Document.T>
           Understand: Channel<Document.T>
           Embed: Channel<Document.T> }
 
     /// Create unbounded channels for the pipeline.
     let createChannels () : Channels =
         { Extract = Channel.CreateUnbounded<Document.T>()
+          Triage = Channel.CreateUnbounded<Document.T>()
           Understand = Channel.CreateUnbounded<Document.T>()
           Embed = Channel.CreateUnbounded<Document.T>() }
 
@@ -167,7 +170,7 @@ module Pipeline =
                     let! counts = Document.stageCounts db
                     let total = counts |> Map.values |> Seq.sum
                     let summary =
-                        [ "received", "reading"; "understood", "understood"; "embedded", "memorised"; "failed", "failed" ]
+                        [ "received", "reading"; "triaged", "triaged"; "understood", "understood"; "embedded", "memorised"; "failed", "failed" ]
                         |> List.map (fun (key, label) -> $"{label}:{counts |> Map.tryFind key |> Option.defaultValue 0L}")
                         |> String.concat " "
 
@@ -202,6 +205,7 @@ module Pipeline =
                   ChatProvider = deps.ChatProvider; TriageProvider = deps.TriageProvider
                   ContentRules = deps.ContentRules
                   ComprehensionPrompt = deps.ComprehensionPrompt
+                  TriagePrompt = deps.TriagePrompt
                   ArchiveDir = archiveDir }
 
             // GPU resource lock: shared semaphore when Ollama serves both understand and embed
@@ -216,18 +220,41 @@ module Pipeline =
             let stages = Stages.standardStages stageDeps resourceLock maxHoldTime
 
             // ── Step 1: Hydrate channels from DB ─────────────────
-            let! hydrated = Workflow.hydrate db logger channels.Extract.Writer
-            logger.info $"Hydrated {hydrated} incomplete documents"
+            let! incompleteDocs = Document.hydrate db
+            let mutable hydratedCount = 0
+            for doc in incompleteDocs do
+                let docStage = Document.stage doc
+                match docStage with
+                | "triaged" ->
+                    do! channels.Understand.Writer.WriteAsync(doc)
+                | "understood" ->
+                    do! channels.Embed.Writer.WriteAsync(doc)
+                | "extracted" ->
+                    do! channels.Triage.Writer.WriteAsync(doc)
+                | _ ->
+                    do! channels.Extract.Writer.WriteAsync(doc)
+                hydratedCount <- hydratedCount + 1
+            logger.info $"Hydrated {hydratedCount} incomplete documents"
 
             // ── Step 2: Launch consumers ─────────────────────────
             let tasks = ResizeArray<Task>()
 
-            // Extract consumers: extractCh → understandCh
+            // Extract consumers: extractCh → triageCh
             let extractStage = stages |> List.find (fun s -> s.Name = "extract")
-            for t in Workflow.launchConsumers extractStage db logger extractConcurrency channels.Extract.Reader (Some channels.Understand.Writer) ct do
+            for t in Workflow.launchConsumers extractStage db logger extractConcurrency channels.Extract.Reader (Some channels.Triage.Writer) ct do
                 tasks.Add(t)
 
-            // Understand consumers: understandCh → embedCh
+            // Triage consumers: triageCh → route by stage
+            // "triaged" (financial) → understandCh, "understood" (non-financial) → embedCh
+            let triageStage = stages |> List.find (fun s -> s.Name = "triage")
+            let triageRouter = Workflow.routingWriter (fun doc ->
+                let stage = Document.stage doc
+                if stage = "triaged" then channels.Understand.Writer
+                else channels.Embed.Writer)
+            for t in Workflow.launchConsumers triageStage db logger llmConcurrency channels.Triage.Reader (Some triageRouter) ct do
+                tasks.Add(t)
+
+            // Understand consumers (deep comprehension): understandCh → embedCh
             let understandStage = stages |> List.find (fun s -> s.Name = "understand")
             for t in Workflow.launchConsumers understandStage db logger llmConcurrency channels.Understand.Reader (Some channels.Embed.Writer) ct do
                 tasks.Add(t)

@@ -67,6 +67,7 @@
 
   <ItemGroup>
     <Content Include="prompts\comprehension.md" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="prompts\triage.md" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="prompts\deep\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

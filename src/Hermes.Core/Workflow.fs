@@ -138,6 +138,15 @@ module Workflow =
             logger.info $"Stage '{stage.Name}' consumer stopped"
         }
 
+    /// Create a ChannelWriter that routes documents to different writers based on a selector function.
+    let routingWriter (selector: Document.T -> ChannelWriter<Document.T>) : ChannelWriter<Document.T> =
+        { new ChannelWriter<Document.T>() with
+            override _.TryWrite(item) =
+                let target = selector item
+                target.TryWrite(item)
+            override _.WaitToWriteAsync(ct) =
+                ValueTask<bool>(true) }
+
     /// Launch N consumers for a stage, all reading from the same channel.
     let launchConsumers
         (stage: StageDefinition)

@@ -78,6 +78,26 @@ module PromptLoader =
         elif fs.fileExists assemblyPath then loadFromFile fs assemblyPath
         else Task.FromResult(Error $"Prompt file not found in {configPath} or {assemblyPath}")
 
+    let loadTriagePrompt
+        (fs: Algebra.FileSystem)
+        (configDir: string)
+        (assemblyDir: string)
+        : Task<Result<ParsedPrompt, string>> =
+        let configPath = Path.Combine(configDir, "prompts", "triage.md")
+        let assemblyPath = Path.Combine(assemblyDir, "prompts", "triage.md")
+
+        if fs.fileExists configPath then loadFromFile fs configPath
+        elif fs.fileExists assemblyPath then loadFromFile fs assemblyPath
+        else Task.FromResult(Error $"Triage prompt not found in {configPath} or {assemblyPath}")
+
+    let [<Literal>] private TriageMaxChars = 2000
+
+    let renderTriage (prompt: ParsedPrompt) (documentText: string) (context: string) : string =
+        let truncated = documentText |> truncate TriageMaxChars
+        prompt.UserTemplate
+            .Replace("{{document_text}}", truncated)
+            .Replace("{{context}}", context)
+
 
 /// Normalise LLM comprehension output to Hermes canonical categories.
 [<RequireQualifiedAccess>]
