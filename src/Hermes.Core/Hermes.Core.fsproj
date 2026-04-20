@@ -44,8 +44,10 @@
     <Compile Include="Chat.fs" />
     <Compile Include="EmailSync.fs" />
     <Compile Include="GmailProvider.fs" />
+    <Compile Include="PipelineV5.fs" />
     <Compile Include="Workflow.fs" />
     <Compile Include="Stages.fs" />
+    <Compile Include="StagesV5.fs" />
     <Compile Include="Pipeline.fs" />
     <Compile Include="McpTools.fs" />
     <Compile Include="McpServer.fs" />
