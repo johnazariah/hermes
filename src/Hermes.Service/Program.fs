@@ -1,9 +1,12 @@
 module Hermes.Service.Program
 
+#nowarn "3261"
+
 open System
 open System.IO
 open System.Net.Http
 open System.Threading
+open System.Threading.Tasks
 open Microsoft.AspNetCore.Builder
 open Microsoft.AspNetCore.Http
 open Microsoft.Extensions.DependencyInjection
@@ -143,27 +146,105 @@ let main args =
               Provider = if config.Ollama.Enabled then "ollama" else "azure"
               Model = config.Ollama.InstructModel })
 
-    let deps : Pipeline.Deps =
-        { Extractor = extractor
-          Embedder = embedder
-          ChatProvider = chatProvider
-          TriageProvider = triageProvider
+    // Build Stages.Deps for v4-compatible stage processors
+    let stageDeps : Stages.Deps =
+        { Fs = fs; Db = db; Logger = logger; Clock = clock
+          Extractor = extractor; Embedder = embedder
+          ChatProvider = chatProvider; TriageProvider = triageProvider
           ContentRules = contentRules
           ComprehensionPrompt = comprehensionPrompt
           TriagePrompt = triagePrompt
-          CreateEmailProvider = fun cfgDir label ->
-            task {
-                let credPath = Config.resolveCredentials fs env config.Credentials
-                let! credBytes = fs.readAllBytes credPath
-                let tokenDir = Path.Combine(cfgDir, "tokens")
-                return! GmailProvider.create credBytes tokenDir label logger
-            } }
+          ArchiveDir = archiveDir }
 
-    // Start pipeline in background
+    let createEmailProvider cfgDir label =
+        task {
+            let credPath = Config.resolveCredentials fs env config.Credentials
+            let! credBytes = fs.readAllBytes credPath
+            let tokenDir = Path.Combine(cfgDir, "tokens")
+            return! GmailProvider.create credBytes tokenDir label logger
+        }
+
+    // ── Pipeline v5: DAG-based with phase scheduling ──
+    let v5Stages = StagesV5.standardStages stageDeps
+    PipelineV5.initSchema db v5Stages |> Async.AwaitTask |> Async.RunSynchronously
+    let dag =
+        match PipelineV5.buildDag v5Stages with
+        | Ok d ->
+            logger.info $"Pipeline v5 DAG: {d.Order.Length} stages, {d.Phases.Length} phases"
+            d
+        | Error e ->
+            failwith $"Pipeline DAG error: {e}"
+    let gpu = PipelineV5.createGpuScheduler logger
+
+    // Start v5 pipeline in background
     use cts = new CancellationTokenSource()
     let _ = System.Threading.Tasks.Task.Run(fun () ->
         task {
-            do! Pipeline.start fs db logger clock rules deps config configDir cts.Token
+            do! PipelineV5.run dag db logger gpu 200 (TimeSpan.FromMinutes 5.0) (TimeSpan.FromSeconds 10.0) cts.Token
+        } :> System.Threading.Tasks.Task)
+
+    // Start producers (email sync, folder watcher) — they INSERT into documents table
+    // v5 pipeline picks up new docs via readyQuery (no stage_completions = ready for extract)
+    let _ = System.Threading.Tasks.Task.Run(fun () ->
+        task {
+            // Initial delay for schema setup
+            do! Task.Delay(TimeSpan.FromSeconds(5.0))
+            while not cts.Token.IsCancellationRequested do
+                // Folder watcher
+                try
+                    let! _ = FolderWatcher.scanAll fs db logger clock config
+                    let unclDir = Path.Combine(archiveDir, "unclassified")
+                    if fs.directoryExists unclDir then
+                        let files =
+                            fs.getFiles unclDir "*"
+                            |> Array.filter (fun f -> not (f.EndsWith(".meta.json", StringComparison.OrdinalIgnoreCase)))
+                        for filePath in files do
+                            try
+                                let fileName = Path.GetFileName(filePath)
+                                let! sha256 = FolderWatcher.computeSha256 fs filePath
+                                let! dupResult = db.execScalar "SELECT COUNT(*) FROM documents WHERE sha256 = @sha" [ ("@sha", Database.boxVal sha256) ]
+                                let isDup = match dupResult with :? int64 as i -> i > 0L | _ -> false
+                                if isDup then
+                                    logger.info $"Duplicate detected (sha256={sha256.[..7]}), removing: {fileName}"
+                                    fs.deleteFile filePath
+                                    let metaPath = filePath + ".meta.json"
+                                    if fs.fileExists metaPath then fs.deleteFile metaPath
+                                else
+                                    let relativePath = Path.Combine("unclassified", fileName)
+                                    let fileSize = fs.getFileSize filePath
+                                    let now = clock.utcNow().ToString("o")
+                                    let! _ =
+                                        db.execNonQuery
+                                            """INSERT INTO documents
+                                               (source_type, original_name, saved_path, category, size_bytes, sha256, source_path, ingested_at, stage)
+                                               VALUES ('watched_folder', @name, @path, 'unclassified', @size, @sha, @src, @now, 'received')"""
+                                            [ ("@name", Database.boxVal fileName)
+                                              ("@path", Database.boxVal relativePath)
+                                              ("@size", Database.boxVal fileSize)
+                                              ("@sha", Database.boxVal sha256)
+                                              ("@src", Database.boxVal filePath)
+                                              ("@now", Database.boxVal now) ]
+                                    let metaPath = filePath + ".meta.json"
+                                    if fs.fileExists metaPath then fs.deleteFile metaPath
+                                    logger.info $"Folder watcher: ingested '{fileName}'"
+                            with ex ->
+                                logger.warn $"Folder intake failed for {Path.GetFileName(filePath)}: {ex.Message}"
+                with ex ->
+                    logger.warn $"Folder scan error: {ex.Message}"
+
+                // Email sync
+                for account in config.Accounts do
+                    try
+                        let! provider = createEmailProvider configDir account.Label
+                        let emailConcurrency = max 1 config.Pipeline.EmailConcurrency
+                        let dummyWriter = System.Threading.Channels.Channel.CreateUnbounded<Document.T>().Writer
+                        let! _ = EmailSync.syncAccountWithChannel fs db logger clock provider config account.Label dummyWriter emailConcurrency cts.Token
+                        ()
+                    with ex ->
+                        logger.warn $"Email sync failed for {account.Label}: {ex.Message}"
+
+                try do! Task.Delay(TimeSpan.FromMinutes(float config.SyncIntervalMinutes), cts.Token)
+                with :? OperationCanceledException -> ()
         } :> System.Threading.Tasks.Task)
 
     // Build HTTP API

@@ -94,32 +94,22 @@ module StagesV5 =
     /// Extract: read file, produce text. Writes to extraction table.
     let extract (deps: Stages.Deps) (db: Algebra.Database) (logger: Algebra.Logger) (docId: int64) : Task<PipelineV5.StageOutcome> =
         task {
-            // Read document core info
+            // Read full document row for v4 compatibility
             let! rows =
                 db.execReader
-                    "SELECT saved_path, original_name, source_type FROM documents WHERE id = @id"
+                    "SELECT * FROM documents WHERE id = @id"
                     [ ("@id", Database.boxVal docId) ]
             match rows with
             | [] -> return PipelineV5.Failed "Document not found"
             | row :: _ ->
-                let r = Prelude.RowReader(row)
-                let savedPath = r.String "saved_path" ""
-                let originalName = r.String "original_name" ""
+                let doc = Document.fromRow row
 
-                // Build a v4 Document.T for compatibility with existing extraction code
-                let doc =
-                    Map.empty
-                    |> Map.add "id" (box docId)
-                    |> Map.add "saved_path" (box savedPath)
-                    |> Map.add "original_name" (box originalName)
-
-                // Run existing extract stage
                 try
                     let! enriched = Stages.extract deps doc
                     let getText key = enriched |> Document.decode<string> key |> Option.defaultValue ""
                     let getFloat key = enriched |> Document.decode<float> key
 
-                    // Write to extraction table
+                    // Write to extraction table only
                     let! _ =
                         db.execNonQuery
                             """INSERT OR REPLACE INTO extraction
@@ -135,8 +125,24 @@ module StagesV5 =
                               ("@method", Database.boxVal (getText "extraction_method"))
                               ("@conf", Database.boxVal (getFloat "ocr_confidence" |> Option.map box |> Option.defaultValue (box DBNull.Value))) ]
 
-                    // Also update legacy documents table for compatibility
-                    do! Document.persist db enriched
+                    // Update legacy documents table for API/UI compatibility
+                    let! _ =
+                        db.execNonQuery
+                            """UPDATE documents SET
+                               extracted_text = @text, extracted_date = @date,
+                               extracted_amount = @amt, extracted_vendor = @vendor,
+                               extracted_abn = @abn, extraction_method = @method,
+                               ocr_confidence = @conf, extracted_at = datetime('now'),
+                               stage = 'extracted'
+                               WHERE id = @id"""
+                            [ ("@id", Database.boxVal docId)
+                              ("@text", Database.boxVal (getText "extracted_text"))
+                              ("@date", Database.boxVal (getText "extracted_date"))
+                              ("@amt", Database.boxVal (getFloat "extracted_amount" |> Option.map box |> Option.defaultValue (box DBNull.Value)))
+                              ("@vendor", Database.boxVal (getText "extracted_vendor"))
+                              ("@abn", Database.boxVal (getText "extracted_abn"))
+                              ("@method", Database.boxVal (getText "extraction_method"))
+                              ("@conf", Database.boxVal (getFloat "ocr_confidence" |> Option.map box |> Option.defaultValue (box DBNull.Value))) ]
 
                     return PipelineV5.Completed
                 with ex ->
@@ -209,8 +215,17 @@ module StagesV5 =
                               ("@summary", Database.boxVal "")
                               ("@json", Database.boxVal comprehension) ]
 
-                    // Also update legacy table
-                    do! Document.persist db enriched
+                    // Update legacy documents table for API compatibility
+                    let! _ =
+                        db.execNonQuery
+                            """UPDATE documents SET category = @cat, classification_tier = 'triage',
+                               classification_confidence = @conf, comprehension = @json,
+                               comprehension_schema = 'v2', stage = 'understood'
+                               WHERE id = @id"""
+                            [ ("@id", Database.boxVal docId)
+                              ("@cat", Database.boxVal category)
+                              ("@conf", Database.boxVal (getFloat "classification_confidence" |> Option.defaultValue 0.0))
+                              ("@json", Database.boxVal comprehension) ]
 
                     return PipelineV5.Completed
                 with ex ->
@@ -278,7 +293,18 @@ module StagesV5 =
                               ("@fields", Database.boxVal fieldsJson)
                               ("@json", Database.boxVal comprehension) ]
 
-                    do! Document.persist db enriched
+                    // Update legacy table
+                    let! _ =
+                        db.execNonQuery
+                            """UPDATE documents SET category = @cat, classification_tier = 'comprehension',
+                               classification_confidence = @conf, comprehension = @json,
+                               comprehension_schema = 'v2', stage = 'understood'
+                               WHERE id = @id"""
+                            [ ("@id", Database.boxVal docId)
+                              ("@cat", Database.boxVal category)
+                              ("@conf", Database.boxVal (getFloat "classification_confidence" |> Option.defaultValue 0.0))
+                              ("@json", Database.boxVal comprehension) ]
+
                     return PipelineV5.Completed
                 with ex ->
                     return PipelineV5.Failed ex.Message
@@ -315,7 +341,12 @@ module StagesV5 =
                             [ ("@id", Database.boxVal docId)
                               ("@chunks", Database.boxVal chunkCount) ]
 
-                    do! Document.persist db enriched
+                    // Update legacy table
+                    let! _ =
+                        db.execNonQuery
+                            "UPDATE documents SET embedded_at = datetime('now'), chunk_count = @chunks, stage = 'embedded' WHERE id = @id"
+                            [ ("@id", Database.boxVal docId); ("@chunks", Database.boxVal chunkCount) ]
+
                     return PipelineV5.Completed
                 with ex ->
                     return PipelineV5.Failed ex.Message
