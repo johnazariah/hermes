@@ -282,6 +282,13 @@ let main args =
     app.MapGet("/health", Func<IResult>(fun () ->
         Results.Json({| status = "healthy"; service = "hermes" |}))) |> ignore
 
+    // Pipeline DAG visualization (Mermaid)
+    app.MapGet("/api/pipeline/dag", Func<Task<IResult>>(fun () ->
+        task {
+            let! mermaid = PipelineV5.toMermaid dag db
+            return Results.Text(mermaid, "text/plain")
+        })) |> ignore
+
     // MCP endpoint — Streamable HTTP (JSON-RPC over POST)
     app.MapPost("/mcp", Func<HttpContext, System.Threading.Tasks.Task<IResult>>(fun ctx ->
         task {

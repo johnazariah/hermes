@@ -312,6 +312,59 @@ LIMIT {limit}"""
             logger.info "Pipeline v5 stopped"
         }
 
+    // ── DAG visualization ──────────────────────────────────────────
+
+    /// Generate a Mermaid diagram of the pipeline DAG.
+    let toMermaid (dag: Dag) (db: Algebra.Database) : Task<string> =
+        task {
+            // Get doc counts per stage
+            let! rows =
+                db.execReader
+                    "SELECT stage_name, count(*) as cnt FROM stage_completions GROUP BY stage_name"
+                    []
+            let counts =
+                rows |> List.map (fun row ->
+                    let r = Prelude.RowReader(row)
+                    r.String "stage_name" "", r.Int64 "cnt" 0L)
+                |> Map.ofList
+
+            let! totalObj = db.execScalar "SELECT count(*) FROM documents" []
+            let total = match totalObj with :? int64 as i -> i | _ -> 0L
+
+            let lines = System.Text.StringBuilder()
+            lines.AppendLine("graph LR") |> ignore
+
+            for name in dag.Order do
+                let stage = dag.Stages.[name]
+                let safeName = name.Replace("-", "_")
+                let completed = counts |> Map.tryFind name |> Option.defaultValue 0L
+                let gpu = stage.GpuModel |> Option.map (fun m -> $"\\n🔧 {m}") |> Option.defaultValue ""
+                let mode = match stage.Mode with Batch _ -> "\\n📦 batch" | Channel -> ""
+                let gate = if stage.Gate.IsSome then "\\n🚪 gated" else ""
+                let count = $"\\n✅ {completed}/{total}"
+                lines.AppendLine($"    {safeName}[\"{name}{gpu}{mode}{gate}{count}\"]") |> ignore
+
+            for name in dag.Order do
+                let stage = dag.Stages.[name]
+                let safeName = name.Replace("-", "_")
+                for dep in stage.DependsOn do
+                    let safeDep = dep.Replace("-", "_")
+                    lines.AppendLine($"    {safeDep} --> {safeName}") |> ignore
+
+            // Style GPU phases
+            for name in dag.Order do
+                let stage = dag.Stages.[name]
+                let safeName = name.Replace("-", "_")
+                match stage.GpuModel with
+                | None -> lines.AppendLine($"    style {safeName} fill:#334155,stroke:#64748b") |> ignore
+                | Some m when m.Contains "7b" -> lines.AppendLine($"    style {safeName} fill:#1e3a5f,stroke:#3b82f6") |> ignore
+                | Some m when m.Contains "32b" -> lines.AppendLine($"    style {safeName} fill:#5b2138,stroke:#ef4444") |> ignore
+                | Some m when m.Contains "embed" || m.Contains "nomic" -> lines.AppendLine($"    style {safeName} fill:#1a3d2e,stroke:#22c55e") |> ignore
+                | _ -> ()
+
+            return lines.ToString()
+        }
+
     // ── Schema ───────────────────────────────────────────────────────
 
     /// Core tables required by the framework.
