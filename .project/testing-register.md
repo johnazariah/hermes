@@ -6,12 +6,13 @@
 
 | Category | Count |
 |----------|-------|
-| Unit     | 537   |
-| Property | 5    |
-| Integration | 285  |
-| **Total** | **827** |
+| Unit | 537 |
+| Property | 5 |
+| Integration | 285 |
+| ManualTest | 6 |
+| **Total** | **833** |
 
-> 792 unique test methods; 827 total test cases
+> 792 unique test methods; 833 total test cases
 > (Theory/InlineData tests contribute multiple cases per method)
 
 ---
