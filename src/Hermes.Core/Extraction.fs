@@ -58,6 +58,9 @@ module Extraction =
     let isCsv (path: string) =
         path.EndsWith(".csv", StringComparison.OrdinalIgnoreCase)
 
+    let isPptx (path: string) =
+        path.EndsWith(".pptx", StringComparison.OrdinalIgnoreCase)
+
     let isPlainText (path: string) =
         [| ".txt"; ".md"; ".log" |]
         |> Array.exists (fun ext -> path.EndsWith(ext, StringComparison.OrdinalIgnoreCase))
@@ -176,6 +179,8 @@ module Extraction =
                 return ExcelExtraction.extractExcel bytes |> structuredToResult "closedxml"
             elif isWord path then
                 return WordExtraction.extractWord bytes |> structuredToResult "openxml"
+            elif isPptx path then
+                return PptxExtraction.extractPptx bytes |> structuredToResult "openxml-pptx"
             elif isCsv path then
                 let text = Text.Encoding.UTF8.GetString(bytes)
                 return CsvExtraction.extractCsv text |> structuredToResult "csv"

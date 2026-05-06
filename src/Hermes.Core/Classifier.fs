@@ -38,7 +38,11 @@ module Classifier =
             Ok(
                 { SourceType = getStr r "source_type"
                   Account = getStr r "account"
-                  GmailId = getStr r "gmail_id"
+                  ProviderId =
+                    // Read new name first, fall back to legacy "gmail_id" for old sidecars
+                    match getOptStr r "provider_id" with
+                    | Some id -> id
+                    | None -> getStr r "gmail_id"
                   ThreadId = getStr r "thread_id"
                   Sender = getOptStr r "sender"
                   Subject = getOptStr r "subject"

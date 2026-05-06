@@ -200,7 +200,8 @@ let testConfig (archiveDir: string) : Domain.HermesConfig =
       Credentials = "/test/creds.json"
       Accounts =
         [ { Label = "test"; Provider = "gmail"
-            Backfill = { Domain.BackfillConfig.Enabled = true; Since = None; BatchSize = 50; AttachmentsOnly = true; IncludeBodies = false } } ]
+            Backfill = { Domain.BackfillConfig.Enabled = true; Since = None; BatchSize = 50; AttachmentsOnly = true; IncludeBodies = false }
+            ClientId = ""; TenantId = "common"; RedirectPort = 53682 } ]
       SyncIntervalMinutes = 15
       MinAttachmentSize = 20480
       WatchFolders = []

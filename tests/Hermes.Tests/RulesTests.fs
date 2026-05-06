@@ -99,7 +99,7 @@ let private makeSidecar
     Some
         ({ SourceType = "email_attachment"
            Account = "test"
-           GmailId = "msg123"
+           ProviderId = "msg123"
            ThreadId = "thread123"
            Sender = sender
            Subject = subject

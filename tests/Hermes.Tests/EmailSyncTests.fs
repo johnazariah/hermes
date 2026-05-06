@@ -11,7 +11,8 @@ let private emailTestConfig archiveDir : Domain.HermesConfig =
     { TestHelpers.testConfig archiveDir with
         Accounts =
             [ { Label = "test-account"; Provider = "gmail"
-                Backfill = { Domain.BackfillConfig.Enabled = false; Since = None; BatchSize = 50; AttachmentsOnly = true; IncludeBodies = false } } ]
+                Backfill = { Domain.BackfillConfig.Enabled = false; Since = None; BatchSize = 50; AttachmentsOnly = true; IncludeBodies = false }
+                ClientId = ""; TenantId = "common"; RedirectPort = 53682 } ]
         MinAttachmentSize = 100 }
 
 let sampleMessage : Domain.EmailMessage =
@@ -123,7 +124,7 @@ let ``EmailSync_BuildSidecar_ContainsAllFields`` () =
     let sidecar = EmailSync.buildSidecar "my-account" sampleMessage sampleAttachment "saved.pdf" "abc123" now
     Assert.Equal("email_attachment", sidecar.SourceType)
     Assert.Equal("my-account", sidecar.Account)
-    Assert.Equal("msg-001", sidecar.GmailId)
+    Assert.Equal("msg-001", sidecar.ProviderId)
     Assert.Equal("thread-001", sidecar.ThreadId)
     Assert.Equal(Some "alice@example.com", sidecar.Sender)
     Assert.Equal(Some "Invoice #42", sidecar.Subject)
@@ -139,7 +140,7 @@ let ``EmailSync_SerialiseSidecar_ProducesValidJson`` () =
     let json = EmailSync.serialiseSidecar sidecar
     Assert.Contains("source_type", json)
     Assert.Contains("email_attachment", json)
-    Assert.Contains("gmail_id", json)
+    Assert.Contains("provider_id", json)
     Assert.Contains("msg-001", json)
 
 // ─── Sync state tests ────────────────────────────────────────────────
@@ -414,7 +415,7 @@ let private backfillConfig : Domain.BackfillConfig =
     { Enabled = true; Since = None; BatchSize = 10; AttachmentsOnly = true; IncludeBodies = false }
 
 let private backfillAccount (label: string) : Domain.AccountConfig =
-    { Label = label; Provider = "gmail"; Backfill = backfillConfig }
+    { Label = label; Provider = "gmail"; Backfill = backfillConfig; ClientId = ""; TenantId = "common"; RedirectPort = 53682 }
 
 let private backfillTestConfig archiveDir =
     { TestHelpers.testConfig archiveDir with Accounts = [ backfillAccount "test-backfill" ] }
@@ -434,7 +435,7 @@ let ``Backfill_DisabledConfig_Skips`` () =
     task {
         let db = TestHelpers.createDb ()
         let m = TestHelpers.memFs ()
-        let disabled : Domain.AccountConfig = { Label = "test"; Provider = "gmail"; Backfill = { backfillConfig with Enabled = false } }
+        let disabled : Domain.AccountConfig = { Label = "test"; Provider = "gmail"; Backfill = { backfillConfig with Enabled = false }; ClientId = ""; TenantId = "common"; RedirectPort = 53682 }
         try
             let! (n, c) = EmailSync.backfillAccount m.Fs db TestHelpers.silentLogger TestHelpers.defaultClock TestHelpers.emptyProvider (TestHelpers.testConfig "/archive") disabled
             Assert.Equal(0, n)
@@ -499,8 +500,8 @@ let ``EmailSync_SyncAll_MultipleAccounts_SyncsEach`` () =
         let config =
             { emailTestConfig "/archive" with
                 Accounts =
-                    [ { Label = "acct1"; Provider = "gmail"; Backfill = { Domain.BackfillConfig.Enabled = false; Since = None; BatchSize = 50; AttachmentsOnly = true; IncludeBodies = false } }
-                      { Label = "acct2"; Provider = "gmail"; Backfill = { Domain.BackfillConfig.Enabled = false; Since = None; BatchSize = 50; AttachmentsOnly = true; IncludeBodies = false } } ] }
+                    [ { Label = "acct1"; Provider = "gmail"; Backfill = { Domain.BackfillConfig.Enabled = false; Since = None; BatchSize = 50; AttachmentsOnly = true; IncludeBodies = false }; ClientId = ""; TenantId = "common"; RedirectPort = 53682 }
+                      { Label = "acct2"; Provider = "gmail"; Backfill = { Domain.BackfillConfig.Enabled = false; Since = None; BatchSize = 50; AttachmentsOnly = true; IncludeBodies = false }; ClientId = ""; TenantId = "common"; RedirectPort = 53682 } ] }
         try
             let makeProvider _ = TestHelpers.emptyProvider
             let! results = EmailSync.syncAll m.Fs db TestHelpers.silentLogger TestHelpers.defaultClock makeProvider config

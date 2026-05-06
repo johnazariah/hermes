@@ -156,12 +156,26 @@ let main args =
           TriagePrompt = triagePrompt
           ArchiveDir = archiveDir }
 
-    let createEmailProvider cfgDir label =
+    let createEmailProvider cfgDir (account: Domain.AccountConfig) =
         task {
-            let credPath = Config.resolveCredentials fs env config.Credentials
-            let! credBytes = fs.readAllBytes credPath
-            let tokenDir = Path.Combine(cfgDir, "tokens")
-            return! GmailProvider.create credBytes tokenDir label logger
+            match account.Provider with
+            | "outlook"
+            | "microsoft" ->
+                return!
+                    OutlookProvider.create
+                        account.ClientId
+                        account.TenantId
+                        account.RedirectPort
+                        (Path.Combine(cfgDir, "tokens"))
+                        account.Label
+                        logger
+            | _ ->
+                let credPath =
+                    Config.resolveCredentials fs env config.Credentials
+
+                let! credBytes = fs.readAllBytes credPath
+                let tokenDir = Path.Combine(cfgDir, "tokens")
+                return! GmailProvider.create credBytes tokenDir account.Label logger
         }
 
     // ── Pipeline v5: DAG-based with phase scheduling ──
@@ -235,7 +249,7 @@ let main args =
                 // Email sync
                 for account in config.Accounts do
                     try
-                        let! provider = createEmailProvider configDir account.Label
+                        let! provider = createEmailProvider configDir account
                         let emailConcurrency = max 1 config.Pipeline.EmailConcurrency
                         let dummyWriter = System.Threading.Channels.Channel.CreateUnbounded<Document.T>().Writer
                         let! _ = EmailSync.syncAccountWithChannel fs db logger clock provider config account.Label dummyWriter emailConcurrency cts.Token

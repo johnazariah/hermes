@@ -26,6 +26,7 @@
     <Compile Include="PdfStructure.fs" />
     <Compile Include="ExcelExtraction.fs" />
     <Compile Include="WordExtraction.fs" />
+    <Compile Include="PptxExtraction.fs" />
     <Compile Include="CsvExtraction.fs" />
     <Compile Include="Extraction.fs" />
     <Compile Include="ContentClassifier.fs" />
@@ -44,6 +45,7 @@
     <Compile Include="Chat.fs" />
     <Compile Include="EmailSync.fs" />
     <Compile Include="GmailProvider.fs" />
+    <Compile Include="OutlookProvider.fs" />
     <Compile Include="PipelineV5.fs" />
     <Compile Include="Workflow.fs" />
     <Compile Include="Stages.fs" />
@@ -55,9 +57,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Azure.Identity" Version="1.13.2" />
     <PackageReference Include="Google.Apis.Gmail.v1" Version="1.69.0.3742" />
     <PackageReference Include="Google.Apis.Auth" Version="1.69.0" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.4" />
+    <PackageReference Include="Microsoft.Graph" Version="5.78.0" />
     <PackageReference Include="PdfPig" Version="0.1.14" />
     <PackageReference Include="ClosedXML" Version="0.104.2" />
     <PackageReference Include="DocumentFormat.OpenXml" Version="3.2.0" />

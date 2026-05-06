@@ -86,7 +86,10 @@ module Domain =
     type AccountConfig =
         { Label: string
           Provider: string
-          Backfill: BackfillConfig }
+          Backfill: BackfillConfig
+          ClientId: string
+          TenantId: string
+          RedirectPort: int }
 
     /// Watched folder configuration.
     type WatchFolderConfig =
@@ -235,7 +238,7 @@ module Domain =
     type SidecarMetadata =
         { SourceType: string
           Account: string
-          GmailId: string
+          ProviderId: string
           ThreadId: string
           Sender: string option
           Subject: string option

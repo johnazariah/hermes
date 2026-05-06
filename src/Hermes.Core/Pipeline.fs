@@ -22,7 +22,7 @@ module Pipeline =
           ContentRules: Domain.ContentRule list
           ComprehensionPrompt: PromptLoader.ParsedPrompt option
           TriagePrompt: PromptLoader.ParsedPrompt option
-          CreateEmailProvider: string -> string -> Task<Algebra.EmailProvider> }
+          CreateEmailProvider: string -> Domain.AccountConfig -> Task<Algebra.EmailProvider> }
 
     /// The channels connecting pipeline stages.
     type Channels =
@@ -145,7 +145,7 @@ module Pipeline =
 
             while not ct.IsCancellationRequested do
                 try
-                    let! provider = deps.CreateEmailProvider configDir account.Label
+                    let! provider = deps.CreateEmailProvider configDir account
                     let! _ = EmailSync.syncAccountWithChannel fs db logger clock provider config account.Label extractWriter emailConcurrency ct
                     ()
                 with ex -> logger.warn $"Email sync failed for {account.Label}: {ex.Message}"

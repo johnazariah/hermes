@@ -60,7 +60,7 @@ let ``Classifier_ParseSidecar_ValidJson_ReturnsSidecar`` () =
     | Ok meta ->
         Assert.Equal("email_attachment", meta.SourceType)
         Assert.Equal("john-personal", meta.Account)
-        Assert.Equal("18e4f2a3b5c6d7e8", meta.GmailId)
+        Assert.Equal("18e4f2a3b5c6d7e8", meta.ProviderId)
         Assert.Equal(Some "bob@plumbing.com.au", meta.Sender)
         Assert.Equal(Some "Invoice for March work", meta.Subject)
         Assert.Equal("Invoice-2025-001.pdf", meta.OriginalName)

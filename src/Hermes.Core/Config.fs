@@ -33,7 +33,13 @@ module Config =
           [<YamlMember(Alias = "provider")>]
           Provider: string
           [<YamlMember(Alias = "backfill")>]
-          Backfill: BackfillDto }
+          Backfill: BackfillDto
+          [<YamlMember(Alias = "client_id")>]
+          ClientId: string
+          [<YamlMember(Alias = "tenant_id")>]
+          TenantId: string
+          [<YamlMember(Alias = "redirect_port")>]
+          RedirectPort: int }
 
     [<CLIMutable>]
     type WatchFolderDto =
@@ -247,7 +253,10 @@ module Config =
                               IncludeBodies = a.Backfill.IncludeBodies }
                     ({ Label = a.Label |> orDefault ""
                        Provider = a.Provider |> orDefault "gmail"
-                       Backfill = bf } : Domain.AccountConfig))
+                       Backfill = bf
+                       ClientId = a.ClientId |> orDefault ""
+                       TenantId = a.TenantId |> orDefault "common"
+                       RedirectPort = if a.RedirectPort > 0 then a.RedirectPort else 53682 } : Domain.AccountConfig))
                 |> Array.toList
 
         let watchFolders : Domain.WatchFolderConfig list =
