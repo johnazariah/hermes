@@ -10,6 +10,8 @@ Rules:
 
 ---USER---
 {{context}}
+If schema hints from previous similar documents are provided above, use them as a guide for which fields to extract. Extract any matching fields that are present, and also include additional relevant fields visible in the current document. Always use the actual values from the current document — never copy values from the hints.
+
 Here is the document text to analyse:
 
 ---BEGIN DOCUMENT---

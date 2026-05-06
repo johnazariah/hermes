@@ -5,6 +5,7 @@ namespace Hermes.Core
 open System
 open System.Threading
 open System.Threading.Tasks
+open System.Text.Json
 
 /// Pure stage processor functions for the pipeline.
 /// Each function: Document.T -> Task<Document.T>
@@ -99,6 +100,120 @@ module Stages =
 
         if contextParts.IsEmpty then ""
         else "\nContext from prior extraction:\n" + (contextParts |> String.concat "\n") + "\n"
+
+    // ─── Retrieval-augmented comprehension ───────────────────────
+
+    /// Extract domain from an email sender like "Name <user@example.com>".
+    let internal extractSenderDomain (sender: string) : string option =
+        sender.IndexOf('@')
+        |> fun atIdx ->
+            if atIdx < 0 then None
+            else
+                sender.Substring(atIdx + 1).TrimEnd('>', ' ')
+                |> fun d -> if String.IsNullOrWhiteSpace(d) then None else Some (d.ToLowerInvariant())
+
+    /// Extract a compact schema hint (document_type + field_names only, no values).
+    let internal compactSchemaHint (comprehensionJson: string) : string option =
+        try
+            use jdoc = JsonDocument.Parse(comprehensionJson)
+            let root = jdoc.RootElement
+            let docType =
+                match root.TryGetProperty("document_type") with
+                | true, el -> el.GetString()
+                | _ -> "unknown"
+            let fieldNames =
+                match root.TryGetProperty("fields") with
+                | true, el when el.ValueKind = JsonValueKind.Object ->
+                    el.EnumerateObject()
+                    |> Seq.map (fun p -> $"\"{p.Name}\"")
+                    |> String.concat ","
+                | _ -> ""
+            let hint = $"""{{"document_type":"{docType}","field_names":[{fieldNames}]}}"""
+            if hint.Length > 300 then Some hint.[..299] else Some hint
+        with _ -> None
+
+    /// Find 1–2 past high-confidence comprehension schema hints for similar documents.
+    /// Match by sender domain (primary) or extracted vendor (fallback).
+    let private findExamples (db: Algebra.Database) (doc: Document.T) : Task<string list> =
+        let docId = Document.id doc
+
+        let extractHints (rows: Map<string, obj> list) =
+            rows
+            |> List.choose (fun r ->
+                r
+                |> Map.tryFind "comprehension"
+                |> Option.map string
+                |> Option.bind compactSchemaHint)
+
+        let querySender domain =
+            db.execReader
+                """SELECT comprehension FROM documents
+                   WHERE comprehension IS NOT NULL
+                   AND id <> @docId
+                   AND sender LIKE @pattern
+                   AND classification_confidence >= 0.7
+                   ORDER BY extracted_at DESC
+                   LIMIT 2"""
+                [ ("@pattern", Database.boxVal $"%%@{domain}%%")
+                  ("@docId",   Database.boxVal docId) ]
+
+        let queryVendor vendor =
+            db.execReader
+                """SELECT comprehension FROM documents
+                   WHERE comprehension IS NOT NULL
+                   AND id <> @docId
+                   AND extracted_vendor = @vendor
+                   AND classification_confidence >= 0.7
+                   ORDER BY extracted_at DESC
+                   LIMIT 2"""
+                [ ("@vendor", Database.boxVal vendor)
+                  ("@docId",  Database.boxVal docId) ]
+
+        task {
+            let senderDomain =
+                doc
+                |> Document.decode<string> "sender"
+                |> Option.bind extractSenderDomain
+
+            let! domainHints =
+                match senderDomain with
+                | Some domain -> task { let! rows = querySender domain in return extractHints rows }
+                | None -> Task.FromResult([])
+
+            if domainHints.Length > 0 then
+                return domainHints
+            else
+                let vendor =
+                    doc
+                    |> Document.decode<string> "extracted_vendor"
+                    |> Option.defaultValue ""
+
+                if String.IsNullOrWhiteSpace(vendor) then
+                    return []
+                else
+                    let! rows = queryVendor vendor
+                    return extractHints rows
+        }
+
+    let private augmentComprehensionContext
+        (db: Algebra.Database)
+        (doc: Document.T)
+        : Task<string> =
+        task {
+            let context = buildContext doc
+            let! examples = findExamples db doc
+
+            match examples with
+            | [] -> return context
+            | _ ->
+                let hints =
+                    examples
+                    |> List.mapi (fun index hint ->
+                        $"Schema hint from similar document #{index + 1}: {hint}")
+                    |> String.concat "\n"
+
+                return $"{context}\n{hints}\n"
+        }
 
     /// Fallback prompts when no external prompt file is loaded.
     let private fallbackSystemPrompt =
@@ -208,8 +323,10 @@ Document text:
 
                     let triageSys, triageUser =
                         match deps.TriagePrompt with
-                        | Some p -> p.System, PromptLoader.renderTriage p text context
-                        | None -> triageSystemPrompt, triageUserPrompt text context
+                        | Some prompt ->
+                            prompt.System, PromptLoader.renderTriage prompt text context
+                        | None ->
+                            triageSystemPrompt, triageUserPrompt text context
 
                     let! triageResult = chat.complete triageSys triageUser
 
@@ -267,11 +384,14 @@ Document text:
                 deps.Logger.debug $"DeepComprehend skip doc {docId}: no chat provider"
                 return doc |> Document.encode "stage" (box "understood")
             | Some chat ->
-                let context = buildContext doc
+                let! context = augmentComprehensionContext deps.Db doc
+
                 let systemPrompt, userPrompt =
                     match deps.ComprehensionPrompt with
-                    | Some p -> p.System, PromptLoader.render p text context
-                    | None -> fallbackSystemPrompt, fallbackUserPrompt text context
+                    | Some prompt ->
+                        prompt.System, PromptLoader.render prompt text context
+                    | None ->
+                        fallbackSystemPrompt, fallbackUserPrompt text context
 
                 let! llmResult = chat.complete systemPrompt userPrompt
                 match llmResult with
