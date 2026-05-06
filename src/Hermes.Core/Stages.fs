@@ -26,6 +26,7 @@ module Stages =
           ContentRules: Domain.ContentRule list
           ComprehensionPrompt: PromptLoader.ParsedPrompt option
           TriagePrompt: PromptLoader.ParsedPrompt option
+          Preferences: string
           ArchiveDir: string }
 
     // ─── Extract stage ───────────────────────────────────────────
@@ -195,24 +196,137 @@ module Stages =
                     return extractHints rows
         }
 
+    let private addPreferences (preferences: string) (context: string) =
+        if String.IsNullOrWhiteSpace preferences then
+            context
+        else
+            $"\nUser preferences:\n{preferences}\n{context}"
+
+    let private appendSchemaHints (context: string) (examples: string list) =
+        match examples with
+        | [] -> context
+        | hints ->
+            hints
+            |> List.mapi (fun index hint ->
+                $"Schema hint from similar document #{index + 1}: {hint}")
+            |> String.concat "\n"
+            |> fun text -> $"{context}\n{text}\n"
+
     let private augmentComprehensionContext
         (db: Algebra.Database)
+        (preferences: string)
         (doc: Document.T)
         : Task<string> =
         task {
-            let context = buildContext doc
+            let context =
+                doc
+                |> buildContext
+                |> addPreferences preferences
+
             let! examples = findExamples db doc
+            return appendSchemaHints context examples
+        }
 
-            match examples with
-            | [] -> return context
-            | _ ->
-                let hints =
-                    examples
-                    |> List.mapi (fun index hint ->
-                        $"Schema hint from similar document #{index + 1}: {hint}")
-                    |> String.concat "\n"
+    /// Record a sender→document_type pattern for RAC knowledge accumulation.
+    let private upsertLearnedPattern
+        (db: Algebra.Database)
+        (senderDomain: string)
+        (documentType: string)
+        (confidence: float)
+        : Task<unit> =
+        task {
+            let! _ =
+                db.execNonQuery
+                    """INSERT INTO learned_patterns (sender_domain, document_type, count, avg_confidence, last_seen)
+                       VALUES (@domain, @type, 1, @conf, datetime('now'))
+                       ON CONFLICT(sender_domain, document_type) DO UPDATE SET
+                           count = count + 1,
+                           avg_confidence = (avg_confidence * count + @conf) / (count + 1),
+                           last_seen = datetime('now')"""
+                    [ ("@domain", Database.boxVal senderDomain)
+                      ("@type", Database.boxVal documentType)
+                      ("@conf", Database.boxVal confidence) ]
 
-                return $"{context}\n{hints}\n"
+            return ()
+        }
+
+    /// Create a review suggestion when comprehension confidence is below threshold.
+    let private createSuggestion
+        (db: Algebra.Database)
+        (docId: int64)
+        (proposedCategory: string)
+        (currentCategory: string option)
+        (confidence: float)
+        : Task<unit> =
+        task {
+            let! _ =
+                db.execNonQuery
+                    """INSERT INTO suggestions
+                       (document_id, proposed_category, current_category, confidence)
+                       VALUES (@docId, @proposed, @current, @conf)"""
+                    [ ("@docId", Database.boxVal docId)
+                      ("@proposed", Database.boxVal proposedCategory)
+                      ("@current",
+                       currentCategory
+                       |> Option.defaultValue ""
+                       |> Database.boxVal)
+                      ("@conf", Database.boxVal confidence) ]
+
+            return ()
+        }
+
+    let private learnFromResult
+        (deps: Deps)
+        (doc: Document.T)
+        (parsed: ComprehensionSchema.NormalisedResponse)
+        : Task<unit> =
+        task {
+            try
+                match
+                    doc
+                    |> Document.decode<string> "sender"
+                    |> Option.bind extractSenderDomain
+                with
+                | Some domain ->
+                    do!
+                        upsertLearnedPattern
+                            deps.Db
+                            domain
+                            parsed.DocumentType
+                            parsed.Confidence
+                | None -> ()
+            with ex ->
+                deps.Logger.debug
+                    $"Learned pattern upsert failed for doc {Document.id doc}: {ex.Message}"
+        }
+
+    let private suggestReview
+        (deps: Deps)
+        (doc: Document.T)
+        (parsed: ComprehensionSchema.NormalisedResponse)
+        : Task<unit> =
+        task {
+            if parsed.Confidence < 0.7 then
+                try
+                    let currentCategory =
+                        doc |> Document.decode<string> "category"
+
+                    do!
+                        createSuggestion
+                            deps.Db
+                            (Document.id doc)
+                            parsed.CanonicalCategory
+                            currentCategory
+                            parsed.Confidence
+                with ex ->
+                    deps.Logger.debug
+                        $"Suggestion creation failed for doc {Document.id doc}: {ex.Message}"
+        }
+
+    let private recordReviewSignals deps doc parsed : Task<unit> =
+        task {
+            do! learnFromResult deps doc parsed
+            do! suggestReview deps doc parsed
         }
 
     /// Fallback prompts when no external prompt file is loaded.
@@ -241,8 +355,8 @@ Document text:
     let private financialCategories =
         set [ "receipts"; "payslips"; "invoices"; "bank-statements"; "tax"
               "utilities"; "insurance"; "superannuation"; "medical"
-              "agent-statements"; "mortgage"; "depreciation"; "donations"
-              "dividends"; "espp"; "stock-vests"; "legal" ]
+              "property"; "rates-and-tax"; "donations"; "dividends"
+              "espp"; "stock-vests"; "legal"; "finance-alerts" ]
 
     /// Fast triage prompt — classify only, no detailed extraction.
     let private triageSystemPrompt =
@@ -319,7 +433,10 @@ Document text:
                     return passThrough ()
 
                 | Some chat ->
-                    let context = buildContext doc
+                    let context =
+                        doc
+                        |> buildContext
+                        |> addPreferences deps.Preferences
 
                     let triageSys, triageUser =
                         match deps.TriagePrompt with
@@ -360,9 +477,18 @@ Document text:
                                     |> Document.encode "comprehension_schema" (box "v2")
                                     |> Document.encode "stage" (box "triaged")
                             else
-                                // Non-financial → done
-                                let tier = if triaged.Confidence >= 0.7 then "triage" else "triage_review"
-                                deps.Logger.info $"Triaged doc {docId} as '{canonical}' ({tier}, conf={triaged.Confidence:F2}): {triaged.Summary}"
+                                // Non-financial triage is the final comprehension decision.
+                                do! recordReviewSignals deps doc triaged
+
+                                let tier =
+                                    if triaged.Confidence >= 0.7 then
+                                        "triage"
+                                    else
+                                        "triage_review"
+
+                                deps.Logger.info
+                                    $"Triaged doc {docId} as '{canonical}' ({tier}, conf={triaged.Confidence:F2}): {triaged.Summary}"
+
                                 return
                                     doc
                                     |> Document.encode "category" (box canonical)
@@ -384,7 +510,11 @@ Document text:
                 deps.Logger.debug $"DeepComprehend skip doc {docId}: no chat provider"
                 return doc |> Document.encode "stage" (box "understood")
             | Some chat ->
-                let! context = augmentComprehensionContext deps.Db doc
+                let! context =
+                    augmentComprehensionContext
+                        deps.Db
+                        deps.Preferences
+                        doc
 
                 let systemPrompt, userPrompt =
                     match deps.ComprehensionPrompt with
@@ -407,6 +537,7 @@ Document text:
 
                         let sender = doc |> Document.decode<string> "sender"
                         do! ContactExtraction.harvestAndLink deps.Db deps.Logger docId parsed.RawJson sender
+                        do! recordReviewSignals deps doc parsed
 
                         return
                             doc
@@ -420,6 +551,63 @@ Document text:
                     | Error parseErr ->
                         deps.Logger.warn $"Deep comprehension parse doc {docId}: {parseErr}, keeping triage"
                         return doc |> Document.encode "stage" (box "understood")
+        }
+
+    // ─── Suggestion approval ─────────────────────────────────────
+
+    /// Approve a suggestion: update the document's category and record a learned pattern.
+    let approveSuggestion (db: Algebra.Database) (suggestionId: int64) : Task<Result<unit, string>> =
+        task {
+            try
+                let! rows =
+                    db.execReader
+                        "SELECT document_id, proposed_category, confidence FROM suggestions WHERE id = @id AND status = 'pending'"
+                        [("@id", Database.boxVal suggestionId)]
+                match rows with
+                | [] -> return Error "Suggestion not found or already resolved"
+                | row :: _ ->
+                    let docId = row.["document_id"] :?> int64
+                    let category = row.["proposed_category"] |> string
+                    let confidence = row.["confidence"] :?> float
+
+                    let! _ =
+                        db.execNonQuery
+                            "UPDATE documents SET category = @cat WHERE id = @id"
+                            [("@cat", Database.boxVal category); ("@id", Database.boxVal docId)]
+
+                    let! docRows =
+                        db.execReader
+                            "SELECT sender FROM documents WHERE id = @id"
+                            [("@id", Database.boxVal docId)]
+                    match docRows with
+                    | docRow :: _ ->
+                        let sender = docRow |> Map.tryFind "sender" |> Option.map string |> Option.defaultValue ""
+                        match extractSenderDomain sender with
+                        | Some domain -> do! upsertLearnedPattern db domain category confidence
+                        | None -> ()
+                    | _ -> ()
+
+                    let! _ =
+                        db.execNonQuery
+                            "UPDATE suggestions SET status = 'approved', resolved_at = datetime('now') WHERE id = @id"
+                            [("@id", Database.boxVal suggestionId)]
+                    return Ok ()
+            with ex ->
+                return Error $"Approval failed: {ex.Message}"
+        }
+
+    /// Reject a suggestion.
+    let rejectSuggestion (db: Algebra.Database) (suggestionId: int64) : Task<Result<unit, string>> =
+        task {
+            try
+                let! affected =
+                    db.execNonQuery
+                        "UPDATE suggestions SET status = 'rejected', resolved_at = datetime('now') WHERE id = @id AND status = 'pending'"
+                        [("@id", Database.boxVal suggestionId)]
+                if affected > 0 then return Ok ()
+                else return Error "Suggestion not found or already resolved"
+            with ex ->
+                return Error $"Rejection failed: {ex.Message}"
         }
 
     // ─── Embed stage ─────────────────────────────────────────────

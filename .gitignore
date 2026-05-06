@@ -61,3 +61,4 @@ dist/
 TestResults/
 
 tests/test-documents/
+gen_register.py

@@ -154,6 +154,7 @@ let main args =
           ContentRules = contentRules
           ComprehensionPrompt = comprehensionPrompt
           TriagePrompt = triagePrompt
+          Preferences = config.Preferences
           ArchiveDir = archiveDir }
 
     let createEmailProvider cfgDir (account: Domain.AccountConfig) =

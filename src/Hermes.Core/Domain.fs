@@ -212,7 +212,8 @@ module Domain =
           Azure: AzureConfig
           Chat: ChatConfig
           Pipeline: PipelineConfig
-          DeepExtraction: DeepExtractionConfig }
+          DeepExtraction: DeepExtractionConfig
+          Preferences: string }
 
     // ─── Email sync domain types ─────────────────────────────────────
 

@@ -122,7 +122,9 @@ module Config =
           [<YamlMember(Alias = "azure")>]
           Azure: AzureDto
           [<YamlMember(Alias = "chat")>]
-          Chat: ChatDto }
+          Chat: ChatDto
+          [<YamlMember(Alias = "preferences")>]
+          Preferences: string }
 
     // ─── Path helpers ────────────────────────────────────────────────
 
@@ -219,7 +221,8 @@ module Config =
               EmailConcurrency = 5 }
           DeepExtraction =
             { Domain.DeepExtractionConfig.Provider = Domain.ChatProviderKind.AzureOpenAI
-              Model = "gpt-4o" } }
+              Model = "gpt-4o" }
+          Preferences = "" }
 
     // ─── DTO → Domain mapping ────────────────────────────────────────
 
@@ -346,7 +349,8 @@ module Config =
             { Domain.PipelineConfig.ExtractConcurrency = 0  // 0 = auto
               LlmConcurrency = 1
               EmailConcurrency = 5 }
-          DeepExtraction = def.DeepExtraction }
+          DeepExtraction = def.DeepExtraction
+          Preferences = dto.Preferences |> orDefault "" }
 
     // ─── YAML deserializer ───────────────────────────────────────────
 

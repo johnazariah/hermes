@@ -206,6 +206,7 @@ module Pipeline =
                   ContentRules = deps.ContentRules
                   ComprehensionPrompt = deps.ComprehensionPrompt
                   TriagePrompt = deps.TriagePrompt
+                  Preferences = config.Preferences
                   ArchiveDir = archiveDir }
 
             // GPU resource lock: shared semaphore when Ollama serves both understand and embed

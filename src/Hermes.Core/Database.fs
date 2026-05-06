@@ -219,6 +219,34 @@ module Database =
         );
         """
            "CREATE INDEX IF NOT EXISTS idx_corrections_doc ON corrections(document_id);"
+
+           // ── Learned patterns (RAC knowledge accumulation) ────────────
+           """
+        CREATE TABLE IF NOT EXISTS learned_patterns (
+            sender_domain   TEXT NOT NULL,
+            document_type   TEXT NOT NULL,
+            count           INTEGER NOT NULL DEFAULT 1,
+            avg_confidence  REAL NOT NULL DEFAULT 0.0,
+            last_seen       TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (sender_domain, document_type)
+        );
+        """
+
+           // ── Suggestions (low-confidence review queue) ────────────────
+           """
+        CREATE TABLE IF NOT EXISTS suggestions (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            document_id     INTEGER NOT NULL REFERENCES documents(id),
+            proposed_category TEXT NOT NULL,
+            current_category  TEXT,
+            confidence      REAL NOT NULL,
+            status          TEXT NOT NULL DEFAULT 'pending',
+            created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+            resolved_at     TEXT
+        );
+        """
+           "CREATE INDEX IF NOT EXISTS idx_suggestions_status ON suggestions(status);"
+           "CREATE INDEX IF NOT EXISTS idx_suggestions_doc ON suggestions(document_id);"
         |]
 
     let private ftsSql =

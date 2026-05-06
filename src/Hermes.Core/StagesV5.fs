@@ -155,7 +155,8 @@ module StagesV5 =
             // Read extracted text from extraction table
             let! rows =
                 db.execReader
-                    """SELECT e.extracted_text, d.sender, d.subject, e.extracted_vendor, e.extracted_amount
+                    """SELECT e.extracted_text, d.sender, d.subject, d.category,
+                              e.extracted_vendor, e.extracted_amount
                        FROM extraction e
                        JOIN documents d ON d.id = e.document_id
                        WHERE e.document_id = @id"""
@@ -184,6 +185,7 @@ module StagesV5 =
                     |> Map.add "extracted_text" (box text)
                     |> Map.add "sender" (box (r.String "sender" ""))
                     |> Map.add "subject" (box (r.String "subject" ""))
+                    |> Map.add "category" (box (r.String "category" ""))
                     |> Map.add "extracted_vendor" (box (r.String "extracted_vendor" ""))
                     |> Map.add "extracted_amount" (r.OptFloat "extracted_amount" |> Option.map box |> Option.defaultValue (box ""))
 
@@ -258,6 +260,7 @@ module StagesV5 =
                     |> Map.add "extracted_text" (box text)
                     |> Map.add "sender" (box (r.String "sender" ""))
                     |> Map.add "subject" (box (r.String "subject" ""))
+                    |> Map.add "category" (box (r.String "category" ""))
                     |> Map.add "extracted_vendor" (box (r.String "extracted_vendor" ""))
                     |> Map.add "extracted_amount" (r.OptFloat "extracted_amount" |> Option.map box |> Option.defaultValue (box ""))
 
