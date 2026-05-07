@@ -1,4 +1,4 @@
-module Hermes.Tests.McpTests
+﻿module Hermes.Tests.McpTests
 
 #nowarn "3261"
 #nowarn "3264"
@@ -16,15 +16,14 @@ let insertTestDocument (db: Algebra.Database) (category: string) (name: string) 
     task {
         let! _ =
             db.execNonQuery
-                """INSERT INTO documents (source_type, saved_path, category, sha256, original_name, sender, subject, extracted_text)
-                   VALUES ('manual_drop', @path, @cat, @sha, @name, @sender, @subject, @text)"""
+                """INSERT INTO documents (source_type, saved_path, category, sha256, original_name, sender, subject)
+                   VALUES ('manual_drop', @path, @cat, @sha, @name, @sender, @subject)"""
                 ([ ("@path", Database.boxVal ($"{category}/{name}"))
                    ("@cat", Database.boxVal category)
                    ("@sha", Database.boxVal (Guid.NewGuid().ToString("N")))
                    ("@name", Database.boxVal name)
                    ("@sender", Database.boxVal "test@example.com")
-                   ("@subject", Database.boxVal $"Test document {name}")
-                   ("@text", Database.boxVal $"Content of {name}") ] : (string * obj) list)
+                   ("@subject", Database.boxVal $"Test document {name}") ] : (string * obj) list)
 
         ()
     }
@@ -517,9 +516,10 @@ let ``McpServer_GetDocumentContent_Markdown_ReturnsStructuredContent`` () =
             let mdContent = "---\ntitle: Invoice\n---\n\n## Summary\n\n| Item | Amount |\n| --- | --- |\n| Service | $500 |"
             let! _ =
                 db.execNonQuery
-                    """INSERT INTO documents (source_type, saved_path, category, sha256, original_name, extracted_text)
-                       VALUES ('manual_drop', 'invoices/test.pdf', 'invoices', 'abc', 'test.pdf', @text)"""
-                    [ ("@text", Database.boxVal mdContent) ]
+                    """INSERT INTO documents (source_type, saved_path, category, sha256, original_name)
+                       VALUES ('manual_drop', 'invoices/test.pdf', 'invoices', 'abc', 'test.pdf')"""
+                    []
+            m.Put "/archive/invoices/test.pdf.extracted.md" mdContent
             let! idObj = db.execScalar "SELECT MAX(id) FROM documents" []
             let docId = match idObj with :? int64 as i -> i | _ -> 1L
             let req = JsonObject()
@@ -616,7 +616,7 @@ let ``McpTools_ReextractDocument_ValidId_ReturnsSuccess`` () =
     task {
         let db = TestHelpers.createDb ()
         try
-            let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text, extracted_at) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha1', 'text', datetime('now'))" []
+            let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_at) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha1', datetime('now'))" []
             let args = JsonObject()
             args["document_id"] <- JsonValue.Create(1L)
             let! result = McpTools.reextractDocument db (args :> JsonNode)
@@ -684,12 +684,14 @@ let ``McpTools_GetDocumentContent_MissingId_ReturnsError`` () =
 let ``McpTools_GetDocumentContent_ValidId_ReturnsContent`` () =
     task {
         let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
         try
-            let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text) VALUES ('manual_drop', 'inv/a.pdf', 'invoices', 'sha1', 'Hello world')" []
+            let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_at) VALUES ('manual_drop', 'inv/a.pdf', 'invoices', 'sha1', datetime('now'))" []
+            m.Put "/archive/inv/a.pdf.extracted.md" "Hello world"
             let args = JsonObject()
             args["document_id"] <- JsonValue.Create(1L)
             args["format"] <- JsonValue.Create("markdown")
-            let! result = McpTools.getDocumentContent db (TestHelpers.memFs().Fs) "/archive" (args :> JsonNode)
+            let! result = McpTools.getDocumentContent db m.Fs "/archive" (args :> JsonNode)
             let obj = result :?> JsonObject
             Assert.Equal("Hello world", obj["content"].GetValue<string>())
         finally db.dispose ()
@@ -1061,12 +1063,10 @@ let ``McpServer_Dispatch_DeepExtract_NoDeps_ReturnsError`` () =
         try
             let! _ =
                 db.execNonQuery
-                    """INSERT INTO documents (original_name, saved_path, source_type, category, comprehension, extracted_text, sha256)
-                       VALUES (@n, @p, @s, @c, @comp, @t, @sha)"""
+                    """INSERT INTO documents (original_name, saved_path, source_type, category, classification_tier, sha256)
+                       VALUES (@n, @p, @s, @c, 'llm', @sha)"""
                     [ ("@n", Database.boxVal "test.pdf"); ("@p", Database.boxVal "unclassified/test.pdf")
                       ("@s", Database.boxVal "email"); ("@c", Database.boxVal "payslips")
-                      ("@comp", Database.boxVal """{"document_type":"payslip"}""")
-                      ("@t", Database.boxVal "some extracted text")
                       ("@sha", Database.boxVal "deadbeef01234567") ]
             let json =
                 """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"hermes_deep_extract","arguments":{"document_id":1}}}"""

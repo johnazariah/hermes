@@ -238,7 +238,7 @@ module SemanticSearch =
 
             let! snippetResult =
                 db.execScalar
-                    "SELECT SUBSTR(COALESCE(extracted_text, ''), 1, 200) FROM documents WHERE id = @id"
+                    "SELECT COALESCE(original_name, saved_path) FROM documents WHERE id = @id"
                     [ ("@id", Database.boxVal docId) ]
 
             let asString (v: obj | null) =

@@ -232,7 +232,7 @@ module Search =
             + "m.date, "
             + "m.account, "
             + "bm25(messages_fts) AS rank, "
-            + "snippet(messages_fts, 2, '', '', '...', 32) AS snippet "
+            + "snippet(messages_fts, -1, '', '', '...', 32) AS snippet "
             + "FROM messages_fts "
             + "JOIN messages m ON m.rowid = messages_fts.rowid "
             + "WHERE "

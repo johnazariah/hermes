@@ -9,7 +9,7 @@ open Microsoft.Data.Sqlite
 [<RequireQualifiedAccess>]
 module Database =
 
-    let [<Literal>] CurrentSchemaVersion = 7
+    let [<Literal>] CurrentSchemaVersion = 8
 
     // ─── Schema DDL ──────────────────────────────────────────────────
 
@@ -29,7 +29,7 @@ module Database =
             subject         TEXT,
             date            TEXT,
             thread_id       TEXT,
-            body_text       TEXT,
+            folder_path     TEXT,
             label_ids       TEXT,
             has_attachments INTEGER NOT NULL DEFAULT 0,
             processed_at    TEXT NOT NULL DEFAULT (datetime('now')),
@@ -54,13 +54,12 @@ module Database =
             email_date      TEXT,
             original_name   TEXT,
             saved_path      TEXT NOT NULL,
+            folder_path     TEXT,
             category        TEXT NOT NULL,
             mime_type       TEXT,
             size_bytes      INTEGER,
             sha256          TEXT NOT NULL,
             source_path     TEXT,
-            extracted_text  TEXT,
-            extracted_markdown TEXT,
             extracted_date  TEXT,
             extracted_amount REAL,
             extracted_vendor TEXT,
@@ -70,8 +69,6 @@ module Database =
             extraction_confidence REAL,
             classification_tier TEXT,
             classification_confidence REAL,
-            comprehension   TEXT,
-            comprehension_schema TEXT,
             extracted_at    TEXT,
             embedded_at     TEXT,
             chunk_count     INTEGER,
@@ -256,7 +253,6 @@ module Database =
             subject,
             original_name,
             category,
-            extracted_text,
             extracted_vendor,
             content='documents',
             content_rowid='id'
@@ -265,26 +261,25 @@ module Database =
 
            """
         CREATE TRIGGER IF NOT EXISTS doc_fts_insert AFTER INSERT ON documents BEGIN
-            INSERT INTO documents_fts(rowid, sender, subject, original_name, category, extracted_text, extracted_vendor)
-            VALUES (new.id, new.sender, new.subject, new.original_name, new.category, new.extracted_text, new.extracted_vendor);
+            INSERT INTO documents_fts(rowid, sender, subject, original_name, category, extracted_vendor)
+            VALUES (new.id, new.sender, new.subject, new.original_name, new.category, new.extracted_vendor);
         END;
         """
 
            """
         CREATE TRIGGER IF NOT EXISTS doc_fts_update AFTER UPDATE ON documents BEGIN
-            INSERT INTO documents_fts(documents_fts, rowid, sender, subject, original_name, category, extracted_text, extracted_vendor)
-            VALUES ('delete', old.id, old.sender, old.subject, old.original_name, old.category, old.extracted_text, old.extracted_vendor);
-            INSERT INTO documents_fts(rowid, sender, subject, original_name, category, extracted_text, extracted_vendor)
-            VALUES (new.id, new.sender, new.subject, new.original_name, new.category, new.extracted_text, new.extracted_vendor);
+            INSERT INTO documents_fts(documents_fts, rowid, sender, subject, original_name, category, extracted_vendor)
+            VALUES ('delete', old.id, old.sender, old.subject, old.original_name, old.category, old.extracted_vendor);
+            INSERT INTO documents_fts(rowid, sender, subject, original_name, category, extracted_vendor)
+            VALUES (new.id, new.sender, new.subject, new.original_name, new.category, new.extracted_vendor);
         END;
         """
 
-           // ── Messages FTS (email body search) ──────────────────────────
+           // ── Messages FTS (email search) ──────────────────────────────
            """
         CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
             sender,
             subject,
-            body_text,
             content='messages',
             content_rowid='rowid'
         );
@@ -292,17 +287,17 @@ module Database =
 
            """
         CREATE TRIGGER IF NOT EXISTS msg_fts_insert AFTER INSERT ON messages BEGIN
-            INSERT INTO messages_fts(rowid, sender, subject, body_text)
-            VALUES (new.rowid, new.sender, new.subject, new.body_text);
+            INSERT INTO messages_fts(rowid, sender, subject)
+            VALUES (new.rowid, new.sender, new.subject);
         END;
         """
 
            """
         CREATE TRIGGER IF NOT EXISTS msg_fts_update AFTER UPDATE ON messages BEGIN
-            INSERT INTO messages_fts(messages_fts, rowid, sender, subject, body_text)
-            VALUES ('delete', old.rowid, old.sender, old.subject, old.body_text);
-            INSERT INTO messages_fts(rowid, sender, subject, body_text)
-            VALUES (new.rowid, new.sender, new.subject, new.body_text);
+            INSERT INTO messages_fts(messages_fts, rowid, sender, subject)
+            VALUES ('delete', old.rowid, old.sender, old.subject);
+            INSERT INTO messages_fts(rowid, sender, subject)
+            VALUES (new.rowid, new.sender, new.subject);
         END;
         """ |]
 

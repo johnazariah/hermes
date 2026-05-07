@@ -17,7 +17,7 @@ let private insertDoc (db: Algebra.Database) (cat: string) (name: string) =
 let private insertExtractedDoc (db: Algebra.Database) (cat: string) (name: string) =
     task {
         let! _ = db.execNonQuery
-                    "INSERT INTO documents (source_type, saved_path, category, sha256, original_name, extracted_text, extracted_at) VALUES ('manual_drop', @p, @c, @s, @n, 'text', datetime('now'))"
+                    "INSERT INTO documents (source_type, saved_path, category, sha256, original_name, extracted_at) VALUES ('manual_drop', @p, @c, @s, @n, datetime('now'))"
                     ([ ("@p", Database.boxVal $"{cat}/{name}"); ("@c", Database.boxVal cat)
                        ("@s", Database.boxVal (Guid.NewGuid().ToString("N")))
                        ("@n", Database.boxVal name) ])

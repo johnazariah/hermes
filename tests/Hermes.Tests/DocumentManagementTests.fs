@@ -54,7 +54,7 @@ let ``DocumentManagement_Reextract_ClearsExtractedAt`` () =
         let db = TestHelpers.createDb ()
         try
             let! _ = db.execNonQuery
-                        "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text, extracted_at) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha1', 'text', datetime('now'))"
+                        "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_at) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha1', datetime('now'))"
                         []
             let! result = DocumentManagement.reextract db 1L
             Assert.True(Result.isOk result)
@@ -86,9 +86,9 @@ let ``DocumentManagement_GetProcessingQueue_MixedDocs_CorrectCounts`` () =
             // 1 unextracted
             let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha1')" []
             // 1 extracted but not embedded
-            let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text, extracted_at) VALUES ('manual_drop', 'b.pdf', 'invoices', 'sha2', 'text', datetime('now'))" []
+            let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_at) VALUES ('manual_drop', 'b.pdf', 'invoices', 'sha2', datetime('now'))" []
             // 1 fully processed
-            let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text, extracted_at, embedded_at) VALUES ('manual_drop', 'c.pdf', 'invoices', 'sha3', 'text', datetime('now'), datetime('now'))" []
+            let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_at, embedded_at) VALUES ('manual_drop', 'c.pdf', 'invoices', 'sha3', datetime('now'), datetime('now'))" []
             let! q = DocumentManagement.getProcessingQueue db 5
             Assert.Equal(1, q.Unextracted.Count)
             Assert.Equal(1, q.Unembedded.Count)

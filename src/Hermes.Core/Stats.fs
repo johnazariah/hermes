@@ -35,8 +35,8 @@ module Stats =
     let getIndexStats (db: Algebra.Database) (fs: Algebra.FileSystem) (dbPath: string) : Task<IndexStats> =
         task {
             let! docCount = db.execScalar "SELECT COUNT(*) FROM documents" []
-            let! extractedCount = db.execScalar "SELECT COUNT(*) FROM documents WHERE extracted_text IS NOT NULL" []
-            let! classifiedCount = db.execScalar "SELECT COUNT(*) FROM documents WHERE comprehension IS NOT NULL OR (extracted_text IS NOT NULL AND category NOT IN ('unsorted', 'unclassified'))" []
+            let! extractedCount = db.execScalar "SELECT COUNT(*) FROM documents WHERE extracted_at IS NOT NULL" []
+            let! classifiedCount = db.execScalar "SELECT COUNT(*) FROM documents WHERE classification_tier IS NOT NULL OR (extracted_at IS NOT NULL AND category NOT IN ('unsorted', 'unclassified'))" []
             let! embeddedCount = db.execScalar "SELECT COUNT(*) FROM documents WHERE embedded_at IS NOT NULL" []
             let! awaitExtract = db.execScalar "SELECT COUNT(*) FROM documents WHERE stage = 'received'" []
             let! awaitClassify = db.execScalar "SELECT COUNT(*) FROM documents WHERE stage = 'extracted'" []

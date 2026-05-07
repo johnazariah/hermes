@@ -239,7 +239,7 @@ module Markdown =
         task {
             let! rows =
                 db.execReader
-                    "SELECT saved_path, category, original_name, source_type, account, sender, subject, email_date, extracted_text, extraction_method FROM documents WHERE id = @id"
+                    "SELECT saved_path, category, original_name, source_type, account, sender, subject, email_date, extraction_method FROM documents WHERE id = @id"
                     [ ("@id", Database.boxVal docId) ]
             match rows with
             | [] -> return Error $"Document {docId} not found"
@@ -252,11 +252,16 @@ module Markdown =
                         | :? DBNull -> None
                         | x when System.Object.ReferenceEquals(x, null) -> None
                         | x -> Some (string x))
-                let text = get "extracted_text" |> Option.defaultValue ""
+                let savedPathForRead = get "saved_path" |> Option.defaultValue ""
+                let fullPathForRead =
+                    if IO.Path.IsPathRooted(savedPathForRead) then savedPathForRead
+                    else IO.Path.Combine(archiveDir, savedPathForRead)
+                let! textOpt = ArchiveWriter.readExtraction fs fullPathForRead
+                let text = textOpt |> Option.defaultValue ""
                 if String.IsNullOrWhiteSpace(text) then
                     return Error $"Document {docId} has no extracted text"
                 else
-                    let savedPath = get "saved_path" |> Option.defaultValue ""
+                    let savedPath = savedPathForRead
                     let conversion =
                         buildConversion
                             text

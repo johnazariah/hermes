@@ -66,7 +66,7 @@ module DocumentManagement =
             let! affected =
                 db.execNonQuery
                     """UPDATE documents
-                       SET extracted_text = NULL, extracted_date = NULL,
+                       SET extracted_date = NULL,
                            extracted_amount = NULL, extracted_vendor = NULL,
                            extracted_abn = NULL, extraction_method = NULL,
                            ocr_confidence = NULL, extraction_confidence = NULL,
@@ -155,8 +155,7 @@ module DocumentManagement =
             let! affected =
                 db.execNonQuery
                     """UPDATE documents
-                       SET comprehension = NULL, comprehension_schema = NULL,
-                           category = 'unclassified', classification_tier = NULL,
+                       SET category = 'unclassified', classification_tier = NULL,
                            classification_confidence = NULL, stage = 'extracted'
                        WHERE id = @id"""
                     [ ("@id", Database.boxVal documentId) ]

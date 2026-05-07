@@ -22,17 +22,16 @@ let private insertDoc (db: Algebra.Database) category name =
         ()
     }
 
-let private insertDocWithText (db: Algebra.Database) category name text =
+let private insertDocWithText (db: Algebra.Database) category name _text =
     task {
         let! _ =
             db.execNonQuery
-                """INSERT INTO documents (source_type, saved_path, category, sha256, original_name, extracted_text, extracted_at)
-                   VALUES ('manual_drop', @path, @cat, @sha, @name, @text, datetime('now'))"""
+                """INSERT INTO documents (source_type, saved_path, category, sha256, original_name, extracted_at)
+                   VALUES ('manual_drop', @path, @cat, @sha, @name, datetime('now'))"""
                 [ ("@path", Database.boxVal $"{category}/{name}")
                   ("@cat", Database.boxVal category)
                   ("@sha", Database.boxVal (System.Guid.NewGuid().ToString("N")))
-                  ("@name", Database.boxVal name)
-                  ("@text", Database.boxVal text) ]
+                  ("@name", Database.boxVal name) ]
         ()
     }
 
@@ -131,6 +130,7 @@ let ``DocumentFeed_GetContent_Markdown_ReturnsExtractedText`` () =
         let m = TestHelpers.memFs ()
         try
             do! insertDocWithText db "invoices" "inv.pdf" "# Invoice\n\nAmount: $500"
+            m.Put "/archive/invoices/inv.pdf.extracted.md" "# Invoice\n\nAmount: $500"
             let! docs = DocumentFeed.listDocuments db 0L None 1
             let docId = docs.[0].Id
             let! result = DocumentFeed.getDocumentContent db m.Fs "/archive" docId DocumentFeed.Markdown
@@ -151,6 +151,7 @@ let ``DocumentFeed_GetContent_Text_StripsFrontmatter`` () =
         let m = TestHelpers.memFs ()
         try
             do! insertDocWithText db "invoices" "inv.pdf" "---\ntitle: Test\n---\nBody content here"
+            m.Put "/archive/invoices/inv.pdf.extracted.md" "---\ntitle: Test\n---\nBody content here"
             let! docs = DocumentFeed.listDocuments db 0L None 1
             let docId = docs.[0].Id
             let! result = DocumentFeed.getDocumentContent db m.Fs "/archive" docId DocumentFeed.Text

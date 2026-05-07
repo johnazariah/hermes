@@ -69,8 +69,6 @@ module Stages =
 
                 return
                     doc
-                    |> Document.encode "extracted_text" (box extraction.Text)
-                    |> Document.encode "extracted_markdown" (extraction.Markdown |> Option.map box |> Option.defaultValue (box DBNull.Value))
                     |> Document.encode "extracted_date" (extraction.Date |> Option.map box |> Option.defaultValue (box DBNull.Value))
                     |> Document.encode "extracted_amount" (extraction.Amount |> Option.map (fun d -> box (float d)) |> Option.defaultValue (box DBNull.Value))
                     |> Document.encode "extracted_vendor" (extraction.Vendor |> Option.map box |> Option.defaultValue (box DBNull.Value))
@@ -86,6 +84,25 @@ module Stages =
 
     /// Maximum characters of document text to send to the LLM.
     let private maxComprehensionChars = 3000
+
+    let private archiveFilePath (deps: Deps) (doc: Document.T) =
+        let savedPath =
+            doc
+            |> Document.decode<string> "saved_path"
+            |> Option.defaultValue ""
+
+        if IO.Path.IsPathRooted savedPath then savedPath
+        else IO.Path.Combine(deps.ArchiveDir, savedPath)
+
+    let private readExtractedText deps doc : Task<string> =
+        task {
+            let! result =
+                doc
+                |> archiveFilePath deps
+                |> ArchiveWriter.readExtraction deps.Fs
+
+            return result |> Option.defaultValue ""
+        }
 
     /// Build context string from extracted metadata.
     let private buildContext (doc: Document.T) : string =
@@ -161,21 +178,41 @@ module Stages =
 
     /// Find 1–2 past high-confidence comprehension schema hints for similar documents.
     /// Match by sender domain (primary) or extracted vendor (fallback).
-    let private findExamples (db: Algebra.Database) (doc: Document.T) : Task<string list> =
+    let private findExamples (db: Algebra.Database) (fs: Algebra.FileSystem) (archiveDir: string) (doc: Document.T) : Task<string list> =
         let docId = Document.id doc
 
-        let extractHints (rows: Map<string, obj> list) =
-            rows
-            |> List.choose (fun r ->
-                r
-                |> Map.tryFind "comprehension"
-                |> Option.map string
-                |> Option.bind compactSchemaHint)
+        let readComprehensionFromRow (r: Map<string, obj>) =
+            let rr = Prelude.RowReader(r)
+            let savedPath = rr.String "saved_path" ""
+            let folderPath = rr.OptString "folder_path"
+            let folder =
+                folderPath
+                |> Option.defaultWith (fun () ->
+                    let full =
+                        if IO.Path.IsPathRooted(savedPath) then savedPath
+                        else IO.Path.Combine(archiveDir, savedPath)
+                    IO.Path.GetDirectoryName(full) |> Option.ofObj |> Option.defaultValue "")
+            let absFolder =
+                if IO.Path.IsPathRooted(folder) then folder
+                else IO.Path.Combine(archiveDir, folder)
+            absFolder
+
+        let extractHintsAsync (rows: Map<string, obj> list) =
+            task {
+                let hints = ResizeArray<string>()
+                for row in rows do
+                    let folder = readComprehensionFromRow row
+                    let! compOpt = ArchiveWriter.readComprehension fs folder
+                    compOpt
+                    |> Option.bind compactSchemaHint
+                    |> Option.iter hints.Add
+                return hints |> Seq.toList
+            }
 
         let querySender domain =
             db.execReader
-                """SELECT comprehension FROM documents
-                   WHERE comprehension IS NOT NULL
+                """SELECT saved_path, folder_path FROM documents
+                   WHERE classification_tier IS NOT NULL
                    AND id <> @docId
                    AND sender LIKE @pattern
                    AND classification_confidence >= 0.7
@@ -186,8 +223,8 @@ module Stages =
 
         let queryVendor vendor =
             db.execReader
-                """SELECT comprehension FROM documents
-                   WHERE comprehension IS NOT NULL
+                """SELECT saved_path, folder_path FROM documents
+                   WHERE classification_tier IS NOT NULL
                    AND id <> @docId
                    AND extracted_vendor = @vendor
                    AND classification_confidence >= 0.7
@@ -204,7 +241,7 @@ module Stages =
 
             let! domainHints =
                 match senderDomain with
-                | Some domain -> task { let! rows = querySender domain in return extractHints rows }
+                | Some domain -> task { let! rows = querySender domain in return! extractHintsAsync rows }
                 | None -> Task.FromResult([])
 
             if domainHints.Length > 0 then
@@ -219,7 +256,7 @@ module Stages =
                     return []
                 else
                     let! rows = queryVendor vendor
-                    return extractHints rows
+                    return! extractHintsAsync rows
         }
 
     let private addPreferences (preferences: string) (context: string) =
@@ -240,6 +277,8 @@ module Stages =
 
     let private augmentComprehensionContext
         (db: Algebra.Database)
+        (fs: Algebra.FileSystem)
+        (archiveDir: string)
         (preferences: string)
         (doc: Document.T)
         : Task<string> =
@@ -249,7 +288,7 @@ module Stages =
                 |> buildContext
                 |> addPreferences preferences
 
-            let! examples = findExamples db doc
+            let! examples = findExamples db fs archiveDir doc
             return appendSchemaHints context examples
         }
 
@@ -517,7 +556,6 @@ Document text:
     /// Phase 2 (deepComprehend): full extraction with large model → only for "triaged" (financial) docs
     let triage (deps: Deps) (doc: Document.T) : Task<Document.T> =
         let docId = Document.id doc
-        let text = doc |> Document.decode<string> "extracted_text" |> Option.defaultValue ""
 
         let understood category tier confidence =
             doc
@@ -530,8 +568,10 @@ Document text:
             doc |> Document.encode "stage" (box "understood")
 
         task {
+            let! text = readExtractedText deps doc
+
             if String.IsNullOrWhiteSpace(text) then
-                deps.Logger.debug $"Triage skip doc {docId}: empty extracted text"
+                deps.Logger.debug $"Triage skip doc {docId}: no extracted text file"
                 return passThrough ()
             else
 
@@ -548,12 +588,14 @@ Document text:
                 | None ->
                     deps.Logger.debug $"Triage skip doc {docId}: no chat provider"
                     return passThrough ()
-
                 | Some chat ->
-                    let context =
-                        doc
-                        |> buildContext
-                        |> addPreferences deps.Preferences
+                    let! context =
+                        augmentComprehensionContext
+                            deps.Db
+                            deps.Fs
+                            deps.ArchiveDir
+                            deps.Preferences
+                            doc
 
                     let triageSys, triageUser =
                         match deps.TriagePrompt with
@@ -584,6 +626,7 @@ Document text:
                             if financialCategories.Contains canonical then
                                 // Financial doc → mark for deep comprehension
                                 let tier = if triaged.Confidence >= 0.7 then "triage" else "triage_review"
+                                do! writeComprehensionArtifact deps doc triaged
                                 deps.Logger.info $"Triaged doc {docId} as '{canonical}' ({tier}, conf={triaged.Confidence:F2}) → queued for deep comprehension: {triaged.Summary}"
                                 return
                                     doc
@@ -619,7 +662,12 @@ Document text:
     let private buildDeepContext (deps: Deps) (doc: Document.T) : Task<string> =
         task {
             let! documentContext =
-                augmentComprehensionContext deps.Db deps.Preferences doc
+                augmentComprehensionContext
+                    deps.Db
+                    deps.Fs
+                    deps.ArchiveDir
+                    deps.Preferences
+                    doc
 
             let savedPath =
                 doc
@@ -642,16 +690,31 @@ Document text:
         | None ->
             fallbackSystemPrompt, fallbackUserPrompt text context
 
-    let private completeFromTriage deps doc : Task<Document.T> =
+    let private readStoredComprehension deps doc : Task<string option> =
         task {
             match doc |> Document.decode<string> "comprehension" with
-            | Some json ->
-                match ComprehensionSchema.normaliseResponse json with
-                | Ok parsed -> do! recordFinalComprehension deps doc parsed
-                | Error _ -> ()
-            | None -> ()
+            | Some json -> return Some json
+            | None ->
+                match archiveFolderPath deps doc with
+                | Some folder ->
+                    return! ArchiveWriter.readComprehension deps.Fs folder
+                | None ->
+                    return None
+        }
 
-            return doc |> Document.encode "stage" (box "understood")
+    let private completeFromTriage deps doc : Task<Document.T> =
+        task {
+            let! comprehension = readStoredComprehension deps doc
+
+            match comprehension |> Option.map ComprehensionSchema.normaliseResponse with
+            | Some (Ok parsed) ->
+                do! recordFinalComprehension deps doc parsed
+            | _ -> ()
+
+            return
+                doc
+                |> Document.encode "deep_comprehended" (box true)
+                |> Document.encode "stage" (box "understood")
         }
 
     let private applyDeepResult
@@ -670,7 +733,10 @@ Document text:
             deps.Logger.info
                 $"Understood doc {docId} as '{parsed.CanonicalCategory}' ({parsed.DocumentType}, {tier}, conf={parsed.Confidence:F2}): {parsed.Summary}"
 
-            return doc |> withComprehension "understood" tier parsed
+            return
+                doc
+                |> withComprehension "understood" tier parsed
+                |> Document.encode "deep_comprehended" (box true)
         }
 
     let private handleDeepResponse deps doc response : Task<Document.T> =
@@ -687,10 +753,7 @@ Document text:
     let deepComprehend (deps: Deps) (doc: Document.T) : Task<Document.T> =
         task {
             let docId = Document.id doc
-            let text =
-                doc
-                |> Document.decode<string> "extracted_text"
-                |> Option.defaultValue ""
+            let! text = readExtractedText deps doc
 
             match deps.ChatProvider with
             | None ->
@@ -776,7 +839,12 @@ Document text:
     let embed (deps: Deps) (doc: Document.T) : Task<Document.T> =
         task {
             let docId = Document.id doc
-            let text = doc |> Document.decode<string> "extracted_text" |> Option.defaultValue ""
+            let savedPath = doc |> Document.decode<string> "saved_path" |> Option.defaultValue ""
+            let fullPath =
+                if IO.Path.IsPathRooted(savedPath) then savedPath
+                else IO.Path.Combine(deps.ArchiveDir, savedPath)
+            let! textOpt = ArchiveWriter.readExtraction deps.Fs fullPath
+            let text = textOpt |> Option.defaultValue ""
 
             match deps.Embedder with
             | None ->
@@ -820,22 +888,22 @@ Document text:
             MaxHoldTime = TimeSpan.Zero }
 
           { Name = "triage"
-            OutputKey = "comprehension_schema"
-            RequiredKeys = [ "extracted_text" ]
+            OutputKey = "classification_tier"
+            RequiredKeys = [ "extracted_at" ]
             Process = triage deps
             ResourceLock = resourceLock   // uses GPU (small model)
             MaxHoldTime = maxHoldTime }
 
           { Name = "understand"
-            OutputKey = "comprehension_schema"
-            RequiredKeys = [ "extracted_text" ]
+            OutputKey = "deep_comprehended"
+            RequiredKeys = [ "extracted_at" ]
             Process = deepComprehend deps
             ResourceLock = resourceLock   // uses GPU (large model)
             MaxHoldTime = maxHoldTime }
 
           { Name = "embed"
             OutputKey = "embedded_at"
-            RequiredKeys = [ "extracted_text" ]
+            RequiredKeys = [ "extracted_at" ]
             Process = embed deps
             ResourceLock = resourceLock   // shares GPU with understand
             MaxHoldTime = maxHoldTime } ]

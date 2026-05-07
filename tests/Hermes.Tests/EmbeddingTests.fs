@@ -1,4 +1,4 @@
-module Hermes.Tests.EmbeddingTests
+﻿module Hermes.Tests.EmbeddingTests
 
 open System
 open System.Threading.Tasks
@@ -268,8 +268,8 @@ let ``Embeddings_EmbedDocument_ChunksAndStores`` () =
             // Insert a test document
             let! _ =
                 db.execNonQuery
-                    """INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text)
-                       VALUES ('manual_drop', 'test/doc.pdf', 'invoices', 'sha1', 'Short text for embedding test.')"""
+                    """INSERT INTO documents (source_type, saved_path, category, sha256)
+                       VALUES ('manual_drop', 'test/doc.pdf', 'invoices', 'sha1')"""
                     []
 
             let! result = Embeddings.embedDocument db Logging.silent TestHelpers.defaultClock client 1L "Short text for embedding test."
@@ -301,8 +301,8 @@ let ``Embeddings_EmbedDocument_UpdatesDocumentMetadata`` () =
 
             let! _ =
                 db.execNonQuery
-                    """INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text)
-                       VALUES ('manual_drop', 'test/doc.pdf', 'invoices', 'sha2', 'Some text here.')"""
+                    """INSERT INTO documents (source_type, saved_path, category, sha256)
+                       VALUES ('manual_drop', 'test/doc.pdf', 'invoices', 'sha2')"""
                     []
 
             let! _ = Embeddings.embedDocument db Logging.silent TestHelpers.defaultClock client 1L "Some text here."
@@ -348,8 +348,8 @@ let ``Embeddings_EmbedDocument_FailingClient_ReportsErrors`` () =
         try
             let! _ =
                 db.execNonQuery
-                    """INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text)
-                       VALUES ('manual_drop', 'test/doc.pdf', 'invoices', 'sha3', 'Some text.')"""
+                    """INSERT INTO documents (source_type, saved_path, category, sha256)
+                       VALUES ('manual_drop', 'test/doc.pdf', 'invoices', 'sha3')"""
                     []
 
             let! result = Embeddings.embedDocument db Logging.silent TestHelpers.defaultClock TestHelpers.failingEmbedder 1L "Some text."
@@ -372,14 +372,14 @@ let ``SemanticSearch_KeywordSearch_FindsMatchingDocuments`` () =
         try
             let! _ =
                 db.execNonQuery
-                    """INSERT INTO documents (source_type, saved_path, category, sha256, sender, subject, original_name, extracted_text)
-                       VALUES ('manual_drop', 'invoices/plumber.pdf', 'invoices', 'sha100', 'bob@example.com', 'Plumbing Invoice', 'invoice.pdf', 'Plumbing services rendered')"""
+                    """INSERT INTO documents (source_type, saved_path, category, sha256, sender, subject, original_name, extracted_at)
+                       VALUES ('manual_drop', 'invoices/plumber.pdf', 'invoices', 'sha100', 'bob@example.com', 'Plumbing Invoice', 'invoice.pdf', datetime('now'))"""
                     []
 
             let! _ =
                 db.execNonQuery
-                    """INSERT INTO documents (source_type, saved_path, category, sha256, sender, subject, original_name, extracted_text)
-                       VALUES ('manual_drop', 'receipts/grocery.pdf', 'receipts', 'sha101', 'shop@store.com', 'Grocery Receipt', 'receipt.pdf', 'Milk bread eggs')"""
+                    """INSERT INTO documents (source_type, saved_path, category, sha256, sender, subject, original_name, extracted_at)
+                       VALUES ('manual_drop', 'receipts/grocery.pdf', 'receipts', 'sha101', 'shop@store.com', 'Grocery Receipt', 'receipt.pdf', datetime('now'))"""
                     []
 
             let! results = SemanticSearch.keywordSearch db "plumbing" 10
@@ -475,7 +475,7 @@ let ``Embeddings_EmbedDocument_StoresChunksAndUpdatesDoc`` () =
         try
             do! Embeddings.initSchema db
             let! _ = db.execNonQuery
-                        "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text) VALUES ('manual_drop', 'test.pdf', 'invoices', 'sha1', 'Test doc')"
+                        "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_at) VALUES ('manual_drop', 'test.pdf', 'invoices', 'sha1', datetime('now'))"
                         []
             let client = TestHelpers.fakeEmbedder 768
             let! result = Embeddings.embedDocument db TestHelpers.silentLogger TestHelpers.defaultClock client 1L "This is a test document."
@@ -521,7 +521,7 @@ let ``Embeddings_BatchEmbed_UnavailableClient_ReturnsError`` () =
         let db = TestHelpers.createDb ()
         try
             do! Embeddings.initSchema db
-            let! result = Embeddings.batchEmbed db TestHelpers.silentLogger TestHelpers.defaultClock TestHelpers.failingEmbedder false None None
+            let! result = Embeddings.batchEmbed db TestHelpers.silentLogger TestHelpers.defaultClock TestHelpers.failingEmbedder (TestHelpers.memFs().Fs) "/archive" false None None
             Assert.True(Result.isError result)
         finally db.dispose ()
     }
@@ -534,7 +534,7 @@ let ``Embeddings_BatchEmbed_NoDocs_ReturnsOkZero`` () =
         try
             do! Embeddings.initSchema db
             let client = TestHelpers.fakeEmbedder 768
-            let! result = Embeddings.batchEmbed db TestHelpers.silentLogger TestHelpers.defaultClock client false None None
+            let! result = Embeddings.batchEmbed db TestHelpers.silentLogger TestHelpers.defaultClock client (TestHelpers.memFs().Fs) "/archive" false None None
             Assert.Equal(Ok 0, result)
         finally db.dispose ()
     }
@@ -547,10 +547,10 @@ let ``Embeddings_BatchEmbed_WithDocs_EmbedsSuccessfully`` () =
         try
             do! Embeddings.initSchema db
             let! _ = db.execNonQuery
-                        "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha1', 'test document content for embedding')"
+                        "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_at) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha1', datetime('now'))"
                         []
             let client = TestHelpers.fakeEmbedder 4
-            let! result = Embeddings.batchEmbed db TestHelpers.silentLogger TestHelpers.defaultClock client false None None
+            let! result = Embeddings.batchEmbed db TestHelpers.silentLogger TestHelpers.defaultClock client (TestHelpers.memFs().Fs) "/archive" false None None
             match result with
             | Ok count -> Assert.True(count > 0, $"Expected >0, got {count}")
             | Error e -> failwith $"Expected Ok, got Error: {e}"
@@ -565,13 +565,13 @@ let ``Embeddings_BatchEmbed_WithLimit_RespectsLimit`` () =
         try
             do! Embeddings.initSchema db
             let! _ = db.execNonQuery
-                        "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha1', 'first document')"
+                        "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_at) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha1', datetime('now'))"
                         []
             let! _ = db.execNonQuery
-                        "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text) VALUES ('manual_drop', 'b.pdf', 'invoices', 'sha2', 'second document')"
+                        "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_at) VALUES ('manual_drop', 'b.pdf', 'invoices', 'sha2', datetime('now'))"
                         []
             let client = TestHelpers.fakeEmbedder 4
-            let! result = Embeddings.batchEmbed db TestHelpers.silentLogger TestHelpers.defaultClock client false (Some 1) None
+            let! result = Embeddings.batchEmbed db TestHelpers.silentLogger TestHelpers.defaultClock client (TestHelpers.memFs().Fs) "/archive" false (Some 1) None
             match result with
             | Ok count -> Assert.Equal(1, count)
             | Error e -> failwith $"Expected Ok, got Error: {e}"
@@ -586,14 +586,14 @@ let ``Embeddings_BatchEmbed_Force_ReEmbedsAlreadyEmbedded`` () =
         try
             do! Embeddings.initSchema db
             let! _ = db.execNonQuery
-                        "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text, embedded_at) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha1', 'already embedded doc', datetime('now'))"
+                        "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_at, embedded_at) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha1', datetime('now'), datetime('now'))"
                         []
             let client = TestHelpers.fakeEmbedder 4
             // Without force: should find 0 docs (already embedded)
-            let! resultNoForce = Embeddings.batchEmbed db TestHelpers.silentLogger TestHelpers.defaultClock client false None None
+            let! resultNoForce = Embeddings.batchEmbed db TestHelpers.silentLogger TestHelpers.defaultClock client (TestHelpers.memFs().Fs) "/archive" false None None
             Assert.Equal(Ok 0, resultNoForce)
             // With force: should re-embed
-            let! resultForce = Embeddings.batchEmbed db TestHelpers.silentLogger TestHelpers.defaultClock client true None None
+            let! resultForce = Embeddings.batchEmbed db TestHelpers.silentLogger TestHelpers.defaultClock client (TestHelpers.memFs().Fs) "/archive" true None None
             match resultForce with
             | Ok count -> Assert.True(count > 0, "Force should re-embed already embedded docs")
             | Error e -> failwith $"Expected Ok, got Error: {e}"
@@ -608,12 +608,12 @@ let ``Embeddings_BatchEmbed_ProgressCallback_Called`` () =
         try
             do! Embeddings.initSchema db
             let! _ = db.execNonQuery
-                        "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha1', 'test doc for progress')"
+                        "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_at) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha1', datetime('now'))"
                         []
             let client = TestHelpers.fakeEmbedder 4
             let mutable callCount = 0
             let progress : Embeddings.ProgressCallback = fun _completed _total -> callCount <- callCount + 1
-            let! _ = Embeddings.batchEmbed db TestHelpers.silentLogger TestHelpers.defaultClock client false None (Some progress)
+            let! _ = Embeddings.batchEmbed db TestHelpers.silentLogger TestHelpers.defaultClock client (TestHelpers.memFs().Fs) "/archive" false None (Some progress)
             Assert.True(callCount > 0, "Progress callback should have been called")
         finally db.dispose ()
     }
@@ -740,17 +740,17 @@ let ``Embeddings_BatchEmbed_WithProgressCallback_ReportsCorrectTotal`` () =
             do! Embeddings.initSchema db
             let! _ =
                 db.execNonQuery
-                    "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha10', 'first document text')"
+                    "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_at) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha10', datetime('now'))"
                     []
             let! _ =
                 db.execNonQuery
-                    "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text) VALUES ('manual_drop', 'b.pdf', 'invoices', 'sha11', 'second document text')"
+                    "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_at) VALUES ('manual_drop', 'b.pdf', 'invoices', 'sha11', datetime('now'))"
                     []
             let client = TestHelpers.fakeEmbedder 4
             let mutable reportedTotal = 0
             let progress : Embeddings.ProgressCallback =
                 fun _completed total -> reportedTotal <- total
-            let! _ = Embeddings.batchEmbed db TestHelpers.silentLogger TestHelpers.defaultClock client false None (Some progress)
+            let! _ = Embeddings.batchEmbed db TestHelpers.silentLogger TestHelpers.defaultClock client (TestHelpers.memFs().Fs) "/archive" false None (Some progress)
             Assert.Equal(2, reportedTotal)
         finally db.dispose ()
     }
@@ -764,10 +764,10 @@ let ``Embeddings_BatchEmbed_SkipsDocsWithNullText`` () =
             do! Embeddings.initSchema db
             let! _ =
                 db.execNonQuery
-                    "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha20', NULL)"
+                    "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_at) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha20', NULL)"
                     []
             let client = TestHelpers.fakeEmbedder 4
-            let! result = Embeddings.batchEmbed db TestHelpers.silentLogger TestHelpers.defaultClock client false None None
+            let! result = Embeddings.batchEmbed db TestHelpers.silentLogger TestHelpers.defaultClock client (TestHelpers.memFs().Fs) "/archive" false None None
             Assert.Equal(Ok 0, result)
         finally db.dispose ()
     }
@@ -781,10 +781,10 @@ let ``Embeddings_BatchEmbed_SkipsDocsWithEmptyText`` () =
             do! Embeddings.initSchema db
             let! _ =
                 db.execNonQuery
-                    "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha21', '')"
+                    "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_at) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha21', NULL)"
                     []
             let client = TestHelpers.fakeEmbedder 4
-            let! result = Embeddings.batchEmbed db TestHelpers.silentLogger TestHelpers.defaultClock client false None None
+            let! result = Embeddings.batchEmbed db TestHelpers.silentLogger TestHelpers.defaultClock client (TestHelpers.memFs().Fs) "/archive" false None None
             Assert.Equal(Ok 0, result)
         finally db.dispose ()
     }

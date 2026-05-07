@@ -90,7 +90,7 @@ module Threads =
         task {
             let! msgRows =
                 db.execReader
-                    """SELECT gmail_id, sender, date, subject, body_text
+                    """SELECT gmail_id, sender, date, subject
                        FROM messages WHERE thread_id = @tid
                        ORDER BY date ASC"""
                     [ ("@tid", Database.boxVal threadId) ]
@@ -101,13 +101,11 @@ module Threads =
                         let r = Prelude.RowReader(row)
                         r.OptString "gmail_id"
                         |> Option.map (fun gid ->
-                            let bodyText = r.String "body_text" ""
-                            let preview = if bodyText.Length > 200 then bodyText.Substring(0, 200) + "..." else bodyText
                             { GmailId = gid
                               Sender = r.String "sender" ""
                               Date = r.String "date" ""
                               Subject = r.String "subject" ""
-                              BodyPreview = preview
+                              BodyPreview = ""
                               AttachmentDocIds = [] }))
                 // Enrich with attachment doc IDs
                 let enrichMessage (msg: ThreadMessage) : Task<ThreadMessage> =

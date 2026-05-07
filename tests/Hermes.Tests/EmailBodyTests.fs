@@ -1,4 +1,4 @@
-module Hermes.Tests.EmailBodyTests
+﻿module Hermes.Tests.EmailBodyTests
 
 open System
 open System.Threading.Tasks
@@ -7,35 +7,33 @@ open Hermes.Core
 
 // --- Helpers ---
 
-let insertTestMessage (db: Algebra.Database) (account: string) (gmailId: string) (sender: string) (subject: string) (bodyText: string) : Task<unit> =
+let insertTestMessage (db: Algebra.Database) (account: string) (gmailId: string) (sender: string) (subject: string) (_bodyText: string) : Task<unit> =
     task {
         let! _ =
             db.execNonQuery
-                """INSERT INTO messages (gmail_id, account, sender, subject, body_text, has_attachments, processed_at)
-                   VALUES (@gid, @acc, @sender, @subject, @body, 0, datetime('now'))"""
+                """INSERT INTO messages (gmail_id, account, sender, subject, has_attachments, processed_at)
+                   VALUES (@gid, @acc, @sender, @subject, 0, datetime('now'))"""
                 ([ ("@gid", Database.boxVal gmailId)
                    ("@acc", Database.boxVal account)
                    ("@sender", Database.boxVal sender)
-                   ("@subject", Database.boxVal subject)
-                   ("@body", Database.boxVal bodyText) ] : (string * obj) list)
+                   ("@subject", Database.boxVal subject) ] : (string * obj) list)
         ()
     }
 
-let insertTestDocument (db: Algebra.Database) (sender: string) (subject: string) (category: string) (originalName: string) (extractedText: string) : Task<unit> =
+let insertTestDocument (db: Algebra.Database) (sender: string) (subject: string) (category: string) (originalName: string) (_extractedText: string) : Task<unit> =
     task {
         let! _ =
             db.execNonQuery
                 """INSERT INTO documents
-                   (source_type, saved_path, category, sha256, sender, subject, original_name, extracted_text)
+                   (source_type, saved_path, category, sha256, sender, subject, original_name)
                    VALUES
-                   ('manual_drop', @sp, @cat, @sha, @sender, @subject, @name, @text)"""
+                   ('manual_drop', @sp, @cat, @sha, @sender, @subject, @name)"""
                 ([ ("@sp", Database.boxVal (category + "/" + originalName))
                    ("@cat", Database.boxVal category)
                    ("@sha", Database.boxVal (Guid.NewGuid().ToString("N")))
                    ("@sender", Database.boxVal sender)
                    ("@subject", Database.boxVal subject)
-                   ("@name", Database.boxVal originalName)
-                   ("@text", Database.boxVal extractedText) ] : (string * obj) list)
+                   ("@name", Database.boxVal originalName) ] : (string * obj) list)
         ()
     }
 
@@ -91,7 +89,7 @@ let ``EmailSync_StripHtml_DecodesNbsp`` () =
 
 // --- Messages FTS5 tests ---
 
-[<Fact>]
+[<Fact(Skip = "Content moved to files - body_text no longer in FTS")>]
 [<Trait("Category", "Integration")>]
 let ``MessagesFts_InsertTrigger_IndexesBodyText`` () =
     task {
@@ -155,16 +153,16 @@ let ``MessagesFts_UpdateTrigger_ReindexesOnUpdate`` () =
         try
             let! _ = db.initSchema ()
             do! insertTestMessage db "test-acct" "msg-104" "bob@test.com" "Old Subject" "Old body content"
-            let! _ = db.execNonQuery "UPDATE messages SET body_text = 'New updated body content about plumbing' WHERE gmail_id = 'msg-104' AND account = 'test-acct'" []
+            let! _ = db.execNonQuery "UPDATE messages SET subject = 'New updated subject about plumbing' WHERE gmail_id = 'msg-104' AND account = 'test-acct'" []
             let! result = db.execScalar "SELECT COUNT(*) FROM messages_fts WHERE messages_fts MATCH 'plumbing'" []
-            Assert.True((result :?> int64) > 0L, "Should find updated body text in FTS")
+            Assert.True((result :?> int64) > 0L, "Should find updated subject in FTS")
         finally
             db.dispose ()
     }
 
 // --- Email search tests ---
 
-[<Fact>]
+[<Fact(Skip = "Content moved to files - body_text no longer searchable in FTS")>]
 [<Trait("Category", "Integration")>]
 let ``Search_ExecuteEmailSearch_FindsMessageByBody`` () =
     task {
@@ -180,7 +178,7 @@ let ``Search_ExecuteEmailSearch_FindsMessageByBody`` () =
             db.dispose ()
     }
 
-[<Fact>]
+[<Fact(Skip = "Content moved to files - body_text snippet no longer available")>]
 [<Trait("Category", "Integration")>]
 let ``Search_ExecuteEmailSearch_ReturnsSnippet`` () =
     task {
@@ -272,16 +270,16 @@ let ``Search_ExecuteUnified_SortedByRelevance`` () =
 
 [<Fact>]
 [<Trait("Category", "Integration")>]
-let ``Database_SchemaV2_HasBodyTextColumn`` () =
+let ``Database_SchemaV2_HasFolderPathColumn`` () =
     task {
         let db = TestHelpers.createRawDb ()
         try
             let! _ = db.initSchema ()
-            let! _ = db.execNonQuery "INSERT INTO messages (gmail_id, account, body_text, has_attachments) VALUES ('test', 'acct', 'body content', 0)" []
-            let! result = db.execScalar "SELECT body_text FROM messages WHERE gmail_id = 'test' AND account = 'acct'" []
+            let! _ = db.execNonQuery "INSERT INTO messages (gmail_id, account, folder_path, has_attachments) VALUES ('test', 'acct', '/inbox', 0)" []
+            let! result = db.execScalar "SELECT folder_path FROM messages WHERE gmail_id = 'test' AND account = 'acct'" []
             match result with
-            | null -> failwith "Expected body_text value"
-            | v -> Assert.Equal("body content", v :?> string)
+            | null -> failwith "Expected folder_path value"
+            | v -> Assert.Equal("/inbox", v :?> string)
         finally
             db.dispose ()
     }
@@ -358,11 +356,8 @@ let ``EmailSync_SyncAccount_FetchesBodyWhenMissing`` () =
         try
             let! _ = db.initSchema ()
             let! _ = EmailSync.syncAccount m.Fs db logger clock provider config "test-account"
-            let! result = db.execScalar "SELECT body_text FROM messages WHERE gmail_id = 'msg-body-001' AND account = 'test-account'" []
-            match result with
-            | null -> failwith "Expected body_text to be stored"
-            | :? DBNull -> failwith "Expected body_text, got DBNull"
-            | v -> Assert.Equal("Hello World", v :?> string)
+            let! result = db.execScalar "SELECT COUNT(*) FROM messages WHERE gmail_id = 'msg-body-001' AND account = 'test-account'" []
+            Assert.True((result :?> int64) > 0L, "Expected message to be stored")
         finally
             db.dispose ()
     }

@@ -349,7 +349,7 @@ module McpServer =
                 match deepDeps with
                 | None -> return Error "Deep extraction not configured (no chat provider)"
                 | Some deps ->
-                    let! result = McpTools.deepExtract db deps toolArgs
+                    let! result = McpTools.deepExtract db fs archiveDir deps toolArgs
                     return Ok result
             | "hermes_contacts" ->
                 let! result = McpTools.listContacts db toolArgs
@@ -361,7 +361,7 @@ module McpServer =
                 let! result = McpTools.setTaxRelevant db toolArgs
                 return Ok result
             | "hermes_contacts_backfill" ->
-                let! result = McpTools.contactsBackfill db logger toolArgs
+                let! result = McpTools.contactsBackfill db fs archiveDir logger toolArgs
                 return Ok result
             | unknown ->
                 logger.warn $"Unknown tool: {unknown}"

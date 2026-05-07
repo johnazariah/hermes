@@ -83,8 +83,7 @@ module DocumentBrowser =
         task {
             let! rows =
                 db.execReader
-                    """SELECT id, original_name, category, saved_path, extracted_text,
-                              comprehension,
+                    """SELECT id, original_name, category, saved_path,
                               extracted_date, extracted_amount, extracted_vendor, sender,
                               source_type, account, source_path,
                               classification_tier, classification_confidence,
@@ -113,8 +112,8 @@ module DocumentBrowser =
                           Extracted = (r.OptString "extracted_at").IsSome
                           Embedded = (r.OptString "embedded_at").IsSome }
                     { Summary = summary
-                      ExtractedText = r.OptString "extracted_text"
-                      Comprehension = r.OptString "comprehension"
+                      ExtractedText = None
+                      Comprehension = None
                       FilePath = r.String "saved_path" ""
                       Vendor = r.OptString "extracted_vendor"
                       IngestedAt = r.String "ingested_at" ""

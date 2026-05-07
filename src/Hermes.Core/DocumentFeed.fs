@@ -117,24 +117,24 @@ module DocumentFeed =
         task {
             let! rows =
                 db.execReader
-                    "SELECT saved_path, extracted_text, extracted_markdown FROM documents WHERE id = @id"
+                    "SELECT saved_path FROM documents WHERE id = @id"
                     [ ("@id", Database.boxVal documentId) ]
             match rows with
             | [] -> return Error $"Document {documentId} not found"
             | row :: _ ->
                 let r = Prelude.RowReader(row)
                 let savedPath = r.String "saved_path" ""
-                let extractedText = r.OptString "extracted_text"
-                let extractedMarkdown = r.OptString "extracted_markdown"
                 match format with
-                | Markdown ->
-                    return
-                        extractedMarkdown
-                        |> Option.orElse extractedText
-                        |> Option.map Ok
-                        |> Option.defaultValue (Error "No extracted content available")
-                | Text ->
-                    return Ok (extractedText |> Option.defaultValue "" |> stripFrontmatter)
+                | Markdown | Text ->
+                    let fullSavedPath =
+                        if IO.Path.IsPathRooted(savedPath) then savedPath
+                        else IO.Path.Combine(archiveDir, savedPath)
+                    let! textOpt = ArchiveWriter.readExtraction fs fullSavedPath
+                    match textOpt with
+                    | Some content ->
+                        let result = if format = Text then stripFrontmatter content else content
+                        return Ok result
+                    | None -> return Error "No extracted content available"
                 | Raw ->
                     let fullPath =
                         if IO.Path.IsPathRooted(savedPath) then savedPath

@@ -290,6 +290,8 @@ module Embeddings =
         (logger: Algebra.Logger)
         (clock: Algebra.Clock)
         (client: Algebra.EmbeddingClient)
+        (fs: Algebra.FileSystem)
+        (archiveDir: string)
         (force: bool)
         (limit: int option)
         (progress: ProgressCallback option)
@@ -304,34 +306,44 @@ module Embeddings =
             else
 
             let where =
-                if force then "extracted_text IS NOT NULL AND extracted_text != ''"
-                else "extracted_text IS NOT NULL AND extracted_text != '' AND embedded_at IS NULL"
+                if force then "extracted_at IS NOT NULL"
+                else "extracted_at IS NOT NULL AND embedded_at IS NULL"
 
             let limitClause = limit |> Option.map (sprintf " LIMIT %d") |> Option.defaultValue ""
-            let sql = $"SELECT id, extracted_text FROM documents WHERE {where} ORDER BY id{limitClause}"
+            let sql = $"SELECT id, saved_path FROM documents WHERE {where} ORDER BY id{limitClause}"
 
             let! rows = db.execReader sql []
 
-            let docs =
+            let docRefs =
                 rows
                 |> List.choose (fun row ->
-                    match row |> Map.tryFind "id", row |> Map.tryFind "extracted_text" with
-                    | Some (:? int64 as id), Some (:? string as text) when not (String.IsNullOrEmpty(text)) ->
-                        Some (id, text)
+                    match row |> Map.tryFind "id", row |> Map.tryFind "saved_path" with
+                    | Some (:? int64 as id), Some (:? string as path) when not (String.IsNullOrEmpty(path)) ->
+                        Some (id, path)
                     | _ -> None)
 
-            if docs.IsEmpty then
+            if docRefs.IsEmpty then
                 logger.info "No documents to embed"
                 return Ok 0
             else
 
-            logger.info $"Embedding {docs.Length} documents..."
+            logger.info $"Embedding {docRefs.Length} documents..."
 
             let mutable accum = { Completed = 0; Failures = 0 }
 
-            for doc in docs do
-                let! next = embedOne db logger clock client progress docs.Length accum doc
-                accum <- next
+            for (docId, savedPath) in docRefs do
+                let fullPath =
+                    if IO.Path.IsPathRooted(savedPath) then savedPath
+                    else IO.Path.Combine(archiveDir, savedPath)
+                let! textOpt = ArchiveWriter.readExtraction fs fullPath
+                match textOpt with
+                | Some text when not (String.IsNullOrWhiteSpace(text)) ->
+                    let! next = embedOne db logger clock client progress docRefs.Length accum (docId, text)
+                    accum <- next
+                | _ ->
+                    logger.debug $"Document {docId}: no extracted text file, skipping embed"
+                    accum <- { accum with Completed = accum.Completed + 1 }
+                    progress |> Option.iter (fun cb -> cb accum.Completed docRefs.Length)
 
             logger.info $"Embedding complete: {accum.Completed} processed, {accum.Failures} with errors"
             return Ok accum.Completed

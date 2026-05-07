@@ -15,14 +15,12 @@ module StagesV5 =
     let private extractionSchema = """
         CREATE TABLE IF NOT EXISTS extraction (
             document_id       INTEGER PRIMARY KEY REFERENCES documents(id),
-            extracted_text    TEXT,
             extracted_date    TEXT,
             extracted_amount  REAL,
             extracted_vendor  TEXT,
             extracted_abn     TEXT,
             method            TEXT,
             confidence        REAL,
-            markdown          TEXT,
             extracted_at      TEXT NOT NULL DEFAULT (datetime('now'))
         );
         """
@@ -33,8 +31,6 @@ module StagesV5 =
             document_type     TEXT NOT NULL,
             category          TEXT NOT NULL,
             confidence        REAL NOT NULL,
-            summary           TEXT,
-            response_json     TEXT,
             triaged_at        TEXT NOT NULL DEFAULT (datetime('now'))
         );
         """
@@ -45,9 +41,6 @@ module StagesV5 =
             document_type     TEXT,
             category          TEXT,
             confidence        REAL,
-            summary           TEXT,
-            fields_json       TEXT,
-            response_json     TEXT,
             schema_version    TEXT DEFAULT 'v2',
             comprehended_at   TEXT NOT NULL DEFAULT (datetime('now'))
         );
@@ -113,11 +106,10 @@ module StagesV5 =
                     let! _ =
                         db.execNonQuery
                             """INSERT OR REPLACE INTO extraction
-                               (document_id, extracted_text, extracted_date, extracted_amount,
+                               (document_id, extracted_date, extracted_amount,
                                 extracted_vendor, extracted_abn, method, confidence, extracted_at)
-                               VALUES (@id, @text, @date, @amt, @vendor, @abn, @method, @conf, datetime('now'))"""
+                               VALUES (@id, @date, @amt, @vendor, @abn, @method, @conf, datetime('now'))"""
                             [ ("@id", Database.boxVal docId)
-                              ("@text", Database.boxVal (getText "extracted_text"))
                               ("@date", Database.boxVal (getText "extracted_date"))
                               ("@amt", Database.boxVal (getFloat "extracted_amount" |> Option.map box |> Option.defaultValue (box DBNull.Value)))
                               ("@vendor", Database.boxVal (getText "extracted_vendor"))
@@ -129,14 +121,13 @@ module StagesV5 =
                     let! _ =
                         db.execNonQuery
                             """UPDATE documents SET
-                               extracted_text = @text, extracted_date = @date,
-                               extracted_amount = @amt, extracted_vendor = @vendor,
+                               extracted_date = @date, extracted_amount = @amt,
+                               extracted_vendor = @vendor,
                                extracted_abn = @abn, extraction_method = @method,
                                ocr_confidence = @conf, extracted_at = datetime('now'),
                                stage = 'extracted'
                                WHERE id = @id"""
                             [ ("@id", Database.boxVal docId)
-                              ("@text", Database.boxVal (getText "extracted_text"))
                               ("@date", Database.boxVal (getText "extracted_date"))
                               ("@amt", Database.boxVal (getFloat "extracted_amount" |> Option.map box |> Option.defaultValue (box DBNull.Value)))
                               ("@vendor", Database.boxVal (getText "extracted_vendor"))
@@ -152,10 +143,10 @@ module StagesV5 =
     /// Triage: classify document type with small model. Writes to triage table.
     let triage (deps: Stages.Deps) (db: Algebra.Database) (logger: Algebra.Logger) (docId: int64) : Task<PipelineV5.StageOutcome> =
         task {
-            // Read extracted text from extraction table
+            // Read metadata; document content remains in the archive.
             let! rows =
                 db.execReader
-                    """SELECT e.extracted_text, d.sender, d.subject, d.category, d.saved_path,
+                    """SELECT d.sender, d.subject, d.category, d.saved_path,
                               e.extracted_vendor, e.extracted_amount
                        FROM extraction e
                        JOIN documents d ON d.id = e.document_id
@@ -165,24 +156,11 @@ module StagesV5 =
             | [] -> return PipelineV5.Failed "No extraction found"
             | row :: _ ->
                 let r = Prelude.RowReader(row)
-                let text = r.String "extracted_text" ""
-
-                if String.IsNullOrWhiteSpace(text) then
-                    // Empty text — mark as triage complete with 'other'
-                    let! _ =
-                        db.execNonQuery
-                            """INSERT OR REPLACE INTO triage
-                               (document_id, document_type, category, confidence, summary, triaged_at)
-                               VALUES (@id, 'other', 'unclassified', 0.0, 'Empty document', datetime('now'))"""
-                            [ ("@id", Database.boxVal docId) ]
-                    return PipelineV5.Completed
-                else
 
                 // Build a v4 Document.T for compatibility
                 let doc =
                     Map.empty
                     |> Map.add "id" (box docId)
-                    |> Map.add "extracted_text" (box text)
                     |> Map.add "sender" (box (r.String "sender" ""))
                     |> Map.add "subject" (box (r.String "subject" ""))
                     |> Map.add "category" (box (r.String "category" ""))
@@ -224,14 +202,12 @@ module StagesV5 =
                     let! _ =
                         db.execNonQuery
                             """INSERT OR REPLACE INTO triage
-                               (document_id, document_type, category, confidence, summary, response_json, triaged_at)
-                               VALUES (@id, @type, @cat, @conf, @summary, @json, datetime('now'))"""
+                               (document_id, document_type, category, confidence, triaged_at)
+                               VALUES (@id, @type, @cat, @conf, datetime('now'))"""
                             [ ("@id", Database.boxVal docId)
                               ("@type", Database.boxVal docType)
                               ("@cat", Database.boxVal category)
-                              ("@conf", Database.boxVal confidence)
-                              ("@summary", Database.boxVal "")
-                              ("@json", Database.boxVal comprehension) ]
+                              ("@conf", Database.boxVal confidence) ]
 
                     // Update legacy documents table for API compatibility
                     let! _ =
@@ -239,15 +215,12 @@ module StagesV5 =
                             """UPDATE documents SET category = @cat,
                                classification_tier = @tier,
                                classification_confidence = @conf,
-                               comprehension = @json,
-                               comprehension_schema = 'v2',
                                stage = @stage
                                WHERE id = @id"""
                             [ ("@id", Database.boxVal docId)
                               ("@cat", Database.boxVal category)
                               ("@tier", Database.boxVal tier)
                               ("@conf", Database.boxVal confidence)
-                              ("@json", Database.boxVal comprehension)
                               ("@stage", Database.boxVal resultStage) ]
 
                     return PipelineV5.Completed
@@ -261,9 +234,9 @@ module StagesV5 =
             // Read from extraction + triage
             let! rows =
                 db.execReader
-                    """SELECT e.extracted_text, d.sender, d.subject, d.saved_path,
+                    """SELECT d.sender, d.subject, d.saved_path,
                               d.classification_tier, e.extracted_vendor, e.extracted_amount,
-                              t.category, t.document_type, t.confidence, t.response_json
+                              t.category, t.document_type, t.confidence
                        FROM extraction e
                        JOIN documents d ON d.id = e.document_id
                        JOIN triage t ON t.document_id = e.document_id
@@ -273,8 +246,8 @@ module StagesV5 =
             | [] -> return PipelineV5.Failed "No extraction/triage found"
             | row :: _ ->
                 let r = Prelude.RowReader(row)
-                let text = r.String "extracted_text" ""
                 let triageConfidence = r.Float "confidence" 0.0
+                let triageDocumentType = r.String "document_type" "other"
                 let defaultTriageTier =
                     if triageConfidence >= 0.7 then "triage"
                     else "triage_review"
@@ -285,7 +258,6 @@ module StagesV5 =
                 let doc =
                     Map.empty
                     |> Map.add "id" (box docId)
-                    |> Map.add "extracted_text" (box text)
                     |> Map.add "sender" (box (r.String "sender" ""))
                     |> Map.add "subject" (box (r.String "subject" ""))
                     |> Map.add "saved_path" (box (r.String "saved_path" ""))
@@ -294,8 +266,6 @@ module StagesV5 =
                     |> Map.add "extracted_amount" (r.OptFloat "extracted_amount" |> Option.map box |> Option.defaultValue (box ""))
                     |> Map.add "classification_confidence" (box triageConfidence)
                     |> Map.add "classification_tier" (box triageTier)
-                    |> Map.add "comprehension" (box (r.String "response_json" ""))
-                    |> Map.add "comprehension_schema" (box "v2")
                     |> Map.add "stage" (box "triaged")
 
                 try
@@ -319,29 +289,25 @@ module StagesV5 =
                             if String.IsNullOrWhiteSpace value then "understood"
                             else value
 
-                    // Parse comprehension JSON
-                    let docType, summary, fieldsJson =
+                    // Prefer the deep result's document type; retain triage on fallback.
+                    let docType =
                         try
                             let parsed = System.Text.Json.JsonDocument.Parse(comprehension)
-                            let root = parsed.RootElement
-                            let dt = root.GetProperty("document_type").GetString() |> Option.ofObj |> Option.defaultValue "other"
-                            let s = try root.GetProperty("summary").GetString() |> Option.ofObj |> Option.defaultValue "" with _ -> ""
-                            let f = try root.GetProperty("fields").ToString() with _ -> "{}"
-                            dt, s, f
-                        with _ -> "other", "", "{}"
+                            parsed.RootElement.GetProperty("document_type").GetString()
+                            |> Option.ofObj
+                            |> Option.defaultValue triageDocumentType
+                        with _ ->
+                            triageDocumentType
 
                     let! _ =
                         db.execNonQuery
                             """INSERT OR REPLACE INTO comprehension
-                               (document_id, document_type, category, confidence, summary, fields_json, response_json, comprehended_at)
-                               VALUES (@id, @type, @cat, @conf, @summary, @fields, @json, datetime('now'))"""
+                               (document_id, document_type, category, confidence, comprehended_at)
+                               VALUES (@id, @type, @cat, @conf, datetime('now'))"""
                             [ ("@id", Database.boxVal docId)
                               ("@type", Database.boxVal docType)
                               ("@cat", Database.boxVal category)
-                              ("@conf", Database.boxVal confidence)
-                              ("@summary", Database.boxVal summary)
-                              ("@fields", Database.boxVal fieldsJson)
-                              ("@json", Database.boxVal comprehension) ]
+                              ("@conf", Database.boxVal confidence) ]
 
                     // Update legacy table
                     let! _ =
@@ -349,15 +315,12 @@ module StagesV5 =
                             """UPDATE documents SET category = @cat,
                                classification_tier = @tier,
                                classification_confidence = @conf,
-                               comprehension = @json,
-                               comprehension_schema = 'v2',
                                stage = @stage
                                WHERE id = @id"""
                             [ ("@id", Database.boxVal docId)
                               ("@cat", Database.boxVal category)
                               ("@tier", Database.boxVal tier)
                               ("@conf", Database.boxVal confidence)
-                              ("@json", Database.boxVal comprehension)
                               ("@stage", Database.boxVal resultStage) ]
 
                     return PipelineV5.Completed
@@ -370,19 +333,21 @@ module StagesV5 =
         task {
             let! rows =
                 db.execReader
-                    "SELECT extracted_text FROM extraction WHERE document_id = @id"
+                    """SELECT d.saved_path
+                       FROM documents d
+                       JOIN extraction e ON e.document_id = d.id
+                       WHERE d.id = @id"""
                     [ ("@id", Database.boxVal docId) ]
             match rows with
             | [] -> return PipelineV5.Failed "No extraction found"
             | row :: _ ->
                 let r = Prelude.RowReader(row)
-                let text = r.String "extracted_text" ""
 
                 // Build v4 doc for compatibility
                 let doc =
                     Map.empty
                     |> Map.add "id" (box docId)
-                    |> Map.add "extracted_text" (box text)
+                    |> Map.add "saved_path" (box (r.String "saved_path" ""))
 
                 try
                     let! enriched = Stages.embed deps doc

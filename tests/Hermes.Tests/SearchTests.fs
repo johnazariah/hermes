@@ -1,4 +1,4 @@
-module Hermes.Tests.SearchTests
+﻿module Hermes.Tests.SearchTests
 
 open System
 open System.Threading.Tasks
@@ -22,9 +22,9 @@ let insertTestDocument
             db.execNonQuery
                 """INSERT INTO documents
                    (source_type, saved_path, category, sha256, sender, subject,
-                    original_name, extracted_text, extracted_vendor)
+                    original_name, extracted_vendor)
                    VALUES
-                   (@st, @sp, @cat, @sha, @sender, @subject, @name, @text, @vendor)"""
+                   (@st, @sp, @cat, @sha, @sender, @subject, @name, @vendor)"""
                 ([ ("@st", Database.boxVal "manual_drop")
                    ("@sp", Database.boxVal (category + "/" + originalName))
                    ("@cat", Database.boxVal category)
@@ -32,7 +32,6 @@ let insertTestDocument
                    ("@sender", Database.boxVal sender)
                    ("@subject", Database.boxVal subject)
                    ("@name", Database.boxVal originalName)
-                   ("@text", Database.boxVal extractedText)
                    ("@vendor", Database.boxVal extractedVendor) ] : (string * obj) list)
 
         return ()

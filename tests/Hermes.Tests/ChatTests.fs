@@ -78,10 +78,10 @@ let ``Chat_Query_KeywordMode_ReturnsResults`` () =
         try
             let! _ =
                 db.execNonQuery
-                    """INSERT INTO documents (source_type, saved_path, category, sha256, original_name, extracted_text)
-                       VALUES ('manual_drop', 'invoices/test.pdf', 'invoices', 'abc', 'test.pdf', 'plumber invoice $500')"""
+                    """INSERT INTO documents (source_type, saved_path, category, sha256, original_name)
+                       VALUES ('manual_drop', 'invoices/test.pdf', 'invoices', 'abc', 'test.pdf')"""
                     []
-            let! response = Chat.query db fakeChat false "plumber"
+            let! response = Chat.query db fakeChat false "invoices"
             Assert.True(response.Results.Length > 0)
             Assert.True(response.AiSummary.IsNone)
         finally db.dispose ()
@@ -95,10 +95,10 @@ let ``Chat_Query_AiMode_ReturnsAiSummary`` () =
         try
             let! _ =
                 db.execNonQuery
-                    """INSERT INTO documents (source_type, saved_path, category, sha256, original_name, extracted_text)
-                       VALUES ('manual_drop', 'invoices/test.pdf', 'invoices', 'abc', 'test.pdf', 'plumber invoice $500')"""
+                    """INSERT INTO documents (source_type, saved_path, category, sha256, original_name)
+                       VALUES ('manual_drop', 'invoices/test.pdf', 'invoices', 'abc', 'test.pdf')"""
                     []
-            let! response = Chat.query db fakeChat true "plumber"
+            let! response = Chat.query db fakeChat true "invoices"
             Assert.True(response.Results.Length > 0)
             Assert.True(response.AiSummary.IsSome)
             Assert.Contains("Fake AI response", response.AiSummary.Value)
@@ -143,9 +143,9 @@ let ``Chat_Query_AiError_ReturnsErrorMessage`` () =
             { complete = fun _ _ -> task { return Error "connection refused" } }
         try
             let! _ = db.execNonQuery
-                        "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha1', 'test content')"
+                        "INSERT INTO documents (source_type, saved_path, category, sha256) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha1')"
                         []
-            let! response = Chat.query db failChat true "test"
+            let! response = Chat.query db failChat true "invoices"
             Assert.True(response.AiSummary.IsSome)
             Assert.Contains("unavailable", response.AiSummary.Value)
         finally db.dispose ()
@@ -173,15 +173,15 @@ let ``Chat_Query_MultipleResults_ReturnsAll`` () =
         try
             let! _ =
                 db.execNonQuery
-                    """INSERT INTO documents (source_type, saved_path, category, sha256, original_name, extracted_text)
-                       VALUES ('manual_drop', 'invoices/a.pdf', 'invoices', 'sha1', 'a.pdf', 'plumber repair job march')"""
+                    """INSERT INTO documents (source_type, saved_path, category, sha256, original_name)
+                       VALUES ('manual_drop', 'invoices/a.pdf', 'invoices', 'sha1', 'a.pdf')"""
                     []
             let! _ =
                 db.execNonQuery
-                    """INSERT INTO documents (source_type, saved_path, category, sha256, original_name, extracted_text)
-                       VALUES ('manual_drop', 'invoices/b.pdf', 'invoices', 'sha2', 'b.pdf', 'plumber annual service')"""
+                    """INSERT INTO documents (source_type, saved_path, category, sha256, original_name)
+                       VALUES ('manual_drop', 'invoices/b.pdf', 'invoices', 'sha2', 'b.pdf')"""
                     []
-            let! response = Chat.query db fakeChat false "plumber"
+            let! response = Chat.query db fakeChat false "invoices"
             Assert.True(response.Results.Length >= 2, $"Expected >= 2 results, got {response.Results.Length}")
         finally db.dispose ()
     }
@@ -195,10 +195,10 @@ let ``Chat_Query_WithFakeChatProvider_ReturnsCustomResponse`` () =
         try
             let! _ =
                 db.execNonQuery
-                    """INSERT INTO documents (source_type, saved_path, category, sha256, original_name, extracted_text)
-                       VALUES ('manual_drop', 'invoices/t.pdf', 'invoices', 'sha3', 't.pdf', 'test document content')"""
+                    """INSERT INTO documents (source_type, saved_path, category, sha256, original_name)
+                       VALUES ('manual_drop', 'invoices/t.pdf', 'invoices', 'sha3', 't.pdf')"""
                     []
-            let! response = Chat.query db customChat true "test"
+            let! response = Chat.query db customChat true "invoices"
             Assert.True(response.AiSummary.IsSome)
             Assert.Contains("Custom AI summary here", response.AiSummary.Value)
         finally db.dispose ()
@@ -435,8 +435,8 @@ let ``Chat_Query_WithResults_AiDisabled_ReturnsResultsNoSummary`` () =
         try
             let! _ =
                 db.execNonQuery
-                    """INSERT INTO documents (source_type, saved_path, category, sha256, original_name, extracted_text)
-                       VALUES ('manual_drop', 'invoices/water-bill.pdf', 'invoices', 'sha-water', 'water-bill.pdf', 'quarterly water bill payment $120')"""
+                    """INSERT INTO documents (source_type, saved_path, category, sha256, original_name)
+                       VALUES ('manual_drop', 'invoices/water-bill.pdf', 'invoices', 'sha-water', 'water-bill.pdf')"""
                     []
             let! response = Chat.query db fakeChat false "water bill"
             Assert.True(response.Results.Length > 0, $"Expected results, got {response.Results.Length}")

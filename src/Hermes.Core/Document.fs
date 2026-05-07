@@ -56,12 +56,11 @@ module Document =
     let private columns =
         [| "id"; "stage"; "source_type"; "gmail_id"; "thread_id"; "account"
            "sender"; "subject"; "email_date"; "original_name"; "saved_path"
-           "category"; "mime_type"; "size_bytes"; "sha256"; "source_path"
-           "extracted_text"; "extracted_markdown"; "extracted_date"
+           "folder_path"; "category"; "mime_type"; "size_bytes"; "sha256"; "source_path"
+           "extracted_date"
            "extracted_amount"; "extracted_vendor"; "extracted_abn"
            "ocr_confidence"; "extraction_method"; "extraction_confidence"
            "classification_tier"; "classification_confidence"
-           "comprehension"; "comprehension_schema"
            "extracted_at"; "embedded_at"; "chunk_count"; "starred"
            "ingested_at" |]
 

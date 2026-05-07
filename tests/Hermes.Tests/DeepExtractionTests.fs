@@ -1,4 +1,4 @@
-module Hermes.Tests.DeepExtractionTests
+﻿module Hermes.Tests.DeepExtractionTests
 
 #nowarn "3261"
 
@@ -235,17 +235,20 @@ let private mkDeepDeps (chatResponse: string) : McpTools.DeepExtractionDeps =
 let ``McpTools_deepExtract_ValidDocument_ReturnsMergedResult`` () =
     task {
         let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
         try
             let comp = """{"document_type":"payslip","summary":"test payslip"}"""
             let! _ =
                 db.execNonQuery
-                    """INSERT INTO documents (original_name, source_type, saved_path, category, sha256, extracted_text, comprehension)
-                       VALUES ('test.pdf', 'manual_drop', 'payslips/test.pdf', 'payslips', 'sha-deep-1', @text, @comp)"""
-                    [ ("@text", Database.boxVal "Employee: John"); ("@comp", Database.boxVal comp) ]
+                    """INSERT INTO documents (original_name, source_type, saved_path, category, sha256, extracted_at)
+                       VALUES ('test.pdf', 'manual_drop', 'payslips/test.pdf', 'payslips', 'sha-deep-1', datetime('now'))"""
+                    [  ]
+            m.Put "/archive/payslips/test.pdf.extracted.md" "Employee: John payslip data"
+            m.Put "/archive/payslips/thread.comprehension.json" comp
             let deps = mkDeepDeps """{"gross_pay": 5000}"""
             let args = JsonObject()
             args["document_id"] <- JsonValue.Create(1L)
-            let! result = McpTools.deepExtract db deps (args :> JsonNode)
+            let! result = McpTools.deepExtract db m.Fs "/archive" deps (args :> JsonNode)
             Assert.Equal("extracted", result["status"].GetValue<string>())
         finally db.dispose ()
     }
@@ -258,7 +261,7 @@ let ``McpTools_deepExtract_MissingDocument_ReturnsError`` () =
         try
             let args = JsonObject()
             args["document_id"] <- JsonValue.Create(999L)
-            let! result = McpTools.deepExtract db (mkDeepDeps "{}") (args :> JsonNode)
+            let! result = McpTools.deepExtract db (TestHelpers.memFs().Fs) "/archive" (mkDeepDeps "{}") (args :> JsonNode)
             Assert.Contains("not found", result["error"].GetValue<string>())
         finally db.dispose ()
     }
@@ -271,12 +274,12 @@ let ``McpTools_deepExtract_NoComprehension_ReturnsError`` () =
         try
             let! _ =
                 db.execNonQuery
-                    """INSERT INTO documents (original_name, source_type, saved_path, category, sha256, extracted_text)
-                       VALUES ('test.pdf', 'manual_drop', 'payslips/test.pdf', 'payslips', 'sha-deep-2', 'Text')"""
+                    """INSERT INTO documents (original_name, source_type, saved_path, category, sha256, extracted_at)
+                       VALUES ('test.pdf', 'manual_drop', 'payslips/test.pdf', 'payslips', 'sha-deep-2', datetime('now'))"""
                     []
             let args = JsonObject()
             args["document_id"] <- JsonValue.Create(1L)
-            let! result = McpTools.deepExtract db (mkDeepDeps "{}") (args :> JsonNode)
+            let! result = McpTools.deepExtract db (TestHelpers.memFs().Fs) "/archive" (mkDeepDeps "{}") (args :> JsonNode)
             Assert.Contains("no comprehension", result["error"].GetValue<string>())
         finally db.dispose ()
     }
@@ -288,7 +291,7 @@ let ``McpTools_deepExtract_MissingDocumentId_ReturnsError`` () =
         let db = TestHelpers.createDb ()
         try
             let emptyArgs = JsonObject() :> JsonNode
-            let! result = McpTools.deepExtract db (mkDeepDeps "{}") emptyArgs
+            let! result = McpTools.deepExtract db (TestHelpers.memFs().Fs) "/archive" (mkDeepDeps "{}") emptyArgs
             Assert.Contains("document_id is required", result["error"].GetValue<string>())
         finally db.dispose ()
     }

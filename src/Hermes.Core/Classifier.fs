@@ -319,22 +319,31 @@ module Classifier =
     // ─── Bulk reclassification ───────────────────────────────────────
 
     /// Get unsorted documents that have extracted text (candidates for Tier 2).
-    let getUnsortedWithText (db: Algebra.Database) (limit: int) =
+    let getUnsortedWithText (db: Algebra.Database) (fs: Algebra.FileSystem) (archiveDir: string) (limit: int) =
         task {
             let! rows =
                 db.execReader
-                    """SELECT id, saved_path, extracted_text, extracted_amount
+                    """SELECT id, saved_path, extracted_amount
                        FROM documents
                        WHERE (category = 'unsorted' OR category = 'unclassified')
-                         AND extracted_text IS NOT NULL
+                         AND extracted_at IS NOT NULL
                        ORDER BY id ASC LIMIT @lim"""
                     [ ("@lim", Database.boxVal (int64 limit)) ]
-            return rows |> List.choose (fun row ->
+            let results = ResizeArray<_>()
+            for row in rows do
                 let r = Prelude.RowReader(row)
-                match r.OptInt64 "id", r.OptString "saved_path", r.OptString "extracted_text" with
-                | Some id, Some path, Some text ->
-                    Some (id, path, text, r.OptFloat "extracted_amount" |> Option.map decimal)
-                | _ -> None)
+                match r.OptInt64 "id", r.OptString "saved_path" with
+                | Some id, Some path ->
+                    let fullPath =
+                        if IO.Path.IsPathRooted(path) then path
+                        else IO.Path.Combine(archiveDir, path)
+                    let! textOpt = ArchiveWriter.readExtraction fs fullPath
+                    match textOpt with
+                    | Some text ->
+                        results.Add((id, path, text, r.OptFloat "extracted_amount" |> Option.map decimal))
+                    | None -> ()
+                | _ -> ()
+            return results |> Seq.toList
         }
 
     /// Reclassify a batch of unsorted documents using Tier 2 content rules.
@@ -344,7 +353,7 @@ module Classifier =
         (archiveDir: string) (batchSize: int)
         : Threading.Tasks.Task<int * int> =
         task {
-            let! candidates = getUnsortedWithText db batchSize
+            let! candidates = getUnsortedWithText db fs archiveDir batchSize
             let mutable reclassified = 0
             for (docId, _savedPath, text, amount) in candidates do
                 match ContentClassifier.classify text [] amount contentRules with

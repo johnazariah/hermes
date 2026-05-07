@@ -151,7 +151,6 @@ module McpTools =
         addOpt "emailDate" "email_date"
         addOpt "originalName" "original_name"
         addOpt "mimeType" "mime_type"
-        addOpt "extractedText" "extracted_text"
         addOpt "extractedDate" "extracted_date"
         addOpt "extractedVendor" "extracted_vendor"
         addOpt "extractionMethod" "extraction_method"
@@ -245,7 +244,7 @@ module McpTools =
                 scalarInt64 db "SELECT COUNT(DISTINCT category) FROM documents"
 
             let! extractedCount =
-                scalarInt64 db "SELECT COUNT(*) FROM documents WHERE extracted_text IS NOT NULL"
+                scalarInt64 db "SELECT COUNT(*) FROM documents WHERE extracted_at IS NOT NULL"
 
             let! embeddedCount =
                 scalarInt64 db "SELECT COUNT(*) FROM documents WHERE embedded_at IS NOT NULL"
@@ -512,6 +511,8 @@ module McpTools =
 
     let deepExtract
         (db: Algebra.Database)
+        (fs: Algebra.FileSystem)
+        (archiveDir: string)
         (deps: DeepExtractionDeps)
         (args: JsonNode)
         : Task<JsonNode> =
@@ -530,7 +531,7 @@ module McpTools =
                 // Load document
                 let! rows =
                     db.execReader
-                        "SELECT extracted_text, comprehension FROM documents WHERE id = @id"
+                        "SELECT saved_path, folder_path FROM documents WHERE id = @id"
                         [ ("@id", Database.boxVal docId) ]
 
                 match rows |> List.tryHead with
@@ -540,8 +541,23 @@ module McpTools =
                     return err :> JsonNode
                 | Some row ->
                     let r = Prelude.RowReader(row)
-                    let text = r.String "extracted_text" ""
-                    let comprehension = r.String "comprehension" ""
+                    let savedPath = r.String "saved_path" ""
+                    let folderPath = r.OptString "folder_path"
+
+                    let fullPath =
+                        if Path.IsPathRooted(savedPath) then savedPath
+                        else Path.Combine(archiveDir, savedPath)
+                    let! textOpt = ArchiveWriter.readExtraction fs fullPath
+                    let text = textOpt |> Option.defaultValue ""
+                    let folder =
+                        folderPath
+                        |> Option.defaultWith (fun () ->
+                            Path.GetDirectoryName(fullPath) |> Option.ofObj |> Option.defaultValue "")
+                    let absFolder =
+                        if Path.IsPathRooted(folder) then folder
+                        else Path.Combine(archiveDir, folder)
+                    let! compOpt = ArchiveWriter.readComprehension fs absFolder
+                    let comprehension = compOpt |> Option.defaultValue ""
 
                     if String.IsNullOrWhiteSpace(comprehension) then
                         let err = JsonObject()
@@ -591,12 +607,8 @@ module McpTools =
                             err["error"] <- JsonValue.Create(e)
                             return err :> JsonNode
                         | Ok merged ->
-                            // Store back with targeted SQL update
-                            let! _ =
-                                db.execNonQuery
-                                    "UPDATE documents SET comprehension = @comp WHERE id = @id"
-                                    [ ("@comp", Database.boxVal merged)
-                                      ("@id", Database.boxVal docId) ]
+                            // Write merged comprehension to file
+                            do! ArchiveWriter.writeComprehension fs absFolder merged
 
                             let obj = JsonObject()
                             obj["status"] <- JsonValue.Create("extracted")
@@ -753,13 +765,13 @@ module McpTools =
         }
 
     /// Backfill contacts from already-comprehended documents.
-    let contactsBackfill (db: Algebra.Database) (logger: Algebra.Logger) (_args: JsonNode) : Task<JsonNode> =
+    let contactsBackfill (db: Algebra.Database) (fs: Algebra.FileSystem) (archiveDir: string) (logger: Algebra.Logger) (_args: JsonNode) : Task<JsonNode> =
         task {
             let! unlinked =
                 db.execReader
-                    """SELECT d.id, d.comprehension, d.sender
+                    """SELECT d.id, d.saved_path, d.folder_path, d.sender
                        FROM documents d
-                       WHERE d.comprehension IS NOT NULL
+                       WHERE d.classification_tier IS NOT NULL
                          AND d.id NOT IN (SELECT document_id FROM document_contacts)
                        LIMIT 500"""
                     []
@@ -770,8 +782,22 @@ module McpTools =
             for row in unlinked do
                 let r = Prelude.RowReader(row)
                 let docId = r.Int64 "id" 0L
-                let comp = r.String "comprehension" ""
+                let savedPath = r.String "saved_path" ""
+                let folderPath = r.OptString "folder_path"
                 let sender = r.OptString "sender"
+
+                let fullPath =
+                    if Path.IsPathRooted(savedPath) then savedPath
+                    else Path.Combine(archiveDir, savedPath)
+                let folder =
+                    folderPath
+                    |> Option.defaultWith (fun () ->
+                        Path.GetDirectoryName(fullPath) |> Option.ofObj |> Option.defaultValue "")
+                let absFolder =
+                    if Path.IsPathRooted(folder) then folder
+                    else Path.Combine(archiveDir, folder)
+                let! compOpt = ArchiveWriter.readComprehension fs absFolder
+                let comp = compOpt |> Option.defaultValue ""
 
                 if not (String.IsNullOrWhiteSpace(comp)) then
                     do! ContactExtraction.harvestAndLink db logger docId comp sender

@@ -1,4 +1,4 @@
-module Hermes.Tests.McpContactTests
+﻿module Hermes.Tests.McpContactTests
 
 #nowarn "3261"
 
@@ -19,34 +19,34 @@ let private noNameComprehension =
 
 // ─── DB seeding ──────────────────────────────────────────────────────
 
-let private insertDoc (db: Algebra.Database) name category sender comp =
+let private insertDoc (db: Algebra.Database) (m: TestHelpers.MemFs) name category sender comp =
     task {
         let! _ =
             db.execNonQuery
                 """INSERT INTO documents
-                    (original_name, saved_path, source_type, category, sha256, comprehension, sender)
-                   VALUES (@name, @path, 'email_attachment', @cat, @sha, @comp, @sender)"""
+                    (original_name, saved_path, source_type, category, sha256, classification_tier, sender)
+                   VALUES (@name, @path, 'email_attachment', @cat, @sha, 'llm', @sender)"""
                 [ ("@name", Database.boxVal name)
                   ("@path", Database.boxVal $"{category}/{name}")
                   ("@cat", Database.boxVal category)
                   ("@sha", Database.boxVal (System.Guid.NewGuid().ToString("N")))
-                  ("@comp", Database.boxVal comp)
                   ("@sender", Database.boxVal sender) ]
+        if not (System.String.IsNullOrWhiteSpace(comp)) then
+            m.Put $"/archive/{category}/thread.comprehension.json" comp
         ()
     }
 
-let private seedDocs (db: Algebra.Database) =
+let private seedDocs (db: Algebra.Database) (m: TestHelpers.MemFs) =
     task {
-        do! insertDoc db "payslip-jan.pdf" "payslips" "noreply@acme.com" acmeComprehension
-        do! insertDoc db "invoice-q1.pdf" "invoices" "billing@globex.com" globexComprehension
-        do! insertDoc db "receipt-misc.pdf" "receipts" "unknown@example.com" noNameComprehension
+        do! insertDoc db m "payslip-jan.pdf" "payslips" "noreply@acme.com" acmeComprehension
+        do! insertDoc db m "invoice-q1.pdf" "invoices" "billing@globex.com" globexComprehension
+        do! insertDoc db m "receipt-misc.pdf" "receipts" "unknown@example.com" noNameComprehension
     }
 
 // ─── JSON-RPC helper ─────────────────────────────────────────────────
 
-let private callTool (db: Algebra.Database) toolName argsJson =
+let private callTool (db: Algebra.Database) (m: TestHelpers.MemFs) toolName argsJson =
     task {
-        let m = TestHelpers.memFs ()
         let json =
             $"""{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{"name":"{toolName}","arguments":{argsJson}}}}}"""
         return! McpServer.processMessage db m.Fs TestHelpers.silentLogger TestHelpers.defaultClock "/archive" None json
@@ -65,9 +65,10 @@ let private parseResult (response: string) : JsonElement =
 let ``McpServer_ContactsBackfill_CreatesContacts`` () =
     task {
         let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
         try
-            do! seedDocs db
-            let! response = callTool db "hermes_contacts_backfill" "{}"
+            do! seedDocs db m
+            let! response = callTool db m "hermes_contacts_backfill" "{}"
             let result = parseResult response
             Assert.Equal("backfill_complete", result.GetProperty("status").GetString())
             Assert.True(result.GetProperty("processed").GetInt32() >= 2)
@@ -80,10 +81,11 @@ let ``McpServer_ContactsBackfill_CreatesContacts`` () =
 let ``McpServer_ContactsList_ReturnsContacts`` () =
     task {
         let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
         try
-            do! seedDocs db
-            let! _ = callTool db "hermes_contacts_backfill" "{}"
-            let! response = callTool db "hermes_contacts" "{}"
+            do! seedDocs db m
+            let! _ = callTool db m "hermes_contacts_backfill" "{}"
+            let! response = callTool db m "hermes_contacts" "{}"
             let result = parseResult response
             Assert.True(result.GetProperty("contacts").GetArrayLength() >= 2)
             Assert.True(result.GetProperty("count").GetInt32() >= 2)
@@ -96,10 +98,11 @@ let ``McpServer_ContactsList_ReturnsContacts`` () =
 let ``McpServer_ContactsList_FilterByQuery`` () =
     task {
         let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
         try
-            do! seedDocs db
-            let! _ = callTool db "hermes_contacts_backfill" "{}"
-            let! response = callTool db "hermes_contacts" """{"query":"Acme"}"""
+            do! seedDocs db m
+            let! _ = callTool db m "hermes_contacts_backfill" "{}"
+            let! response = callTool db m "hermes_contacts" """{"query":"Acme"}"""
             let result = parseResult response
             let contacts = result.GetProperty("contacts")
             Assert.Equal(1, contacts.GetArrayLength())
@@ -113,10 +116,11 @@ let ``McpServer_ContactsList_FilterByQuery`` () =
 let ``McpServer_ContactsList_FilterByContactType`` () =
     task {
         let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
         try
-            do! seedDocs db
-            let! _ = callTool db "hermes_contacts_backfill" "{}"
-            let! response = callTool db "hermes_contacts" """{"contact_type":"employer"}"""
+            do! seedDocs db m
+            let! _ = callTool db m "hermes_contacts_backfill" "{}"
+            let! response = callTool db m "hermes_contacts" """{"contact_type":"employer"}"""
             let result = parseResult response
             let contacts = result.GetProperty("contacts")
             Assert.True(contacts.GetArrayLength() >= 1)
@@ -131,13 +135,14 @@ let ``McpServer_ContactsList_FilterByContactType`` () =
 let ``McpServer_ContactDetail_ReturnsWithDocuments`` () =
     task {
         let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
         try
-            do! seedDocs db
-            let! _ = callTool db "hermes_contacts_backfill" "{}"
-            let! listResp = callTool db "hermes_contacts" """{"query":"Acme"}"""
+            do! seedDocs db m
+            let! _ = callTool db m "hermes_contacts_backfill" "{}"
+            let! listResp = callTool db m "hermes_contacts" """{"query":"Acme"}"""
             let contactId = (parseResult listResp).GetProperty("contacts").[0].GetProperty("id").GetString()
 
-            let! response = callTool db "hermes_contact_detail" $"""{{"contact_id":"{contactId}"}}"""
+            let! response = callTool db m "hermes_contact_detail" $"""{{"contact_id":"{contactId}"}}"""
             let detail = parseResult response
             Assert.Equal(contactId, detail.GetProperty("id").GetString())
             Assert.Contains("Acme", detail.GetProperty("name").GetString())
@@ -151,8 +156,9 @@ let ``McpServer_ContactDetail_ReturnsWithDocuments`` () =
 let ``McpServer_ContactDetail_NotFound_ReturnsError`` () =
     task {
         let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
         try
-            let! response = callTool db "hermes_contact_detail" """{"contact_id":"nonexistent"}"""
+            let! response = callTool db m "hermes_contact_detail" """{"contact_id":"nonexistent"}"""
             let result = parseResult response
             Assert.True(result.TryGetProperty("error") |> fst)
         finally
@@ -164,17 +170,18 @@ let ``McpServer_ContactDetail_NotFound_ReturnsError`` () =
 let ``McpServer_ContactSetTaxRelevant_Updates`` () =
     task {
         let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
         try
-            do! seedDocs db
-            let! _ = callTool db "hermes_contacts_backfill" "{}"
-            let! listResp = callTool db "hermes_contacts" """{"query":"Globex"}"""
+            do! seedDocs db m
+            let! _ = callTool db m "hermes_contacts_backfill" "{}"
+            let! listResp = callTool db m "hermes_contacts" """{"query":"Globex"}"""
             let contactId = (parseResult listResp).GetProperty("contacts").[0].GetProperty("id").GetString()
 
-            let! response = callTool db "hermes_contact_set_tax_relevant" $"""{{"contact_id":"{contactId}","tax_relevant":"true"}}"""
+            let! response = callTool db m "hermes_contact_set_tax_relevant" $"""{{"contact_id":"{contactId}","tax_relevant":"true"}}"""
             let result = parseResult response
             Assert.Equal("updated", result.GetProperty("status").GetString())
 
-            let! filtered = callTool db "hermes_contacts" """{"tax_relevant":"true"}"""
+            let! filtered = callTool db m "hermes_contacts" """{"tax_relevant":"true"}"""
             let ids =
                 let c = (parseResult filtered).GetProperty("contacts")
                 [ for i in 0 .. c.GetArrayLength() - 1 -> c.[i].GetProperty("id").GetString() ]
@@ -188,8 +195,9 @@ let ``McpServer_ContactSetTaxRelevant_Updates`` () =
 let ``McpServer_ContactSetTaxRelevant_NotFound_ReturnsError`` () =
     task {
         let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
         try
-            let! response = callTool db "hermes_contact_set_tax_relevant" """{"contact_id":"nonexistent","tax_relevant":"true"}"""
+            let! response = callTool db m "hermes_contact_set_tax_relevant" """{"contact_id":"nonexistent","tax_relevant":"true"}"""
             let result = parseResult response
             Assert.True(result.TryGetProperty("error") |> fst)
         finally

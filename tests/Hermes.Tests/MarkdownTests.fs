@@ -1,4 +1,4 @@
-module Hermes.Tests.MarkdownTests
+﻿module Hermes.Tests.MarkdownTests
 
 open Xunit
 open Hermes.Core
@@ -171,8 +171,9 @@ let ``Markdown_ProcessDocument_WritesMarkdownSidecar`` () =
         let m = TestHelpers.memFs ()
         try
             let! _ = db.execNonQuery
-                        "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text, extraction_method) VALUES ('manual_drop', 'invoices/inv.pdf', 'invoices', 'sha1', 'Invoice $300 ABN 12345678901', 'pdfpig')"
+                        "INSERT INTO documents (source_type, saved_path, category, sha256, extraction_method, extracted_at) VALUES ('manual_drop', 'invoices/inv.pdf', 'invoices', 'sha1', 'pdfpig', datetime('now'))"
                         []
+            m.Put "/archive/invoices/inv.pdf.extracted.md" "Invoice content for markdown conversion"
             let! result = Markdown.processDocument m.Fs db TestHelpers.silentLogger "/archive" 1L
             Assert.True(Result.isOk result)
         finally db.dispose ()

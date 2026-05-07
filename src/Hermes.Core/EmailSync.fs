@@ -149,8 +149,8 @@ module EmailSync =
         task {
             let! _ =
                 db.execNonQuery
-                    """INSERT OR IGNORE INTO messages (gmail_id, account, sender, subject, date, thread_id, body_text, label_ids, has_attachments, processed_at)
-                       VALUES (@gid, @acc, @sender, @subject, @date, @tid, @body, @labels, @hasAtt, @processed)"""
+                    """INSERT OR IGNORE INTO messages (gmail_id, account, sender, subject, date, thread_id, folder_path, label_ids, has_attachments, processed_at)
+                       VALUES (@gid, @acc, @sender, @subject, @date, @tid, @folder, @labels, @hasAtt, @processed)"""
                     [ ("@gid", boxVal msg.ProviderId)
                       ("@acc", boxVal account)
                       ("@sender", msg.Sender |> Option.map boxVal |> Option.defaultValue (boxVal DBNull.Value))
@@ -160,7 +160,7 @@ module EmailSync =
                        |> Option.map (fun d -> boxVal (d.ToString("o")))
                        |> Option.defaultValue (boxVal DBNull.Value))
                       ("@tid", boxVal msg.ThreadId)
-                      ("@body", msg.BodyText |> Option.map boxVal |> Option.defaultValue (boxVal DBNull.Value))
+                      ("@folder", boxVal "")
                       ("@labels", boxVal (String.Join(",", msg.Labels)))
                       ("@hasAtt", boxVal (if msg.HasAttachments then 1L else 0L))
                       ("@processed", boxVal (now.ToString("o"))) ]
@@ -267,25 +267,8 @@ module EmailSync =
     let private syncAccumZero =
         { Downloaded = 0; Duplicates = 0; Processed = 0; Errors = [] }
 
-    let private tryFetchBody (db: Algebra.Database) (provider: Algebra.EmailProvider) (logger: Algebra.Logger) (account: string) (msg: Domain.EmailMessage) =
-        task {
-            if msg.BodyText.IsSome then ()
-            else
-                try
-                    let! body = provider.getMessageBody msg.ProviderId
-                    match body with
-                    | Some raw ->
-                        let clean = stripHtml raw
-                        if not (String.IsNullOrWhiteSpace(clean)) then
-                            let! _ =
-                                db.execNonQuery
-                                    "UPDATE messages SET body_text = @body WHERE account = @acc AND gmail_id = @gid"
-                                    [ ("@body", boxVal clean); ("@acc", boxVal account); ("@gid", boxVal msg.ProviderId) ]
-                            ()
-                    | None -> ()
-                with ex ->
-                    logger.debug $"[{account}] Could not fetch body for {msg.ProviderId}: {ex.Message}"
-        }
+    let private tryFetchBody (_db: Algebra.Database) (_provider: Algebra.EmailProvider) (_logger: Algebra.Logger) (_account: string) (_msg: Domain.EmailMessage) =
+        Task.CompletedTask
 
     let private processAttachment
         (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
@@ -689,16 +672,10 @@ module EmailSync =
                             let now = clock.utcNow ()
                             do! recordMessage db account msg now
 
-                            // Fetch and store body text, save as document
+                            // Save email body as a document — one per thread (latest wins)
                             if msg.BodyText.IsSome then
                                 let clean = stripHtml msg.BodyText.Value
                                 if not (System.String.IsNullOrWhiteSpace(clean)) then
-                                    let! _ =
-                                        db.execNonQuery
-                                            "UPDATE messages SET body_text = @body WHERE account = @acc AND gmail_id = @gid"
-                                            [ ("@body", boxVal clean); ("@acc", boxVal account); ("@gid", boxVal messageId) ]
-
-                                    // Save email body as a document — one per thread (latest wins)
                                     let subject = msg.Subject |> Option.defaultValue "(no subject)"
                                     let sender = msg.Sender |> Option.defaultValue "unknown"
                                     let dateStr = msg.Date |> Option.map (fun d -> d.ToString("yyyy-MM-dd")) |> Option.defaultValue "undated"

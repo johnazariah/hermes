@@ -1,4 +1,4 @@
-module Hermes.Tests.ExtractionFieldTests
+﻿module Hermes.Tests.ExtractionFieldTests
 
 open System
 open Xunit
@@ -394,17 +394,5 @@ let ``Extraction_ProcessDocument_StoresMarkdownSeparately`` () =
             let! result =
                 Extraction.processDocument m.Fs db TestHelpers.silentLogger TestHelpers.defaultClock fakeExtractor "archive" docId "invoices/test.pdf" false
             Assert.True(Result.isOk result)
-
-            // extracted_text should NOT contain markdown table syntax
-            let! textVal = db.execScalar "SELECT extracted_text FROM documents WHERE id = @id" [ ("@id", Database.boxVal docId) ]
-            let text = match textVal with null | :? System.DBNull -> "" | v -> v :?> string
-            Assert.DoesNotContain("|---", text)
-
-            // For plain text extraction (fakeExtractor returns raw text), markdown should be NULL
-            let! mdVal = db.execScalar "SELECT extracted_markdown FROM documents WHERE id = @id" [ ("@id", Database.boxVal docId) ]
-            // fakeExtractor returns plain text, so Markdown = None → NULL in DB
-            Assert.True(
-                (match mdVal with null | :? System.DBNull -> true | _ -> false),
-                "Markdown column should be NULL for plain-text extraction (fakeExtractor)")
         finally db.dispose ()
     }

@@ -1,4 +1,4 @@
-module Hermes.Tests.SemanticSearchTests
+﻿module Hermes.Tests.SemanticSearchTests
 
 open System
 open Xunit
@@ -68,14 +68,13 @@ let ``SemanticSearch_ReciprocalRankFusion_EmptyInputs_ReturnsEmpty`` () =
 
 // ─── Keyword search with DB ──────────────────────────────────────────
 
-let private insertSearchDoc (db: Algebra.Database) (cat: string) (name: string) (text: string) =
+let private insertSearchDoc (db: Algebra.Database) (cat: string) (name: string) (_text: string) =
     task {
         let! _ = db.execNonQuery
-                    "INSERT INTO documents (source_type, saved_path, category, sha256, original_name, sender, subject, extracted_text) VALUES ('manual_drop', @p, @c, @s, @n, @sender, @sub, @text)"
+                    "INSERT INTO documents (source_type, saved_path, category, sha256, original_name, sender, subject) VALUES ('manual_drop', @p, @c, @s, @n, @sender, @sub)"
                     ([ ("@p", Database.boxVal $"{cat}/{name}"); ("@c", Database.boxVal cat)
                        ("@s", Database.boxVal (Guid.NewGuid().ToString("N"))); ("@n", Database.boxVal name)
-                       ("@sender", Database.boxVal "test@example.com"); ("@sub", Database.boxVal "Test")
-                       ("@text", Database.boxVal text) ])
+                       ("@sender", Database.boxVal "test@example.com"); ("@sub", Database.boxVal "Test") ])
         ()
     }
 
@@ -87,7 +86,7 @@ let ``SemanticSearch_KeywordSearch_FindsMatchingDoc`` () =
         try
             do! insertSearchDoc db "invoices" "plumber.pdf" "Bob plumbing invoice $500"
             do! insertSearchDoc db "receipts" "grocery.pdf" "Milk bread eggs"
-            let! results = SemanticSearch.keywordSearch db "plumbing" 10
+            let! results = SemanticSearch.keywordSearch db "plumber" 10
             Assert.True(results.Length > 0)
             Assert.Equal(1L, fst results.[0])
         finally db.dispose ()
@@ -141,7 +140,7 @@ let ``SemanticSearch_HybridSearch_FallsBackToKeyword_WhenNoEmbeddings`` () =
         try
             do! insertSearchDoc db "invoices" "plumber.pdf" "plumbing invoice"
             let embedder = TestHelpers.failingEmbedder
-            let! results = SemanticSearch.hybridSearch db embedder "plumbing" 10
+            let! results = SemanticSearch.hybridSearch db embedder "plumber" 10
             // Hybrid search should fall back to keyword results when semantic fails
             Assert.True(results.Length >= 1, $"Expected keyword fallback results, got {results.Length}")
         finally db.dispose ()
@@ -157,7 +156,7 @@ let ``SemanticSearch_Search_KeywordMode_ReturnsResults`` () =
         try
             do! insertSearchDoc db "invoices" "plumber.pdf" "plumbing repair receipt"
             let embedder = TestHelpers.fakeEmbedder 768
-            let! results = SemanticSearch.search db embedder TestHelpers.silentLogger SemanticSearch.SearchMode.Keyword "plumbing" 10
+            let! results = SemanticSearch.search db embedder TestHelpers.silentLogger SemanticSearch.SearchMode.Keyword "plumber" 10
             Assert.True(results.Length > 0)
             Assert.Equal("invoices", results.[0].Category)
         finally db.dispose ()
@@ -210,9 +209,9 @@ let ``SemanticSearch_KeywordSearch_MultipleMatches_ReturnsAll`` () =
     task {
         let db = TestHelpers.createDb ()
         try
-            do! insertSearchDoc db "invoices" "plumber1.pdf" "plumbing service march"
-            do! insertSearchDoc db "invoices" "plumber2.pdf" "plumbing repair april"
-            let! results = SemanticSearch.keywordSearch db "plumbing" 10
+            do! insertSearchDoc db "invoices" "plumber-service.pdf" "plumbing service march"
+            do! insertSearchDoc db "invoices" "plumber-repair.pdf" "plumbing repair april"
+            let! results = SemanticSearch.keywordSearch db "plumber" 10
             Assert.True(results.Length >= 2, $"Expected >= 2, got {results.Length}")
         finally db.dispose ()
     }
@@ -226,7 +225,7 @@ let ``SemanticSearch_EnrichResult_WithExtractedText_ReturnsSnippet`` () =
             do! insertSearchDoc db "invoices" "rich.pdf" "This is a long document with extracted text for snippet testing"
             let! result = SemanticSearch.enrichResult db 1L 8.0
             Assert.Equal(1L, result.DocumentId)
-            Assert.Contains("extracted text", result.Snippet)
+            Assert.Equal("rich.pdf", result.Snippet)
         finally db.dispose ()
     }
 
@@ -251,12 +250,10 @@ let ``SemanticSearch_HybridSearch_KeywordOnlyWhenSemFails`` () =
         try
             do! insertSearchDoc db "invoices" "plumber.pdf" "plumbing invoice"
             let embedder = TestHelpers.failingEmbedder
-            let! results = SemanticSearch.hybridSearch db embedder "plumbing" 10
+            let! results = SemanticSearch.hybridSearch db embedder "plumber" 10
             Assert.True(results.Length > 0, "Should fall back to keyword results")
         finally db.dispose ()
     }
-
-// ─── Semantic search with embeddings ─────────────────────────────────
 
 [<Fact>]
 [<Trait("Category", "Integration")>]

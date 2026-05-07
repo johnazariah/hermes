@@ -1,4 +1,4 @@
-module Hermes.Tests.ClassifierTests
+﻿module Hermes.Tests.ClassifierTests
 
 open System
 open System.IO
@@ -555,12 +555,12 @@ let ``Classifier_ReclassifyUnsortedBatch_ContentRuleMatch`` () =
         let archiveDir = "/archive"
         m.Dirs.[archiveDir] <- true
         m.Put (Path.Combine(archiveDir, "unsorted", "invoice.pdf") |> m.Norm) "invoice file"
+        m.Put (Path.Combine(archiveDir, "unsorted", "invoice.pdf.extracted.md") |> m.Norm) "This is an invoice for amount due"
 
         let! _ =
             db.execNonQuery
-                """INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text)
-                   VALUES ('manual_drop', 'unsorted/invoice.pdf', 'unsorted', 'hash456',
-                           'Amount due: $500. Invoice number 12345.')"""
+                """INSERT INTO documents (source_type, saved_path, category, sha256, extracted_at)
+                   VALUES ('manual_drop', 'unsorted/invoice.pdf', 'unsorted', 'hash456', datetime('now'))"""
                 []
 
         let contentRules : Domain.ContentRule list =

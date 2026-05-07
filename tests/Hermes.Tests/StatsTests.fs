@@ -1,4 +1,4 @@
-module Hermes.Tests.StatsTests
+﻿module Hermes.Tests.StatsTests
 
 open System
 open System.IO
@@ -28,7 +28,7 @@ let ``Stats_GetIndexStats_WithDocuments_ReturnsCorrectCounts`` () =
         let db = TestHelpers.createDb ()
         try
             let! _ = db.execNonQuery
-                        "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text, extracted_at) VALUES ('manual_drop', 'a.pdf', 'invoices', 'aaa', 'text', datetime('now'))"
+                        "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_at) VALUES ('manual_drop', 'a.pdf', 'invoices', 'aaa', datetime('now'))"
                         []
             let! _ = db.execNonQuery
                         "INSERT INTO documents (source_type, saved_path, category, sha256) VALUES ('manual_drop', 'b.pdf', 'invoices', 'bbb')"
@@ -86,8 +86,8 @@ let ``Stats_GetIndexStats_WithExtractedAndEmbedded_CountsCorrectly`` () =
         let db = TestHelpers.createDb ()
         try
             let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha1')" []
-            let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text, extracted_at) VALUES ('manual_drop', 'b.pdf', 'invoices', 'sha2', 'text', datetime('now'))" []
-            let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_text, extracted_at, embedded_at) VALUES ('manual_drop', 'c.pdf', 'invoices', 'sha3', 'text', datetime('now'), datetime('now'))" []
+            let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_at) VALUES ('manual_drop', 'b.pdf', 'invoices', 'sha2', datetime('now'))" []
+            let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_at, embedded_at) VALUES ('manual_drop', 'c.pdf', 'invoices', 'sha3', datetime('now'), datetime('now'))" []
             let! stats = Stats.getIndexStats db (TestHelpers.memFs().Fs) ":memory:"
             Assert.Equal(3L, stats.DocumentCount)
             Assert.Equal(2L, stats.ExtractedCount)
