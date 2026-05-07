@@ -13,6 +13,7 @@
     <Compile Include="Prelude.fs" />
     <Compile Include="Domain.fs" />
     <Compile Include="Algebra.fs" />
+    <Compile Include="ArchiveWriter.fs" />
     <Compile Include="Config.fs" />
     <Compile Include="Logging.fs" />
     <Compile Include="Database.fs" />

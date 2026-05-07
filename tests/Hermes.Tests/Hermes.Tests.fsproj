@@ -49,6 +49,7 @@
     <Compile Include="PptxExtractionTests.fs" />
     <Compile Include="OutlookProviderTests.fs" />
     <Compile Include="ComprehensionRacTests.fs" />
+    <Compile Include="ArchiveWriterTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
