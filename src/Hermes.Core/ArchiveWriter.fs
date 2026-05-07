@@ -85,9 +85,16 @@ module ArchiveWriter =
                 email.Substring(idx + 1).Trim().ToLowerInvariant()
             | _ -> "unknown"
 
-    /// Compute relative folder path: account/senderDomain/subjectSlug.
-    let threadFolderPath (account: string) (senderDomain: string) (subjectSlug: string) : string =
-        Path.Combine(slugify account, slugify senderDomain, slugify subjectSlug)
+    /// Compute relative folder path: account/senderDomain/subjectSlug--threadIdPrefix.
+    /// Thread ID suffix ensures uniqueness when subject + sender collide (e.g. recurring receipts).
+    let threadFolderPath (account: string) (senderDomain: string) (subjectSlug: string) (threadId: string) : string =
+        let threadSuffix =
+            if String.IsNullOrWhiteSpace(threadId) then ""
+            else
+                let clean = slugify threadId
+                let short = if clean.Length > 8 then clean.[..7] else clean
+                $"--{short}"
+        Path.Combine(slugify account, slugify senderDomain, $"{slugify subjectSlug}{threadSuffix}")
 
     /// Compute relative folder path for watch-folder drops: local/yyyy-MM-dd.fileNameSlug.
     let localFolderPath (date: DateTimeOffset) (fileNameSlug: string) : string =
@@ -99,15 +106,24 @@ module ArchiveWriter =
     let datePrefix (date: DateTimeOffset) : string =
         date.ToString("yyyy-MM-dd")
 
-    /// Build file name for an email body markdown file.
-    let messageFileName (date: DateTimeOffset) (description: string) : string =
-        $"{datePrefix date}-{slugify description}.md"
+    /// Build file name for an email body markdown file, with message ID suffix for uniqueness.
+    let messageFileName (date: DateTimeOffset) (description: string) (messageId: string) : string =
+        let idSuffix =
+            if String.IsNullOrWhiteSpace(messageId) then ""
+            else
+                let short = slugify messageId
+                let trunc = if short.Length > 6 then short.[..5] else short
+                $"-{trunc}"
+        $"{datePrefix date}-{slugify description}{idSuffix}.md"
 
-    /// Build file name for an attachment, preserving the original extension.
-    let attachmentFileName (date: DateTimeOffset) (originalName: string) : string =
+    /// Build file name for an attachment, preserving the original extension. Content hash suffix prevents collisions.
+    let attachmentFileName (date: DateTimeOffset) (originalName: string) (contentHash: string) : string =
         let ext = Path.GetExtension(originalName)
         let stem = Path.GetFileNameWithoutExtension(originalName)
-        $"{datePrefix date}-{slugify stem}{ext}"
+        let hashSuffix =
+            if String.IsNullOrWhiteSpace(contentHash) then ""
+            else $"-{contentHash.[..min 5 (contentHash.Length - 1)]}"
+        $"{datePrefix date}-{slugify stem}{hashSuffix}{ext}"
 
     // ─── I/O functions ──────────────────────────────────────────────
 
@@ -123,10 +139,11 @@ module ArchiveWriter =
         (folderPath: string)
         (date: DateTimeOffset)
         (description: string)
+        (messageId: string)
         (bodyMarkdown: string)
         : Task<string> =
         task {
-            let fileName = messageFileName date description
+            let fileName = messageFileName date description messageId
             let fullPath = Path.Combine(folderPath, fileName)
             do! fs.writeAllText fullPath bodyMarkdown
             return fileName
@@ -138,10 +155,11 @@ module ArchiveWriter =
         (folderPath: string)
         (date: DateTimeOffset)
         (originalName: string)
+        (contentHash: string)
         (content: byte array)
         : Task<string> =
         task {
-            let fileName = attachmentFileName date originalName
+            let fileName = attachmentFileName date originalName contentHash
             let fullPath = Path.Combine(folderPath, fileName)
             do! fs.writeAllBytes fullPath content
             return fileName
@@ -157,11 +175,26 @@ module ArchiveWriter =
         let fullPath = Path.Combine(folderPath, "thread.comprehension.json")
         fs.writeAllText fullPath json
 
-    /// Write sidecar metadata (.hermes.json) to the folder.
+    /// Write or merge sidecar metadata (.hermes.json) to the folder.
+    /// If a sidecar already exists, merges the file list (appends new files).
     let writeSidecar (fs: Algebra.FileSystem) (folderPath: string) (metadata: SidecarData) : Task<unit> =
-        let fullPath = Path.Combine(folderPath, ".hermes.json")
-        let json = JsonSerializer.Serialize(metadata, jsonOptions)
-        fs.writeAllText fullPath json
+        task {
+            let fullPath = Path.Combine(folderPath, ".hermes.json")
+            let! merged =
+                task {
+                    if fs.fileExists fullPath then
+                        try
+                            let! existing = fs.readAllText fullPath
+                            let existingData = JsonSerializer.Deserialize<SidecarData>(existing, jsonOptions)
+                            let existingNames = existingData.Files |> List.map (fun f -> f.Name) |> Set.ofList
+                            let newFiles = metadata.Files |> List.filter (fun f -> not (existingNames.Contains f.Name))
+                            return { existingData with Files = existingData.Files @ newFiles }
+                        with _ -> return metadata
+                    else return metadata
+                }
+            let json = JsonSerializer.Serialize(merged, jsonOptions)
+            do! fs.writeAllText fullPath json
+        }
 
     // ─── Read functions ─────────────────────────────────────────────
 

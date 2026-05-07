@@ -55,10 +55,18 @@ let ``ArchiveWriter_ExtractSenderDomain_NoEmail_ReturnsUnknown`` (sender: string
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``ArchiveWriter_ThreadFolderPath_BuildsCorrectPath`` () =
-    let path = ArchiveWriter.threadFolderPath "john@gmail.com" "telstra.com.au" "your-march-bill"
+    let path = ArchiveWriter.threadFolderPath "john@gmail.com" "telstra.com.au" "your-march-bill" "thread-abc123"
     Assert.Contains("john-gmail-com", path)
     Assert.Contains("telstra-com-au", path)
     Assert.Contains("your-march-bill", path)
+    Assert.Contains("thread-a", path)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ArchiveWriter_ThreadFolderPath_DifferentThreadIds_DifferentPaths`` () =
+    let path1 = ArchiveWriter.threadFolderPath "a" "b.com" "same-subject" "thread-111"
+    let path2 = ArchiveWriter.threadFolderPath "a" "b.com" "same-subject" "thread-222"
+    Assert.NotEqual<string>(path1, path2)
 
 [<Fact>]
 [<Trait("Category", "Unit")>]
@@ -75,7 +83,7 @@ let ``ArchiveWriter_LocalFolderPath_BuildsCorrectPath`` () =
 [<Trait("Category", "Unit")>]
 let ``ArchiveWriter_MessageFileName_IncludesDateAndSlug`` () =
     let date = DateTimeOffset(2026, 3, 15, 0, 0, 0, TimeSpan.Zero)
-    let name = ArchiveWriter.messageFileName date "initial report"
+    let name = ArchiveWriter.messageFileName date "initial report" "msg-001"
     Assert.StartsWith("2026-03-15-", name)
     Assert.EndsWith(".md", name)
     Assert.Contains("initial-report", name)
@@ -84,7 +92,7 @@ let ``ArchiveWriter_MessageFileName_IncludesDateAndSlug`` () =
 [<Trait("Category", "Unit")>]
 let ``ArchiveWriter_AttachmentFileName_PreservesExtension`` () =
     let date = DateTimeOffset(2026, 3, 15, 0, 0, 0, TimeSpan.Zero)
-    let name = ArchiveWriter.attachmentFileName date "Telstra Bill March.pdf"
+    let name = ArchiveWriter.attachmentFileName date "Telstra Bill March.pdf" "abc123"
     Assert.StartsWith("2026-03-15-", name)
     Assert.EndsWith(".pdf", name)
     Assert.Contains("telstra-bill-march", name)
@@ -93,8 +101,16 @@ let ``ArchiveWriter_AttachmentFileName_PreservesExtension`` () =
 [<Trait("Category", "Unit")>]
 let ``ArchiveWriter_AttachmentFileName_HandlesDotInName`` () =
     let date = DateTimeOffset(2026, 3, 15, 0, 0, 0, TimeSpan.Zero)
-    let name = ArchiveWriter.attachmentFileName date "invoice.v2.pdf"
+    let name = ArchiveWriter.attachmentFileName date "invoice.v2.pdf" "def456"
     Assert.EndsWith(".pdf", name)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``ArchiveWriter_AttachmentFileName_DifferentHashes_DifferentNames`` () =
+    let date = DateTimeOffset(2026, 3, 15, 0, 0, 0, TimeSpan.Zero)
+    let name1 = ArchiveWriter.attachmentFileName date "invoice.pdf" "aaaaaa"
+    let name2 = ArchiveWriter.attachmentFileName date "invoice.pdf" "bbbbbb"
+    Assert.NotEqual<string>(name1, name2)
 
 // ─── I/O functions ───────────────────────────────────────────────────
 
@@ -105,7 +121,7 @@ let ``ArchiveWriter_WriteMessage_CreatesFile`` () =
     let date = DateTimeOffset(2026, 3, 15, 0, 0, 0, TimeSpan.Zero)
     let folder = "/archive/test-folder"
     m.Fs.createDirectory folder
-    let fileName = ArchiveWriter.writeMessage m.Fs folder date "test message" "Hello world" |> Async.AwaitTask |> Async.RunSynchronously
+    let fileName = ArchiveWriter.writeMessage m.Fs folder date "test message" "msg-001" "Hello world" |> Async.AwaitTask |> Async.RunSynchronously
     Assert.EndsWith(".md", fileName)
     let content = m.Get(folder + "/" + fileName)
     Assert.Equal(Some "Hello world", content)
@@ -118,7 +134,7 @@ let ``ArchiveWriter_WriteAttachment_CreatesFile`` () =
     let folder = "/archive/test-folder"
     m.Fs.createDirectory folder
     let content = [| 1uy; 2uy; 3uy |]
-    let fileName = ArchiveWriter.writeAttachment m.Fs folder date "report.pdf" content |> Async.AwaitTask |> Async.RunSynchronously
+    let fileName = ArchiveWriter.writeAttachment m.Fs folder date "report.pdf" "sha256hash" content |> Async.AwaitTask |> Async.RunSynchronously
     Assert.EndsWith(".pdf", fileName)
     Assert.True(m.Fs.fileExists(folder + "/" + fileName))
 
