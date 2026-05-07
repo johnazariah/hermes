@@ -27,7 +27,7 @@ module OutlookProvider =
     // ─── Scopes ──────────────────────────────────────────────────────
 
     let private scopes =
-        [| "Mail.Read"; "Mail.ReadWrite"; "User.Read" |]
+        [| "Mail.Read"; "User.Read" |]
 
     // ─── Mapping helpers ─────────────────────────────────────────────
 
@@ -87,10 +87,29 @@ module OutlookProvider =
         |> Option.bind (fun s -> if String.IsNullOrWhiteSpace(s) then None else Some s)
         |> fun body -> mapToEmailMessage body msg
 
+    let private extractFullBody (msg: Message) : string option =
+        match msg.Body with
+        | null -> msg.BodyPreview |> Option.ofObj
+        | body ->
+            body.Content
+            |> Option.ofObj
+            |> Option.map (fun c ->
+                if body.ContentType.HasValue && body.ContentType.Value = BodyType.Html then
+                    EmailSync.stripHtml c
+                else c)
+            |> Option.bind (fun s -> if String.IsNullOrWhiteSpace(s) then None else Some s)
+
+    let private mapToFull (msg: Message) : Domain.EmailMessage =
+        extractFullBody msg |> fun body -> mapToEmailMessage body msg
+
     // ─── Select fields ──────────────────────────────────────────────
 
     let private metadataSelect =
         [| "id"; "conversationId"; "subject"; "bodyPreview"
+           "from"; "receivedDateTime"; "hasAttachments"; "categories"; "flag" |]
+
+    let private fullMessageSelect =
+        [| "id"; "conversationId"; "subject"; "bodyPreview"; "body"
            "from"; "receivedDateTime"; "hasAttachments"; "categories"; "flag" |]
 
     let private idOnlySelect = [| "id" |]
@@ -248,12 +267,12 @@ module OutlookProvider =
                     try
                         let! msg =
                             client.Me.Messages.[messageId].GetAsync(fun cfg ->
-                                cfg.QueryParameters.Select <- metadataSelect)
+                                cfg.QueryParameters.Select <- fullMessageSelect)
 
                         return
                             match msg with
-                            | null -> mapToPreview (new Message()) : Domain.EmailMessage
-                            | m -> mapToPreview m : Domain.EmailMessage
+                            | null -> mapToFull (new Message()) : Domain.EmailMessage
+                            | m -> mapToFull m : Domain.EmailMessage
                     with ex ->
                         logger.error $"Outlook getFullMessage failed for {messageId}: {ex.Message}"
 

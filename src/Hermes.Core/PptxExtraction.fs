@@ -27,26 +27,26 @@ module PptxExtraction =
         |> Seq.toList
 
     let private extractShapeText (shape: Shape) =
-        // Use InnerText which walks the entire element tree to get all text content
         let text = shape.InnerText
         if System.String.IsNullOrWhiteSpace(text) then []
         else [ PdfStructure.Block.Paragraph (text.Trim()) ]
 
     // ─── Table extraction ────────────────────────────────────────────
 
-    let private cellText (cell: DocumentFormat.OpenXml.Drawing.TableCell) =
-        cell.Elements<DocumentFormat.OpenXml.Drawing.TextBody>()
-        |> Seq.collect (fun tb ->
-            tb.Elements<DocumentFormat.OpenXml.Drawing.Paragraph>()
-            |> Seq.map paragraphText)
+    let private cellText (cell: DocumentFormat.OpenXml.OpenXmlElement) =
+        cell.Descendants()
+        |> Seq.filter (fun e -> e.LocalName = "t")
+        |> Seq.map (fun e -> e.InnerText)
         |> String.concat " "
         |> fun s -> s.Trim()
 
-    let private extractDrawingTable (tbl: DocumentFormat.OpenXml.Drawing.Table) =
+    let private extractDrawingTable (tbl: DocumentFormat.OpenXml.OpenXmlElement) =
         let rows =
-            tbl.Elements<DocumentFormat.OpenXml.Drawing.TableRow>()
+            tbl.ChildElements
+            |> Seq.filter (fun e -> e.LocalName = "tr")
             |> Seq.map (fun row ->
-                row.Elements<DocumentFormat.OpenXml.Drawing.TableCell>()
+                row.ChildElements
+                |> Seq.filter (fun e -> e.LocalName = "tc")
                 |> Seq.map cellText
                 |> Seq.toList)
             |> Seq.toList
@@ -58,55 +58,57 @@ module PptxExtraction =
             PdfStructure.Block.Paragraph ""
 
     let private tryExtractTable (frame: GraphicFrame) =
-        frame.Graphic
-        |> Option.ofObj
-        |> Option.bind (fun g -> g.GraphicData |> Option.ofObj)
-        |> Option.bind (fun gd ->
-            gd.Descendants<DocumentFormat.OpenXml.Drawing.Table>()
-            |> Seq.tryHead)
+        frame.Descendants()
+        |> Seq.tryFind (fun e -> e.LocalName = "tbl")
         |> Option.map extractDrawingTable
 
     // ─── Speaker notes extraction ────────────────────────────────────
 
     let private extractNotes (slidePart: SlidePart) =
-        slidePart.NotesSlidePart
-        |> Option.ofObj
-        |> Option.bind (fun np ->
-            np.NotesSlide.CommonSlideData.ShapeTree
-            |> Option.ofObj)
-        |> Option.map (fun tree ->
-            tree.Elements<Shape>()
-            |> Seq.collect extractShapeText
-            |> Seq.toList)
-        |> Option.defaultValue []
-        |> List.map (fun block ->
-            match block with
-            | PdfStructure.Block.Paragraph t ->
-                PdfStructure.Block.Paragraph $"Speaker notes: {t}"
-            | other -> other)
+        if isNull slidePart.NotesSlidePart then []
+        else
+            let np = slidePart.NotesSlidePart
+            if isNull (box np.NotesSlide) then [] else
+            let csd = np.NotesSlide.CommonSlideData
+            if isNull (box csd) || isNull (box csd.ShapeTree) then [] else
+            csd.ShapeTree.ChildElements
+            |> Seq.filter (fun e -> e.LocalName = "sp")
+            |> Seq.map (fun e -> e.InnerText.Trim())
+            |> Seq.filter (fun t -> t.Length > 0)
+            |> Seq.map (fun t -> PdfStructure.Block.Paragraph $"Speaker notes: {t}")
+            |> Seq.toList
 
     // ─── Slide extraction ────────────────────────────────────────────
 
     let private extractSlideBlocks (slidePart: SlidePart) =
-        match slidePart.Slide.CommonSlideData with
-        | null -> []
-        | csd ->
-            match csd.ShapeTree with
-            | null -> []
-            | tree ->
-                let shapeBlocks =
-                    tree.Elements<Shape>()
-                    |> Seq.collect extractShapeText
-                    |> Seq.toList
+        let slide = slidePart.Slide
+        if isNull (box slide) then [] else
+        let csd = slide.CommonSlideData
+        if isNull (box csd) then [] else
+        let tree = csd.ShapeTree
+        if isNull (box tree) then [] else
 
-                let tableBlocks =
-                    tree.Elements<GraphicFrame>()
-                    |> Seq.choose tryExtractTable
-                    |> Seq.toList
+        let shapeBlocks =
+            tree.ChildElements
+            |> Seq.filter (fun e -> e.LocalName = "sp")
+            |> Seq.collect (fun e ->
+                let text = e.InnerText
+                if System.String.IsNullOrWhiteSpace(text) then Seq.empty
+                else seq { PdfStructure.Block.Paragraph (text.Trim()) })
+            |> Seq.toList
 
-                let noteBlocks = extractNotes slidePart
+        let tableBlocks =
+            tree.ChildElements
+            |> Seq.filter (fun e -> e.LocalName = "graphicFrame")
+            |> Seq.choose (fun frame ->
+                frame.Descendants()
+                |> Seq.tryFind (fun e -> e.LocalName = "tbl")
+                |> Option.map extractDrawingTable)
+            |> Seq.toList
 
-                shapeBlocks @ tableBlocks @ noteBlocks
+        let noteBlocks = extractNotes slidePart
+
+        shapeBlocks @ tableBlocks @ noteBlocks
 
     let private resolveSlidePartOrdered (presentationPart: PresentationPart) =
         presentationPart.Presentation.SlideIdList.Elements<SlideId>()
