@@ -492,3 +492,99 @@ module ApiServer =
                             return json {| reset = true; account = account; from = fromDate |}
                 with ex -> return json {| error = ex.Message |}
             })) |> ignore
+
+        // ── Preferences ─────────────────────────────────────────────
+        app.MapGet("/api/preferences", Func<Task<IResult>>(fun () ->
+            task {
+                let prefsPath = Path.Combine(configDir, "preferences.txt")
+                if fs.fileExists prefsPath then
+                    let! text = fs.readAllText prefsPath
+                    return Results.Text(text, "text/plain")
+                else
+                    // Fall back to config field
+                    let configPath = Path.Combine(configDir, "config.yaml")
+                    let! configResult = Config.load fs (Interpreters.systemEnvironment) configPath
+                    let prefs =
+                        match configResult with
+                        | Ok cfg -> cfg.Preferences
+                        | Error _ -> ""
+                    return Results.Text(prefs, "text/plain")
+            })) |> ignore
+
+        app.MapPut("/api/preferences", Func<HttpContext, Task<IResult>>(fun ctx ->
+            task {
+                use sr = new StreamReader(ctx.Request.Body)
+                let! prefsText = sr.ReadToEndAsync()
+                let prefsPath = Path.Combine(configDir, "preferences.txt")
+                do! fs.writeAllText prefsPath prefsText
+                return json {| saved = true |}
+            })) |> ignore
+
+        // ── Learned patterns ────────────────────────────────────────
+        app.MapGet("/api/learned-patterns", Func<Task<IResult>>(fun () ->
+            task {
+                let! rows =
+                    db.execReader
+                        """SELECT sender_domain, document_type, count, avg_confidence, last_seen
+                           FROM learned_patterns
+                           ORDER BY count DESC
+                           LIMIT 100"""
+                        []
+                let results =
+                    rows |> List.map (fun row ->
+                        let r = Prelude.RowReader(row)
+                        {| senderDomain = r.String "sender_domain" ""
+                           documentType = r.String "document_type" ""
+                           count = r.Int64 "count" 0L
+                           avgConfidence = r.Float "avg_confidence" 0.0
+                           lastSeen = r.OptString "last_seen" |})
+                return json results
+            })) |> ignore
+
+        // ── Suggestions ─────────────────────────────────────────────
+        app.MapGet("/api/suggestions", Func<HttpContext, Task<IResult>>(fun ctx ->
+            task {
+                let status = ctx.Request.Query["status"].ToString()
+                let statusFilter = if String.IsNullOrEmpty status then "pending" else status
+                let! rows =
+                    db.execReader
+                        """SELECT s.id, s.document_id, s.proposed_category, s.current_category,
+                                  s.confidence, s.status, s.created_at,
+                                  d.original_name, d.sender, d.subject
+                           FROM suggestions s
+                           LEFT JOIN documents d ON d.id = s.document_id
+                           WHERE s.status = @status
+                           ORDER BY s.created_at DESC
+                           LIMIT 50"""
+                        [("@status", Database.boxVal statusFilter)]
+                let results =
+                    rows |> List.map (fun row ->
+                        let r = Prelude.RowReader(row)
+                        {| id = r.Int64 "id" 0L
+                           documentId = r.Int64 "document_id" 0L
+                           proposedCategory = r.String "proposed_category" ""
+                           currentCategory = r.String "current_category" ""
+                           confidence = r.Float "confidence" 0.0
+                           status = r.String "status" ""
+                           createdAt = r.OptString "created_at"
+                           originalName = r.OptString "original_name"
+                           sender = r.OptString "sender"
+                           subject = r.OptString "subject" |})
+                return json results
+            })) |> ignore
+
+        app.MapPost("/api/suggestions/{id:long}/approve", Func<int64, Task<IResult>>(fun id ->
+            task {
+                let! result = Stages.approveSuggestion db id
+                match result with
+                | Ok () -> return json {| approved = true; id = id |}
+                | Error e -> return json {| error = e |}
+            })) |> ignore
+
+        app.MapPost("/api/suggestions/{id:long}/reject", Func<int64, Task<IResult>>(fun id ->
+            task {
+                let! result = Stages.rejectSuggestion db id
+                match result with
+                | Ok () -> return json {| rejected = true; id = id |}
+                | Error e -> return json {| error = e |}
+            })) |> ignore
