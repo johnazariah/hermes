@@ -270,3 +270,216 @@ The file-based structure makes per-tenant encryption straightforward:
 4. **Comprehension field indexing**: Do we keep a thin copy of key comprehension fields in SQLite for fast field-aware search, or always read from `.comprehension.json` files?
 
 5. **FTS5 rebuild performance**: How long does it take to re-index 4,000+ `.extracted.md` files? Is this acceptable for a "rebuild from files" scenario?
+
+---
+
+## Appendix A — Lessons from Email Clients
+
+What 35 years of email UI teaches us about Hermes.
+
+### Pine/Maildir (1989–1995): Files as truth
+
+Pine stored mail as text files. Maildir used one-file-per-message with no locking, safe for concurrent access across processes. When the index broke, you rebuilt from files.
+
+**Applied**: Our file-first archive is exactly this pattern. The `account/date/time/` structure is essentially Maildir with richer hierarchy. Multiple Hermes instances could write to a shared archive safely.
+
+### Outlook/PST (1996): The monolithic blob anti-pattern
+
+Everything in one `.pst` file. Corrupt it, lose everything. Grows without bound. Search index breaks constantly.
+
+**Applied**: SQLite-as-content-store is our PST. Design doc 28 moves us away from this. SQLite stays for indexes and metadata — things that are derived and rebuildable.
+
+### Gmail (2004): Labels, not folders
+
+A message can have multiple labels. "This is a receipt AND avalon-property AND tax-deductible." Search-first, not folder-first.
+
+**Applied**: Categories should be **multi-label**, not single-category. A council rates bill for 1 Avalon St should be tagged with both `rates-and-tax` and `avalon-property`. The existing `tags` table already supports this — we should promote tags to be the primary categorisation mechanism instead of the single `category` column.
+
+### Superhuman (2020s): Speed and command palette
+
+Minimal interface built around keyboard shortcuts. Command palette (Cmd+K) for any action. Gamified inbox zero. Split inbox: Important vs Other.
+
+**Applied**:
+- **Command palette** — Hermes should have Cmd+K for quick actions: search, recategorise, navigate. React has good libraries for this (cmdk, kbar).
+- **Speed** — document triage should feel instant. No loading spinners for the common case.
+- **Inbox zero for documents** — celebrate when triage queue is empty.
+
+### Hey (2020s): Screening and streams
+
+First-time senders go through a screening step. Mail splits into three streams: Imbox (important), The Feed (newsletters), The Paper Trail (receipts/invoices).
+
+**Applied**:
+- **Screening** maps to our suggestion review — first time a new sender/type appears, the user validates. After that, auto-categorise.
+- **Streams** map to our category groups — Hermes could present "Financial" (payslips, tax, bank statements), "Property" (agents, rates, insurance), "Household" (utilities, receipts) as high-level views, with individual categories inside.
+
+### Spark (2025): Smart bundling and team features
+
+Auto-groups notifications, newsletters, and personal mail. Custom swipe gestures. Inline calendar.
+
+**Applied**:
+- **Bundling** — group documents by sender or property or time period. "All 12 Telstra bills" as a collapsed group.
+- **Swipe gestures** — for mobile (future), swipe to approve/reject suggestions.
+
+### Common modern patterns
+
+- **AI summaries** — thread/document summaries are now standard. Hermes already does this via comprehension.
+- **Triage-first UX** — present decisions, not data. "Is this correct?" not "here's a list."
+- **Focus modes** — review mode vs browse mode vs search mode.
+- **Rich keyboard shortcuts** — power users live on the keyboard.
+
+---
+
+## Appendix B — UX Vision
+
+### Core principle: Triage, not filing
+
+The user should spend 30 seconds a day with Hermes, not 30 minutes. The system does the understanding; the user validates and refines.
+
+### Confidence tiers drive the UX
+
+```
+High confidence (≥ 0.9)     → auto-categorised, appears in "Recent" feed
+                               no user action required
+
+Medium confidence (0.7–0.9) → shown with suggested category + fields
+                               one-tap confirm or correct
+
+Low confidence (< 0.7)      → queued for triage
+                               user decides category, system learns
+```
+
+### Daily flow
+
+```
+User opens Hermes
+  │
+  ├── "3 need review" badge
+  │     → triage panel: approve/reject/correct each
+  │     → 30 seconds, done
+  │
+  ├── "15 new documents since yesterday"
+  │     → scroll through recent feed
+  │     → everything auto-categorised, just glance
+  │
+  └── Search / Browse when needed
+        → "find Avalon property expenses"
+        → field-aware search + faceted filtering
+        → batch select → recategorise / export / tag
+```
+
+### Key UI components
+
+**1. Command palette (Cmd+K)**
+```
+┌─────────────────────────────────────┐
+│ 🔍 Search documents, actions...     │
+│                                     │
+│ Recent:                             │
+│   📄 Telstra bill — March 2026     │
+│   📄 Microsoft payslip — April     │
+│                                     │
+│ Actions:                            │
+│   🔄 Sync email now                │
+│   ⚙ Open settings                  │
+│   📊 Show pipeline status          │
+└─────────────────────────────────────┘
+```
+
+**2. Triage panel (the primary interaction)**
+```
+┌─────────────────────────────────────────────┐
+│ Review (3)                                  │
+│                                             │
+│ ┌─────────────────────────────────────────┐ │
+│ │ quarterly-report.pdf                    │ │
+│ │ Hermes thinks: report (45%)             │ │
+│ │ From: cfo@employer.com                  │ │
+│ │                                         │ │
+│ │ [✓ Accept]  [✎ Change to: ___]  [Skip] │ │
+│ └─────────────────────────────────────────┘ │
+│                                             │
+│ ┌─────────────────────────────────────────┐ │
+│ │ scan-001.pdf                            │ │
+│ │ Hermes thinks: receipt (62%)            │ │
+│ │ Detected: $45.00, 2026-04-15            │ │
+│ │                                         │ │
+│ │ [✓ Accept]  [✎ Change to: ___]  [Skip] │ │
+│ └─────────────────────────────────────────┘ │
+│                                             │
+│ 🎉 All caught up!  (when empty)            │
+└─────────────────────────────────────────────┘
+```
+
+**3. Document feed (browse recent)**
+```
+┌─────────────────────────────────────────────┐
+│ Recent                          [Filter ▼]  │
+│                                             │
+│ Today                                       │
+│   📄 Telstra bill   utility  $89.50   95%  │
+│   📄 Payslip        payslip  $8,500   97%  │
+│                                             │
+│ Yesterday                                   │
+│   📄 Council rates  avalon   $1,200   92%  │
+│   📄 Water bill     utility  $65.00   88%  │
+│                                             │
+│ Last week                                   │
+│   📄 Agent statement property $1,691  94%  │
+│   ...                                       │
+└─────────────────────────────────────────────┘
+```
+
+**4. Smart search with facets**
+```
+┌─────────────────────────────────────────────┐
+│ 🔍 Avalon St                               │
+│                                             │
+│ Filters: [All types ▼] [2025-2026 ▼]       │
+│          [All senders ▼]                    │
+│                                             │
+│ 8 results                                   │
+│ ☑ Telstra bill — 1 Avalon St — $89.50      │
+│ ☑ Council rates — 1 Avalon St — $1,200     │
+│ ☐ Water bill — 1 Avalon St — $65.00        │
+│ ☐ Insurance — 1 Avalon St — $850/yr        │
+│                                             │
+│ With selected:                              │
+│ [Tag as... ▼] [Recategorise ▼] [Export ▼]  │
+└─────────────────────────────────────────────┘
+```
+
+**5. First-run onboarding**
+```
+┌─────────────────────────────────────────────┐
+│ 👋 Welcome to Hermes                        │
+│                                             │
+│ Tell me about yourself — I'll learn the     │
+│ rest from your documents.                   │
+│                                             │
+│ ┌─────────────────────────────────────────┐ │
+│ │ I have two investment properties:       │ │
+│ │ - 1 Avalon St, Richmond                │ │
+│ │ - 35 Manorwoods Dr, Wantirna           │ │
+│ │                                         │ │
+│ │ I work at Microsoft.                    │ │
+│ │ Anything from ATO is tax-related.       │ │
+│ └─────────────────────────────────────────┘ │
+│                                             │
+│ [Connect Gmail →]  [Connect Outlook →]      │
+│           [Skip for now]                    │
+└─────────────────────────────────────────────┘
+```
+
+### Interaction design principles
+
+| Principle | Inspiration | Application |
+|-----------|-------------|-------------|
+| **Triage, not filing** | Superhuman, Hey | Suggestion panel is the primary interaction |
+| **Labels, not folders** | Gmail | Multi-tag documents, emergent categories |
+| **Screen first-timers** | Hey | First occurrence of a sender/type goes through review |
+| **Command palette** | Superhuman, VS Code | Cmd+K for all actions |
+| **Speed over features** | Superhuman | Keyboard shortcuts, instant transitions |
+| **Celebrate completion** | Superhuman | "All caught up! 🎉" when triage is empty |
+| **Smart bundling** | Spark | Group by sender, property, time period |
+| **AI summaries are standard** | Everyone (2025+) | Comprehension summaries shown prominently |
+| **Progressive disclosure** | Modern web | Simple default, detail on demand |
