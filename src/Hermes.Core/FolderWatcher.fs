@@ -145,7 +145,7 @@ module FolderWatcher =
             return finalPath
         }
 
-    /// Process a single file: hash, dedup, copy to unclassified/ with safe rename.
+    /// Process a single file: hash, dedup, copy to archive with structured layout.
     let processFile
         (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
         (clock: Algebra.Clock) (archiveDir: string) (watchFolder: Domain.WatchFolderConfig) (filePath: string)
@@ -164,15 +164,25 @@ module FolderWatcher =
                 else
 
                 let now = clock.utcNow ()
-                let unclDir = Path.Combine(archiveDir, "unclassified")
-                fs.createDirectory unclDir
-                let folderName = Path.GetFileName(watchFolder.Path) |> Option.ofObj |> Option.defaultValue "watched"
-                let standardName = buildStandardName now folderName fileName
-                let! finalPath = safeCopyToUnclassified fs logger unclDir standardName filePath
+                let stem = Path.GetFileNameWithoutExtension(fileName) |> Option.ofObj |> Option.defaultValue "file"
+                let relFolder = ArchiveWriter.localFolderPath now stem
+                let absFolder = ArchiveWriter.ensureFolder fs archiveDir relFolder
+                let! bytes = fs.readAllBytes filePath
+                let! savedFileName = ArchiveWriter.writeAttachment fs absFolder now fileName sha256 bytes
+                let savedRelPath = Path.Combine(relFolder, savedFileName)
 
-                let sidecar = buildSidecar watchFolder.Path filePath fileName standardName sha256 now
-                do! fs.writeAllText (finalPath + ".meta.json") (serialiseSidecar sidecar)
-                return Copied finalPath
+                let sidecarData : ArchiveWriter.SidecarData =
+                    { Version = 2; SourceType = "watched_folder"; Account = "local"
+                      ProviderId = sha256; ThreadId = ""
+                      Sender = None; Subject = Some fileName
+                      ReceivedAt = now.ToString("o")
+                      Files = [ { Name = savedFileName; MimeType = "application/octet-stream"
+                                  SizeBytes = int64 bytes.Length; Sha256 = sha256 } ] }
+                do! ArchiveWriter.writeSidecar fs absFolder sidecarData
+
+                let absPath = Path.Combine(absFolder, savedFileName)
+                logger.info $"Copied '{fileName}' -> {savedRelPath}"
+                return Copied absPath
             with ex ->
                 logger.error $"Failed to process {fileName}: {ex.Message}"
                 return Failed ex.Message

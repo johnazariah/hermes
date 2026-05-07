@@ -309,14 +309,25 @@ module EmailSync =
                 | None -> ()
                 return { accum with Duplicates = accum.Duplicates + 1 }
             else
-                let name = buildStandardName msg.Date msg.Sender att.FileName
-                let savePath = Path.Combine(unclassifiedDir, name)
-                fs.createDirectory unclassifiedDir
-                do! fs.writeAllBytes savePath att.Content
-                let sidecar = buildSidecar account msg att name sha now
-                do! fs.writeAllText (savePath + ".meta.json") (serialiseSidecar sidecar)
-                let! _ = recordDocument db "email_attachment" account msg att name sha now
-                logger.info $"[{account}] Downloaded: {name}"
+                let senderDomain = ArchiveWriter.extractSenderDomain (msg.Sender |> Option.defaultValue "")
+                let subject = msg.Subject |> Option.defaultValue "(no subject)"
+                let relFolder = ArchiveWriter.threadFolderPath account senderDomain subject msg.ThreadId
+                let archiveDir = Path.GetDirectoryName(unclassifiedDir) |> Option.ofObj |> Option.defaultValue ""
+                let absFolder = ArchiveWriter.ensureFolder fs archiveDir relFolder
+                let! attFileName = ArchiveWriter.writeAttachment fs absFolder (msg.Date |> Option.defaultValue now) att.FileName sha att.Content
+                let relPath = Path.Combine(relFolder, attFileName)
+
+                let sidecarFile : ArchiveWriter.SidecarFile =
+                    { Name = attFileName; MimeType = att.MimeType; SizeBytes = att.SizeBytes; Sha256 = sha }
+                let sidecarData : ArchiveWriter.SidecarData =
+                    { Version = 2; SourceType = "email_attachment"; Account = account
+                      ProviderId = msg.ProviderId; ThreadId = msg.ThreadId
+                      Sender = msg.Sender; Subject = msg.Subject
+                      ReceivedAt = now.ToString("o"); Files = [ sidecarFile ] }
+                do! ArchiveWriter.writeSidecar fs absFolder sidecarData
+
+                let! _ = recordDocument db "email_attachment" account msg att relPath sha now
+                logger.info $"[{account}] Downloaded: {attFileName}"
                 return { accum with Downloaded = accum.Downloaded + 1 }
         }
 
@@ -730,18 +741,27 @@ module EmailSync =
                                                     | None -> ()
                                                 | None -> ()
 
-                                            let bodyName = buildStandardName msg.Date msg.Sender $"{subject}.md" |> fun n -> if n.Length > 200 then n.Substring(0, 200) else n
-                                            let bodyRelPath = Path.Combine("unclassified", bodyName)
-                                            let bodyAbsPath = Path.Combine(config.ArchiveDir, bodyRelPath)
-                                            fs.createDirectory (Path.GetDirectoryName(bodyAbsPath) |> Option.ofObj |> Option.defaultValue (Path.Combine(config.ArchiveDir, "unclassified")))
-                                            do! fs.writeAllBytes bodyAbsPath bodyBytes
-                                            let bodyAtt : Domain.EmailAttachment = { FileName = bodyName; MimeType = "text/markdown"; SizeBytes = int64 bodyBytes.Length; Content = bodyBytes }
-                                            let bodySidecar = buildSidecar account msg bodyAtt bodyName bodySha now
-                                            do! fs.writeAllText (bodyAbsPath + ".meta.json") (serialiseSidecar bodySidecar)
+                                            let senderDomain = ArchiveWriter.extractSenderDomain (msg.Sender |> Option.defaultValue "")
+                                            let subjectSlug = msg.Subject |> Option.defaultValue "(no subject)"
+                                            let relFolder = ArchiveWriter.threadFolderPath account senderDomain subjectSlug msg.ThreadId
+                                            let absFolder = ArchiveWriter.ensureFolder fs config.ArchiveDir relFolder
+                                            let! bodyFileName = ArchiveWriter.writeMessage fs absFolder (msg.Date |> Option.defaultValue now) "message" msg.ProviderId bodyMd
+                                            let bodyRelPath = Path.Combine(relFolder, bodyFileName)
+
+                                            let bodySidecarFile : ArchiveWriter.SidecarFile =
+                                                { Name = bodyFileName; MimeType = "text/markdown"; SizeBytes = int64 bodyBytes.Length; Sha256 = bodySha }
+                                            let bodySidecarData : ArchiveWriter.SidecarData =
+                                                { Version = 2; SourceType = "email_body"; Account = account
+                                                  ProviderId = msg.ProviderId; ThreadId = msg.ThreadId
+                                                  Sender = msg.Sender; Subject = msg.Subject
+                                                  ReceivedAt = now.ToString("o"); Files = [ bodySidecarFile ] }
+                                            do! ArchiveWriter.writeSidecar fs absFolder bodySidecarData
+
+                                            let bodyAtt : Domain.EmailAttachment = { FileName = bodyFileName; MimeType = "text/markdown"; SizeBytes = int64 bodyBytes.Length; Content = bodyBytes }
                                             let! bodyDocId = recordDocument db "email_body" account msg bodyAtt bodyRelPath bodySha now
                                             do! onIngest bodyDocId bodyRelPath
                                             downloaded <- downloaded + 1
-                                            logger.info $"[{account}/{consumerId}] Saved email body: {bodyName}"
+                                            logger.info $"[{account}/{consumerId}] Saved email body: {bodyFileName}"
 
                             // Fetch attachments
                             let! atts = provider.getAttachments messageId
@@ -751,17 +771,26 @@ module EmailSync =
                                 let sha = computeSha256 att.Content
                                 let! isDup = hashExists db sha
                                 if not isDup then
-                                    let name = buildStandardName msg.Date msg.Sender att.FileName
-                                    let relPath = Path.Combine("unclassified", name)
-                                    let absPath = Path.Combine(config.ArchiveDir, relPath)
-                                    fs.createDirectory (Path.GetDirectoryName(absPath) |> Option.ofObj |> Option.defaultValue (Path.Combine(config.ArchiveDir, "unclassified")))
-                                    do! fs.writeAllBytes absPath att.Content
-                                    let sidecar = buildSidecar account msg att name sha now
-                                    do! fs.writeAllText (absPath + ".meta.json") (serialiseSidecar sidecar)
+                                    let senderDomain = ArchiveWriter.extractSenderDomain (msg.Sender |> Option.defaultValue "")
+                                    let attSubject = msg.Subject |> Option.defaultValue "(no subject)"
+                                    let relFolder = ArchiveWriter.threadFolderPath account senderDomain attSubject msg.ThreadId
+                                    let absFolder = ArchiveWriter.ensureFolder fs config.ArchiveDir relFolder
+                                    let! attFileName = ArchiveWriter.writeAttachment fs absFolder (msg.Date |> Option.defaultValue now) att.FileName sha att.Content
+                                    let relPath = Path.Combine(relFolder, attFileName)
+
+                                    let sidecarFile : ArchiveWriter.SidecarFile =
+                                        { Name = attFileName; MimeType = att.MimeType; SizeBytes = att.SizeBytes; Sha256 = sha }
+                                    let sidecarData : ArchiveWriter.SidecarData =
+                                        { Version = 2; SourceType = "email_attachment"; Account = account
+                                          ProviderId = msg.ProviderId; ThreadId = msg.ThreadId
+                                          Sender = msg.Sender; Subject = msg.Subject
+                                          ReceivedAt = now.ToString("o"); Files = [ sidecarFile ] }
+                                    do! ArchiveWriter.writeSidecar fs absFolder sidecarData
+
                                     let! attDocId = recordDocument db "email_attachment" account msg att relPath sha now
                                     do! onIngest attDocId relPath
                                     downloaded <- downloaded + 1
-                                    logger.info $"[{account}/{consumerId}] Downloaded: {name}"
+                                    logger.info $"[{account}/{consumerId}] Downloaded: {attFileName}"
 
                             processed <- processed + 1
                             System.Threading.Interlocked.Increment(processedCount) |> ignore

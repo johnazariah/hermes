@@ -63,7 +63,7 @@ module Pipeline =
 
     // ─── Folder watcher producer ─────────────────────────────────
 
-    /// Scan watch folders, process new files in unclassified/, ingest into pipeline.
+    /// Scan watch folders, process new files, ingest into pipeline.
     let private folderWatcherLoop
         (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
         (clock: Algebra.Clock) (config: Domain.HermesConfig)
@@ -72,55 +72,78 @@ module Pipeline =
         task {
             let archiveDir = config.ArchiveDir
             while not ct.IsCancellationRequested do
-                // Copy from watch folders into unclassified/
+                // Copy from watch folders into archive (local/ layout)
                 let! _ = FolderWatcher.scanAll fs db logger clock config
 
-                // Process new files in unclassified/
-                let unclDir = Path.Combine(archiveDir, "unclassified")
-                if fs.directoryExists unclDir then
-                    let files =
-                        fs.getFiles unclDir "*"
-                        |> Array.filter (fun f ->
-                            not (f.EndsWith(".meta.json", StringComparison.OrdinalIgnoreCase)))
-                    for filePath in files do
-                        try
-                            let fileName = Path.GetFileName(filePath)
-                            // SHA256 dedup
-                            let! sha256 = FolderWatcher.computeSha256 fs filePath
-                            let! dupResult = db.execScalar "SELECT COUNT(*) FROM documents WHERE sha256 = @sha" [ ("@sha", Database.boxVal sha256) ]
-                            let isDup = match dupResult with :? int64 as i -> i > 0L | _ -> false
-                            if isDup then
-                                logger.info $"Duplicate detected (sha256={sha256.[..7]}), removing: {fileName}"
-                                fs.deleteFile filePath
-                                let metaPath = filePath + ".meta.json"
-                                if fs.fileExists metaPath then fs.deleteFile metaPath
-                            else
-                                // Insert document record
-                                let relativePath = Path.Combine("unclassified", fileName)
-                                let fileSize = fs.getFileSize filePath
-                                let now = clock.utcNow().ToString("o")
-                                let! idObj =
-                                    db.execScalar
-                                        """INSERT INTO documents
-                                           (source_type, original_name, saved_path, category, size_bytes, sha256, source_path, ingested_at, stage)
-                                           VALUES ('watched_folder', @name, @path, 'unclassified', @size, @sha, @src, @now, 'received')
-                                           RETURNING id"""
-                                        [ ("@name", Database.boxVal fileName)
-                                          ("@path", Database.boxVal relativePath)
-                                          ("@size", Database.boxVal fileSize)
-                                          ("@sha", Database.boxVal sha256)
-                                          ("@src", Database.boxVal filePath)
-                                          ("@now", Database.boxVal now) ]
-                                let docId = match idObj with :? int64 as i -> i | _ -> 0L
-                                if docId > 0L then
-                                    // Clean up sidecar
+                // Process new files: scan both old unclassified/ and new local/ layouts
+                let scanDirs = [
+                    Path.Combine(archiveDir, "unclassified")
+                    Path.Combine(archiveDir, "local") ]
+
+                for scanDir in scanDirs do
+                    if fs.directoryExists scanDir then
+                        // Get files directly in dir, and also in immediate subdirectories
+                        let directFiles =
+                            fs.getFiles scanDir "*"
+                            |> Array.filter (fun f ->
+                                not (f.EndsWith(".meta.json", StringComparison.OrdinalIgnoreCase))
+                                && not (f.EndsWith(".hermes.json", StringComparison.OrdinalIgnoreCase))
+                                && not (f.EndsWith(".extracted.md", StringComparison.OrdinalIgnoreCase))
+                                && not (f.EndsWith(".comprehension.json", StringComparison.OrdinalIgnoreCase)))
+                        let subDirFiles =
+                            try
+                                fs.getDirectories scanDir
+                                |> Array.collect (fun subDir ->
+                                    fs.getFiles subDir "*"
+                                    |> Array.filter (fun f ->
+                                        not (f.EndsWith(".meta.json", StringComparison.OrdinalIgnoreCase))
+                                        && not (f.EndsWith(".hermes.json", StringComparison.OrdinalIgnoreCase))
+                                        && not (f.EndsWith(".extracted.md", StringComparison.OrdinalIgnoreCase))
+                                        && not (f.EndsWith(".comprehension.json", StringComparison.OrdinalIgnoreCase))))
+                            with _ -> Array.empty
+                        let files = Array.append directFiles subDirFiles
+
+                        for filePath in files do
+                            try
+                                let fileName = Path.GetFileName(filePath)
+                                let! sha256 = FolderWatcher.computeSha256 fs filePath
+                                let! dupResult = db.execScalar "SELECT COUNT(*) FROM documents WHERE sha256 = @sha" [ ("@sha", Database.boxVal sha256) ]
+                                let isDup = match dupResult with :? int64 as i -> i > 0L | _ -> false
+                                if isDup then
+                                    logger.info $"Duplicate detected (sha256={sha256.[..7]}), removing: {fileName}"
+                                    fs.deleteFile filePath
                                     let metaPath = filePath + ".meta.json"
                                     if fs.fileExists metaPath then fs.deleteFile metaPath
-                                    // Ingest into pipeline
-                                    let! _ = ingest db logger extractWriter (Map.ofList [ "id", box docId ])
-                                    logger.info $"Folder watcher: ingested '{fileName}' as doc {docId}"
-                        with ex ->
-                            logger.warn $"Folder intake failed for {Path.GetFileName(filePath)}: {ex.Message}"
+                                else
+                                    // Compute relative path from archive root
+                                    let relativePath =
+                                        if filePath.StartsWith(archiveDir, StringComparison.OrdinalIgnoreCase) then
+                                            filePath.Substring(archiveDir.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                                        else Path.GetFileName(filePath)
+                                    let fileSize = fs.getFileSize filePath
+                                    let now = clock.utcNow().ToString("o")
+                                    let! idObj =
+                                        db.execScalar
+                                            """INSERT INTO documents
+                                               (source_type, original_name, saved_path, category, size_bytes, sha256, source_path, ingested_at, stage)
+                                               VALUES ('watched_folder', @name, @path, 'unclassified', @size, @sha, @src, @now, 'received')
+                                               RETURNING id"""
+                                            [ ("@name", Database.boxVal fileName)
+                                              ("@path", Database.boxVal relativePath)
+                                              ("@size", Database.boxVal fileSize)
+                                              ("@sha", Database.boxVal sha256)
+                                              ("@src", Database.boxVal filePath)
+                                              ("@now", Database.boxVal now) ]
+                                    let docId = match idObj with :? int64 as i -> i | _ -> 0L
+                                    if docId > 0L then
+                                        // Clean up old sidecar if present
+                                        let metaPath = filePath + ".meta.json"
+                                        if fs.fileExists metaPath then fs.deleteFile metaPath
+                                        // Ingest into pipeline
+                                        let! _ = ingest db logger extractWriter (Map.ofList [ "id", box docId ])
+                                        logger.info $"Folder watcher: ingested '{fileName}' as doc {docId}"
+                            with ex ->
+                                logger.warn $"Folder intake failed for {Path.GetFileName(filePath)}: {ex.Message}"
 
                 try do! Task.Delay(TimeSpan.FromSeconds(30.0), ct)
                 with :? OperationCanceledException -> ()

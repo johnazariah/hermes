@@ -176,13 +176,13 @@ let ``FolderWatcher_ProcessFile_CopiesMatchingFile`` () =
             match result with
             | FolderWatcher.Copied savedPath ->
                 let savedPath = m.Norm savedPath
-                Assert.Contains("unclassified", savedPath)
-                Assert.Contains("Downloads", savedPath)
-                Assert.Contains("invoice.pdf", savedPath)
+                Assert.Contains("local", savedPath)
+                Assert.Contains("invoice", savedPath)
                 // Source file should still exist (copy, not move)
                 Assert.True((m.Get(srcPath)).IsSome)
                 // Sidecar should exist
-                Assert.True((m.Get(savedPath + ".meta.json")).IsSome)
+                let folder = (System.IO.Path.GetDirectoryName(savedPath) |> Option.ofObj |> Option.defaultValue "").Replace('\\', '/')
+                Assert.True((m.Get(folder + "/.hermes.json")).IsSome)
             | other -> failwith $"Expected Copied, got {other}"
         finally
             db.dispose ()
