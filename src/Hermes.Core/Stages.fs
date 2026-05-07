@@ -61,6 +61,12 @@ module Stages =
                     |> Document.encode "stage" (box "extracted")
             | Ok extraction ->
                 let now = deps.Clock.utcNow().ToString("o")
+
+                // Write extraction to file alongside source (file-first archive)
+                let markdownContent = extraction.Markdown |> Option.defaultValue extraction.Text
+                try do! ArchiveWriter.writeExtraction deps.Fs fullPath markdownContent
+                with ex -> deps.Logger.debug $"Extract file write failed for doc {docId}: {ex.Message}"
+
                 return
                     doc
                     |> Document.encode "extracted_text" (box extraction.Text)
@@ -101,6 +107,28 @@ module Stages =
 
         if contextParts.IsEmpty then ""
         else "\nContext from prior extraction:\n" + (contextParts |> String.concat "\n") + "\n"
+
+    /// Read thread context: all message .md files and extraction .md files from the thread folder.
+    /// Returns a combined context string for thread-level comprehension.
+    let private readThreadContext (fs: Algebra.FileSystem) (archiveDir: string) (savedPath: string) : Task<string> =
+        task {
+            let fullPath =
+                if IO.Path.IsPathRooted(savedPath) then savedPath
+                else IO.Path.Combine(archiveDir, savedPath)
+            let folderPath = IO.Path.GetDirectoryName(fullPath) |> Option.ofObj |> Option.defaultValue ""
+            if String.IsNullOrWhiteSpace(folderPath) || not (fs.directoryExists folderPath) then
+                return ""
+            else
+                try
+                    let! messages = ArchiveWriter.readThreadMessages fs folderPath
+                    let threadText =
+                        if messages.IsEmpty then ""
+                        else
+                            let combined = messages |> String.concat "\n\n---\n\n"
+                            $"\nThread messages ({messages.Length}):\n{combined}\n"
+                    return threadText
+                with _ -> return ""
+        }
 
     // ─── Retrieval-augmented comprehension ───────────────────────
 
@@ -327,6 +355,97 @@ module Stages =
             do! suggestReview deps doc parsed
         }
 
+    let private archiveFolderPath (deps: Deps) (doc: Document.T) =
+        doc
+        |> Document.decode<string> "saved_path"
+        |> Option.filter (fun path -> not (String.IsNullOrWhiteSpace path))
+        |> Option.map (fun path ->
+            if IO.Path.IsPathRooted path then path
+            else IO.Path.Combine(deps.ArchiveDir, path))
+        |> Option.bind (fun path ->
+            IO.Path.GetDirectoryName(path)
+            |> Option.ofObj
+            |> Option.filter (fun folder -> not (String.IsNullOrWhiteSpace folder)))
+
+    let private writeComprehensionArtifact
+        (deps: Deps)
+        (doc: Document.T)
+        (parsed: ComprehensionSchema.NormalisedResponse)
+        : Task<unit> =
+        task {
+            try
+                match archiveFolderPath deps doc with
+                | Some folder ->
+                    do! ArchiveWriter.writeComprehension deps.Fs folder parsed.RawJson
+                | None -> ()
+            with ex ->
+                deps.Logger.debug
+                    $"Comprehension file write failed for doc {Document.id doc}: {ex.Message}"
+        }
+
+    let private insertComprehensionTag
+        (db: Algebra.Database)
+        (docId: int64)
+        (confidence: float)
+        (tag: string)
+        : Task<unit> =
+        task {
+            let! _ =
+                db.execNonQuery
+                    """INSERT OR IGNORE INTO tags
+                       (document_id, tag, source, confidence)
+                       VALUES (@docId, @tag, 'comprehension', @confidence)"""
+                    [ ("@docId", Database.boxVal docId)
+                      ("@tag", Database.boxVal tag)
+                      ("@confidence", Database.boxVal confidence) ]
+
+            return ()
+        }
+
+    let private writeComprehensionTags
+        (deps: Deps)
+        (doc: Document.T)
+        (parsed: ComprehensionSchema.NormalisedResponse)
+        : Task<unit> =
+        task {
+            try
+                do!
+                    parsed.Tags
+                    |> Prelude.foldTask
+                        (fun () tag ->
+                            insertComprehensionTag
+                                deps.Db
+                                (Document.id doc)
+                                parsed.Confidence
+                                tag)
+                        ()
+            with ex ->
+                deps.Logger.debug
+                    $"Tag write failed for doc {Document.id doc}: {ex.Message}"
+        }
+
+    let private recordFinalComprehension deps doc parsed : Task<unit> =
+        task {
+            do! recordReviewSignals deps doc parsed
+            do! writeComprehensionArtifact deps doc parsed
+            do! writeComprehensionTags deps doc parsed
+        }
+
+    let private confidenceTier prefix confidence =
+        if confidence >= 0.7 then prefix
+        else $"{prefix}_review"
+
+    let private withComprehension stage tier
+        (parsed: ComprehensionSchema.NormalisedResponse)
+        (doc: Document.T) =
+        doc
+        |> Document.encode "category" (box parsed.CanonicalCategory)
+        |> Document.encode "classification_tier" (box tier)
+        |> Document.encode "classification_confidence" (box parsed.Confidence)
+        |> Document.encode "comprehension" (box parsed.RawJson)
+        |> Document.encode "comprehension_schema" (box "v2")
+        |> Document.encode "stage" (box stage)
+
     /// Fallback prompts when no external prompt file is loaded.
     let private fallbackSystemPrompt =
         "You are a document intelligence system. You read documents and produce structured JSON understanding. Be precise with monetary amounts and dates."
@@ -476,7 +595,7 @@ Document text:
                                     |> Document.encode "stage" (box "triaged")
                             else
                                 // Non-financial triage is the final comprehension decision.
-                                do! recordReviewSignals deps doc triaged
+                                do! recordFinalComprehension deps doc triaged
 
                                 let tier =
                                     if triaged.Confidence >= 0.7 then
@@ -497,58 +616,101 @@ Document text:
                                     |> Document.encode "stage" (box "understood")
         }
 
-    /// Phase 2: Deep comprehension for financially relevant documents (stage = "triaged").
-    let deepComprehend (deps: Deps) (doc: Document.T) : Task<Document.T> =
-        let docId = Document.id doc
-        let text = doc |> Document.decode<string> "extracted_text" |> Option.defaultValue ""
-
+    let private buildDeepContext (deps: Deps) (doc: Document.T) : Task<string> =
         task {
+            let! documentContext =
+                augmentComprehensionContext deps.Db deps.Preferences doc
+
+            let savedPath =
+                doc
+                |> Document.decode<string> "saved_path"
+                |> Option.defaultValue ""
+
+            let! threadContext =
+                readThreadContext deps.Fs deps.ArchiveDir savedPath
+
+            return
+                [ documentContext; threadContext ]
+                |> List.filter (fun value -> not (String.IsNullOrWhiteSpace value))
+                |> String.concat "\n"
+        }
+
+    let private comprehensionPrompts deps text context =
+        match deps.ComprehensionPrompt with
+        | Some prompt ->
+            prompt.System, PromptLoader.render prompt text context
+        | None ->
+            fallbackSystemPrompt, fallbackUserPrompt text context
+
+    let private completeFromTriage deps doc : Task<Document.T> =
+        task {
+            match doc |> Document.decode<string> "comprehension" with
+            | Some json ->
+                match ComprehensionSchema.normaliseResponse json with
+                | Ok parsed -> do! recordFinalComprehension deps doc parsed
+                | Error _ -> ()
+            | None -> ()
+
+            return doc |> Document.encode "stage" (box "understood")
+        }
+
+    let private applyDeepResult
+        (deps: Deps)
+        (doc: Document.T)
+        (parsed: ComprehensionSchema.NormalisedResponse)
+        : Task<Document.T> =
+        task {
+            let docId = Document.id doc
+            let sender = doc |> Document.decode<string> "sender"
+            let tier = confidenceTier "comprehension" parsed.Confidence
+
+            do! ContactExtraction.harvestAndLink deps.Db deps.Logger docId parsed.RawJson sender
+            do! recordFinalComprehension deps doc parsed
+
+            deps.Logger.info
+                $"Understood doc {docId} as '{parsed.CanonicalCategory}' ({parsed.DocumentType}, {tier}, conf={parsed.Confidence:F2}): {parsed.Summary}"
+
+            return doc |> withComprehension "understood" tier parsed
+        }
+
+    let private handleDeepResponse deps doc response : Task<Document.T> =
+        match ComprehensionSchema.normaliseResponse response with
+        | Ok parsed ->
+            applyDeepResult deps doc parsed
+        | Error parseError ->
+            deps.Logger.warn
+                $"Deep comprehension parse doc {Document.id doc}: {parseError}, keeping triage"
+
+            completeFromTriage deps doc
+
+    /// Phase 2: Deep comprehension for financially relevant documents.
+    let deepComprehend (deps: Deps) (doc: Document.T) : Task<Document.T> =
+        task {
+            let docId = Document.id doc
+            let text =
+                doc
+                |> Document.decode<string> "extracted_text"
+                |> Option.defaultValue ""
+
             match deps.ChatProvider with
             | None ->
                 deps.Logger.debug $"DeepComprehend skip doc {docId}: no chat provider"
-                return doc |> Document.encode "stage" (box "understood")
+                return! completeFromTriage deps doc
             | Some chat ->
-                let! context =
-                    augmentComprehensionContext
-                        deps.Db
-                        deps.Preferences
-                        doc
-
+                let! context = buildDeepContext deps doc
                 let systemPrompt, userPrompt =
-                    match deps.ComprehensionPrompt with
-                    | Some prompt ->
-                        prompt.System, PromptLoader.render prompt text context
-                    | None ->
-                        fallbackSystemPrompt, fallbackUserPrompt text context
+                    comprehensionPrompts deps text context
 
-                let! llmResult = chat.complete systemPrompt userPrompt
-                match llmResult with
-                | Error e ->
-                    deps.Logger.warn $"Deep comprehension failed for doc {docId}: {e}, keeping triage result"
-                    return doc |> Document.encode "stage" (box "understood")
+                let! result = chat.complete systemPrompt userPrompt
 
+                match result with
                 | Ok response ->
-                    match ComprehensionSchema.normaliseResponse response with
-                    | Ok parsed ->
-                        let tier = if parsed.Confidence >= 0.7 then "comprehension" else "comprehension_review"
-                        deps.Logger.info $"Understood doc {docId} as '{parsed.CanonicalCategory}' ({parsed.DocumentType}, {tier}, conf={parsed.Confidence:F2}): {parsed.Summary}"
+                    return! handleDeepResponse deps doc response
+                | Error error ->
+                    deps.Logger.warn
+                        $"Deep comprehension failed for doc {docId}: {error}, keeping triage result"
 
-                        let sender = doc |> Document.decode<string> "sender"
-                        do! ContactExtraction.harvestAndLink deps.Db deps.Logger docId parsed.RawJson sender
-                        do! recordReviewSignals deps doc parsed
-
-                        return
-                            doc
-                            |> Document.encode "category" (box parsed.CanonicalCategory)
-                            |> Document.encode "classification_tier" (box tier)
-                            |> Document.encode "classification_confidence" (box parsed.Confidence)
-                            |> Document.encode "comprehension" (box parsed.RawJson)
-                            |> Document.encode "comprehension_schema" (box "v2")
-                            |> Document.encode "stage" (box "understood")
-
-                    | Error parseErr ->
-                        deps.Logger.warn $"Deep comprehension parse doc {docId}: {parseErr}, keeping triage"
-                        return doc |> Document.encode "stage" (box "understood")
+                    return! completeFromTriage deps doc
         }
 
     // ─── Suggestion approval ─────────────────────────────────────

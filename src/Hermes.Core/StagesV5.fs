@@ -155,7 +155,7 @@ module StagesV5 =
             // Read extracted text from extraction table
             let! rows =
                 db.execReader
-                    """SELECT e.extracted_text, d.sender, d.subject, d.category,
+                    """SELECT e.extracted_text, d.sender, d.subject, d.category, d.saved_path,
                               e.extracted_vendor, e.extracted_amount
                        FROM extraction e
                        JOIN documents d ON d.id = e.document_id
@@ -186,6 +186,7 @@ module StagesV5 =
                     |> Map.add "sender" (box (r.String "sender" ""))
                     |> Map.add "subject" (box (r.String "subject" ""))
                     |> Map.add "category" (box (r.String "category" ""))
+                    |> Map.add "saved_path" (box (r.String "saved_path" ""))
                     |> Map.add "extracted_vendor" (box (r.String "extracted_vendor" ""))
                     |> Map.add "extracted_amount" (r.OptFloat "extracted_amount" |> Option.map box |> Option.defaultValue (box ""))
 
@@ -197,6 +198,21 @@ module StagesV5 =
 
                     let category = getText "category"
                     let comprehension = getText "comprehension"
+                    let confidence =
+                        getFloat "classification_confidence"
+                        |> Option.defaultValue 0.0
+
+                    let tier =
+                        getText "classification_tier"
+                        |> fun value ->
+                            if String.IsNullOrWhiteSpace value then "triage"
+                            else value
+
+                    let resultStage =
+                        getText "stage"
+                        |> fun value ->
+                            if String.IsNullOrWhiteSpace value then "understood"
+                            else value
 
                     // Parse the triage JSON response
                     let docType =
@@ -213,21 +229,26 @@ module StagesV5 =
                             [ ("@id", Database.boxVal docId)
                               ("@type", Database.boxVal docType)
                               ("@cat", Database.boxVal category)
-                              ("@conf", Database.boxVal (getFloat "classification_confidence" |> Option.defaultValue 0.0))
+                              ("@conf", Database.boxVal confidence)
                               ("@summary", Database.boxVal "")
                               ("@json", Database.boxVal comprehension) ]
 
                     // Update legacy documents table for API compatibility
                     let! _ =
                         db.execNonQuery
-                            """UPDATE documents SET category = @cat, classification_tier = 'triage',
-                               classification_confidence = @conf, comprehension = @json,
-                               comprehension_schema = 'v2', stage = 'understood'
+                            """UPDATE documents SET category = @cat,
+                               classification_tier = @tier,
+                               classification_confidence = @conf,
+                               comprehension = @json,
+                               comprehension_schema = 'v2',
+                               stage = @stage
                                WHERE id = @id"""
                             [ ("@id", Database.boxVal docId)
                               ("@cat", Database.boxVal category)
-                              ("@conf", Database.boxVal (getFloat "classification_confidence" |> Option.defaultValue 0.0))
-                              ("@json", Database.boxVal comprehension) ]
+                              ("@tier", Database.boxVal tier)
+                              ("@conf", Database.boxVal confidence)
+                              ("@json", Database.boxVal comprehension)
+                              ("@stage", Database.boxVal resultStage) ]
 
                     return PipelineV5.Completed
                 with ex ->
@@ -240,8 +261,9 @@ module StagesV5 =
             // Read from extraction + triage
             let! rows =
                 db.execReader
-                    """SELECT e.extracted_text, d.sender, d.subject, e.extracted_vendor, e.extracted_amount,
-                              t.category, t.document_type
+                    """SELECT e.extracted_text, d.sender, d.subject, d.saved_path,
+                              d.classification_tier, e.extracted_vendor, e.extracted_amount,
+                              t.category, t.document_type, t.confidence, t.response_json
                        FROM extraction e
                        JOIN documents d ON d.id = e.document_id
                        JOIN triage t ON t.document_id = e.document_id
@@ -252,6 +274,12 @@ module StagesV5 =
             | row :: _ ->
                 let r = Prelude.RowReader(row)
                 let text = r.String "extracted_text" ""
+                let triageConfidence = r.Float "confidence" 0.0
+                let defaultTriageTier =
+                    if triageConfidence >= 0.7 then "triage"
+                    else "triage_review"
+                let triageTier =
+                    r.String "classification_tier" defaultTriageTier
 
                 // Build v4 Document.T for compatibility
                 let doc =
@@ -260,9 +288,15 @@ module StagesV5 =
                     |> Map.add "extracted_text" (box text)
                     |> Map.add "sender" (box (r.String "sender" ""))
                     |> Map.add "subject" (box (r.String "subject" ""))
+                    |> Map.add "saved_path" (box (r.String "saved_path" ""))
                     |> Map.add "category" (box (r.String "category" ""))
                     |> Map.add "extracted_vendor" (box (r.String "extracted_vendor" ""))
                     |> Map.add "extracted_amount" (r.OptFloat "extracted_amount" |> Option.map box |> Option.defaultValue (box ""))
+                    |> Map.add "classification_confidence" (box triageConfidence)
+                    |> Map.add "classification_tier" (box triageTier)
+                    |> Map.add "comprehension" (box (r.String "response_json" ""))
+                    |> Map.add "comprehension_schema" (box "v2")
+                    |> Map.add "stage" (box "triaged")
 
                 try
                     let! enriched = Stages.deepComprehend deps doc
@@ -271,6 +305,19 @@ module StagesV5 =
 
                     let comprehension = getText "comprehension"
                     let category = getText "category"
+                    let confidence =
+                        getFloat "classification_confidence"
+                        |> Option.defaultValue triageConfidence
+                    let tier =
+                        getText "classification_tier"
+                        |> fun value ->
+                            if String.IsNullOrWhiteSpace value then triageTier
+                            else value
+                    let resultStage =
+                        getText "stage"
+                        |> fun value ->
+                            if String.IsNullOrWhiteSpace value then "understood"
+                            else value
 
                     // Parse comprehension JSON
                     let docType, summary, fieldsJson =
@@ -291,7 +338,7 @@ module StagesV5 =
                             [ ("@id", Database.boxVal docId)
                               ("@type", Database.boxVal docType)
                               ("@cat", Database.boxVal category)
-                              ("@conf", Database.boxVal (getFloat "classification_confidence" |> Option.defaultValue 0.0))
+                              ("@conf", Database.boxVal confidence)
                               ("@summary", Database.boxVal summary)
                               ("@fields", Database.boxVal fieldsJson)
                               ("@json", Database.boxVal comprehension) ]
@@ -299,14 +346,19 @@ module StagesV5 =
                     // Update legacy table
                     let! _ =
                         db.execNonQuery
-                            """UPDATE documents SET category = @cat, classification_tier = 'comprehension',
-                               classification_confidence = @conf, comprehension = @json,
-                               comprehension_schema = 'v2', stage = 'understood'
+                            """UPDATE documents SET category = @cat,
+                               classification_tier = @tier,
+                               classification_confidence = @conf,
+                               comprehension = @json,
+                               comprehension_schema = 'v2',
+                               stage = @stage
                                WHERE id = @id"""
                             [ ("@id", Database.boxVal docId)
                               ("@cat", Database.boxVal category)
-                              ("@conf", Database.boxVal (getFloat "classification_confidence" |> Option.defaultValue 0.0))
-                              ("@json", Database.boxVal comprehension) ]
+                              ("@tier", Database.boxVal tier)
+                              ("@conf", Database.boxVal confidence)
+                              ("@json", Database.boxVal comprehension)
+                              ("@stage", Database.boxVal resultStage) ]
 
                     return PipelineV5.Completed
                 with ex ->

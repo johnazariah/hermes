@@ -178,6 +178,7 @@ module ComprehensionSchema =
     type NormalisedResponse =
         { DocumentType: string
           CanonicalCategory: string
+          Tags: string list
           Confidence: float
           Summary: string
           RawJson: string }
@@ -222,10 +223,33 @@ module ComprehensionSchema =
             let docType = getString root "document_type" "unknown"
             let confidence = getFloat root "confidence" 0.5 |> clampConfidence
             let summary = getString root "summary" ""
+            let canonicalCat = normaliseCategory docType
+
+            // Extract tags: from explicit "tags" array, or derive from document_type
+            let explicitTags =
+                match root.TryGetProperty("tags") with
+                | true, v when v.ValueKind = Text.Json.JsonValueKind.Array ->
+                    v.EnumerateArray()
+                    |> Seq.choose (fun el ->
+                        if el.ValueKind = Text.Json.JsonValueKind.String then
+                            el.GetString() |> Option.ofObj
+                        else None)
+                    |> Seq.map (fun s -> s.Trim().ToLowerInvariant())
+                    |> Seq.filter (fun s -> s.Length > 0)
+                    |> Seq.toList
+                | _ -> []
+
+            let tags =
+                if explicitTags.IsEmpty then
+                    [ canonicalCat ] |> List.filter (fun t -> t <> "unclassified")
+                else
+                    explicitTags
+                |> List.distinct
 
             Ok
                 { DocumentType = docType
-                  CanonicalCategory = normaliseCategory docType
+                  CanonicalCategory = canonicalCat
+                  Tags = tags
                   Confidence = confidence
                   Summary = summary
                   RawJson = json }
