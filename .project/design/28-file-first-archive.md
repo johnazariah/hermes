@@ -25,6 +25,17 @@ All human/LLM-readable content lives on the filesystem in a structured folder hi
 
 The archive becomes self-describing and the DB becomes disposable — rebuildable from the files.
 
+## Decisions (confirmed 2026-05-07)
+
+1. **Multi-label tags replace single category** — documents can have multiple tags (e.g. `utility-bill` + `avalon-property` + `tax-deductible`). The existing `tags` table becomes the primary categorisation mechanism. The single `category` column is retired.
+2. **Thread is the unit of comprehension** — the LLM comprehends the entire thread (email conversation + all attachments), not individual attachments in isolation.
+3. **One folder per thread** — all messages and attachments in a thread live in one folder.
+4. **Folder path: `account/first-sender-domain/subject-slug/`** — sender domain is the primary grouping. Falls back to date-slug if subject is empty.
+5. **Local drops: `local/date.filename-slug/`** — simpler structure for non-email documents.
+6. **Files are date-prefixed** — `2026-03-15-message.md`, `2026-03-15-invoice.pdf` — disambiguates duplicate filenames.
+7. **Default indexed fields + user favourites** — amount, vendor, date, property_address indexed by default. Users save favourite queries to trigger additional indexing.
+8. **Categories are emergent** — no hardcoded category list. LLM produces tags freely, system accumulates. Users rename/merge/delete.
+
 ## Archive Folder Structure
 
 ```
@@ -218,6 +229,73 @@ This is slow but possible. The archive is the source of truth.
 ## Categories
 
 Categories are **emergent, not predefined**:
+
+1. Comprehension produces tags freely — the LLM decides
+2. Tags accumulate in the `tags` table (multi-label per document)
+3. The tag list in the UI is `SELECT DISTINCT tag FROM tags`
+4. Users can rename, merge, or delete tags
+5. User corrections feed back into preferences, which guide future comprehension
+6. The hardcoded `canonicalCategories` map in `ComprehensionSchema.fs` is removed
+7. The single `category` column in `documents` is retired in favour of multi-label tags
+
+### Real-world example folder structure
+
+```
+~/Documents/Hermes/
+├── john.azariah@gmail.com/
+│   ├── telstra.com.au/
+│   │   ├── your-march-2026-bill/
+│   │   │   ├── 2026-03-15-message.md
+│   │   │   ├── 2026-03-15-telstra-bill-march.pdf
+│   │   │   ├── 2026-03-15-telstra-bill-march.pdf.extracted.md
+│   │   │   ├── thread.comprehension.json
+│   │   │   └── .hermes.json
+│   │   └── your-april-2026-bill/
+│   │       └── ...
+│   ├── raywhite.com.au/
+│   │   └── flooding-fix-1-avalon/
+│   │       ├── 2026-03-15-ray-initial-report.md
+│   │       ├── 2026-03-16-bob-plumber-quote.pdf
+│   │       ├── 2026-03-18-nrma-claim-form.pdf
+│   │       ├── 2026-03-20-john-reply.md
+│   │       ├── thread.comprehension.json
+│   │       └── .hermes.json
+│   └── microsoft.com/
+│       └── your-march-payslip/
+│           └── ...
+├── local/
+│   └── 2026-04-01.bank-statement-q1/
+│       └── ...
+└── .hermes/
+    ├── hermes.db
+    └── preferences.txt
+```
+
+### Thread-level comprehension output
+
+The `thread.comprehension.json` covers the entire thread — conversation context + per-attachment fields:
+
+```json
+{
+  "thread_summary": "Ray White reported flooding at 1 Avalon St. Bob the plumber quoted $2,400. NRMA claim filed.",
+  "participants": ["ray@raywhite.com.au", "bob@plumbing.com.au", "claims@nrma.com.au"],
+  "tags": ["property", "avalon-property", "insurance-claim"],
+  "documents": [
+    {
+      "file": "2026-03-16-bob-plumber-quote.pdf",
+      "document_type": "invoice",
+      "confidence": 0.92,
+      "fields": { "vendor": "Bob's Plumbing", "amount": 2400.00, "date": "2026-03-16" }
+    },
+    {
+      "file": "2026-03-18-nrma-claim-form.pdf",
+      "document_type": "insurance-claim",
+      "confidence": 0.88,
+      "fields": { "provider": "NRMA", "claim_number": "CLM-2026-1234", "property_address": "1 Avalon St" }
+    }
+  ]
+}
+```
 
 1. Comprehension produces `document_type` freely — the LLM decides
 2. The `document_type` becomes the initial category
