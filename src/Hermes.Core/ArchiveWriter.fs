@@ -111,13 +111,10 @@ module ArchiveWriter =
 
     // ─── I/O functions ──────────────────────────────────────────────
 
-    /// Create the directory if it doesn't exist, return the absolute path.
+    /// Create the directory (idempotent), return the absolute path.
     let ensureFolder (fs: Algebra.FileSystem) (archiveRoot: string) (relativePath: string) : string =
         let fullPath = Path.Combine(archiveRoot, relativePath)
-
-        if not (fs.directoryExists fullPath) then
-            fs.createDirectory fullPath
-
+        fs.createDirectory fullPath
         fullPath
 
     /// Write a message markdown file to the folder, return the file name.

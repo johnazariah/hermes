@@ -105,13 +105,11 @@ module Stages =
     // ─── Retrieval-augmented comprehension ───────────────────────
 
     /// Extract domain from an email sender like "Name <user@example.com>".
+    /// Delegates to ArchiveWriter's implementation for consistency with folder paths.
     let internal extractSenderDomain (sender: string) : string option =
-        sender.IndexOf('@')
-        |> fun atIdx ->
-            if atIdx < 0 then None
-            else
-                sender.Substring(atIdx + 1).TrimEnd('>', ' ')
-                |> fun d -> if String.IsNullOrWhiteSpace(d) then None else Some (d.ToLowerInvariant())
+        match ArchiveWriter.extractSenderDomain sender with
+        | "unknown" -> None
+        | domain -> Some domain
 
     /// Extract a compact schema hint (document_type + field_names only, no values).
     let internal compactSchemaHint (comprehensionJson: string) : string option =
