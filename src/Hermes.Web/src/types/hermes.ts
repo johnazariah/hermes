@@ -66,3 +66,16 @@ export interface ReminderItem {
   status: string;
   fileName: string | null;
 }
+
+export interface Suggestion {
+  id: number;
+  documentId: number;
+  proposedCategory: string;
+  currentCategory: string | null;
+  confidence: number;
+  status: string;
+  createdAt: string;
+  originalName: string | null;
+  sender: string | null;
+  subject: string | null;
+}

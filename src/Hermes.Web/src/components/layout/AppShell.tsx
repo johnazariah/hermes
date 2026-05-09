@@ -1,5 +1,6 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { fetchStats } from "../../api/hermes";
 import { useTheme } from "../../hooks/useTheme";
 import { CommandPalette } from "../CommandPalette";
@@ -38,6 +39,7 @@ function NavItem({ to, icon, label, badge }: NavItemProps) {
 
 export function AppShell() {
     const { theme, toggleTheme } = useTheme();
+    const navigate = useNavigate();
 
     const { data: stats } = useQuery<IndexStats>({
         queryKey: ["stats"],
@@ -54,6 +56,41 @@ export function AppShell() {
         },
         refetchInterval: 30000,
     });
+
+    // First-run redirect: if no accounts and no preferences, send to onboarding
+    const { data: accounts } = useQuery<{ account: string }[]>({
+        queryKey: ["sync-accounts-onboard"],
+        queryFn: async () => {
+            const res = await fetch("/api/sync/accounts");
+            if (!res.ok) return [];
+            return res.json();
+        },
+        staleTime: Infinity,
+    });
+
+    const { data: preferences } = useQuery<string>({
+        queryKey: ["preferences-onboard"],
+        queryFn: async () => {
+            const res = await fetch("/api/preferences");
+            if (!res.ok) return "";
+            return res.text();
+        },
+        staleTime: Infinity,
+    });
+
+    useEffect(() => {
+        if (accounts === undefined || preferences === undefined) return;
+        const alreadyOnboarded = localStorage.getItem("hermes-onboarded");
+        if (alreadyOnboarded) return;
+
+        const hasAccounts = accounts.length > 0;
+        const hasPreferences = (preferences ?? "").trim().length > 0;
+        if (!hasAccounts && !hasPreferences) {
+            navigate("/onboarding", { replace: true });
+        } else {
+            localStorage.setItem("hermes-onboarded", "true");
+        }
+    }, [accounts, preferences, navigate]);
 
     const pendingSuggestions = suggestions?.length ?? 0;
     const total = stats?.documentCount ?? 0;
