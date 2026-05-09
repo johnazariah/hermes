@@ -1,20 +1,20 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { AppLayout } from "./pages/AppLayout";
-import { PipelinePage } from "./pages/PipelinePage";
+import { AppShell } from "./components/layout/AppShell";
+import { HomePage } from "./pages/HomePage";
 import { DocumentsPage } from "./pages/DocumentsPage";
 import { SearchPage } from "./pages/SearchPage";
-import { ChatPage } from "./pages/ChatPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { OnboardingPage } from "./pages/OnboardingPage";
 
 export default function App() {
     return (
         <BrowserRouter>
             <Routes>
-                <Route element={<AppLayout />}>
-                    <Route index element={<PipelinePage />} />
+                <Route path="/onboarding" element={<OnboardingPage />} />
+                <Route element={<AppShell />}>
+                    <Route index element={<HomePage />} />
                     <Route path="documents" element={<DocumentsPage />} />
                     <Route path="search" element={<SearchPage />} />
-                    <Route path="chat" element={<ChatPage />} />
                     <Route path="settings" element={<SettingsPage />} />
                 </Route>
             </Routes>
