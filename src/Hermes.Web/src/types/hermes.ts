@@ -79,3 +79,8 @@ export interface Suggestion {
   sender: string | null;
   subject: string | null;
 }
+
+export interface TagCount {
+  tag: string;
+  count: number;
+}

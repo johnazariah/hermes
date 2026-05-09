@@ -1,4 +1,4 @@
-import type { CategoryCount, DocumentSummary, DocumentDetail, IndexStats, ReminderItem, Suggestion } from '../types/hermes';
+import type { CategoryCount, DocumentSummary, DocumentDetail, IndexStats, ReminderItem, Suggestion, TagCount } from '../types/hermes';
 
 const BASE = '';
 
@@ -52,4 +52,48 @@ export async function rejectSuggestion(id: number): Promise<void> {
 export async function fetchRecentDocuments(limit = 20): Promise<DocumentSummary[]> {
   const res = await fetch(`${BASE}/api/documents?limit=${limit}`);
   return res.json();
+}
+
+export async function fetchTags(): Promise<TagCount[]> {
+  const res = await fetch(`${BASE}/api/tags`);
+  if (!res.ok) {
+    const cats = await fetchCategories();
+    return cats.map(c => ({ tag: c.category, count: c.count }));
+  }
+  return res.json();
+}
+
+export async function searchDocuments(params: {
+  q?: string;
+  category?: string;
+  limit?: number;
+}): Promise<DocumentSummary[]> {
+  const qs = new URLSearchParams();
+  if (params.q) qs.set('q', params.q);
+  if (params.category) qs.set('category', params.category);
+  qs.set('limit', String(params.limit ?? 50));
+  const res = await fetch(`${BASE}/api/documents?${qs}`);
+  return res.json();
+}
+
+export async function addDocumentTag(docId: number, tag: string): Promise<void> {
+  await fetch(`${BASE}/api/documents/${docId}/tags`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tag }),
+  });
+}
+
+export async function removeDocumentTag(docId: number, tag: string): Promise<void> {
+  await fetch(`${BASE}/api/documents/${docId}/tags/${encodeURIComponent(tag)}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function batchDocuments(documentIds: number[], action: string, tag?: string): Promise<void> {
+  await fetch(`${BASE}/api/documents/batch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ documentIds, action, tag }),
+  });
 }
