@@ -59,7 +59,7 @@ jobs:
           dotnet build tests/Hermes.Tests/Hermes.Tests.fsproj --no-restore -c Release -v q
 
       - name: Test
-        run: dotnet test tests/Hermes.Tests/Hermes.Tests.fsproj --no-build -c Release -v q --collect:"XPlat Code Coverage"
+        run: dotnet test tests/Hermes.Tests/Hermes.Tests.fsproj --no-build -c Release -v q --logger "console;verbosity=normal" --collect:"XPlat Code Coverage"
 
       - name: Check coverage threshold
         if: matrix.os == 'windows-latest'
@@ -116,6 +116,9 @@ jobs:
     continue-on-error: true  # Xcode version may not match MAUI workload requirement
     steps:
       - uses: actions/checkout@v4
+
+      - name: Select Xcode 26.5
+        run: sudo xcode-select -s /Applications/Xcode_26.5.app/Contents/Developer
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4

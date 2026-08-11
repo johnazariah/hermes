@@ -60,5 +60,7 @@ dist/
 
 TestResults/
 
-tests/test-documents/
+tests/test-documents/*
+!tests/test-documents/sample-simple.pptx
+!tests/test-documents/sample-multi.pptx
 gen_register.py
