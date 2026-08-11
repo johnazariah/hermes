@@ -1,0 +1,46 @@
+{
+  "agents": {
+    "keaton": {
+      "cast_name": "Keaton",
+      "role": "Lead / Architect",
+      "universe": "The Usual Suspects",
+      "status": "active",
+      "created": "2026-07-10"
+    },
+    "mcmanus": {
+      "cast_name": "McManus",
+      "role": "Backend Dev",
+      "universe": "The Usual Suspects",
+      "status": "active",
+      "created": "2026-07-10"
+    },
+    "verbal": {
+      "cast_name": "Verbal",
+      "role": "Frontend Dev",
+      "universe": "The Usual Suspects",
+      "status": "active",
+      "created": "2026-07-10"
+    },
+    "hockney": {
+      "cast_name": "Hockney",
+      "role": "Tester",
+      "universe": "The Usual Suspects",
+      "status": "active",
+      "created": "2026-07-10"
+    },
+    "fenster": {
+      "cast_name": "Fenster",
+      "role": "DevOps / Infra",
+      "universe": "The Usual Suspects",
+      "status": "active",
+      "created": "2026-07-10"
+    },
+    "kobayashi": {
+      "cast_name": "Kobayashi",
+      "role": "Product Manager",
+      "universe": "The Usual Suspects",
+      "status": "active",
+      "created": "2026-07-10"
+    }
+  }
+}

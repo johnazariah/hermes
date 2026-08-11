@@ -64,3 +64,13 @@ tests/test-documents/*
 !tests/test-documents/sample-simple.pptx
 !tests/test-documents/sample-multi.pptx
 gen_register.py
+# Squad: ignore runtime state (logs, inbox, sessions)
+# Note: .squad/casting/* is identity and MUST be committed to main, not ignored
+.squad/orchestration-log/
+.squad/log/
+.squad/decisions/inbox/
+.squad/sessions/
+.squad/.scratch/
+.squad/.cache/
+# Squad: SubSquad activation file (local to this machine)
+.squad-workstream

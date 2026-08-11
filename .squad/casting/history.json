@@ -1,0 +1,16 @@
+{
+  "universe_usage_history": [
+    {
+      "universe": "The Usual Suspects",
+      "assigned_at": "2026-07-10",
+      "project": "pelican",
+      "agent_count": 5
+    }
+  ],
+  "assignment_cast_snapshots": {
+    "pelican-2026-07-10": {
+      "universe": "The Usual Suspects",
+      "agents": ["keaton", "mcmanus", "verbal", "hockney", "fenster"]
+    }
+  }
+}
