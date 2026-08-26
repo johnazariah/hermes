@@ -1,6 +1,5 @@
 # 29 — Household Onboarding & Profile
 
-> Status: Spec — not yet implemented
 > Origin: Discussion 2026-05-09, onboarding UX review
 
 ## Problem

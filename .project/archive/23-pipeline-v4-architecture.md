@@ -1,4 +1,4 @@
-# 23 — Pipeline v4 Architecture
+# 23 — Pipeline v4 Architecture (Archived)
 
 > Supersedes: 03-architecture.md, 20-pipeline-v2-endstate.md, 21-v2-implementation-plan.md, wave-v2b-pipeline-fixes.md
 

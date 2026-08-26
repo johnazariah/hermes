@@ -231,7 +231,7 @@ for each account where backfill.enabled and not backfill_completed:
             record message to DB
             
             if has attachments:
-                download, dedup, save to unclassified/
+                download, dedup, write to structured archive
                 (same logic as syncAccount)
             
             if include_bodies and body not stored:
@@ -257,7 +257,7 @@ for each account where backfill.enabled and not backfill_completed:
 
 4. **Completion is permanent**: Once `backfill_completed = 1`, we never re-scan. New mail is handled by forward sync. If the user changes `since` to an earlier date, they must reset backfill (see section 10).
 
-5. **Interleaved with forward sync**: Forward sync runs first (quick, handles new mail), then backfill processes its batch. The full pipeline (classify, extract, embed) runs once after both passes, processing whatever landed in `unclassified/`.
+5. **Interleaved with forward sync**: Forward sync runs first (quick, handles new mail), then backfill processes its batch. Both paths write the same structured archive and insert document metadata; Pipeline V5 discovers the resulting work.
 
 ---
 
@@ -530,7 +530,7 @@ Per `.github/copilot-instructions.md`:
 ## 12. What This Doesn't Change
 
 - **Forward sync is untouched** — `syncAccount` continues to work exactly as it does today
-- **Pipeline is untouched** — backfill drops files into `unclassified/` just like forward sync; the classify → extract → embed pipeline doesn't know or care about the source
+- **Pipeline is source-agnostic** — backfill and forward sync write the same archive/metadata contract; Pipeline V5 does not care which producer inserted the document
 - **Dedup is reused** — `hashExists` and `messageExists` prevent duplicate processing
 - **OAuth scope stays `gmail.readonly`** — backfill only reads, never modifies mail
 
