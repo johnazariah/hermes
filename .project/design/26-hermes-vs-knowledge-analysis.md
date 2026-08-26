@@ -13,17 +13,17 @@ This analysis compares their architectures after Hermes adopted several ideas fr
 
 | Dimension | Hermes | Knowledge |
 |-----------|--------|-----------|
-| **Runtime** | .NET 10 / F# | Electron / JavaScript |
+| **Runtime** | .NET 9 / F# | Electron / JavaScript |
 | **UI** | React 19 + Vite (web) | Vue 2 + Electron (desktop) |
 | **Database** | SQLite + FTS5 + sqlite-vec | SQLite (vectors as BLOBs) + JSON dataCenter |
-| **LLM** | Ollama (llama3:8b + nomic-embed-text) | Ollama (gemma4 + nomic-embed-text) |
+| **LLM** | Configurable Ollama chat + nomic-embed-text | Ollama (gemma4 + nomic-embed-text) |
 | **Email** | Gmail + Outlook (Graph API) | Gmail + Outlook (Graph API) |
-| **Pipeline** | Channel\<Document\> stages with workflow monad | Monolithic orchestrator loop |
+| **Pipeline** | Declarative DAG with stage tables and model phases | Monolithic orchestrator loop |
 | **Architecture** | Tagless-Final (records of functions) | Service classes with side effects |
 | **API** | MCP server (streamable HTTP) | None (trapped in Electron) |
 | **Extraction** | PDF, DOCX, XLSX, PPTX, CSV, plain text, images | PDF, DOCX, XLSX, PPTX, RTF |
 | **Type safety** | F# discriminated unions, Result types | Untyped JavaScript |
-| **Tests** | 833 (xUnit + FsCheck) | Minimal (Karma + Mocha) |
+| **Tests** | 867 (xUnit + FsCheck) | Minimal (Karma + Mocha) |
 | **LOC (core)** | ~10,000 F# | ~7,500 JS |
 | **LOC (tests)** | ~10,500 F# | ~minimal |
 
@@ -45,7 +45,7 @@ This analysis compares their architectures after Hermes adopted several ideas fr
 | Suggestion approval | ✅ (new) | ✅ | Knowledge calls it "review queue"; similar concept |
 | MCP server | ✅ | ❌ | Hermes exposes tools for downstream consumers (Osprey) |
 | External API | ✅ REST + MCP | ❌ | Knowledge is Electron-only, no external access |
-| Pipeline idempotency | ✅ workflow monad | ⚠️ manual | Hermes has `runStage` with output key check; Knowledge reconciles on startup |
+| Pipeline idempotency | ✅ completion ledger | ⚠️ manual | Hermes records per-document stage completion; Knowledge reconciles on startup |
 | Folder watching | ✅ chokidar-style | ✅ chokidar | Both watch local folders |
 | Contact extraction | ✅ | ❌ | Hermes harvests contacts from comprehension output |
 | Reminders | ✅ | ❌ | Hermes creates reminders from due dates in documents |
@@ -57,7 +57,7 @@ This analysis compares their architectures after Hermes adopted several ideas fr
 
 2. **Email style profiling** — learns per-correspondent writing patterns for reply drafting. Useful for Pelican integration.
 
-3. **Generated markdown artifacts** — topic notes, project summaries, daily digests as readable files. Hermes keeps everything in SQLite (machine-friendly but not human-browsable).
+3. **Generated knowledge artifacts** — Knowledge creates topic notes, project summaries, and daily digests. Hermes writes source, extraction, and comprehension artifacts but does not yet synthesize topic notes.
 
 4. **Calendar integration** — Knowledge has Google Calendar and Microsoft Calendar adapters.
 
@@ -65,11 +65,11 @@ This analysis compares their architectures after Hermes adopted several ideas fr
 
 1. **Type safety** — F# discriminated unions, Result types, and the Tagless-Final architecture catch errors at compile time. Knowledge's untyped JavaScript relies on runtime discipline.
 
-2. **Pipeline architecture** — Channel\<Document\> with workflow monad provides backpressure, idempotency, GPU resource locking, and error isolation per stage. Knowledge's monolithic orchestrator is harder to test and reason about.
+2. **Pipeline architecture** — Pipeline V5 declares a validated DAG, durable stage completion, per-stage tables, model-aware scheduling, and error isolation. Knowledge's monolithic orchestrator is harder to test and reason about.
 
 3. **MCP server** — Hermes exposes structured data to downstream consumers. Knowledge traps knowledge inside Electron.
 
-4. **Test coverage** — 833 tests including property-based tests. Knowledge has minimal test infrastructure.
+4. **Test coverage** — 867 tests including property-based tests. Knowledge has minimal test infrastructure.
 
 5. **Structured comprehension** — Hermes produces typed JSON with `document_type`, `fields`, `confidence`. Knowledge produces prose summaries that require further parsing.
 

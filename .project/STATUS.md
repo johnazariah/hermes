@@ -1,74 +1,50 @@
-# Hermes — Project Status
+# Hermes - Project Status
 
-> **Canonical status hub.** Tiny by design — points to design docs for detail.
-> Updated at each checkpoint. Agents: read this first.
+> **Canonical status hub.** Updated 2026-08-12 from `main` at `a11686d`.
 
-## Current State (April 14, 2026)
+## Current State
 
 | Metric | Value |
 |--------|-------|
-| Architecture | Pipeline v4 — channels, property bags, workflow monad |
-| Tests | 700 (694 F# passing, 6 skipped) + 9 Playwright |
-| Branch | `v3-clean` |
-| Pipeline | ingest → extract → comprehend → embed |
-| UI | React 19 five-page app (Pipeline, Documents, Search, Chat, Settings) |
-| Models | llama3:8b (comprehension), nomic-embed-text (embeddings) |
-| Documents processed | 4,000+ (dev, 90-day email sync) |
+| Runtime | .NET 9, F#, ASP.NET Core |
+| Architecture | Pipeline V5 - declarative DAG, per-stage tables, phase-based GPU scheduling |
+| Tests | 867 .NET (857 passed, 10 skipped) + 21 Playwright |
+| Branch | `main` |
+| Pipeline | ingest -> extract -> triage; embed after extract; deep comprehension for gated documents |
+| Storage | File-first structured archive; SQLite holds metadata, workflow state, FTS5, and vectors |
+| Sources | Gmail, Outlook/Graph, and watched folders |
+| UI | React 19 web app with Home, Pipeline, Documents, Search, Chat, Settings, and onboarding |
+| Delivery | Windows tray, Windows/macOS MAUI shell, cross-platform CI |
+| Agent workflow | Squad 0.11.0 enabled |
 
 ## Active Work
 
-**Comprehension stage** — replace coarse classification with LLM-driven structured understanding. This is Hermes' core value and the critical path for Osprey integration.
+No feature wave is active. Pipeline V5, file-first storage, the current React UX, CI repair, and Squad enablement are on `main`.
 
-See: [24-comprehension-stage.md](design/24-comprehension-stage.md)
-
-## Architecture
-
-See: [23-pipeline-v4-architecture.md](design/23-pipeline-v4-architecture.md)
-
-Key principles:
-- **Document = Map<string, obj>** — property bag, typed access via `decode<T>`
-- **Channel<Document>** — runtime flow, no polling, no SQLite queues
-- **Workflow.runStage** — generic monad (idempotency, write-aside, error handling)
-- **Files never move** — `saved_path` is immutable, category is metadata
-- **Comprehension replaces classification** — understanding produces type + fields as byproducts
-- **GPU resource lock** — SemaphoreSlim burst-hold for Ollama model contention
+See: [wave-v5-platform.md](waves/wave-v5-platform.md)
 
 ## Roadmap
 
-| Priority | Item | Status |
-|----------|------|--------|
-| 🔴 | Comprehension stage | Design complete, implementation next |
-| 🔴 | Osprey integration via MCP | Blocked on comprehension |
-| 🟡 | Search + Chat testing with live data | UI exists, untested |
-| 🟡 | Testing register regeneration | 258 listed vs 700 actual |
-| 🟢 | Tray app / browser wrap | Future |
-| 🟢 | CI/CD release pipeline | Future |
+| Priority | Item | State |
+|----------|------|-------|
+| Red | Raise line coverage from 65% to the enforced 75% threshold | Blocking green CI |
+| Red | Validate V5 and file-first migration against the live archive | Required before broad rollout |
+| Red | Replace legacy reclassify/reextract behavior with file-first V5 reflow | Prevent archive and completion drift |
+| Red | Osprey integration through MCP | Depends on live comprehension validation |
+| Yellow | Structured household profile and eight-step onboarding | Designed, not implemented |
+| Yellow | Search/chat and desktop-shell smoke testing with live data | Automated surfaces exist |
+| Green | Archive rebuild tooling and legacy `unclassified/` migration | Planned |
 
-## Completed Waves (historical)
+## Key References
 
-| Wave | Name | Status |
-|------|------|--------|
-| 1 | Backfill + Reminders | ✅ |
-| 1a | Tagless-Final | ✅ |
-| 1b | Coverage | ✅ |
-| 1.5 | Osprey Parity | ✅ |
-| 2 | Extraction | ✅ |
-| 3 | Classification | ✅ (superseded by comprehension) |
-| 4/4b | Avalonia UI | ✅ (superseded by React) |
-| 5.5 | UI Testing | ✅ (superseded by Playwright) |
-| **v4** | **Channel pipeline + React UI** | **✅ Committed: 5dff01b** |
-
-## Key Design Docs
-
-| Doc | Topic | Status |
-|-----|-------|--------|
-| [**23**](design/23-pipeline-v4-architecture.md) | **Pipeline v4 Architecture** | Current |
-| [**24**](design/24-comprehension-stage.md) | **Comprehension Stage** | Design |
-| [17](design/17-pdf-to-markdown.md) | PDF Extraction | Current |
-| [13](design/13-document-feed-and-consumers.md) | Document Feed & Consumers | Current |
-| [10](design/10-agent-evolution.md) | Agent Evolution (triggers/skills) | Aspirational |
-| [22](design/22-smart-tagging-review-queue.md) | Smart Tagging & Review Queue | Aspirational |
+| Doc | Purpose |
+|-----|---------|
+| [30](design/30-pipeline-v5-architecture.md) | Current Pipeline V5 architecture |
+| [24](design/24-comprehension-stage.md) | Two-phase triage and comprehension |
+| [28](design/28-file-first-archive.md) | File-first archive and SQLite boundary |
+| [29](design/29-household-onboarding.md) | Target household onboarding |
+| [Testing register](testing-register.md) | Current automated-test catalog |
 
 ## Blockers
 
-None.
+- CI line coverage is 65%, below the workflow's 75% threshold. Tests and platform builds otherwise pass.
