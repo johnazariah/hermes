@@ -1,6 +1,6 @@
 # Hermes - Project Status
 
-> **Canonical status hub.** Updated 2026-08-12 from `main` at `a11686d`.
+> **Canonical status hub.** Updated 2026-08-27 for the V5 stabilization transition.
 
 ## Current State
 
@@ -8,32 +8,34 @@
 |--------|-------|
 | Runtime | .NET 9, F#, ASP.NET Core |
 | Architecture | Pipeline V5 - declarative DAG, per-stage tables, phase-based GPU scheduling |
-| Tests | 867 .NET (857 passed, 10 skipped) + 21 Playwright |
-| Branch | `main` |
+| Tests | 867 .NET (857 passed, 10 skipped in latest CI) + 21 registered Playwright |
+| Baseline | `main` at `a11686d` |
 | Pipeline | ingest -> extract -> triage; embed after extract; deep comprehension for gated documents |
 | Storage | File-first structured archive; SQLite holds metadata, workflow state, FTS5, and vectors |
 | Sources | Gmail, Outlook/Graph, and watched folders |
 | UI | React 19 web app with Home, Pipeline, Documents, Search, Chat, Settings, and onboarding |
-| Delivery | Windows tray, Windows/macOS MAUI shell, cross-platform CI |
+| Supported UI | React web UI + Windows Tray |
+| Excluded UI | Blazor, MAUI Windows/Mac, and obsolete installers pending promotion evidence |
 | Agent workflow | Squad 0.11.0 enabled |
 
 ## Active Work
 
-No feature wave is active. Pipeline V5, file-first storage, the current React UX, CI repair, and Squad enablement are on `main`.
+**V5 Stabilization** - evidence-led rebaseline, issue reconciliation, privacy-safe
+current-main validation, and bounded follow-on work.
 
-See: [wave-v5-platform.md](waves/wave-v5-platform.md)
+See: [wave-v5-stabilization.md](waves/wave-v5-stabilization.md)
 
 ## Roadmap
 
 | Priority | Item | State |
 |----------|------|-------|
-| Red | Raise line coverage from 65% to the enforced 75% threshold | Blocking green CI |
-| Red | Validate V5 and file-first migration against the live archive | Required before broad rollout |
-| Red | Replace legacy reclassify/reextract behavior with file-first V5 reflow | Prevent archive and completion drift |
-| Red | Osprey integration through MCP | Depends on live comprehension validation |
-| Yellow | Structured household profile and eight-step onboarding | Designed, not implemented |
-| Yellow | Search/chat and desktop-shell smoke testing with live data | Automated surfaces exist |
-| Green | Archive rebuild tooling and legacy `unclassified/` migration | Planned |
+| Red | Phase 0 rebaseline and stale-issue reconciliation | Active |
+| Red | V5 reflow and file-safe reclassification | Blocked on Phase 0 evidence |
+| Red | File-first FTS, semantic/hybrid, and Osprey MCP | Blocked on Phase 1A contracts |
+| Red | Local HTTP/MCP trust boundary | Loopback + allowlist + authenticated mutation |
+| Red | Coverage | 65% line observed; wave close requires 85% line / 60% branch |
+| Yellow | Canonical React/Tray asset and smoke-test path | Phase 1D |
+| Green | Packaging, MAUI, and installer promotion | Deferred |
 
 ## Key References
 
@@ -43,8 +45,10 @@ See: [wave-v5-platform.md](waves/wave-v5-platform.md)
 | [24](design/24-comprehension-stage.md) | Two-phase triage and comprehension |
 | [28](design/28-file-first-archive.md) | File-first archive and SQLite boundary |
 | [29](design/29-household-onboarding.md) | Target household onboarding |
-| [Testing register](testing-register.md) | Current automated-test catalog |
+| [V5 stabilization wave](waves/wave-v5-stabilization.md) | Active tasks, decisions, evidence, journal |
+| [Testing register](testing-register.md) | Automated-test catalog |
 
 ## Blockers
 
-- CI line coverage is 65%, below the workflow's 75% threshold. Tests and platform builds otherwise pass.
+- CI is red at 65% line coverage. Phase 0 must establish truthful branch coverage,
+  skip behavior, production reachability, and archive-integrity evidence before Phase 1A.
