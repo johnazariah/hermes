@@ -88,12 +88,20 @@ Before creating ANY new markdown file in `.project/`, check:
 
 ## Maintenance Rhythm
 
+After every coding session, run `.github/prompts/daily-journal.prompt.md`:
+
+- **Active wave only**: add one new dated entry directly below `## Log`
+- **Add-only**: never rewrite or delete an older journal entry
+- **Evidence-based**: record commits, PRs, changed behavior, validation, blockers, and next step
+- **No status churn**: do not update `STATUS.md`, README metrics, or the testing register unless their explicit triggers apply
+- **No active wave**: stop and report that a wave must be created or activated; never append routine work to a completed wave
+
 After each wave is reviewed and approved, run `.github/prompts/post-wave-update.prompt.md`:
 
 - **Wave file**: mark ✅ Done, append log entry
 - **STATUS.md**: update metrics + roadmap (30 seconds)
 - **README badges**: refresh test count + coverage if changed
 - **Archive**: move completed wave prompt to `.project/archive/`
-- **Push**: `git push`
+- **Handoff**: show the diff; commit or push only when explicitly requested
 
-This keeps everything in sync. Skip it and entropy wins.
+Daily journaling captures work without duplicating project state. Post-wave maintenance updates the canonical state only when the wave changes.

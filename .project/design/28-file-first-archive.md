@@ -1,7 +1,6 @@
 # 28 — File-First Archive Architecture
 
 > Supersedes: current flat `unclassified/` archive model
-> Status: Design — not yet implemented
 > Origin: Discussion 2026-05-07, notes 1–14 from stage-by-stage review
 
 ## Problem
@@ -27,10 +26,10 @@ The archive becomes self-describing and the DB becomes disposable — rebuildabl
 
 ## Decisions (confirmed 2026-05-07)
 
-1. **Multi-label tags replace single category** — documents can have multiple tags (e.g. `utility-bill` + `avalon-property` + `tax-deductible`). The existing `tags` table becomes the primary categorisation mechanism. The single `category` column is retired.
+1. **Multi-label tags are the long-term categorisation model** — documents can have multiple tags (e.g. `utility-bill` + `avalon-property` + `tax-deductible`). A single category remains as a compatibility projection for current API and UI consumers.
 2. **Thread is the unit of comprehension** — the LLM comprehends the entire thread (email conversation + all attachments), not individual attachments in isolation.
 3. **One folder per thread** — all messages and attachments in a thread live in one folder.
-4. **Folder path: `account/first-sender-domain/subject-slug/`** — sender domain is the primary grouping. Falls back to date-slug if subject is empty.
+4. **Folder path: `account/first-sender-domain/subject-slug--thread-prefix/`** — sender domain is the primary grouping; the thread suffix prevents collisions.
 5. **Local drops: `local/date.filename-slug/`** — simpler structure for non-email documents.
 6. **Files are date-prefixed** — `2026-03-15-message.md`, `2026-03-15-invoice.pdf` — disambiguates duplicate filenames.
 7. **Default indexed fields + user favourites** — amount, vendor, date, property_address indexed by default. Users save favourite queries to trigger additional indexing.
@@ -40,55 +39,37 @@ The archive becomes self-describing and the DB becomes disposable — rebuildabl
 
 ```
 {archive_root}/
-├── {account}/                          # email account label
-│   ├── {YYYY-MM-DD}/                   # date of receipt
-│   │   ├── {HHmmss}/                   # time of receipt (disambiguates same-day)
-│   │   │   ├── thread-{thread_id}.md   # email body as markdown
-│   │   │   ├── {original_name}         # raw attachment (PDF, DOCX, etc.)
-│   │   │   ├── {original_name}.extracted.md      # extraction output
-│   │   │   ├── {original_name}.comprehension.json # comprehension output
-│   │   │   └── .hermes.json            # sidecar metadata (replaces .meta.json)
-│   │   └── {HHmmss}/
-│   │       └── ...
-│   └── {YYYY-MM-DD}/
-│       └── ...
-├── local/                              # watched folder / manual drops
-│   ├── {YYYY-MM-DD}/
-│   │   ├── {HHmmss}/
-│   │   │   ├── document.pdf
-│   │   │   ├── document.pdf.extracted.md
-│   │   │   ├── document.pdf.comprehension.json
-│   │   │   └── .hermes.json
-│   │   └── ...
-│   └── ...
-└── .hermes/                            # system directory (not content)
-    ├── hermes.db                       # SQLite (metadata + indexes)
-    ├── preferences.txt                 # user preferences
-    └── config.yaml                     # (optional local copy)
+├── {account}/
+│   └── {sender-domain}/
+│       └── {subject-slug}--{thread-prefix}/
+│           ├── 2026-03-15-message-{message-prefix}.md
+│           ├── 2026-03-15-invoice-{hash}.pdf
+│           ├── 2026-03-15-invoice-{hash}.pdf.extracted.md
+│           ├── thread.comprehension.json
+│           └── .hermes.json
+├── local/
+│   └── 2026-04-01.bank-statement-q1/
+│       ├── 2026-04-01-bank-statement-{hash}.pdf
+│       ├── 2026-04-01-bank-statement-{hash}.pdf.extracted.md
+│       └── .hermes.json
+└── db.sqlite
 ```
 
 ### Naming conventions
 
-- **Account folders** use the account label from config (e.g. `john.azariah@gmail.com`)
-- **Date folders** use ISO 8601 date: `YYYY-MM-DD`
-- **Time folders** use `HHmmss` from the email received timestamp (UTC)
-- **Thread files** use the provider's thread ID: `thread-{id}.md`
-- **Attachments** keep their original filename, sanitised for filesystem safety
+- **Path segments** are lowercase filesystem-safe slugs.
+- **Account folders** use the configured account label.
+- **Thread folders** combine subject and a short thread ID to avoid recurring-subject collisions.
+- **Messages** include a short provider message ID.
+- **Attachments** retain their extension and include a short content hash.
 - **Stage outputs** use the convention `{original}.{stage}.{ext}`:
   - `.extracted.md` — text extraction output
-  - `.comprehension.json` — LLM comprehension output
-- **Local drops** (watch folders, manual) go under `local/` with the same date/time structure
+  - `thread.comprehension.json` — latest thread-level LLM output
+- **Local drops** use `local/{date}.{filename-slug}/`.
 
 ### Thread handling
 
-Email threads span multiple messages arriving at different times. Each message gets its own time folder. The `thread-{id}.md` file contains only that message's body. Thread reconstruction for display uses the thread ID to find all related folders.
-
-If a reply arrives to an existing thread:
-- New folder: `account/2026-05-08/093000/thread-abc123.md`
-- Same thread ID as the original message
-- DB links them: `SELECT * FROM messages WHERE thread_id = 'abc123' ORDER BY date`
-
-We do NOT append to an existing `thread.md` file — each message is immutable once written.
+All messages and attachments in a provider thread share one folder. Each message is an immutable date-prefixed Markdown file; thread reconstruction reads message files in filename order. `.hermes.json` merges new file entries without replacing prior thread metadata.
 
 ### Sidecar metadata (.hermes.json)
 
@@ -121,7 +102,7 @@ Replaces the current `.meta.json`. One per folder, covers all files in that fold
 
 | Table | Content | Reason |
 |-------|---------|--------|
-| `documents` | id, folder_path, stage, category, confidence, timestamps | Workflow state |
+| `documents` | id, saved_path, stage, compatibility category/confidence, timestamps | Workflow state and API compatibility |
 | `messages` | id, account, provider_id, thread_id, folder_path, date | Message index (no body_text) |
 | `documents_fts` | FTS5 virtual table | Keyword search index |
 | `vec_documents` | sqlite-vec embeddings | Semantic search index |
@@ -134,10 +115,10 @@ Replaces the current `.meta.json`. One per folder, covers all files in that fold
 
 | Column | Moves to |
 |--------|----------|
-| `messages.body_text` | `thread-{id}.md` file |
+| `messages.body_text` | Date-prefixed message Markdown file |
 | `documents.extracted_text` | `{name}.extracted.md` file |
 | `documents.extracted_markdown` | `{name}.extracted.md` file |
-| `documents.comprehension` | `{name}.comprehension.json` file |
+| `documents.comprehension` | `thread.comprehension.json` file |
 
 ### New columns
 
@@ -165,12 +146,12 @@ Download attachment → save to unclassified/ → INSERT body into messages tabl
 
 After:
 ```
-Download attachment → create account/date/time/ folder
-                    → write thread-{id}.md (email body)
-                    → save attachment to folder
-                    → write .hermes.json sidecar
-                    → INSERT into messages (folder_path, no body_text)
-                    → INSERT into documents (folder_path)
+Download message → create account/domain/subject--thread/ folder
+                 → write date-prefixed message Markdown
+                 → save attachment to folder
+                 → write .hermes.json sidecar
+                 → INSERT into messages (folder_path, no body_text)
+                 → INSERT into documents (folder_path)
 ```
 
 ### Extract (changed)
@@ -196,7 +177,7 @@ Read extracted_text from DB → LLM → UPDATE documents SET comprehension
 
 After:
 ```
-Read {filename}.extracted.md from disk → LLM → write {filename}.comprehension.json
+Read thread messages + extracted files → LLM → write thread.comprehension.json
                                               → UPDATE documents SET stage, category, confidence
                                               → upsert learned_patterns, suggestions
 ```
@@ -230,13 +211,10 @@ This is slow but possible. The archive is the source of truth.
 
 Categories are **emergent, not predefined**:
 
-1. Comprehension produces tags freely — the LLM decides
-2. Tags accumulate in the `tags` table (multi-label per document)
-3. The tag list in the UI is `SELECT DISTINCT tag FROM tags`
-4. Users can rename, merge, or delete tags
-5. User corrections feed back into preferences, which guide future comprehension
-6. The hardcoded `canonicalCategories` map in `ComprehensionSchema.fs` is removed
-7. The single `category` column in `documents` is retired in favour of multi-label tags
+1. Comprehension produces tags freely.
+2. Tags accumulate in the `tags` table and can represent type, property, purpose, and tax relevance at once.
+3. User corrections feed preferences and learned patterns.
+4. The current single `category` remains a compatibility projection while API and UI consumers move to tags.
 
 ### Real-world example folder structure
 
@@ -244,16 +222,16 @@ Categories are **emergent, not predefined**:
 ~/Documents/Hermes/
 ├── john.azariah@gmail.com/
 │   ├── telstra.com.au/
-│   │   ├── your-march-2026-bill/
+│   │   ├── your-march-2026-bill--thread-a/
 │   │   │   ├── 2026-03-15-message.md
 │   │   │   ├── 2026-03-15-telstra-bill-march.pdf
 │   │   │   ├── 2026-03-15-telstra-bill-march.pdf.extracted.md
 │   │   │   ├── thread.comprehension.json
 │   │   │   └── .hermes.json
-│   │   └── your-april-2026-bill/
+│   │   └── your-april-2026-bill--thread-b/
 │   │       └── ...
 │   ├── raywhite.com.au/
-│   │   └── flooding-fix-1-avalon/
+│   │   └── flooding-fix-1-avalon--thread-c/
 │   │       ├── 2026-03-15-ray-initial-report.md
 │   │       ├── 2026-03-16-bob-plumber-quote.pdf
 │   │       ├── 2026-03-18-nrma-claim-form.pdf
@@ -261,14 +239,12 @@ Categories are **emergent, not predefined**:
 │   │       ├── thread.comprehension.json
 │   │       └── .hermes.json
 │   └── microsoft.com/
-│       └── your-march-payslip/
+│       └── your-march-payslip--thread-d/
 │           └── ...
 ├── local/
 │   └── 2026-04-01.bank-statement-q1/
 │       └── ...
-└── .hermes/
-    ├── hermes.db
-    └── preferences.txt
+└── db.sqlite
 ```
 
 ### Thread-level comprehension output
@@ -297,36 +273,26 @@ The `thread.comprehension.json` covers the entire thread — conversation contex
 }
 ```
 
-1. Comprehension produces `document_type` freely — the LLM decides
-2. The `document_type` becomes the initial category
-3. `learned_patterns` tracks which types appear and how often
-4. The category list in the UI is `SELECT DISTINCT category FROM documents`
-5. Users can rename, merge, or delete categories
-6. User corrections feed back into preferences, which guide future comprehension
-7. The hardcoded `canonicalCategories` map in `ComprehensionSchema.fs` is removed
+`document_type` seeds the compatibility category, while the richer tag set is persisted separately. `learned_patterns` tracks sender/type evidence and user corrections guide future prompts.
 
 ## LLM Escalation
 
 Local Ollama first, cloud fallback for hard documents:
 
 ```
-Comprehend with local Ollama (llama3:8b)
+Comprehend with the configured local provider
   → confidence >= threshold? → done
   → confidence < threshold? → re-try with cloud LLM (Claude, GPT-4o)
                              → user opts in per document or globally
 ```
 
-The `ChatProvider` algebra already supports multiple backends. The escalation decision is new logic in the `understand` stage.
+The `ChatProvider` algebra supports multiple backends. Escalation must remain an explicit opt-in policy rather than a silent fallback.
 
-## Migration
+## Legacy Archive Compatibility
 
-Existing archives (4,000+ docs in `unclassified/`) need migration:
+New ingestion writes the structured layout. Existing `unclassified/` files remain readable through `saved_path` compatibility. A migration tool can incrementally read legacy `.meta.json` sidecars, reconstruct the structured destination, verify hashes, and then retire the old paths.
 
-1. **Phase 1**: New code writes to new structure. Old files stay in `unclassified/`.
-2. **Phase 2**: Migration tool reads `.meta.json` sidecars, reconstructs account/date/time structure, moves files.
-3. **Phase 3**: Remove old `unclassified/` code paths.
-
-The migration can be incremental — new docs go to the new structure immediately, old docs are migrated in the background.
+Legacy `DocumentManagement.reclassify` still moves files by category and `reextract` still resets V4 projection fields. File-first behavior requires those operations to become metadata/tag updates and V5 stage-completion invalidation.
 
 ## Encryption (future door)
 
@@ -339,15 +305,10 @@ The file-based structure makes per-tenant encryption straightforward:
 
 ## Open Questions
 
-1. **Thread display**: How do we reconstruct thread view in the UI from separate message folders? Query by thread_id, load each `thread-{id}.md` in date order?
-
-2. **Dedup across accounts**: Same attachment received in two accounts. Currently dedup by SHA256. With separate account folders, do we store twice or symlink?
-
-3. **Watch folder structure**: Does `local/` use the same date/time nesting? Or just `local/{filename}` flat since there's no email context?
-
-4. **Comprehension field indexing**: Do we keep a thin copy of key comprehension fields in SQLite for fast field-aware search, or always read from `.comprehension.json` files?
-
-5. **FTS5 rebuild performance**: How long does it take to re-index 4,000+ `.extracted.md` files? Is this acceptable for a "rebuild from files" scenario?
+1. **Dedup across accounts**: should identical attachments be stored once, copied, or linked?
+2. **Comprehension field indexing**: which fields deserve dedicated SQLite projections?
+3. **FTS5 rebuild performance**: how long does a full archive rebuild take at production scale?
+4. **Migration verification**: what audit manifest proves every legacy file moved safely?
 
 ---
 
@@ -359,7 +320,7 @@ What 35 years of email UI teaches us about Hermes.
 
 Pine stored mail as text files. Maildir used one-file-per-message with no locking, safe for concurrent access across processes. When the index broke, you rebuilt from files.
 
-**Applied**: Our file-first archive is exactly this pattern. The `account/date/time/` structure is essentially Maildir with richer hierarchy. Multiple Hermes instances could write to a shared archive safely.
+**Applied**: The account/domain/thread archive is this pattern with richer hierarchy. Multiple Hermes instances can write distinct immutable files without using SQLite as a content lock.
 
 ### Outlook/PST (1996): The monolithic blob anti-pattern
 
@@ -371,7 +332,7 @@ Everything in one `.pst` file. Corrupt it, lose everything. Grows without bound.
 
 A message can have multiple labels. "This is a receipt AND avalon-property AND tax-deductible." Search-first, not folder-first.
 
-**Applied**: Categories should be **multi-label**, not single-category. A council rates bill for 1 Avalon St should be tagged with both `rates-and-tax` and `avalon-property`. The existing `tags` table already supports this — we should promote tags to be the primary categorisation mechanism instead of the single `category` column.
+**Applied**: The `tags` table supports multi-label categorisation. The single category remains only as a compatibility projection while consumers transition to tags.
 
 ### Superhuman (2020s): Speed and command palette
 

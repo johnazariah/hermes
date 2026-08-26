@@ -40,7 +40,7 @@ Hermes (producer)                 Consumers
 
 ### 2.1 — Document sequence number
 
-The `documents.id` column (INTEGER PRIMARY KEY AUTOINCREMENT) is already a monotonically increasing sequence. Documents are never deleted, only soft-archived. This means `id` is a natural, gap-free, stable sequence number.
+The `documents.id` column (INTEGER PRIMARY KEY AUTOINCREMENT) is a monotonically increasing sequence. IDs are stable but may contain gaps, which does not affect `id > cursor` pagination.
 
 **No schema change needed.** The existing `documents.id` is the feed position.
 
@@ -59,11 +59,12 @@ Consumers need to know what stage a document has reached. The feed includes proc
 | State | Meaning | How consumer knows |
 |-------|---------|-------------------|
 | **Ingested** | File saved to archive, basic metadata recorded | `ingested_at IS NOT NULL` |
-| **Classified** | Category assigned, moved to category folder | `category != 'unclassified'` |
-| **Extracted** | Text extracted, structured fields populated | `extracted_at IS NOT NULL` |
+| **Triaged** | Fast type/category/confidence available | `triage` completion exists |
+| **Extracted** | File-backed Markdown and structured projections available | `extracted_at IS NOT NULL` |
+| **Comprehended** | Thread-level structured JSON available | `comprehension` completion exists |
 | **Embedded** | Vector embeddings generated | `embedded_at IS NOT NULL` |
 
-A consumer like Osprey only cares about **extracted** documents (it needs `extracted_text`, `extracted_amount`, etc.). It can filter: `WHERE extracted_at IS NOT NULL AND id > @cursor`.
+A consumer like Osprey needs **comprehended** financial documents. The current feed exposes cursor/category filtering and extracted metadata projections; Osprey can retrieve file-backed content separately and should add its comprehension-readiness contract without putting consumer state in Hermes.
 
 A consumer that needs full text search might only care about **ingested** documents and does its own extraction.
 
@@ -130,12 +131,6 @@ The primary feed tool. Returns documents in `id` order.
         "default": 0,
         "description": "Return documents with id > since_id. Use 0 to start from the beginning."
       },
-      "state": {
-        "type": "string",
-        "enum": ["ingested", "classified", "extracted", "embedded", "any"],
-        "default": "any",
-        "description": "Filter by processing state. 'extracted' = has extracted text and fields."
-      },
       "category": {
         "type": "string",
         "description": "Filter by category (e.g. 'invoices', 'payslips'). Optional."
@@ -150,7 +145,7 @@ The primary feed tool. Returns documents in `id` order.
 }
 ```
 
-**Returns**: Array of document records including all metadata + extracted fields, ordered by `id ASC`. The consumer saves `max(id)` from the response as its new cursor.
+**Returns**: Array of document metadata and extracted field projections ordered by `id ASC`. The consumer saves `max(id)` from the response as its new cursor.
 
 ### `hermes_get_document_content`
 
@@ -207,9 +202,9 @@ No new tables. No new indexes (primary key index on `id` already handles this). 
 Any downstream app that uses Hermes as a document platform follows this protocol:
 
 ```
-1. CONNECT to Hermes MCP (localhost:21740)
+1. CONNECT to Hermes MCP (localhost:21741)
 2. LOAD cursor from own storage (default: 0)
-3. POLL: hermes_list_documents(since_id=cursor, state="extracted", limit=100)
+3. POLL: hermes_list_documents(since_id=cursor, category=optional, limit=100)
 4. For each document:
    a. Decide if relevant (filter by category, sender, etc.)
    b. If relevant: hermes_get_document_content(id, format="markdown")

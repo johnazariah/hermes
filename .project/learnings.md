@@ -19,7 +19,12 @@
 - **Source**: Test refactor, 2026-03-29
 
 ### Pipeline
-_No entries yet._
+
+#### Pipeline V5 compatibility must stay file-backed
+- **Learning**: Reusing V4 processors inside the V5 DAG is safe only when compatibility documents hydrate metadata and processors read extracted/comprehension content from archive artifacts.
+- **Pattern**: Keep V5 output tables metadata-only, use `saved_path` to resolve artifacts, and treat legacy `documents` updates as API/UI projections.
+- **Rationale**: Restoring dropped content columns would make SQLite the content source again and break file-first recovery.
+- **Source**: Pipeline V5 and file-first integration, 2026-05-08
 
 ### Ollama / AI
 _No entries yet._
@@ -28,15 +33,26 @@ _No entries yet._
 _No entries yet._
 
 ### Cross-Platform
-_No entries yet._
+
+#### CI runner toolchains must be selected explicitly
+- **Learning**: Hosted macOS runner defaults can move ahead of the Xcode version supported by the installed MAUI workload.
+- **Pattern**: Select the required Xcode installation explicitly before installing/building the MacCatalyst workload.
+- **Rationale**: Pinning Xcode 26.5 made the shell build deterministic when the runner default changed to 26.6.
+- **Source**: PR #14, 2026-08-11
+
+#### Binary fixtures need tracked allow-list rules
+- **Learning**: Broad document ignore rules hid positive PPTX fixtures, so tests passed locally but failed in clean CI checkouts.
+- **Pattern**: Keep generated documents ignored, then add narrow negation rules for required synthetic fixtures and mark binary formats in `.gitattributes`.
+- **Rationale**: A fixture-dependent test is reproducible only when the fixture is versioned.
+- **Source**: PR #14, 2026-08-11
 
 ### Gmail API
 _No entries yet._
 
-### .NET 10 F# Gotchas
+### .NET / F# Gotchas
 
 #### Nullable warnings are errors
-- **Learning**: .NET 10 F# treats nullable reference type warnings as errors by default (via `TreatWarningsAsErrors`). `box x` returns `obj | null`, `Path.GetDirectoryName()` returns `string | null`, `Assembly.GetEntryAssembly()` returns nullable.
+- **Learning**: With nullable annotations enabled and `TreatWarningsAsErrors`, F# interop with nullable BCL APIs must be explicit. `box x` returns `obj | null`, `Path.GetDirectoryName()` returns `string | null`, and `Assembly.GetEntryAssembly()` returns nullable.
 - **Pattern**: Use `Database.boxVal` helper instead of raw `box`. Pattern match on nullable returns. Use `Option.ofObj` for BCL methods that return nullable strings.
 - **Rationale**: Without this, every interaction with .NET BCL APIs produces a compile error.
 - **Source**: Phase 0 implementation, 2026-03-27_

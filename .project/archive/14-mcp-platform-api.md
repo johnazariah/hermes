@@ -1,4 +1,4 @@
-# Hermes — MCP Platform API
+# Hermes — MCP Platform API (Archived Proposal)
 
 > Design doc for evolving the MCP server from read-only document search to a full platform API.  
 > Builds on: doc 05 (MCP Server Design), doc 13 (Document Feed & Consumers).  

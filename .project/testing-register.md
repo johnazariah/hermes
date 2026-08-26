@@ -6,13 +6,13 @@
 
 | Category | Count |
 |----------|-------|
-| Unit | 537 |
+| Unit | 565 |
 | Property | 5 |
-| Integration | 285 |
+| Integration | 291 |
 | ManualTest | 6 |
-| **Total** | **833** |
+| **Total** | **867** |
 
-> 792 unique test methods; 833 total test cases
+> 843 unique test methods; 867 total test cases
 > (Theory/InlineData tests contribute multiple cases per method)
 
 ---
@@ -965,7 +965,7 @@
 | McpServer_ContactSetTaxRelevant_Updates | Integration |
 | McpServer_ContactSetTaxRelevant_NotFound_ReturnsError | Integration |
 
-## PptxExtractionTests.fs (4 tests)
+## PptxExtractionTests.fs (10 tests)
 
 | Test | Category |
 |------|----------|
@@ -973,6 +973,12 @@
 | PptxExtraction_ExtractPptx_EmptyBytes_ReturnsEmptyWithZeroConfidence | Unit |
 | Extraction_IsPptx_ReturnsTrue_ForPptxExtension | Unit |
 | Extraction_IsPptx_ReturnsFalse_ForOtherExtensions | Unit |
+| PptxExtraction_ExtractPptx_SimpleSlide_ExtractsText | Integration |
+| PptxExtraction_ExtractPptx_MultiSlide_CorrectPageCount | Integration |
+| PptxExtraction_ExtractPptx_MultiSlide_ExtractsSlideText | Integration |
+| PptxExtraction_ExtractPptx_MultiSlide_ExtractsTable | Integration |
+| PptxExtraction_ExtractPptx_MultiSlide_ExtractsSpeakerNotes | Integration |
+| PptxExtraction_ExtractPptx_SimpleSlide_HighConfidence | Integration |
 
 ## OutlookProviderTests.fs (12 tests)
 
@@ -998,3 +1004,28 @@
 | Stages_CompactSchemaHint_InvalidJson_ReturnsNone | Unit |
 | Stages_CompactSchemaHint_EmptyFields_ReturnsEmptyArray | Unit |
 | Stages_CompactSchemaHint_CapsAt300Chars | Unit |
+
+## ArchiveWriterTests.fs (28 tests)
+
+| Test | Category |
+|------|----------|
+| ArchiveWriter_Slugify_NormalText_ReturnsSlug | Unit |
+| ArchiveWriter_Slugify_EmptyOrWhitespace_ReturnsUntitled | Unit |
+| ArchiveWriter_Slugify_LongText_TruncatesAt60Chars | Unit |
+| ArchiveWriter_ExtractSenderDomain_ValidEmail_ReturnsDomain | Unit |
+| ArchiveWriter_ExtractSenderDomain_NoEmail_ReturnsUnknown | Unit |
+| ArchiveWriter_ThreadFolderPath_BuildsCorrectPath | Unit |
+| ArchiveWriter_ThreadFolderPath_DifferentThreadIds_DifferentPaths | Unit |
+| ArchiveWriter_LocalFolderPath_BuildsCorrectPath | Unit |
+| ArchiveWriter_MessageFileName_IncludesDateAndSlug | Unit |
+| ArchiveWriter_AttachmentFileName_PreservesExtension | Unit |
+| ArchiveWriter_AttachmentFileName_HandlesDotInName | Unit |
+| ArchiveWriter_AttachmentFileName_DifferentHashes_DifferentNames | Unit |
+| ArchiveWriter_WriteMessage_CreatesFile | Unit |
+| ArchiveWriter_WriteAttachment_CreatesFile | Unit |
+| ArchiveWriter_WriteExtraction_CreatesSidecarFile | Unit |
+| ArchiveWriter_WriteComprehension_CreatesThreadJson | Unit |
+| ArchiveWriter_WriteSidecar_CreatesHermesJson | Unit |
+| ArchiveWriter_ReadExtraction_ReturnsNone_WhenNotExists | Unit |
+| ArchiveWriter_ReadComprehension_ReturnsNone_WhenNotExists | Unit |
+| ArchiveWriter_ReadExtraction_ReturnsContent_WhenExists | Unit |

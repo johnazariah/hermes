@@ -9,9 +9,20 @@
 Before creating or modifying any project documentation, read `.project/GOVERNANCE.md`.
 
 - **Project status**: `.project/STATUS.md` (read first — 50 lines)
-- **Architecture**: `.project/design/23-pipeline-v4-architecture.md` (the canonical design doc)
-- **Comprehension**: `.project/design/24-comprehension-stage.md` (next to implement)
+- **Active journal**: `.project/waves/*.md` (exactly one `⏳ Active` wave during implementation)
+- **Architecture**: `.project/design/30-pipeline-v5-architecture.md` (canonical)
+- **Comprehension**: `.project/design/24-comprehension-stage.md`
 - **Design reference**: `.project/design/*.md` (what/why, not status)
+
+### Daily journal (mandatory)
+
+At the end of every coding session, run `.github/prompts/daily-journal.prompt.md`.
+
+- Add one new dated entry directly below `## Log` in the active wave.
+- Never edit or delete older journal entries.
+- Do not update `.project/STATUS.md` during routine session sync.
+- Update `STATUS.md` only during an explicit wave transition via `.github/prompts/post-wave-update.prompt.md`.
+- If no wave is active, stop and surface that governance gap instead of writing to a completed wave.
 
 ## Project Overview
 
@@ -199,10 +210,11 @@ A UI task is **not done** until all of the following are true:
 
 ### General workflow
 
-1. Read the current phase spec before implementing.
-2. Check `.project/design/07-open-questions.md` for resolved decisions.
+1. Read `.project/STATUS.md`, then the active wave and its linked design docs before implementing.
+2. Keep status in the wave journal, not in design docs or prompts.
 3. Update the testing register when tests change.
 4. Use the commit prompt (`.github/prompts/commit.prompt.md`) for clean commits.
 5. Run `dotnet build` and `dotnet test` before committing.
 6. Check code against the idiom standards before presenting — fix violations first.
 7. When a phase includes UI work, verify the full definition of done above before marking complete.
+8. Run `.github/prompts/daily-journal.prompt.md` before ending the session.

@@ -353,7 +353,7 @@ let extractPdfContent (pdfBytes: byte[]) : Result<string * float, string> =
         Ok (markdown, structured.Confidence)
 ```
 
-The `extracted_text` column in `documents` stores the markdown output. FTS5 indexes it. MCP serves it via `hermes_get_document_content`.
+The Markdown output is written beside the source as `<saved_path>.extracted.md`. FTS5 indexes its text and MCP serves the file-backed artifact through `hermes_get_document_content`.
 
 ### fsproj ordering
 
@@ -694,7 +694,7 @@ Phases P1–P6 remain as specified (PDF structural extraction). Additional phase
 | **P11** | CSV extraction: raw content + markdown table rendering | Drop a `.csv` bank statement → markdown table in preview → `format="raw"` returns original CSV via MCP |
 | **P12** | Format dispatch: extension-based routing in Extraction.fs | All formats handled automatically by pipeline → no manual intervention |
 
-Each phase follows silver-thread: backend extraction + stored in DB + visible in Documents tab preview + searchable in chat + accessible via MCP.
+Each phase follows silver-thread: backend extraction + archive artifact + visible Documents preview + searchable text + MCP access.
 
 ---
 
@@ -702,8 +702,8 @@ Each phase follows silver-thread: backend extraction + stored in DB + visible in
 
 | # | Question | Leaning |
 |---|----------|---------|
-| 1 | Should we store both flat text and structured markdown? | Yes — `extracted_text` stays as flat text (backward compat), add `extracted_markdown` column. MCP serves whichever format is requested. |
-| 2 | Should we re-extract all existing 4,166 PDFs with the new algorithm? | Yes — but as a background task, not blocking. Queue via `extracted_at = NULL` reset. |
+| 1 | Should we store both flat text and structured markdown? | Store canonical Markdown in `<saved_path>.extracted.md`; derive plain text at read/index time. |
+| 2 | Should we re-extract existing PDFs with improved algorithms? | Yes, through Pipeline V5 reflow by clearing extraction completion/output metadata rather than restoring content columns. |
 | 3 | Should PdfPig positional extraction run on all pages or cap at N? | Cap at 50 pages (covers 99% of documents). Log warning for longer docs. |
 | 4 | Should we use PdfPig's built-in `PageTextExtractor` or go letter-by-letter? | Letter-by-letter for table detection. `PageTextExtractor` loses positional info. |
 | 5 | Should table detection use ML (e.g. a table boundary classifier) or pure geometry? | Pure geometry for v1. ML is over-engineering until geometry fails consistently. |
