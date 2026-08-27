@@ -928,6 +928,23 @@ let private publishStageRow
             return ()
         })
 
+let rec private assertStageRowsSuperseded
+    (db: Algebra.Database)
+    (token: Generation.Token)
+    (docId: int64)
+    (statements: (string * string) list)
+    : Task<unit> =
+    match statements with
+    | [] -> Task.FromResult()
+    | (table, sql) :: remaining ->
+        task {
+            let! publication = publishStageRow db token sql
+            Assert.Equal(Generation.Superseded, publication)
+            let! rows = countRows db table docId
+            Assert.Equal(0L, rows)
+            return! assertStageRowsSuperseded db token docId remaining
+        }
+
 [<Fact>]
 [<Trait("Category", "Integration")>]
 let ``Reflow_StageOwnedOutputs_AfterGenerationBump_NeverBecomeObservable`` () =
@@ -958,11 +975,7 @@ let ``Reflow_StageOwnedOutputs_AfterGenerationBump_NeverBecomeObservable`` () =
                   "document_chunks",
                   "INSERT INTO document_chunks (document_id, chunk_index, chunk_text, embedded_at) VALUES (@doc, 9, 'stale', datetime('now'))" ]
 
-            for (table, sql) in statements do
-                let! publication = publishStageRow db captured sql
-                Assert.Equal(Generation.Superseded, publication)
-                let! rows = countRows db table docId
-                Assert.Equal(0L, rows)
+            do! assertStageRowsSuperseded db captured docId statements
         finally db.dispose ()
     }
 

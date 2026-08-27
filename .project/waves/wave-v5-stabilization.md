@@ -98,6 +98,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-08-27 - Phase 1A PR A Release compiler correction
+
+- **Changed:** Replaced a task-expression `for` loop in the stale-stage-output regression with a tail-recursive task helper so F# Release compilation remains statically resumable under warnings-as-errors.
+- **Evidence:** PR #20 initial CI identified FS3511 at `ReflowTests.fs`; the production implementation was unaffected.
+- **Validation:** Release test-project build passed with 0 warnings/errors; the affected regression passed; the full Release suite executed 940 tests (930 passed, 10 skipped).
+- **Blockers:** Awaiting refreshed PR checks; issue #18 retains ownership of the 85% / 60% wave-close gate.
+- **Next:** Push the correction and verify cross-platform CI.
+
 ### 2026-08-27 - Phase 1A PR A cross-document publication races closed
 
 - **Changed:** Canonicalized artifact lock identities against the archive root, moved deep-extraction merge/read/write under the shared folder fence, fenced every V5 stage-owned output with its captured generation, persisted one canonical comprehension publication per stage generation, and made extracted-content reads stable across reflow.
