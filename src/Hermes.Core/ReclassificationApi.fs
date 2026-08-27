@@ -18,6 +18,7 @@ module ReclassificationApi =
     type BatchResponse =
         { action: string
           succeeded: int
+          unchanged: int
           failed: int
           outcomes: ItemResponse list }
 
@@ -77,17 +78,23 @@ module ReclassificationApi =
 
         loop [] documentIds
 
+    let private count predicate =
+        List.filter predicate >> List.length
+
     let batch db fs archiveDir documentIds category : Task<BatchResponse> =
         task {
             let! outcomes =
                 executeAll db fs archiveDir category documentIds
-            let failed =
+            let succeeded =
+                outcomes |> count (fun outcome -> outcome.error.IsNone && outcome.changed)
+            let unchanged =
                 outcomes
-                |> List.filter (fun outcome -> outcome.error.IsSome)
-                |> List.length
+                |> count (fun outcome -> outcome.error.IsNone && not outcome.changed)
+            let failed = outcomes |> count (fun outcome -> outcome.error.IsSome)
             return
                 { action = "reclassify"
-                  succeeded = outcomes.Length - failed
+                  succeeded = succeeded
+                  unchanged = unchanged
                   failed = failed
                   outcomes = outcomes }
         }

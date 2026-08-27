@@ -832,7 +832,7 @@ skip and Playwright execution evidence.
 | Rest_SingleReturnsExplicitIdentityPreservingOutcome | Integration |
 | Rest_SingleReportsIdempotentReclassificationAsUnchanged | Integration |
 | Rest_SingleMapsWhitespaceCategoryValidationExplicitly | Integration |
-| Rest_BatchRetainsPerDocumentPartialFailures | Integration |
+| Rest_BatchReportsTruthfulCountsForMixedOutcomes | Integration |
 
 ## ThreadsTests.fs (7 tests)
 

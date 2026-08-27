@@ -84,23 +84,45 @@ let ``REST single maps whitespace category validation explicitly`` () =
 
 [<Fact>]
 [<Trait("Category", "Integration")>]
-let ``REST batch retains per-document partial failures`` () =
+let ``REST batch reports truthful counts for mixed outcomes`` () =
     task {
         let db = TestHelpers.createDb ()
         let fs = TestHelpers.memFs ()
         fs.Put "/archive/present/source.pdf" "source"
+        fs.Put "/archive/unchanged/source.pdf" "source"
 
         try
             do! insertDocument db "present/source.pdf"
             do! insertDocument db "missing/source.pdf"
+            do! insertDocument db "unchanged/source.pdf"
+            let! _ =
+                Hermes.Core.ReclassificationApi.single
+                    db fs.Fs "/archive" 3L "receipts"
             let! response =
                 Hermes.Core.ReclassificationApi.batch
-                    db fs.Fs "/archive" [ 1L; 2L; 999L ] "receipts"
+                    db fs.Fs "/archive" [ 1L; 2L; 3L; 999L ] "receipts"
 
             Assert.Equal("reclassify", response.action)
             Assert.Equal(1, response.succeeded)
+            Assert.Equal(1, response.unchanged)
             Assert.Equal(2, response.failed)
-            Assert.Equal(3, response.outcomes.Length)
+            Assert.Equal(4, response.outcomes.Length)
+            Assert.Equal(
+                response.outcomes.Length,
+                response.succeeded + response.unchanged + response.failed)
+            Assert.Contains(
+                response.outcomes,
+                fun outcome ->
+                    outcome.documentId = 1L
+                    && outcome.status = "reclassified"
+                    && outcome.changed)
+            Assert.Contains(
+                response.outcomes,
+                fun outcome ->
+                    outcome.documentId = 3L
+                    && outcome.status = "unchanged"
+                    && not outcome.changed
+                    && outcome.error.IsNone)
             Assert.Contains(
                 response.outcomes,
                 fun outcome ->

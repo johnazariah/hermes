@@ -99,6 +99,7 @@ export interface ReclassificationOutcome {
 export interface BatchReclassificationResponse {
   action: "reclassify";
   succeeded: number;
+  unchanged: number;
   failed: number;
   outcomes: ReclassificationOutcome[];
 }

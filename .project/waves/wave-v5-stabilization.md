@@ -98,6 +98,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-08-27 - Reclassification batch counts corrected
+
+- **Changed:** Batch reclassification now reports changed, unchanged, and failed outcomes separately so idempotent no-ops do not inflate the successful-change count.
+- **Evidence:** PR #19 follow-up; `ReclassificationApi.fs`, `ReclassificationApiTests.fs`, and the additive React response type.
+- **Validation:** Full solution build passed; 898 .NET tests ran (888 passed, 10 skipped); Core coverage reached 66.88% line / 31.27% branch; React build and focused ESLint passed; independent F# review approved.
+- **Blockers:** The pre-existing 75% CI line-coverage gate remains tracked by issue #18.
+- **Next:** Re-run PR #19 checks and continue review without merging.
+
 ### 2026-08-27 - Metadata-only reclassification completed
 
 - **Changed:** Reclassification now updates compatibility category, provenance, generated category tags, and FTS metadata atomically without moving source bytes; REST, MCP, Classifier, and React expose explicit outcomes, and bounded legacy repair changes only SHA-proven path metadata.
