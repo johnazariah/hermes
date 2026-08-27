@@ -1,128 +1,92 @@
 ---
-description: "Manual smoke test checklist for Hermes UI. Run through this after every wave."
+description: "Privacy-safe manual smoke checklist for the canonical Hermes Service, React UI, and Windows Tray."
 ---
 
 # Smoke Test Checklist
 
-> **Pre-conditions**
-> - `dotnet run --project src/Hermes.App` launches successfully
-> - At least 1 Gmail account configured (or watch folder active)
-> - Archive has documents
-> - Ollama running locally (or Azure OpenAI configured)
+Use this checklist after a wave changes a supported or preview runtime surface.
+Record evidence in the active wave and testing register; do not turn this prompt
+into a separate status manifest.
 
----
+## Safety Preconditions
 
-## Launch & Layout
+- [ ] Use an isolated `HERMES_CONFIG_DIR`, archive, database, and development port.
+- [ ] Configure no real email accounts or watched folders; provider sync is disabled.
+- [ ] Use only synthetic fixtures. Do not open or copy the live archive.
+- [ ] Disable cloud providers and external network access unless the test has
+      explicit consent and sanitized input.
+- [ ] Record counts, synthetic IDs, and pass/fail results only; never record body
+      text, credentials, personal paths, or personal filenames.
 
-- [ ] Window opens within ~5 seconds
-- [ ] Three columns visible: funnel (left), content (centre), chat (right)
-- [ ] Funnel column shows all sections: Sources, Intake, Extracting, Classifying, Library, Index, Action Items, Services
-- [ ] Status bar at bottom shows document count and state
-- [ ] Window title shows "Hermes"
+## Launch
 
-## Sources Section
+- [ ] `dotnet run --project src/Hermes.Service` starts against the isolated state.
+- [ ] The health endpoint responds on the configured development port.
+- [ ] `/` and registered deep links `/documents`, `/search`, `/settings`, and
+      `/onboarding` render the same React application rather than Blazor.
+- [ ] On Windows, `dotnet run --project src/Hermes.Tray` opens that same Service
+      UI and exits cleanly.
+- [ ] No Gmail, Outlook, watcher, or Ollama activity occurs unless explicitly
+      enabled for a synthetic test.
 
-- [ ] Email accounts listed with message counts
-- [ ] Backfill progress bar visible (if backfill active)
-- [ ] "Last sync: Nm ago" text present and updates on refresh
-- [ ] **[+ Add Account]** button opens OAuth dialog (or shows instructions)
-- [ ] **[+ Add Folder]** button opens folder picker
-- [ ] Watch folders listed under Sources
+## Canonical React UI
 
-## Processing Pipeline — Intake
+- [ ] Home, Documents, Search, Settings, and onboarding routes render without
+      console errors.
+- [ ] Pipeline and Chat routes remain BLOCKED until issue #9 wires them.
+- [ ] Navigation and browser refresh preserve the selected deep route.
+- [ ] Empty-state panels are truthful when the isolated archive contains no data.
+- [ ] With synthetic data, document lists and detail views show persisted values,
+      and file actions target only the disposable archive.
+- [ ] Settings read and write only the isolated configuration and visibly report
+      errors rather than silently succeeding.
 
-- [ ] Intake section shows count of files in `unclassified/`
-- [ ] Drop a file into `~/Documents/Hermes/unclassified/` → appears in Intake within 15 seconds
-- [ ] After sync cycle: file moves from Intake → Extracting → Classifying → Library
+## Pipeline and Archive
 
-## Processing Pipeline — Extracting
+- [ ] A synthetic fixture enters the V5 DAG and appears in Pipeline activity.
+- [ ] Extract, triage, deep-comprehend, and embed state matches the declared DAG
+      and `stage_completions`.
+- [ ] Processing preserves the synthetic source bytes and path.
+- [ ] Retry/reload does not duplicate stage output or move files.
+- [ ] Reflow and reclassification remain blocked unless the active issue supplies
+      the bounded synthetic procedure and expected rollback evidence.
 
-- [ ] Count shown matches documents being extracted
-- [ ] Section collapses or shows 0 when empty
+## Search and MCP
 
-## Processing Pipeline — Classifying
+- [ ] Metadata keyword search returns the expected synthetic document.
+- [ ] File-backed content search is not marked passing until issue #11 is closed.
+- [ ] Semantic/hybrid HTTP and MCP reachability is not marked passing until issue
+      #6 is closed.
+- [ ] MCP tool enumeration, calls, and returned IDs use only synthetic data.
+- [ ] Read-only calls do not write files, mutate database state, or invoke an LLM.
 
-- [ ] Count shown matches documents being classified
-- [ ] Section collapses or shows 0 when empty
+## Chat SSE (component-level until routed)
 
-## Library
+- [ ] Record browser-level Chat as BLOCKED until issue #9 exposes a canonical
+      route.
+- [ ] In component tests, or after route wiring, `ChatPane` and `ChatPage` both
+      submit a synthetic query.
+- [ ] Each consumer handles `results`, optional `answer`, and terminal `done`
+      events without duplicate rendering.
+- [ ] Search-only chat works with model providers disabled.
+- [ ] The UI makes no request to the nonexistent `/api/pipeline/state` endpoint.
 
-- [ ] Categories listed with correct document counts
-- [ ] Click a category → content pane shows document list for that category
-- [ ] Click a document → content pane shows metadata + extracted markdown preview
-- [ ] **[Open File]** button opens the document in the default app
-- [ ] Classification tier and confidence shown (e.g. "content (85%)" or "rule")
-- [ ] **[Back]** button returns to category list
-- [ ] Breadcrumb trail updates during navigation
+## Trust Boundary
 
-## Index
+- [ ] Service remains bound to loopback.
+- [ ] Canonical UI origins work on the configured development port.
+- [ ] Foreign-origin requests are rejected once the trust-boundary work lands.
+- [ ] Mutating MCP tools are unavailable by default and reject missing or invalid
+      credentials once authenticated mutation lands.
+- [ ] Responses and logs disclose no credentials or personal data.
 
-- [ ] Progress bars show searchable/embedded counts
-- [ ] Percentages update after a sync cycle
+## Evidence
 
-## Action Items — Reminders
+- [ ] Record OS, commit SHA, isolated port, synthetic fixture identifier, and
+      PASS/FAIL/BLOCKED for each applicable section.
+- [ ] Link known failures to active issues (#6, #9, #11, #17, or #18).
+- [ ] Confirm the source archive and owner checkout are unchanged.
 
-- [ ] Overdue reminders displayed with red styling
-- [ ] Upcoming reminders displayed with amber/normal styling
-- [ ] **[Mark Paid]** → removes from active list
-- [ ] **[Snooze 7d]** → disappears from list (reappears after snooze period)
-- [ ] **[Dismiss]** → permanently removed from list
-- [ ] Document link on reminder → opens file in default app
-- [ ] Action item count in funnel updates after actions
-
-## Services
-
-- [ ] Ollama status dot: green if running, red if not
-- [ ] Database status dot: green if DB exists
-
-## Chat Pane
-
-- [ ] Type a query → results appear with document cards
-- [ ] Document cards show filename, category, date, amount (where available)
-- [ ] Click a document card → opens file in default app
-- [ ] **AI toggle** → enables LLM summarisation (when Ollama/Azure configured)
-- [ ] With AI on: response includes natural language summary + document cards
-- [ ] Suggested query chips visible when chat is empty
-- [ ] Click a chip → query executes
-- [ ] Empty query → no action (button disabled or no-op)
-- [ ] Chat history preserved across navigation
-
-## Chat Pane Toggle
-
-- [ ] Click **💬** button → chat pane hides, content pane expands
-- [ ] Click **💬** again → chat pane reappears
-- [ ] Chat history preserved across toggle
-
-## Settings Dialog
-
-- [ ] **⚙** button opens settings dialog
-- [ ] **General tab**: sync interval, min attachment size populated from config
-- [ ] **AI/Chat tab**: provider radio (Ollama/Azure OpenAI) reflects current config
-- [ ] **Accounts tab**: accounts listed with backfill toggle and batch size
-- [ ] **Save** → closes dialog, changes written to config.yaml
-- [ ] **Cancel** → closes dialog, no changes saved
-
-## Sync Controls
-
-- [ ] **[Sync Now]** → button shows "Syncing...", completes, counts update
-- [ ] **[Pause]** → toggles to "Resume", sync stops
-- [ ] **[Resume]** → sync restarts, button reverts to "Pause"
-
-## Error States
-
-- [ ] Ollama not running → service dot red, chat still works (search-only, no AI summary)
-- [ ] No Gmail credentials → "Add Account" prompt shown in Sources
-- [ ] Empty archive (no documents) → Library shows 0, processing sections empty
-- [ ] Chat with empty archive → response says "No database found" or "No results"
-
-## Keyboard & Accessibility
-
-- [ ] Tab key moves focus through controls in logical order
-- [ ] Enter key submits chat query when input is focused
-- [ ] Escape key closes settings dialog
-
----
-
-> **Result**: ______ / ______ items passing
+> **Result:** ______ passing / ______ applicable
 >
-> **Tested by**: ________________  **Date**: ________________
+> **Commit:** ________________  **Date:** ________________

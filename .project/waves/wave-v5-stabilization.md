@@ -25,7 +25,7 @@ follow-on work.
 
 | Topic | Decision |
 |-------|----------|
-| Canonical UI | React served by `Hermes.Service`; Windows Tray is the supported native shell |
+| Canonical UI | React served by `Hermes.Service`; Windows Tray is the preview, canonical native-shell target |
 | Other UI surfaces | Blazor, MAUI Windows/Mac, and obsolete installers are excluded pending promotion evidence |
 | Baseline data | Synthetic fixtures plus an owner-approved, de-identified disposable archive copy |
 | MCP trust boundary | Loopback-only, explicit origin allowlist, mutating tools disabled by default and authenticated when enabled |
@@ -98,13 +98,21 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-08-27 - Phase 0 review correction
+
+- **Changed:** Preserved the original completion entry and appended the PR review gate, issue #18, documentation truth corrections, and final privacy scrub.
+- **Evidence:** PR #15; active issues #6, #8, #9, #11, #16, #17, and #18; baseline and support tables above.
+- **Validation:** Source-of-truth and privacy review completed across the full branch diff; no Phase 1 implementation is included.
+- **Blockers:** PR #15 review/merge; de-identified corpus replay remains prohibited until owner-approved IDs and queries exist.
+- **Next:** After PR #15 review/merge, begin Phase 1A from #17 using synthetic fixtures and bounded dry-run semantics.
+
 ### 2026-08-27 - Phase 0 rebaseline completed
 
 - **Changed:** Reconciled all stale phase issues, recorded the current-main baseline, and classified supported and excluded surfaces.
 - **Evidence:** PR #15; active issues #6, #8, #9, #11, #16, and #17; baseline and support tables above.
 - **Validation:** 867 .NET tests executed (857 passed, 10 skipped), 65.0% line and 31.1% branch coverage, isolated Service probes, React build/lint and Playwright discovery checks.
-- **Blockers:** PR #15 review/merge; de-identified corpus replay remains prohibited until owner-approved IDs and queries exist.
-- **Next:** After PR #15 review/merge, begin Phase 1A from #17 using synthetic fixtures and bounded dry-run semantics.
+- **Blockers:** Phase 1B-1E remain dependency-blocked; de-identified corpus replay remains prohibited until owner-approved IDs and queries exist.
+- **Next:** Begin Phase 1A from #17 using synthetic fixtures and bounded dry-run semantics.
 
 ### 2026-08-27 - Phase 0 preservation and activation
 

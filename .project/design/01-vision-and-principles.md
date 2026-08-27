@@ -18,7 +18,11 @@ Non-technical users — "your dad." Hermes runs silently in the background. Docu
 
 4. **Self-organizing pipeline.** No orchestrator, no scheduler, no external coordinator. Channels flow naturally. Resource locks (GPU) use demand-driven semaphores. Hydration on restart re-seeds the pipeline. Consumers are idempotent.
 
-5. **Local-first, private by default.** All processing runs on the user's machine. Ollama for LLM. SQLite for storage. No cloud dependency for core functionality. Documents never leave the device.
+5. **Local-first, private by default.** Core storage and processing run on the
+   user's machine with SQLite and local Ollama by default; core functionality has
+   no cloud dependency. Optional cloud model providers must be explicitly
+   configured, disclose that document-derived prompts leave the device, and
+   require user consent.
 
 6. **Consumers query, Hermes serves.** Osprey (tax), agents, and the web UI are all consumers of the same MCP/HTTP interface. Hermes doesn't know about tax — it knows about documents. Osprey knows about tax — it asks Hermes for payslips.
 

@@ -22,7 +22,10 @@ All human/LLM-readable content lives on the filesystem in a structured folder hi
 - Derived indexes (FTS5, sqlite-vec embeddings)
 - Operational data (learned patterns, suggestions, sync state)
 
-The archive becomes self-describing and the DB becomes disposable — rebuildable from the files.
+The intended end state is a self-describing archive with a rebuildable database.
+The database is **not disposable today**: no complete rebuild path exists, and
+workflow completions, tags, suggestions, learned patterns, contacts, and sync
+cursors are not fully recoverable from current sidecars.
 
 ## Decisions (confirmed 2026-05-07)
 
@@ -82,7 +85,7 @@ Replaces the current `.meta.json`. One per folder, covers all files in that fold
   "account": "alex@example.com",
   "provider_id": "msg-abc123",
   "thread_id": "thread-abc123",
-  "sender": "noreply@telstra.com.au",
+  "sender": "noreply@example-telco.test",
   "subject": "Your March 2026 bill",
   "received_at": "2026-03-15T14:30:22+11:00",
   "files": [
@@ -165,7 +168,7 @@ After:
 ```
 Read bytes from folder_path/{filename} → extract → write {filename}.extracted.md
                                                   → UPDATE documents SET stage = 'extracted'
-                                                  → INSERT into FTS5 index
+                                                  → planned: INSERT content into FTS5 (#11)
 ```
 
 ### Comprehend (changed)
@@ -192,11 +195,13 @@ Embeddings stay in SQLite — they're only useful as a searchable index.
 
 ### Search (changed)
 
-- **FTS5**: still works, but populated from files at extract time (not from a DB column)
+- **FTS5 target**: populate from files at extract time, not from a DB content column.
+  The current baseline indexes metadata only; issue
+  [#11](https://github.com/johnazariah/hermes/issues/11) owns this work.
 - **sqlite-vec**: unchanged
 - **Field search**: `json_extract()` on comprehension JSON — now needs to read the `.comprehension.json` file, OR we keep a thin indexed copy of key fields in the DB
 
-### DB rebuild
+### Target DB rebuild (not implemented)
 
 If the SQLite file is lost or corrupted:
 ```
@@ -205,7 +210,9 @@ Scan archive folders → read .hermes.json sidecars → rebuild messages + docum
                      → re-embed text → rebuild sqlite-vec
 ```
 
-This is slow but possible. The archive is the source of truth.
+This is a design goal, not a current recovery procedure. Until every persisted
+state class is represented in sidecars and the rebuild path is implemented and
+tested, the SQLite database must be backed up and retained with the archive.
 
 ## Categories
 
@@ -216,29 +223,29 @@ Categories are **emergent, not predefined**:
 3. User corrections feed preferences and learned patterns.
 4. The current single `category` remains a compatibility projection while API and UI consumers move to tags.
 
-### Real-world example folder structure
+### Synthetic example folder structure
 
 ```
 ~/Documents/Hermes/
 ├── alex@example.com/
-│   ├── telstra.com.au/
+│   ├── example-telco.test/
 │   │   ├── your-march-2026-bill--thread-a/
 │   │   │   ├── 2026-03-15-message.md
-│   │   │   ├── 2026-03-15-telstra-bill-march.pdf
-│   │   │   ├── 2026-03-15-telstra-bill-march.pdf.extracted.md
+│   │   │   ├── 2026-03-15-example-telco-bill-march.pdf
+│   │   │   ├── 2026-03-15-example-telco-bill-march.pdf.extracted.md
 │   │   │   ├── thread.comprehension.json
 │   │   │   └── .hermes.json
 │   │   └── your-april-2026-bill--thread-b/
 │   │       └── ...
-│   ├── raywhite.com.au/
+│   ├── sample-realty.test/
 │   │   └── flooding-fix-sample-property--thread-c/
-│   │       ├── 2026-03-15-ray-initial-report.md
+│   │       ├── 2026-03-15-sample-realty-initial-report.md
 │   │       ├── 2026-03-16-bob-plumber-quote.pdf
-│   │       ├── 2026-03-18-nrma-claim-form.pdf
-│   │       ├── 2026-03-20-john-reply.md
+│   │       ├── 2026-03-18-example-insurer-claim-form.pdf
+│   │       ├── 2026-03-20-alex-reply.md
 │   │       ├── thread.comprehension.json
 │   │       └── .hermes.json
-│   └── microsoft.com/
+│   └── example-employer.test/
 │       └── your-march-payslip--thread-d/
 │           └── ...
 ├── local/
@@ -254,7 +261,7 @@ The `thread.comprehension.json` covers the entire thread — conversation contex
 ```json
 {
   "thread_summary": "Sample Realty reported flooding at 10 Sample St. A plumber quoted $2,400. An insurance claim was filed.",
-  "participants": ["ray@raywhite.com.au", "bob@plumbing.com.au", "claims@nrma.com.au"],
+  "participants": ["agent@sample-realty.test", "bob@example-plumbing.test", "claims@example-insurer.test"],
   "tags": ["property", "sample-property", "insurance-claim"],
   "documents": [
     {
@@ -415,7 +422,7 @@ User opens Hermes
 │                                     │
 │ Recent:                             │
 │   📄 Telstra bill — March 2026     │
-│   📄 Microsoft payslip — April     │
+│   📄 Example Employer payslip — April │
 │                                     │
 │ Actions:                            │
 │   🔄 Sync email now                │
@@ -432,7 +439,7 @@ User opens Hermes
 │ ┌─────────────────────────────────────────┐ │
 │ │ quarterly-report.pdf                    │ │
 │ │ Hermes thinks: report (45%)             │ │
-│ │ From: cfo@employer.com                  │ │
+│ │ From: cfo@example-employer.test         │ │
 │ │                                         │ │
 │ │ [✓ Accept]  [✎ Change to: ___]  [Skip] │ │
 │ └─────────────────────────────────────────┘ │
@@ -500,7 +507,7 @@ User opens Hermes
 │ │ - 10 Sample St, Exampleton             │ │
 │ │ - 20 Demo Rd, Testville                │ │
 │ │                                         │ │
-│ │ I work at Microsoft.                    │ │
+│ │ I work at Contoso.                      │ │
 │ │ Anything from ATO is tax-related.       │ │
 │ └─────────────────────────────────────────┘ │
 │                                             │

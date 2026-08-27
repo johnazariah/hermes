@@ -2,6 +2,11 @@
 
 > Design doc for trickle-ingesting historical email into the Hermes archive.  
 > Created: 2026-03-31
+>
+> **Status:** Core backfill behavior remains a design reference. Sections 9-11
+> preserve the retired Avalonia UI proposal for history only and are not current
+> implementation requirements. Any resumed UI work must target the React source
+> served by `Hermes.Service` and the Windows Tray shell.
 
 ---
 
@@ -55,7 +60,7 @@ Messages are returned **newest first**. To backfill, we page through the entire 
 
 ```yaml
 accounts:
-  - label: john-personal
+  - label: alex-personal
     provider: gmail
     backfill:
       enabled: true               # default: true
@@ -292,7 +297,7 @@ With `batch_size: 200` and `sync_interval_minutes: 5`:
 
 ---
 
-## 9. UI Integration — Full Specification
+## 9. Retired Avalonia UI Proposal (Historical)
 
 Every UI element described here must be **built and wired** as part of the feature. XAML-only is not done. See copilot-instructions.md "UI integration: definition of done".
 
@@ -321,11 +326,11 @@ The current Settings dialog has 3 fields. It becomes a tabbed/sectioned dialog:
 │                                                  │
 │  ── Accounts ─────────────────────────────────── │
 │  ┌──────────────────────────────────────────┐   │
-│  │ 📧 john-personal          [Re-auth] [×] │   │
+│  │ 📧 alex-personal          [Re-auth] [×] │   │
 │  │    Backfill: ●On  since 2020-01-01       │   │
 │  │    Batch size: [50]                       │   │
 │  ├──────────────────────────────────────────┤   │
-│  │ 📧 john-work              [Re-auth] [×] │   │
+│  │ 📧 alex-work              [Re-auth] [×] │   │
 │  │    Backfill: ○Off                        │   │
 │  └──────────────────────────────────────────┘   │
 │  [+ Add Gmail Account]                          │
@@ -377,11 +382,11 @@ Each account in the EMAIL ACCOUNTS expander shows backfill progress:
 
 ```
 ▾ EMAIL ACCOUNTS
-  ● john-personal                    ● Synced
+  ● alex-personal                    ● Synced
     423 emails · 2 min ago
     Backfill ████████░░ 6,340 / ~8,500
 
-  ● john-work                        ● Synced
+  ● alex-work                        ● Synced
     187 emails · 14 min ago
     Backfill: complete ✓
 
@@ -398,7 +403,7 @@ Each account in the EMAIL ACCOUNTS expander shows backfill progress:
 
 When backfill is actively running in the current sync cycle:
 ```
-●● Ready · 1,234 docs · Backfilling john-personal (74%)...
+●● Ready · 1,234 docs · Backfilling alex-personal (74%)...
 ```
 
 **Wiring:**
@@ -410,7 +415,7 @@ When backfill is actively running in the current sync cycle:
 When a new account is added and backfill is enabled, show an info message in the chat panel:
 
 ```
-Hermes: I'm scanning your email history for john-personal.
+Hermes: I'm scanning your email history for alex-personal.
 This runs in the background — about 4,800 messages per day.
 You'll start seeing historical documents in search results as they're indexed.
 ```
@@ -432,7 +437,7 @@ If a user wants to re-scan (e.g. changed `since` date):
 
 ```yaml
 # CLI command
-hermes backfill reset --account john-personal
+hermes backfill reset --account alex-personal
 ```
 
 This clears `backfill_page_token`, `backfill_scanned`, and `backfill_completed` in `sync_state` for that account. Next sync cycle starts backfill from scratch.
@@ -514,16 +519,13 @@ B3: Backfill engine + progress UI → user sees historical emails appearing with
 B4: First-run experience + reset → user gets guidance and control
 ```
 
-### Definition of done (every phase)
+### Historical phase definition of done
 
-Per `.github/copilot-instructions.md`:
-1. XAML exists with all controls laid out
-2. Code-behind wired — every named control has event handlers
-3. Buttons do something — no dead controls
-4. Data is live — reads from DB/config, not placeholder text
-5. Build clean — 0 errors, 0 warnings
-6. Tests pass — new tests for new logic
-7. Smoke tested — `dotnet run --project src/Hermes.App`, verify the specific proof for that phase
+The B1-B4 decomposition predates the canonical React/Tray decision and must not
+be executed against the removed `Hermes.App`. If backfill UI work resumes, its
+acceptance criteria must be rewritten in the active wave and issue to require:
+React controls and Service endpoints wired end to end, live persisted data,
+automated tests, a clean build, and direct-browser plus Windows Tray smoke proof.
 
 ---
 

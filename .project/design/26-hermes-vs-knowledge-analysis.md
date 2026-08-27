@@ -5,7 +5,11 @@
 
 ## Overview
 
-Both Hermes and Knowledge are local-first document intelligence systems that ingest documents from email and local folders, process them through LLM comprehension, and make knowledge searchable. They share the same thesis: your documents should be understood and indexed on your machine, not uploaded to a cloud service.
+Both Hermes and Knowledge are local-first document intelligence systems that
+ingest documents from email and local folders, process them through LLM
+comprehension, and make knowledge searchable. Hermes defaults to local Ollama
+processing. Optional cloud providers may receive prompt content only after
+explicit configuration, disclosure, and consent.
 
 This analysis compares their architectures after Hermes adopted several ideas from Knowledge.
 
@@ -16,7 +20,7 @@ This analysis compares their architectures after Hermes adopted several ideas fr
 | **Runtime** | .NET 9 / F# | Electron / JavaScript |
 | **UI** | React 19 + Vite (web) | Vue 2 + Electron (desktop) |
 | **Database** | SQLite + FTS5 + sqlite-vec | SQLite (vectors as BLOBs) + JSON dataCenter |
-| **LLM** | Configurable Ollama chat + nomic-embed-text | Ollama (gemma4 + nomic-embed-text) |
+| **LLM** | Local Ollama by default; optional Azure OpenAI + nomic-embed-text | Ollama (gemma4 + nomic-embed-text) |
 | **Email** | Gmail + Outlook (Graph API) | Gmail + Outlook (Graph API) |
 | **Pipeline** | Declarative DAG with stage tables and model phases | Monolithic orchestrator loop |
 | **Architecture** | Tagless-Final (records of functions) | Service classes with side effects |
@@ -33,10 +37,10 @@ This analysis compares their architectures after Hermes adopted several ideas fr
 |---------|--------|-----------|-------|
 | Email sync (Gmail) | ✅ | ✅ | Both use Gmail API |
 | Email sync (Outlook) | ✅ (new) | ✅ | Both use Graph API. Hermes added immutable IDs. |
-| Document extraction | ✅ 7 types | ✅ 6 types | Hermes has image OCR, Knowledge has RTF |
+| Document extraction | ⚠️ 6 types + OCR gap | ✅ 6 types | Hermes handles PDF, Office, CSV, and text; production image OCR is not configured |
 | LLM comprehension | ✅ structured JSON | ✅ synthesis + classification | Hermes produces typed fields; Knowledge produces prose |
 | Retrieval-augmented comprehension | ✅ schema hints | ✅ full examples | Hermes passes field names only (no value contamination) |
-| Semantic search | ✅ FTS5 + sqlite-vec | ✅ BLOB vectors + keyword overlap | Hermes uses native extensions; Knowledge does cosine in JS |
+| Semantic search | ⚠️ internal FTS5 + sqlite-vec | ✅ BLOB vectors + keyword overlap | Hermes internals exist, but production HTTP/MCP reachability and file-backed indexing remain in [#6](https://github.com/johnazariah/hermes/issues/6) and [#11](https://github.com/johnazariah/hermes/issues/11) |
 | Knowledge graph | ❌ | ✅ multi-edge graph | Knowledge has explicit links, tag co-membership, semantic edges |
 | Email style profiling | ❌ | ✅ | Knowledge learns greeting/signoff/tone per correspondent |
 | Managed markdown | ❌ | ✅ | Knowledge generates topic notes in `knowledge/` folder |

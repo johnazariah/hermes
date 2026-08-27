@@ -116,7 +116,7 @@ archive_dir: ~/Documents/Hermes/
 credentials: ~/.hermes/gmail_credentials.json
 
 accounts:
-  - label: john@gmail.com
+  - label: alex-personal
     provider: gmail
     backfill:
       enabled: true

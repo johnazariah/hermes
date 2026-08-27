@@ -13,7 +13,7 @@
 | Pipeline | ingest -> extract -> triage; embed after extract; deep comprehension for gated documents |
 | Storage | File-first structured archive; SQLite holds metadata, workflow state, FTS5, and vectors |
 | Sources | Gmail, Outlook/Graph, and watched folders |
-| UI | React 19 web app with Home, Pipeline, Documents, Search, Chat, Settings, and onboarding |
+| UI | React 19 with registered Home, Documents, Search, Settings, and onboarding routes; Pipeline/Chat are unwired |
 | UI classification | React web UI + Windows Tray: preview, canonical target |
 | Excluded UI | Blazor, MAUI Windows/Mac, and obsolete installers |
 | Agent workflow | Squad 0.11.0 enabled |
@@ -50,5 +50,6 @@ See: [wave-v5-stabilization.md](waves/wave-v5-stabilization.md)
 
 ## Blockers
 
-- CI is red at 65% line coverage. Phase 0 must establish truthful branch coverage,
-  skip behavior, production reachability, and archive-integrity evidence before Phase 1A.
+- Phase 1A cannot start until PR #15 is reviewed and merged.
+- CI remains red at 65% line coverage; issue #18 owns test discovery, skip integrity,
+  and the 85% line / 60% branch wave-close gate.

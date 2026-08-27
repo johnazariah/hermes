@@ -30,35 +30,35 @@ Hermes is a local-first document intelligence service. It ingests documents from
 
 | Concept       | Description                                                               |
 | ------------- | ------------------------------------------------------------------------- |
-| **Archive**   | `~/Documents/Hermes/` — all files live in `unclassified/`, never moved    |
-| **Pipeline**  | ingest → Extract → Comprehend → Embed (`Channel<Document>` stages)        |
-| **Document**  | `Map<string, obj>` property bag — stages add keys, never remove           |
-| **Workflow**  | `runStage` monad — idempotency, write-aside, GPU lock, error handling     |
+| **Archive**   | File-first account/thread and local folders; content stays readable       |
+| **Pipeline**  | V5 DAG: extract → triage/deep-comprehend and extract → embed              |
+| **Document**  | SQLite metadata plus file-backed extraction/comprehension artifacts       |
+| **Workflow**  | `stage_completions` ledger, declared dependencies, gates, GPU scheduling  |
 | **Index**     | SQLite + FTS5 (keyword) + sqlite-vec (semantic)                           |
 | **MCP**       | Streamable HTTP on `localhost:21741` (prod) / `21742` (dev)               |
 
 ## Architecture
 
 ```
-Producers                Pipeline (Channel<Document>)           Consumers
-──────────              ─────────────────────────               ──────────
-Email Sync ──┐          Extract → Comprehend → Embed            React Web UI
-(N accounts)  ├──→                                              MCP Server
-Folder Watch ─┘          ↑ hydrate on restart                   Osprey (tax)
+Gmail ───────┐                                ┌─→ REST / preview React UI
+Outlook ─────┼─→ file-first archive → V5 DAG ┼─→ MCP / Osprey
+Folder watch ┘                  │             └─→ FTS5 + vector indexes
+                               └─ extract → triage → deep-comprehend
+                                          └──────→ embed
 ```
 
 ## Technology Stack
 
 | Component  | Choice                                               |
 | ---------- | ---------------------------------------------------- |
-| Runtime    | .NET 10, F#                                          |
+| Runtime    | .NET 9, F#                                           |
 | UI         | React 19 + Vite + Tailwind                           |
 | Database   | SQLite via `Microsoft.Data.Sqlite`                   |
 | Email      | `Google.Apis.Gmail.v1`                               |
 | PDF        | PdfPig (`UglyToad.PdfPig`)                           |
-| LLM        | Ollama llama3:8b (comprehension)                     |
+| LLM        | Configurable Ollama/Azure triage and comprehension   |
 | Embeddings | Ollama nomic-embed-text                              |
-| Pipeline   | `System.Threading.Channels`                          |
+| Pipeline   | Declarative DAG with channel and batch stages        |
 | Testing    | xUnit + FsCheck (F#), Playwright (UI)                |
 | Logging    | Serilog                                              |
 
@@ -68,14 +68,18 @@ Folder Watch ─┘          ↑ hydrate on restart                   Osprey (ta
 src/
 ├── Hermes.Core/          F# library — pipeline, extraction, comprehension, DB
 ├── Hermes.Service/       F# service — HTTP API, MCP server, pipeline host
-└── Hermes.Web/           React 19 — five-page web UI
+├── Hermes.Web/           React 19 — canonical preview UI
+├── Hermes.Tray/          Windows tray — preview native shell
+├── Hermes.UI/            Blazor components — excluded from support
+└── Hermes.Shell/         MAUI Windows/macOS — excluded from support
 tests/
-├── Hermes.Tests/         xUnit + FsCheck (700 tests)
-└── Hermes.Web/tests/     Playwright smoke tests (9 tests)
+├── Hermes.Tests/         xUnit + FsCheck (867 discovered)
+└── Hermes.Web/tests/     21 Playwright definitions; runner wiring pending
 .project/
 ├── STATUS.md             Project dashboard
-├── design/               10 active design docs
-└── archive/              Historical pre-v4 material
+├── waves/                Active and completed work journals
+├── design/               Current architecture references
+└── archive/              Superseded design and planning material
 ```
 
 ## Development Commands
@@ -114,7 +118,7 @@ cd src/Hermes.Web && npx playwright test tests/smoke.spec.ts
 - **Naming**: PascalCase for types and public functions, camelCase for local bindings
 - **Module structure**: one module per concept, `[<RequireQualifiedAccess>]` for disambiguation
 
-### C# (Hermes.App — Avalonia)
+### C# (Tray, Blazor components, and MAUI shell)
 
 - **Nullable reference types**: enabled, no suppressions
 - **Primary constructors**: where appropriate
@@ -140,21 +144,21 @@ cd src/Hermes.Web && npx playwright test tests/smoke.spec.ts
 
 ## Key Files
 
-| File                                      | Purpose                              |
-| ----------------------------------------- | ------------------------------------ |
-| `.project/design/03-architecture.md`      | Architecture overview with diagrams  |
-| `.project/design/04-data-model.md`        | SQLite schema, config YAML format    |
-| `.project/design/05-mcp-server-design.md` | MCP tools with JSON schemas          |
-| `.project/design/07-open-questions.md`    | All decisions (resolved)             |
-| `.project/specs/phase-*.md`               | Phase specs with acceptance criteria |
-| `.project/testing-register.md`            | Test catalog — keep in sync          |
+| File                                             | Purpose                                |
+| ------------------------------------------------ | -------------------------------------- |
+| `.project/STATUS.md`                             | Canonical project-state hub            |
+| `.project/waves/wave-v5-stabilization.md`        | Active tasks, decisions, and journal   |
+| `.project/design/30-pipeline-v5-architecture.md` | Current architecture                   |
+| `.project/design/28-file-first-archive.md`       | Archive and SQLite storage boundary    |
+| `.project/design/24-comprehension-stage.md`      | Triage and deep-comprehension design   |
+| `.project/testing-register.md`                   | Test catalog and execution baseline    |
 
 ## Idiom Standards (Always Active)
 
 All AI-generated code in this project **must** conform to the language idiom standards. Full standards are in `devex-toolkit` (multi-root workspace peer). Key rules summarised here for when devex-toolkit is unavailable:
 
 - **F# (Hermes.Core):** Small functions (≤20 lines), `|>` pipelines, no `mutable`, DUs over strings, `Option.map`/`bind`/`defaultValue` over explicit match, `task {}` blocks ≤15 lines, Tagless-Final with records-of-functions, partial application (stable params first), active patterns for complex matching.
-- **C# (Hermes.App):** Records over classes, `sealed` by default, pattern matching over `if/else`, LINQ for transformations, non-nullable, `CancellationToken` on all async methods, Tagless-Final with capability interfaces, list/relational/property patterns.
+- **C# (Tray/UI/Shell):** Records over classes, `sealed` by default, pattern matching over `if/else`, LINQ for transformations, non-nullable, `CancellationToken` on all async methods, Tagless-Final with capability interfaces, list/relational/property patterns.
 - **Architecture:** Tagless-Final as default architecture, fakes over mocks, capability records parameterised over effect type.
 
 For dedicated write/review/refactor workflows, invoke the `@fsharp-dev` or `@csharp-dev` agents.
@@ -166,7 +170,7 @@ For dedicated write/review/refactor workflows, invoke the `@fsharp-dev` or `@csh
 When writing, reviewing, or refactoring code:
 
 - **F# code** (`Hermes.Core`, `Hermes.Tests`): delegate to `@fsharp-dev`. Do not write F# without it.
-- **C# code** (`Hermes.App`): delegate to `@csharp-dev`. Do not write C# without it.
+- **C# code** (`Hermes.Tray`, `Hermes.UI`, `Hermes.Shell`): delegate to `@csharp-dev`. Do not write C# without it.
 - The language agents enforce idiom standards, catch anti-patterns, and produce higher quality code than unguided generation.
 
 ### Silver thread principle (mandatory)
@@ -177,7 +181,7 @@ Every feature must be implemented as a **silver thread** — an unbroken chain f
 User action (button click, query, trigger)
   → Processing (F# Core logic, DB queries, API calls)
     → State change (database, config, in-memory)
-      → Presentation (ViewModel property update)
+      → Presentation (React query/component state or native-shell state)
         → UI response (user sees the result)
 ```
 
@@ -185,12 +189,12 @@ User action (button click, query, trigger)
 
 1. **Input**: What triggers this feature? (file drop, button click, sync cycle, MCP call)
 2. **Processing**: What backend code runs? (extraction, classification, DB update)
-3. **Presentation**: What data flows to the UI? (ViewModel property, collection update)
+3. **Presentation**: What data flows to the UI? (query result, component state, native-shell status)
 4. **Output**: What does the user see? (document in list, activity log entry, badge update, chat response)
 
 **If ANY link in this chain is broken, the task is NOT done.** Common failures:
 
-- XAML exists but code-behind not wired (dead buttons)
+- A route or control exists but is not wired (dead buttons/links)
 - Backend processes data but UI never reads it (invisible feature)
 - Tests pass but feature doesn't work end-to-end (integration gap)
 - Config saved but never reloaded (settings don't take effect)
@@ -199,14 +203,14 @@ User action (button click, query, trigger)
 
 A UI task is **not done** until all of the following are true:
 
-1. **XAML exists** — controls are laid out and styled.
-2. **Code-behind is wired** — every named control (`x:Name`) is referenced in `.axaml.cs` with correct event handlers, data population, and state updates.
-3. **Buttons do something** — every `Button`, `ToggleButton`, and interactive control has a working `Click`/event handler that performs its intended action. No dead buttons.
-4. **Data is live** — status panels, lists, and stats display real data from Core/Bridge, not placeholder text that never updates.
-5. **Build clean** — `dotnet build` with 0 errors, 0 warnings.
-6. **Smoke tested** — `dotnet run --project src/Hermes.App` launches, the window renders, and the agent has verified interactable elements respond (or documented which require external dependencies like Ollama/Gmail).
+1. **Route/component exists** — the canonical React surface is laid out and styled.
+2. **API/state is wired** — queries, mutations, loading, error, and empty states use the real Service contract.
+3. **Controls work** — every interactive control performs its stated action; no dead buttons or links.
+4. **Data is live** — status panels, lists, and stats display real Service data, not permanent placeholders.
+5. **Build clean** — `npm ci`, React build/type-check, lint, and relevant .NET builds pass.
+6. **Smoke tested** — Playwright runs against an isolated `Hermes.Service` and verifies root/deep routes and primary actions.
 
-**Do not mark a UI task as complete if controls exist in XAML but are not connected to behaviour.** A button that does nothing is worse than no button — it erodes user trust. If wiring requires infrastructure not yet built, either stub it with a visible "not yet implemented" message or defer the entire control to a later phase.
+**Do not mark a UI task complete if controls render without behaviour.** If wiring requires infrastructure not yet built, show a visible unavailable state or defer the control.
 
 ### General workflow
 

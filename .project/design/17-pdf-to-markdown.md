@@ -33,17 +33,17 @@ Consumer code: call hermes_get_document_content(id, "markdown") → parse markdo
 
 ## 2. Document Types in the Archive
 
-From the real archive (4,166 PDFs across 3 email accounts):
+Synthetic fixture targets for structural coverage (not archive metrics):
 
-| Category | Count | Typical documents | Structure type |
+| Category | Fixture target | Typical documents | Structure type |
 |----------|-------|------------------|---------------|
-| unsorted | 2,988 | Mixed — needs classification | Unknown |
-| invoices | 523 | Utility bills, service invoices | Key-value pairs + line items table |
-| bank-statements | 319 | Westpac PDF statements | Multi-page transaction table |
-| receipts | 143 | Purchase receipts, confirmation PDFs | Key-value pairs + single table |
-| tax | 102 | ATO notices, income statements, PAYG summaries | Structured forms with labelled fields |
-| unclassified | 76 | Intake queue | Unknown |
-| payslips | 15 | Microsoft, QLD Education | Multi-section with tables |
+| unsorted | 8 | Mixed — needs classification | Unknown |
+| invoices | 8 | Utility bills, service invoices | Key-value pairs + line items table |
+| bank-statements | 4 | Example Bank PDF statements | Multi-page transaction table |
+| receipts | 5 | Purchase receipts, confirmation PDFs | Key-value pairs + single table |
+| tax | 4 | Synthetic tax notices and income statements | Structured forms with labelled fields |
+| unclassified | 4 | Intake queue | Unknown |
+| payslips | 3 | Example Employer, Sample Employer | Multi-section with tables |
 
 From Osprey's parsers, the structural elements these documents contain:
 
@@ -256,8 +256,8 @@ Every PDF produces markdown with this structure:
 ```markdown
 ---
 source: email_attachment
-account: john-personal
-sender: noreply@westpac.com.au
+account: alex-personal
+sender: noreply@example-bank.test
 subject: Your monthly statement
 date: 2024-10-01
 category: bank-statements
@@ -266,7 +266,7 @@ extraction_method: pdfpig-structural
 extraction_confidence: 0.92
 ---
 
-# Westpac Transaction Statement
+# Example Bank Transaction Statement
 
 ## Account Details
 - **Account:** Savings Maximiser
@@ -353,7 +353,11 @@ let extractPdfContent (pdfBytes: byte[]) : Result<string * float, string> =
         Ok (markdown, structured.Confidence)
 ```
 
-The Markdown output is written beside the source as `<saved_path>.extracted.md`. FTS5 indexes its text and MCP serves the file-backed artifact through `hermes_get_document_content`.
+The Markdown output is written beside the source as `<saved_path>.extracted.md`,
+and MCP serves the file-backed artifact through `hermes_get_document_content`.
+Current FTS indexes metadata only; issue
+[#11](https://github.com/johnazariah/hermes/issues/11) owns indexing the artifact
+text.
 
 ### fsproj ordering
 
@@ -365,12 +369,12 @@ The Markdown output is written beside the source as `<saved_path>.extracted.md`.
 
 | Phase | What | Proof |
 |-------|------|-------|
-| **P1** | Letter extraction + line clustering + basic text assembly | Extract a Microsoft payslip PDF → get all text in correct reading order |
+| **P1** | Letter extraction + line clustering + basic text assembly | Extract an Example Employer payslip PDF → get all text in correct reading order |
 | **P2** | Heading detection (font size + bold + all-caps) | Payslip sections (EARNINGS, DEDUCTIONS, SUMMARY) detected as `## Heading` |
 | **P3** | Table detection (column alignment + row grouping) | Bank statement transactions → markdown table with correct columns |
 | **P4** | Key-value detection (colon-separated + gap-separated) | Payslip metadata (Pay Date, Employee #, etc.) → `- **Label:** Value` |
 | **P5** | Multi-page table continuation | Bank statement spanning 3 pages → one continuous table |
-| **P6** | CID fallback + confidence scoring | QLD Education payslip with CID → falls back to OCR, logs warning |
+| **P6** | CID fallback + confidence scoring | Sample Employer payslip with CID → falls back to OCR, logs warning |
 | **P7** | Integration: replace `extractPdfText` in Extraction.fs pipeline | All new documents get structured markdown. Existing documents re-extractable. |
 | **P8** | MCP integration: `hermes_get_document_content(format="markdown")` returns structured output | Osprey calls MCP → gets markdown with tables → parser extracts tax events |
 
@@ -386,16 +390,16 @@ The Markdown output is written beside the source as `<saved_path>.extracted.md`.
 - Column boundary clustering: x-positions → correct column count
 - CID detection: text with CID sequences → confidence < 0.5
 
-### Integration tests with real PDFs
+### Integration tests with synthetic PDFs
 
-From the archive, test against known documents:
+Use generated or redistribution-safe fixtures with no personal data:
 
 | Document | Expected tables | Expected headings | Expected key-values |
 |----------|----------------|-------------------|---------------------|
-| Microsoft payslip | 3 (earnings, deductions, super) | 5+ (sections) | 8+ (employee info, dates) |
-| Westpac statement | 1 (transactions, multi-page) | 2 (account details, transactions) | 4 (BSB, account, period) |
-| AGL invoice | 1 (charges) | 3 (account, charges, payment) | 6+ (account #, due date, amount) |
-| Ray White rental | 2+ (per-month income/expenses) | 4+ (monthly sections) | 5 (folio, property, period) |
+| Example Employer payslip | 3 (earnings, deductions, super) | 5+ (sections) | 8+ (employee info, dates) |
+| Example Bank statement | 1 (transactions, multi-page) | 2 (account details, transactions) | 4 (BSB, account, period) |
+| Example Utility invoice | 1 (charges) | 3 (account, charges, payment) | 6+ (account #, due date, amount) |
+| Example Realty statement | 2+ (per-month income/expenses) | 4+ (monthly sections) | 5 (folio, property, period) |
 
 ### Regression suite
 
@@ -640,7 +644,7 @@ columns: 5
 
 | Signal | Dialect |
 |--------|--------|
-| First line contains `Narrative` + `Balance` | Westpac CSV |
+| First line contains `Narrative` + `Balance` | Example Bank CSV |
 | First line contains `Amount` + `Description` + `Balance` | CBA CSV |
 | Comma-separated, first row has text, rest has numbers | Generic CSV |
 | Semicolon-separated | European CSV (auto-detect) |
