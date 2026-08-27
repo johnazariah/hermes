@@ -40,7 +40,7 @@ Skip-quality findings:
 - 4 other Osprey parity tests use `Option.iter` and pass without assertions when
   their fixtures are unavailable; only the two PPTX fixtures are source-controlled.
 
-The active follow-on issues are #6, #8, #9, #11, #16, and #17. The V5
+The active follow-on issues are #6, #8, #9, #11, #16, #17, and #18. The V5
 Stabilization wave closes only at 85% line and 60% branch coverage with truthful
 skip and Playwright execution evidence.
 

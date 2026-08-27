@@ -52,12 +52,12 @@ Who lives in this household?
 ```
 Members:
 ┌─────────────────────────────────────────────┐
-│  Name: [John Azariah          ]             │
+│  Name: [Alex Morgan           ]             │
 │  Role: [Primary ▼] (Primary/Spouse/         │
 │         Dependent/Other)                    │
 │                                    [+ Add]  │
 │                                             │
-│  Name: [Smitha Azariah        ]             │
+│  Name: [Jordan Morgan         ]             │
 │  Role: [Spouse ▼]                           │
 │                                    [+ Add]  │
 └─────────────────────────────────────────────┘
@@ -69,13 +69,13 @@ Link email addresses to household members.
 
 ```
 ┌─────────────────────────────────────────────┐
-│ John Azariah                                │
-│  📧 [john.azariah@gmail.com    ] [Gmail ▼]  │
-│  📧 [john.azariah.au@gmail.com ] [Gmail ▼]  │
+│ Alex Morgan                                 │
+│  📧 [alex@example.com          ] [Gmail ▼]  │
+│  📧 [alex.work@example.com     ] [Gmail ▼]  │
 │                                    [+ Add]  │
 │                                             │
-│ Smitha Azariah                              │
-│  📧 [smitha.azariah@gmail.com  ] [Gmail ▼]  │
+│ Jordan Morgan                               │
+│  📧 [jordan@example.com        ] [Gmail ▼]  │
 │                                    [+ Add]  │
 └─────────────────────────────────────────────┘
 ```
@@ -88,13 +88,13 @@ Where does each person work?
 
 ```
 ┌─────────────────────────────────────────────┐
-│ John Azariah                                │
-│  Employer: [Microsoft                 ]     │
-│  Role:     [Principal SWE             ]     │
+│ Alex Morgan                                 │
+│  Employer: [Contoso                  ]      │
+│  Role:     [Engineer                 ]      │
 │                                             │
-│ Smitha Azariah                              │
-│  Employer: [QLD Education             ]     │
-│  Role:     [Teacher                   ]     │
+│ Jordan Morgan                               │
+│  Employer: [Fabrikam                 ]      │
+│  Role:     [Teacher                  ]      │
 │                                             │
 │ (helps recognise payslips)                  │
 └─────────────────────────────────────────────┘
@@ -125,14 +125,14 @@ Investment/rental properties.
 
 ```
 ┌─────────────────────────────────────────────┐
-│ Address: [1 Avalon St, Richmond      ]      │
-│ Manager: [Ray White Wantirna         ]      │
-│ Owners:  [☑ John] [☑ Smitha]              │
+│ Address: [10 Sample St, Exampleton   ]      │
+│ Manager: [Sample Property Management ]      │
+│ Owners:  [☑ Alex] [☑ Jordan]               │
 │                                    [+ Add]  │
 │                                             │
-│ Address: [35 Manorwoods Dr, Wantirna ]      │
-│ Manager: [Harcourts                  ]      │
-│ Owners:  [☑ John] [□ Smitha]              │
+│ Address: [20 Demo Rd, Testville       ]      │
+│ Manager: [Demo Realty                 ]      │
+│ Owners:  [☑ Alex] [□ Jordan]                │
 │                                    [+ Add]  │
 └─────────────────────────────────────────────┘
 ```
@@ -143,14 +143,14 @@ Per person.
 
 ```
 ┌─────────────────────────────────────────────┐
-│ John Azariah                                │
-│  Super fund: [AustralianSuper         ]     │
-│  Broker:     [CommSec                 ]     │
-│  Holdings:   [MSFT, VAS, VGS          ]     │
-│  ESPP:       [☑ Yes]                       │
+│ Alex Morgan                                 │
+│  Super fund: [Example Super           ]     │
+│  Broker:     [Example Broker          ]     │
+│  Holdings:   [ABC, XYZ                 ]     │
+│  Share plan: [☑ Yes]                       │
 │                                             │
-│ Smitha Azariah                              │
-│  Super fund: [QSuper                  ]     │
+│ Jordan Morgan                               │
+│  Super fund: [Sample Super            ]     │
 │  Broker:     [                        ]     │
 │  Holdings:   [                        ]     │
 └─────────────────────────────────────────────┘
@@ -162,11 +162,11 @@ Access to calendars for due date reminders.
 
 ```
 ┌─────────────────────────────────────────────┐
-│ John Azariah                                │
+│ Alex Morgan                                 │
 │  📅 Google Calendar  [Connect →]            │
 │  📅 Outlook Calendar [Connect →]            │
 │                                             │
-│ Smitha Azariah                              │
+│ Jordan Morgan                               │
 │  📅 Google Calendar  [Connect →]            │
 │                                             │
 │ (enables due date reminders for bills,      │
@@ -184,8 +184,8 @@ Freeform for anything the structured steps didn't cover.
 │                                             │
 │ ┌─────────────────────────────────────────┐ │
 │ │ Documents from ATO are always tax.     │ │
-│ │ We sold 35 Manorwoods in Dec 2025.     │ │
-│ │ Telstra bills are for 1 Avalon St.     │ │
+│ │ We sold 20 Demo Rd in Dec 2025.        │ │
+│ │ Telecom bills are for 10 Sample St.    │ │
 │ └─────────────────────────────────────────┘ │
 │                                             │
 │ This is saved as your preferences and       │
@@ -220,12 +220,12 @@ Freeform for anything the structured steps didn't cover.
 # This file configures Hermes locally. Nothing is shared externally.
 
 members:
-  - name: John Azariah
+  - name: Alex Morgan
     role: primary
     email:
-      - address: john.azariah@gmail.com
+      - address: alex@example.com
         provider: gmail
-      - address: john.azariah.australia@gmail.com
+      - address: alex.work@example.com
         provider: gmail
     employment:
       employer: Microsoft
@@ -234,15 +234,15 @@ members:
       super_fund: AustralianSuper
       broker: CommSec
       holdings: [MSFT, VAS, VGS]
-      espp: true
+      employee_share_plan: true
     calendars:
       - provider: google
-        address: john.azariah@gmail.com
+        address: alex@example.com
 
-  - name: Smitha Azariah
+  - name: Jordan Morgan
     role: spouse
     email:
-      - address: smitha.azariah@gmail.com
+      - address: jordan@example.com
         provider: gmail
     employment:
       employer: QLD Education
@@ -253,23 +253,23 @@ members:
 banking:
   - bank: Commonwealth Bank
     type: everyday
-    owners: [John Azariah, Smitha Azariah]
+    owners: [Alex Morgan, Jordan Morgan]
   - bank: Westpac
     type: mortgage
-    owners: [John Azariah, Smitha Azariah]
+    owners: [Alex Morgan, Jordan Morgan]
 
 properties:
-  - address: 1 Avalon St, Richmond
-    manager: Ray White Wantirna
-    owners: [John Azariah, Smitha Azariah]
-  - address: 35 Manorwoods Dr, Wantirna
-    manager: Harcourts
-    owners: [John Azariah]
+  - address: 10 Sample St, Exampleton
+    manager: Sample Property Management
+    owners: [Alex Morgan, Jordan Morgan]
+  - address: 20 Demo Rd, Testville
+    manager: Demo Realty
+    owners: [Alex Morgan]
 
 preferences: |
   Documents from ATO are always tax.
-  We sold 35 Manorwoods in Dec 2025.
-  Telstra bills are for 1 Avalon St.
+  We sold 20 Demo Rd in Dec 2025.
+  Telecom bills are for 10 Sample St.
 ```
 
 ## How the profile helps comprehension
@@ -278,10 +278,10 @@ The household profile is injected into the comprehension prompt as structured co
 
 ```
 Household context:
-- Members: John Azariah (primary, works at Microsoft), Smitha Azariah (spouse, works at QLD Education)
-- Properties: 1 Avalon St Richmond (Ray White), 35 Manorwoods Dr Wantirna (Harcourts)
+- Members: Alex Morgan (primary, works at Contoso), Jordan Morgan (spouse, works at Fabrikam)
+- Properties: 10 Sample St Exampleton (Sample Property Management), 20 Demo Rd Testville (Demo Realty)
 - Banking: Commonwealth Bank (joint everyday), Westpac (joint mortgage)
-- John's super: AustralianSuper, broker: CommSec, holdings: MSFT/VAS/VGS, ESPP
+- Alex's super: Example Super, broker: Example Broker, holdings: ABC/XYZ, employee share plan
 - Smitha's super: QSuper
 ```
 

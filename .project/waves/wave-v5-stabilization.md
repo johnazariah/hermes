@@ -42,11 +42,11 @@ follow-on work.
 | 0 | Reconcile stale phase issues with proof | Kobayashi / Hockney | ✅ Done | Closed #1-#5, #7, #10, #12; rewrote #6, #8, #9, #11; created #16, #17 |
 | 0 | Capture redacted current-main baseline | Hockney / Fenster / McManus / Verbal / Rai | ✅ Done | Evidence below; personal archive not accessed |
 | 0 | Reconcile testing register and support matrix | Hockney / Keaton | ✅ Done | Baseline below and testing register |
-| 1A | Stabilize V5 reflow and reclassification | McManus / Hockney | ▶ Ready | #17 |
+| 1A | Stabilize V5 reflow and reclassification | McManus / Hockney | ⬜ Blocked | #17; requires PR #15 review/merge |
 | 1B | Restore file-first FTS, semantic/hybrid, and Osprey reachability | McManus / Hockney | ⬜ Blocked | #11 and #6; depends on Phase 1A contracts |
 | 1C | Enforce local HTTP/MCP trust boundary | McManus / Keaton / Rai | ⬜ Blocked | #6; depends on final MCP contract |
 | 1D | Stabilize canonical React/Tray assets and SSE | Verbal / Fenster / Hockney | ⬜ Blocked | #9 and #8; depends on trust-boundary browser policy |
-| 1E | Reach 85% line / 60% branch coverage and close wave | Hockney / Fenster | ⬜ Blocked | Phase 1A-1D |
+| 1E | Reach 85% line / 60% branch coverage and close wave | Hockney / Fenster | ⬜ Blocked | #18; depends on Phase 1A-1D |
 
 ## Phase 0 Baseline
 
@@ -94,6 +94,7 @@ or live document was opened. Results record behavior and counts, not content.
 5. Test counts, skips, non-asserting cases, and coverage agree with the testing register.
 6. Supported, preview, and excluded surfaces are explicit.
 7. Phase 1A begins only from a reviewed issue with the baseline linked.
+8. PR #15 is reviewed and merged before Phase 1A implementation starts.
 
 ## Log
 
@@ -102,8 +103,8 @@ or live document was opened. Results record behavior and counts, not content.
 - **Changed:** Reconciled all stale phase issues, recorded the current-main baseline, and classified supported and excluded surfaces.
 - **Evidence:** PR #15; active issues #6, #8, #9, #11, #16, and #17; baseline and support tables above.
 - **Validation:** 867 .NET tests executed (857 passed, 10 skipped), 65.0% line and 31.1% branch coverage, isolated Service probes, React build/lint and Playwright discovery checks.
-- **Blockers:** Phase 1B-1E remain dependency-blocked; de-identified corpus replay remains prohibited until owner-approved IDs and queries exist.
-- **Next:** Begin Phase 1A from #17 using synthetic fixtures and bounded dry-run semantics.
+- **Blockers:** PR #15 review/merge; de-identified corpus replay remains prohibited until owner-approved IDs and queries exist.
+- **Next:** After PR #15 review/merge, begin Phase 1A from #17 using synthetic fixtures and bounded dry-run semantics.
 
 ### 2026-08-27 - Phase 0 preservation and activation
 

@@ -567,7 +567,7 @@ extraction_method: openxml-word
 
 ## Parties
 
-This agreement is between Microsoft Pty Ltd (ABN 29 002 589 460) and John Azariah.
+This agreement is between Example Pty Ltd (ABN 12 345 678 901) and Alex Morgan.
 
 ## Remuneration
 
