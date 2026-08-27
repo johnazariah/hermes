@@ -15,6 +15,35 @@
 > 843 unique test methods; 867 total test cases
 > (Theory/InlineData tests contribute multiple cases per method)
 
+## Execution Baseline
+
+Current-main baseline captured on 2026-08-27 from `a11686d` source plus
+documentation-only rebaseline commits:
+
+| Measure | Result |
+|---------|--------|
+| .NET discovered | 867 |
+| .NET passed / skipped / failed | 857 / 10 / 0 |
+| Line / branch coverage | 65.0% / 31.1% |
+| Supported .NET builds | Core, Service, Tests, Windows Tray: 0 warnings, 0 errors |
+| Playwright source definitions | 21 (9 React, 12 Blazor) |
+| Playwright default discovery | 0; no usable runner configuration |
+| React locked install | Failed: `package-lock.json` is out of sync |
+| React build after no-lock install | Passed |
+| React lint | Failed: 4 errors |
+
+Skip-quality findings:
+
+- 3 email-body FTS tests are skipped because file-first content is not indexed.
+- 1 MCP path-safety test is skipped for platform-dependent path behavior.
+- 6 Osprey parity tests are skipped because fixtures are unavailable.
+- 4 other Osprey parity tests use `Option.iter` and pass without assertions when
+  their fixtures are unavailable; only the two PPTX fixtures are source-controlled.
+
+The active follow-on issues are #6, #8, #9, #11, #16, and #17. The V5
+Stabilization wave closes only at 85% line and 60% branch coverage with truthful
+skip and Playwright execution evidence.
+
 ---
 
 ## ConfigTests.fs (15 tests)
