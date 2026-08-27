@@ -29,8 +29,8 @@ See: [wave-v5-stabilization.md](waves/wave-v5-stabilization.md)
 
 | Priority | Item | State |
 |----------|------|-------|
-| Red | Phase 0 rebaseline and stale-issue reconciliation | Active |
-| Red | V5 reflow and file-safe reclassification | Blocked on Phase 0 evidence |
+| Red | Phase 0 rebaseline and stale-issue reconciliation | Evidence complete; PR #15 review pending |
+| Red | V5 reflow and file-safe reclassification | Blocked on PR #15 review/merge |
 | Red | File-first FTS, semantic/hybrid, and Osprey MCP | Blocked on Phase 1A contracts |
 | Red | Local HTTP/MCP trust boundary | Loopback + allowlist + authenticated mutation |
 | Red | Coverage | 65% line observed; wave close requires 85% line / 60% branch |

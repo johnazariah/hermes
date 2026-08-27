@@ -26,7 +26,7 @@ The archive becomes self-describing and the DB becomes disposable — rebuildabl
 
 ## Decisions (confirmed 2026-05-07)
 
-1. **Multi-label tags are the long-term categorisation model** — documents can have multiple tags (e.g. `utility-bill` + `avalon-property` + `tax-deductible`). A single category remains as a compatibility projection for current API and UI consumers.
+1. **Multi-label tags are the long-term categorisation model** — documents can have multiple tags (e.g. `utility-bill` + `sample-property` + `tax-deductible`). A single category remains as a compatibility projection for current API and UI consumers.
 2. **Thread is the unit of comprehension** — the LLM comprehends the entire thread (email conversation + all attachments), not individual attachments in isolation.
 3. **One folder per thread** — all messages and attachments in a thread live in one folder.
 4. **Folder path: `account/first-sender-domain/subject-slug--thread-prefix/`** — sender domain is the primary grouping; the thread suffix prevents collisions.
@@ -79,7 +79,7 @@ Replaces the current `.meta.json`. One per folder, covers all files in that fold
 {
   "version": 2,
   "source_type": "email_attachment",
-  "account": "john.azariah@gmail.com",
+  "account": "alex@example.com",
   "provider_id": "msg-abc123",
   "thread_id": "thread-abc123",
   "sender": "noreply@telstra.com.au",
@@ -220,7 +220,7 @@ Categories are **emergent, not predefined**:
 
 ```
 ~/Documents/Hermes/
-├── john.azariah@gmail.com/
+├── alex@example.com/
 │   ├── telstra.com.au/
 │   │   ├── your-march-2026-bill--thread-a/
 │   │   │   ├── 2026-03-15-message.md
@@ -231,7 +231,7 @@ Categories are **emergent, not predefined**:
 │   │   └── your-april-2026-bill--thread-b/
 │   │       └── ...
 │   ├── raywhite.com.au/
-│   │   └── flooding-fix-1-avalon--thread-c/
+│   │   └── flooding-fix-sample-property--thread-c/
 │   │       ├── 2026-03-15-ray-initial-report.md
 │   │       ├── 2026-03-16-bob-plumber-quote.pdf
 │   │       ├── 2026-03-18-nrma-claim-form.pdf
@@ -253,9 +253,9 @@ The `thread.comprehension.json` covers the entire thread — conversation contex
 
 ```json
 {
-  "thread_summary": "Ray White reported flooding at 1 Avalon St. Bob the plumber quoted $2,400. NRMA claim filed.",
+  "thread_summary": "Sample Realty reported flooding at 10 Sample St. A plumber quoted $2,400. An insurance claim was filed.",
   "participants": ["ray@raywhite.com.au", "bob@plumbing.com.au", "claims@nrma.com.au"],
-  "tags": ["property", "avalon-property", "insurance-claim"],
+  "tags": ["property", "sample-property", "insurance-claim"],
   "documents": [
     {
       "file": "2026-03-16-bob-plumber-quote.pdf",
@@ -267,7 +267,7 @@ The `thread.comprehension.json` covers the entire thread — conversation contex
       "file": "2026-03-18-nrma-claim-form.pdf",
       "document_type": "insurance-claim",
       "confidence": 0.88,
-      "fields": { "provider": "NRMA", "claim_number": "CLM-2026-1234", "property_address": "1 Avalon St" }
+      "fields": { "provider": "Example Insurance", "claim_number": "CLM-2026-1234", "property_address": "10 Sample St" }
     }
   ]
 }
@@ -330,7 +330,7 @@ Everything in one `.pst` file. Corrupt it, lose everything. Grows without bound.
 
 ### Gmail (2004): Labels, not folders
 
-A message can have multiple labels. "This is a receipt AND avalon-property AND tax-deductible." Search-first, not folder-first.
+A message can have multiple labels. "This is a receipt AND sample-property AND tax-deductible." Search-first, not folder-first.
 
 **Applied**: The `tags` table supports multi-label categorisation. The single category remains only as a compatibility projection while consumers transition to tags.
 
@@ -401,7 +401,7 @@ User opens Hermes
   │     → everything auto-categorised, just glance
   │
   └── Search / Browse when needed
-        → "find Avalon property expenses"
+        → "find Sample property expenses"
         → field-aware search + faceted filtering
         → batch select → recategorise / export / tag
 ```
@@ -459,7 +459,7 @@ User opens Hermes
 │   📄 Payslip        payslip  $8,500   97%  │
 │                                             │
 │ Yesterday                                   │
-│   📄 Council rates  avalon   $1,200   92%  │
+│   📄 Council rates  sample   $1,200   92%  │
 │   📄 Water bill     utility  $65.00   88%  │
 │                                             │
 │ Last week                                   │
@@ -471,16 +471,16 @@ User opens Hermes
 **4. Smart search with facets**
 ```
 ┌─────────────────────────────────────────────┐
-│ 🔍 Avalon St                               │
+│ 🔍 Sample St                               │
 │                                             │
 │ Filters: [All types ▼] [2025-2026 ▼]       │
 │          [All senders ▼]                    │
 │                                             │
 │ 8 results                                   │
-│ ☑ Telstra bill — 1 Avalon St — $89.50      │
-│ ☑ Council rates — 1 Avalon St — $1,200     │
-│ ☐ Water bill — 1 Avalon St — $65.00        │
-│ ☐ Insurance — 1 Avalon St — $850/yr        │
+│ ☑ Telecom bill — 10 Sample St — $89.50     │
+│ ☑ Council rates — 10 Sample St — $1,200    │
+│ ☐ Water bill — 10 Sample St — $65.00       │
+│ ☐ Insurance — 10 Sample St — $850/yr       │
 │                                             │
 │ With selected:                              │
 │ [Tag as... ▼] [Recategorise ▼] [Export ▼]  │
@@ -497,8 +497,8 @@ User opens Hermes
 │                                             │
 │ ┌─────────────────────────────────────────┐ │
 │ │ I have two investment properties:       │ │
-│ │ - 1 Avalon St, Richmond                │ │
-│ │ - 35 Manorwoods Dr, Wantirna           │ │
+│ │ - 10 Sample St, Exampleton             │ │
+│ │ - 20 Demo Rd, Testville                │ │
 │ │                                         │ │
 │ │ I work at Microsoft.                    │ │
 │ │ Anything from ATO is tax-related.       │ │
