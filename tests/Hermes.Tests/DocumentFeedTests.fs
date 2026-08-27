@@ -24,6 +24,7 @@ let private insertDoc (db: Algebra.Database) category name =
 
 let private insertDocWithText (db: Algebra.Database) category name _text =
     task {
+        do! PipelineV5.initSchema db []
         let! _ =
             db.execNonQuery
                 """INSERT INTO documents (source_type, saved_path, category, sha256, original_name, extracted_at)
@@ -32,6 +33,11 @@ let private insertDocWithText (db: Algebra.Database) category name _text =
                   ("@cat", Database.boxVal category)
                   ("@sha", Database.boxVal (System.Guid.NewGuid().ToString("N")))
                   ("@name", Database.boxVal name) ]
+        let! _ =
+            db.execNonQuery
+                """INSERT INTO stage_completions (document_id, stage_name)
+                   VALUES (last_insert_rowid(), 'extract')"""
+                []
         ()
     }
 
@@ -172,6 +178,7 @@ let ``DocumentFeed_GetContent_InvalidId_ReturnsError`` () =
         let db = TestHelpers.createDb ()
         let m = TestHelpers.memFs ()
         try
+            do! PipelineV5.initSchema db []
             let! result = DocumentFeed.getDocumentContent db m.Fs "/archive" 99999L DocumentFeed.Markdown
             match result with
             | Error e -> Assert.Contains("not found", e)
@@ -300,6 +307,7 @@ let ``DocumentFeed_GetContent_Markdown_NoExtractedText_ReturnsError`` () =
         let db = TestHelpers.createDb ()
         let m = TestHelpers.memFs ()
         try
+            do! PipelineV5.initSchema db []
             do! insertDoc db "invoices" "no-text.pdf"
             let! docs = DocumentFeed.listDocuments db 0L None 1
             let docId = docs.[0].Id
@@ -307,6 +315,39 @@ let ``DocumentFeed_GetContent_Markdown_NoExtractedText_ReturnsError`` () =
             match result with
             | Error e -> Assert.Contains("No extracted content", e)
             | Ok _ -> failwith "Expected Error when no extracted text"
+        finally
+            db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``DocumentFeed_GetContent_InvalidatedExtract_HidesMarkdownButKeepsRaw`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        try
+            do! insertDocWithText db "invoices" "inv.pdf" "stale extraction"
+            m.Put "/archive/invoices/inv.pdf.extracted.md" "stale extraction"
+            m.Put "/archive/invoices/inv.pdf" "immutable raw source"
+            let! docs = DocumentFeed.listDocuments db 0L None 1
+            let docId = docs.Head.Id
+            let! _ =
+                db.execNonQuery
+                    """DELETE FROM stage_completions
+                       WHERE document_id = @doc AND stage_name = 'extract'"""
+                    [ ("@doc", Database.boxVal docId) ]
+            let! markdown =
+                DocumentFeed.getDocumentContent
+                    db m.Fs "/archive" docId DocumentFeed.Markdown
+            let! raw =
+                DocumentFeed.getDocumentContent
+                    db m.Fs "/archive" docId DocumentFeed.Raw
+            match markdown, raw with
+            | Error error, Ok content ->
+                Assert.Contains("not current", error)
+                Assert.Equal("immutable raw source", content)
+            | other ->
+                failwith $"Expected hidden extraction and readable raw source, got {other}"
         finally
             db.dispose ()
     }
@@ -337,4 +378,58 @@ let ``DocumentFeed_GetFeedStats_EmptyDb_ReturnsZeros`` () =
             Assert.Empty(stats.ByCategory)
         finally
             db.dispose ()
+    }
+// ─── Extracted-content read race ─────────────────────────────────────
+
+let private reflowDuringRead
+    (db: Algebra.Database)
+    (fs: Algebra.FileSystem)
+    (docId: int64)
+    : Algebra.FileSystem =
+    let fired =
+        TaskCompletionSource<unit>(TaskCreationOptions.RunContinuationsAsynchronously)
+    { fs with
+        readAllText =
+            fun path ->
+                task {
+                    let! content = fs.readAllText path
+                    if path.EndsWith(".extracted.md") && fired.TrySetResult() then
+                        let! reflow =
+                            Reflow.request db TestHelpers.silentLogger
+                                (TestHelpers.standardV5Dag ()) docId
+                                Reflow.Reextract Reflow.Apply
+                        match reflow with
+                        | Error error -> failwith error
+                        | Ok _ -> ()
+                    return content
+                } }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``DocumentFeed_GetDocumentContent_ReextractDuringRead_ReturnsNotCurrent`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let mem = TestHelpers.memFs ()
+        try
+            do! TestHelpers.initV5 db
+            let! _ =
+                db.execNonQuery
+                    """INSERT INTO documents
+                         (original_name, source_type, saved_path, category, sha256)
+                       VALUES ('race.pdf', 'manual_drop', 'payslips/race.pdf', 'payslips', 'sha-feed-race')"""
+                    []
+            let! _ =
+                db.execNonQuery
+                    """INSERT INTO stage_completions (document_id, stage_name)
+                       VALUES (1, 'extract')"""
+                    []
+            mem.Put "/archive/payslips/race.pdf.extracted.md" "stale extracted text"
+            let racingFs = reflowDuringRead db mem.Fs 1L
+            let! result =
+                DocumentFeed.getDocumentContent
+                    db racingFs "/archive" 1L DocumentFeed.Text
+            match result with
+            | Ok content -> failwith $"Expected not-current error, got stale content: {content}"
+            | Error error -> Assert.Contains("not current", error)
+        finally db.dispose ()
     }

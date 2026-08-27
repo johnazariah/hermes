@@ -46,6 +46,10 @@ let ``Database_InitSchema_CreatesAllTables`` () =
             let! hasSchemaVersion = db.tableExists "schema_version"
             Assert.True(hasSchemaVersion)
 
+            let! hasLearnedEvidence =
+                db.tableExists "learned_pattern_evidence"
+            Assert.True(hasLearnedEvidence)
+
             let! hasFts = db.tableExists "documents_fts"
             Assert.True(hasFts)
         finally
@@ -88,6 +92,43 @@ let ``Database_InitSchema_IsIdempotent`` () =
 [<Fact>]
 [<Trait("Category", "Integration")>]
 let ``Database_SchemaVersion_BeforeInit_ReturnsZero`` () =
+    task {
+        let db = TestHelpers.createRawDb ()
+        try
+            let! version = db.schemaVersion ()
+            Assert.Equal(0, version)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``Database_InitSchema_FromV11_AddsStagePublicationsIdempotently`` () =
+    task {
+        let db = TestHelpers.createRawDb ()
+        try
+            // A database recorded at the previous version.
+            let! _ =
+                db.execNonQuery
+                    "CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TEXT DEFAULT (datetime('now')))"
+                    []
+            let! _ = db.execNonQuery "INSERT INTO schema_version(version) VALUES (11)" []
+            match! db.initSchema () with
+            | Error error -> failwith error
+            | Ok () -> ()
+            let! exists = db.tableExists "stage_publications"
+            Assert.True(exists, "Migration must create stage_publications")
+            let! version = db.schemaVersion ()
+            Assert.Equal(Database.CurrentSchemaVersion, version)
+            // Re-running the migration is a no-op.
+            match! db.initSchema () with
+            | Error error -> failwith error
+            | Ok () -> ()
+            let! again = db.schemaVersion ()
+            Assert.Equal(Database.CurrentSchemaVersion, again)
+        finally db.dispose ()
+    }
+
+let ``Database_SchemaVersion_BeforeInit_ReturnsZero_Original`` () =
     task {
         let db = TestHelpers.createRawDb ()
 
@@ -282,7 +323,7 @@ let ``Database_InitSchema_V3_SchemaVersionIs3`` () =
         try
             let! _ = db.initSchema ()
             let! v = db.schemaVersion ()
-            Assert.Equal(8, v)
+            Assert.Equal(Database.CurrentSchemaVersion, v)
         finally db.dispose ()
     }
 
@@ -297,7 +338,7 @@ let ``Database_InitSchema_V3_IdempotentRunTwice`` () =
             let! r2 = db.initSchema ()
             Assert.True(Result.isOk r2)
             let! v = db.schemaVersion ()
-            Assert.Equal(8, v)
+            Assert.Equal(Database.CurrentSchemaVersion, v)
         finally db.dispose ()
     }
 
@@ -318,6 +359,95 @@ let ``Database_InitSchema_V3_ReminderIndexesExist`` () =
         finally db.dispose ()
     }
 
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``Database_InitSchema_MigratesFromV8_CreatesReflowSchema`` () =
+    task {
+        let db = TestHelpers.createRawDb ()
+        try
+            let! _ =
+                db.execNonQuery
+                    "CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TEXT DEFAULT (datetime('now')))"
+                    []
+            let! _ = db.execNonQuery "INSERT INTO schema_version(version) VALUES (8)" []
+            let! first = db.initSchema ()
+            let! second = db.initSchema ()
+            Assert.True(Result.isOk first)
+            Assert.True(Result.isOk second)
+            let! version = db.schemaVersion ()
+            Assert.Equal(Database.CurrentSchemaVersion, version)
+            let! operations = db.tableExists "reflow_operations"
+            let! stages = db.tableExists "reflow_operation_stages"
+            let! generations = db.tableExists "document_generations"
+            Assert.True(operations)
+            Assert.True(stages)
+            Assert.True(generations)
+            let! index =
+                db.execScalar
+                    "SELECT count(*) FROM sqlite_master WHERE type='index' AND name='idx_reflow_ops_active_apply'"
+                    []
+            Assert.Equal(1L, index :?> int64)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``Database_InTransaction_Error_RollsBack`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! result =
+                db.inTransaction (fun tx ->
+                    task {
+                        let! _ =
+                            tx.execNonQuery
+                                """INSERT INTO documents (source_type,saved_path,category,sha256)
+                                   VALUES ('manual_drop','rollback.pdf','unsorted','rollback')"""
+                                []
+                        return Error "forced rollback"
+                    })
+            Assert.True(Result.isError result)
+            let! count = db.execScalar "SELECT count(*) FROM documents WHERE sha256='rollback'" []
+            Assert.Equal(0L, count :?> int64)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``Database_NormalCommand_WaitsForActiveTransactionOnSameConnection`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let entered =
+            TaskCompletionSource<unit>(
+                TaskCreationOptions.RunContinuationsAsynchronously)
+        let release =
+            TaskCompletionSource<unit>(
+                TaskCreationOptions.RunContinuationsAsynchronously)
+
+        try
+            let transaction =
+                db.inTransaction (fun _ ->
+                    task {
+                        entered.TrySetResult() |> ignore
+                        do! release.Task
+                        return Ok ()
+                    })
+
+            do! entered.Task
+            let normalCommand = db.execScalar "SELECT 42" []
+            do! Task.Delay(100)
+            Assert.False(normalCommand.IsCompleted)
+
+            release.TrySetResult() |> ignore
+            let! transactionResult = transaction
+            let! value = normalCommand
+            Assert.True(Result.isOk transactionResult)
+            Assert.Equal(42L, value :?> int64)
+        finally
+            release.TrySetResult() |> ignore
+            db.dispose ()
+    }
+
 // ─── Schema tests ────────────────────────────────────────────────
 
 [<Fact>]
@@ -328,7 +458,7 @@ let ``Database_SchemaVersion_FreshDb_ReturnsLatest`` () =
         try
             let! _ = db.initSchema ()
             let! v = db.schemaVersion ()
-            Assert.Equal(8, v)
+            Assert.Equal(Database.CurrentSchemaVersion, v)
         finally db.dispose ()
     }
 
@@ -356,4 +486,47 @@ let ``Database_FreshSchema_HasAllTables`` () =
                 let! exists = db.tableExists table
                 Assert.True(exists, $"Table {table} should exist")
         finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``Database_InitSchema_DeduplicatesActiveDeadLettersBeforeUniqueIndex`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            let! _ =
+                db.execNonQuery
+                    "DROP INDEX IF EXISTS idx_dead_letters_active"
+                    []
+            let! _ =
+                db.execNonQuery
+                    """INSERT INTO dead_letters
+                         (doc_id, stage, error, retryable, failed_at)
+                       VALUES (42, 'embed', 'old', 1, datetime('now')),
+                              (42, 'embed', 'new', 1, datetime('now'))"""
+                    []
+            let! result = db.initSchema ()
+            Assert.True(Result.isOk result)
+            let! active =
+                db.execScalar
+                    """SELECT count(*) FROM dead_letters
+                       WHERE doc_id = 42 AND stage = 'embed' AND dismissed = 0"""
+                    []
+            let! dismissed =
+                db.execScalar
+                    """SELECT count(*) FROM dead_letters
+                       WHERE doc_id = 42 AND stage = 'embed' AND dismissed = 1"""
+                    []
+            let! activeError =
+                db.execScalar
+                    """SELECT error FROM dead_letters
+                       WHERE doc_id = 42 AND stage = 'embed' AND dismissed = 0"""
+                    []
+            Assert.Equal(1L, active :?> int64)
+            Assert.Equal(1L, dismissed :?> int64)
+            match activeError with
+            | :? string as error -> Assert.Equal("new", error)
+            | _ -> Assert.Fail("Expected active error to be a string")
+        finally
+            db.dispose ()
     }

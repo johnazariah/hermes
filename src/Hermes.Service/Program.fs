@@ -13,6 +13,31 @@ open Microsoft.Extensions.DependencyInjection
 open Hermes.Core
 open Serilog.Events
 
+/// Background work is fire-and-forget, but its terminal state must still be
+/// observed: a faulted background task can never disappear silently.
+let private observeBackground
+    (logger: Algebra.Logger)
+    (name: string)
+    (token: CancellationToken)
+    (work: Task)
+    : unit =
+    let describe (finished: Task) =
+        if finished.IsFaulted then
+            let detail =
+                match finished.Exception with
+                | null -> "unknown fault"
+                | error -> error.ToString()
+            logger.error $"Background task '{name}' faulted and stopped: {detail}"
+        elif finished.IsCanceled || token.IsCancellationRequested then
+            logger.info $"Background task '{name}' stopped"
+        else
+            logger.warn $"Background task '{name}' exited before shutdown"
+
+    work.ContinueWith(
+        Action<Task>(describe),
+        TaskContinuationOptions.ExecuteSynchronously)
+    |> ignore
+
 [<EntryPoint>]
 let main args =
     let fs = Interpreters.realFileSystem
@@ -44,9 +69,11 @@ let main args =
     Directory.CreateDirectory(Path.Combine(archiveDir, "unclassified")) |> ignore
 
     let logger = Logging.configure configDir LogEventLevel.Information
-    let db = Database.fromPath (Path.Combine(archiveDir, "db.sqlite"))
+    let dbPath = Path.Combine(archiveDir, "db.sqlite")
+    let db = Database.fromPath dbPath
     let _ = db.initSchema () |> Async.AwaitTask |> Async.RunSynchronously
     Embeddings.initSchema db |> Async.AwaitTask |> Async.RunSynchronously
+    let reflowDb = Database.fromPath dbPath
 
     // Seed sync_state for --initial-sync-days (only if account has no existing state)
     match initialSyncDays with
@@ -191,16 +218,29 @@ let main args =
             failwith $"Pipeline DAG error: {e}"
     let gpu = PipelineV5.createGpuScheduler logger
 
+    // Recovery is synchronous so no API or worker can observe stale leases.
+    let recovered =
+        PipelineV5.recoverStaleAttempts db v5Stages
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+    if recovered > 0 then
+        logger.warn
+            $"Recovered {recovered} stale pipeline stage attempt lease(s)"
+
     // Start v5 pipeline in background
     use cts = new CancellationTokenSource()
-    let _ = System.Threading.Tasks.Task.Run(fun () ->
-        task {
-            do! PipelineV5.run dag db logger gpu 200 (TimeSpan.FromMinutes 5.0) (TimeSpan.FromSeconds 10.0) cts.Token
-        } :> System.Threading.Tasks.Task)
+    System.Threading.Tasks.Task.Run(fun () ->
+        PipelineV5.run
+            dag db logger gpu 200
+            (TimeSpan.FromMinutes 5.0)
+            (TimeSpan.FromSeconds 10.0)
+            cts.Token
+        :> System.Threading.Tasks.Task)
+    |> observeBackground logger "pipeline-v5" cts.Token
 
     // Start producers (email sync, folder watcher) — they INSERT into documents table
     // v5 pipeline picks up new docs via readyQuery (no stage_completions = ready for extract)
-    let _ = System.Threading.Tasks.Task.Run(fun () ->
+    System.Threading.Tasks.Task.Run(fun () ->
         task {
             // Initial delay for schema setup
             do! Task.Delay(TimeSpan.FromSeconds(5.0))
@@ -261,6 +301,7 @@ let main args =
                 try do! Task.Delay(TimeSpan.FromMinutes(float config.SyncIntervalMinutes), cts.Token)
                 with :? OperationCanceledException -> ()
         } :> System.Threading.Tasks.Task)
+    |> observeBackground logger "producers" cts.Token
 
     // Build HTTP API
     let builder = WebApplication.CreateBuilder()
@@ -291,7 +332,8 @@ let main args =
     app.UseAntiforgery() |> ignore
 
     // Map API routes
-    ApiServer.mapRoutes app db fs logger clock chatProvider archiveDir configDir
+    ApiServer.mapRoutesWithReflowDb
+        app db reflowDb fs logger clock dag chatProvider archiveDir configDir
 
     // Health endpoint for tray app / orchestrator polling
     app.MapGet("/health", Func<IResult>(fun () ->
@@ -309,7 +351,9 @@ let main args =
         task {
             use reader = new IO.StreamReader(ctx.Request.Body)
             let! body = reader.ReadToEndAsync()
-            let! response = McpServer.processMessage db fs logger clock archiveDir deepDeps body
+            let! response =
+                McpServer.processMessageWithReflowDb
+                    db reflowDb fs logger clock dag archiveDir deepDeps body
             return Results.Text(response, "application/json")
         })) |> ignore
 
@@ -324,5 +368,6 @@ let main args =
     logger.info $"Hermes service starting on http://localhost:{port}"
     app.Run($"http://localhost:{port}")
     cts.Cancel()
+    reflowDb.dispose ()
     db.dispose ()
     0

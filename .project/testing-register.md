@@ -6,13 +6,13 @@
 
 | Category | Count |
 |----------|-------|
-| Unit | 565 |
-| Property | 5 |
-| Integration | 291 |
+| Unit | 569 |
+| Property | 6 |
+| Integration | 359 |
 | ManualTest | 6 |
-| **Total** | **867** |
+| **Total** | **940** |
 
-> 843 unique test methods; 867 total test cases
+> 912 unique test methods; 940 total test cases
 > (Theory/InlineData tests contribute multiple cases per method)
 
 ## Execution Baseline
@@ -40,6 +40,10 @@ Skip-quality findings:
 - 4 other Osprey parity tests use `Option.iter` and pass without assertions when
   their fixtures are unavailable; only the two PPTX fixtures are source-controlled.
 
+Phase 1A PR A validation: 940 discovered; 930 passed, 10 skipped, 0 failed.
+Core-only comparable coverage is 79.06% line / 39.61% branch, up from the
+65.0% / 31.1% baseline. Issue #18 still owns the 85% / 60% wave-close gate.
+
 The active follow-on issues are #6, #8, #9, #11, #16, #17, and #18. The V5
 Stabilization wave closes only at 85% line and 60% branch coverage with truthful
 skip and Playwright execution evidence.
@@ -66,7 +70,7 @@ skip and Playwright execution evidence.
 | Config_ChatProviderKind_FromString_ParsesVariants | Unit |
 | Config_ParseYaml_NeverThrows | Property |
 
-## DatabaseTests.fs (18 tests)
+## DatabaseTests.fs (23 tests)
 
 | Test | Category |
 |------|----------|
@@ -88,6 +92,11 @@ skip and Playwright execution evidence.
 | Database_SchemaVersion_FreshDb_ReturnsLatest | Integration |
 | Database_InitSchema_Idempotent_CanRunTwice | Integration |
 | Database_FreshSchema_HasAllTables | Integration |
+| Database_InitSchema_MigratesFromV8_CreatesReflowSchema | Integration |
+| Database_InTransaction_Error_RollsBack | Integration |
+| Database_NormalCommand_WaitsForActiveTransactionOnSameConnection | Integration |
+| Database_InitSchema_DeduplicatesActiveDeadLettersBeforeUniqueIndex | Integration |
+| Database_InitSchema_FromV11_AddsStagePublicationsIdempotently | Integration |
 
 ## RulesTests.fs (32 tests)
 
@@ -224,7 +233,7 @@ skip and Playwright execution evidence.
 | FolderWatcher_GlobToRegex_StarDotPdf | Unit |
 | FolderWatcher_GlobToRegex_WildcardMiddle | Unit |
 
-## EmbeddingTests.fs (61 tests)
+## EmbeddingTests.fs (63 tests)
 
 | Test | Category |
 |------|----------|
@@ -289,6 +298,8 @@ skip and Playwright execution evidence.
 | Embeddings_EmbedDocument_ShortText_SingleChunk | Integration |
 | Embeddings_StoreChunk_WithEmbedding_StoresBlob | Integration |
 | Embeddings_BlobRoundtrip_PreservesValues | Property |
+| Embeddings_EmbedDocument_ReembedFiveToThree_ReplacesAllChunks | Integration |
+| Embeddings_EmbedDocument_PartialFailure_PreservesExistingChunksAtomically | Integration |
 
 ## SearchTests.fs (30 tests)
 
@@ -325,7 +336,7 @@ skip and Playwright execution evidence.
 | Search_SanitiseQuery_SpecialChars_SomeCleaned | Unit |
 | Search_DefaultFilter_HasCorrectDefaults | Unit |
 
-## McpTests.fs (59 tests)
+## McpTests.fs (62 tests)
 
 | Test | Category |
 |------|----------|
@@ -388,6 +399,9 @@ skip and Playwright execution evidence.
 | McpServer_Dispatch_ToolsCallReclassify_ReturnsResult | Integration |
 | McpServer_Dispatch_ToolsCallReextract_ReturnsResult | Integration |
 | McpServer_Dispatch_DeepExtract_NoDeps_ReturnsError | Integration |
+| McpServer_Reflow_DryRun_DefaultsSafelyAndDoesNotWrite | Integration |
+| McpServer_Reflow_ApplyThenStatus_ReportsPendingStages | Integration |
+| McpServer_Reflow_MissingDocument_ReturnsError | Integration |
 
 ## EmailBodyTests.fs (24 tests)
 
@@ -646,7 +660,7 @@ skip and Playwright execution evidence.
 | PdfStructure_ExtractLines_GeneratedPdf_ExtractsText | Integration |
 | PdfStructure_LinesToText_LineCount_MatchesNewlineCount | Property |
 
-## DocumentFeedTests.fs (21 tests)
+## DocumentFeedTests.fs (23 tests)
 
 | Test | Category |
 |------|----------|
@@ -671,6 +685,8 @@ skip and Playwright execution evidence.
 | DocumentFeed_GetContent_Markdown_NoExtractedText_ReturnsError | Integration |
 | DocumentFeed_ListDocuments_EmptyDb_ReturnsEmpty | Integration |
 | DocumentFeed_GetFeedStats_EmptyDb_ReturnsZeros | Integration |
+| DocumentFeed_GetContent_InvalidatedExtract_HidesMarkdownButKeepsRaw | Integration |
+| DocumentFeed_GetDocumentContent_ReextractDuringRead_ReturnsNotCurrent | Integration |
 
 ## ContentClassifierTests.fs (25 tests)
 
@@ -791,6 +807,61 @@ skip and Playwright execution evidence.
 | DocumentManagement_Reextract_ClearsExtractedAt | Integration |
 | DocumentManagement_GetProcessingQueue_EmptyDb_AllZeros | Integration |
 | DocumentManagement_GetProcessingQueue_MixedDocs_CorrectCounts | Integration |
+
+## ReflowTests.fs (43 tests)
+
+| Test | Category |
+|------|----------|
+| Reflow_Plan_ClosureExactlyMatchesExpectedAndSignatureIsDeterministic | Property |
+| Reflow_Plan_UndeclaredDescendantOfRoot_FailsClosed | Unit |
+| Reflow_Request_DryRun_MutatesNothing | Integration |
+| Reflow_Request_Apply_Recomprehend_PreservesExtractionAndEmbedding | Integration |
+| Reflow_Request_Apply_Reembed_InvalidatesEmbeddingOnly | Integration |
+| Reflow_Request_Apply_ManualClassification_IsPreserved (2 cases) | Integration |
+| Reflow_Request_Apply_DuplicateActive_ReturnsSameOperation | Integration |
+| Reflow_Request_InterleavedInsertReturning_KeepsOperationAndStagesTogether | Integration |
+| Reflow_Request_IsVisibleOnlyAfterInvalidationTransactionCommits | Integration |
+| Reflow_Request_Apply_DoesNotReuseDryRunLedger | Integration |
+| Reflow_GetStatus_InconsistentLedger_FailsClosed | Integration |
+| Reflow_GetStatus_ChangedDagSignature_FailsClosed | Integration |
+| Reflow_Request_TransactionFault_RollsBackAllInvalidation | Integration |
+| Reflow_Pipeline_PartialFailureThenRetry_IsTruthfulAndIdempotent | Integration |
+| Reflow_Pipeline_ConcurrentKinds_KeepAttemptOutcomesIndependent | Integration |
+| Reflow_Request_DuringActiveProcessor_DiscardsStaleOutputAndRetryConverges | Integration |
+| Reflow_Request_DuplicateDuringActiveAttempt_CoalescesWithoutGenerationBump | Integration |
+| Reflow_Request_SimultaneousDifferentKinds_HaveIndependentAttribution | Integration |
+| PipelineV5_RecoverStaleAttempt_CleansOutputBeforeRetry | Integration |
+| Reflow_Pipeline_StaleFailedLedger_DoesNotSuppressCompletion | Integration |
+| StagesV5_Extract_MissingSource_DoesNotComplete | Integration |
+| StagesV5_Triage_MissingProvider_DoesNotComplete | Integration |
+| StagesV5_Triage_MalformedResponse_DoesNotComplete | Integration |
+| StagesV5_Extract_ArtifactWriteFailure_DoesNotComplete | Integration |
+| StagesV5_Embed_MissingProvider_DoesNotComplete | Integration |
+| Reflow_Request_MissingDocument_ReturnsError | Integration |
+| Reflow_Request_Apply_Reextract_InvalidatesArtefactsAndPreservesMetadata | Integration |
+| Reflow_FinalisationSuccessFault_RollsBackAllLifecycleWrites | Integration |
+| Reflow_FinalisationFailureFault_RollsBackDeadLetterAndCapturedRows | Integration |
+| Reflow_Pipeline_StaleRunningDagIsFailedWithoutBeingClaimed | Integration |
+| Reflow_GetStatus_TwoConnectionCommitRaceReturnsAtomicSnapshot | Integration |
+| Reflow_InvalidateComprehension_RemovesOnlyOwnedCurrentData | Integration |
+| Reflow_Pipeline_RecomprehendRestoresEmbeddedProjectionAndStableArtifacts | Integration |
+| Database_TwoConnections_ReadThenWriteSettle_SurvivesConcurrentReflowCommit | Integration |
+| PipelineV5_Run_FinalisationFault_KeepsCycleAliveAndConvergesWithoutDeadLetter | Integration |
+| PipelineV5_Run_CycleFault_LogsEvidenceBacksOffAndKeepsRunning | Integration |
+| Reflow_Pipeline_FinalisationFault_ReleasesLeaseWithoutDeadLetterAndConverges | Integration |
+| Reflow_SharedFolderFence_OrdersNewerDocumentBeforeReflowAndRejectsOldWork | Integration |
+| Reflow_StageOwnedOutputs_AfterGenerationBump_NeverBecomeObservable | Integration |
+| Reflow_Request_ApplyWithoutUsableArtifactFolder_FailsWithoutMutation | Integration |
+| PipelineV5_RealComprehension_FinalisationFault_RetriesEffectsExactlyOnce (2 cases) | Integration |
+
+## ApiReflowTests.fs (6 tests)
+
+| Test | Category |
+|------|----------|
+| Api_Reflow_DryRun_IsSafeByDefault | Integration |
+| Api_Reflow_Apply_StatusAndPipelineAreObservable | Integration |
+| Api_Reflow_InvalidKindAndMissingDocument_ReturnBadRequest | Integration |
+| Api_LegacyReflow_ResponseRetainsRequeuedOperationAndDuplicate (3 cases) | Integration |
 
 ## ThreadsTests.fs (7 tests)
 
@@ -920,7 +991,7 @@ skip and Playwright execution evidence.
 | SenderClassification_formatHint_Unknown_ReturnsEmpty | Unit |
 | SenderClassification_formatHint_Utility_IncludesTypeAndLabel | Unit |
 
-## DeepExtractionTests.fs (27 tests)
+## DeepExtractionTests.fs (31 tests)
 
 | Test | Category |
 |------|----------|
@@ -948,6 +1019,10 @@ skip and Playwright execution evidence.
 | DeepExtraction_extract_ChatFailure_ReturnsError | Unit |
 | DeepExtraction_extract_CodeFencedJson_StripsAndSucceeds | Unit |
 | McpTools_deepExtract_ValidDocument_ReturnsMergedResult | Integration |
+| McpTools_deepExtract_InvalidatedComprehension_ReturnsErrorEvenWhenForced | Integration |
+| McpTools_deepExtract_MissingComprehensionOutput_ReturnsNotCurrentEvenWhenForced | Integration |
+| McpTools_deepExtract_ReflowThenNewerPublication_CannotOverwriteNewerSidecar | Integration |
+| McpTools_deepExtract_SiblingPublishesDuringLlm_MergesAgainstLatestSidecar | Integration |
 | McpTools_deepExtract_MissingDocument_ReturnsError | Integration |
 | McpTools_deepExtract_NoComprehension_ReturnsError | Integration |
 | McpTools_deepExtract_MissingDocumentId_ReturnsError | Integration |
@@ -981,11 +1056,13 @@ skip and Playwright execution evidence.
 | ContactExtraction_harvestAndLink_DuplicateContact_UpdatesLastSeen | Integration |
 | ContactExtraction_harvestAndLink_NoName_NoContact | Integration |
 
-## McpContactTests.fs (8 tests)
+## McpContactTests.fs (10 tests)
 
 | Test | Category |
 |------|----------|
 | McpServer_ContactsBackfill_CreatesContacts | Integration |
+| McpServer_ContactsBackfill_ManualClassificationWithStaleSidecar_RemainsUnlinked | Integration |
+| McpTools_ContactsBackfill_InvalidationDuringRead_DoesNotPublishLink | Integration |
 | McpServer_ContactsList_ReturnsContacts | Integration |
 | McpServer_ContactsList_FilterByQuery | Integration |
 | McpServer_ContactsList_FilterByContactType | Integration |
@@ -1021,7 +1098,7 @@ skip and Playwright execution evidence.
 | Config_ParseYaml_OutlookAccount_DefaultRedirectPort | Unit |
 | Extraction_IsPptx_DetectsCorrectly | Unit |
 
-## ComprehensionRacTests.fs (12 tests)
+## ComprehensionRacTests.fs (15 tests)
 
 | Test | Category |
 |------|----------|
@@ -1033,8 +1110,11 @@ skip and Playwright execution evidence.
 | Stages_CompactSchemaHint_InvalidJson_ReturnsNone | Unit |
 | Stages_CompactSchemaHint_EmptyFields_ReturnsEmptyArray | Unit |
 | Stages_CompactSchemaHint_CapsAt300Chars | Unit |
+| Stages_RacExamples_StaleManualSidecarWithoutCurrentOutputIsExcluded | Integration |
+| Stages_RacRead_InvalidationBeforeUse_ExcludesSupersededHint | Integration |
+| Stages_TriageRetry_DivergentResponse_KeepsCanonicalPublicationExactlyOnce | Integration |
 
-## ArchiveWriterTests.fs (28 tests)
+## ArchiveWriterTests.fs (31 tests)
 
 | Test | Category |
 |------|----------|

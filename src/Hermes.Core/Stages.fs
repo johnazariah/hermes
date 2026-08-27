@@ -31,22 +31,46 @@ module Stages =
 
     // ─── Extract stage ───────────────────────────────────────────
 
-    /// Extract text from a document file. Returns enriched document with extraction fields.
-    let extract (deps: Deps) (doc: Document.T) : Task<Document.T> =
+    type private ExtractionArtifact =
+        { FullPath: string
+          Markdown: string
+          Enriched: Document.T }
+
+    let private archivePath (deps: Deps) (doc: Document.T) =
+        let savedPath =
+            doc
+            |> Document.decode<string> "saved_path"
+            |> Option.defaultValue ""
+        if IO.Path.IsPathRooted savedPath then savedPath
+        else IO.Path.Combine(deps.ArchiveDir, savedPath)
+
+    let private enrichExtraction
+        (now: string)
+        (extraction: Domain.ExtractionResult)
+        (doc: Document.T) =
+        doc
+        |> Document.encode "extracted_date" (extraction.Date |> Option.map box |> Option.defaultValue (box DBNull.Value))
+        |> Document.encode "extracted_amount" (extraction.Amount |> Option.map (fun d -> box (float d)) |> Option.defaultValue (box DBNull.Value))
+        |> Document.encode "extracted_vendor" (extraction.Vendor |> Option.map box |> Option.defaultValue (box DBNull.Value))
+        |> Document.encode "extracted_abn" (extraction.Abn |> Option.map box |> Option.defaultValue (box DBNull.Value))
+        |> Document.encode "extraction_method" (box extraction.Method)
+        |> Document.encode "ocr_confidence" (extraction.OcrConfidence |> Option.map box |> Option.defaultValue (box DBNull.Value))
+        |> Document.encode "extraction_confidence" (extraction.OcrConfidence |> Option.map box |> Option.defaultValue (box DBNull.Value))
+        |> Document.encode "extracted_at" (box now)
+        |> Document.encode "stage" (box "extracted")
+
+    let private createExtractionArtifact
+        (deps: Deps)
+        (doc: Document.T)
+        : Task<ExtractionArtifact> =
         task {
             let savedPath = doc |> Document.decode<string> "saved_path" |> Option.defaultValue ""
             let docId = Document.id doc
-            let fullPath =
-                if IO.Path.IsPathRooted(savedPath) then savedPath
-                else IO.Path.Combine(deps.ArchiveDir, savedPath)
+            let fullPath = archivePath deps doc
 
             if not (deps.Fs.fileExists fullPath) then
                 deps.Logger.warn $"Extract: file not found for doc {docId}: {savedPath}"
-                return
-                    doc
-                    |> Document.encode "extraction_method" (box "failed")
-                    |> Document.encode "extracted_at" (box (deps.Clock.utcNow().ToString("o")))
-                    |> Document.encode "stage" (box "extracted")
+                return failwith $"Extract failed for doc {docId}: source file not found: {savedPath}"
             else
 
             let! bytes = deps.Fs.readAllBytes fullPath
@@ -54,30 +78,68 @@ module Stages =
             match result with
             | Error e ->
                 deps.Logger.warn $"Extract failed for doc {docId}: {e}"
-                return
-                    doc
-                    |> Document.encode "extraction_method" (box "failed")
-                    |> Document.encode "extracted_at" (box (deps.Clock.utcNow().ToString("o")))
-                    |> Document.encode "stage" (box "extracted")
+                return failwith $"Extraction failed for doc {docId}: {e}"
             | Ok extraction ->
                 let now = deps.Clock.utcNow().ToString("o")
-
-                // Write extraction to file alongside source (file-first archive)
                 let markdownContent = extraction.Markdown |> Option.defaultValue extraction.Text
-                try do! ArchiveWriter.writeExtraction deps.Fs fullPath markdownContent
-                with ex -> deps.Logger.debug $"Extract file write failed for doc {docId}: {ex.Message}"
-
                 return
-                    doc
-                    |> Document.encode "extracted_date" (extraction.Date |> Option.map box |> Option.defaultValue (box DBNull.Value))
-                    |> Document.encode "extracted_amount" (extraction.Amount |> Option.map (fun d -> box (float d)) |> Option.defaultValue (box DBNull.Value))
-                    |> Document.encode "extracted_vendor" (extraction.Vendor |> Option.map box |> Option.defaultValue (box DBNull.Value))
-                    |> Document.encode "extracted_abn" (extraction.Abn |> Option.map box |> Option.defaultValue (box DBNull.Value))
-                    |> Document.encode "extraction_method" (box extraction.Method)
-                    |> Document.encode "ocr_confidence" (extraction.OcrConfidence |> Option.map box |> Option.defaultValue (box DBNull.Value))
-                    |> Document.encode "extraction_confidence" (extraction.OcrConfidence |> Option.map box |> Option.defaultValue (box DBNull.Value))
-                    |> Document.encode "extracted_at" (box now)
-                    |> Document.encode "stage" (box "extracted")
+                    { FullPath = fullPath
+                      Markdown = markdownContent
+                      Enriched = enrichExtraction now extraction doc }
+        }
+
+    let private extractionFolder deps doc =
+        let savedPath =
+            doc
+            |> Document.decode<string> "saved_path"
+            |> Option.defaultValue ""
+        let folderPath = doc |> Document.decode<string> "folder_path"
+        PublicationFence.ArtifactFolder.tryFromMetadata
+            deps.ArchiveDir savedPath folderPath
+
+    let private publishExtractionArtifact
+        (deps: Deps)
+        (generation: Generation.Token)
+        (doc: Document.T)
+        (artifact: ExtractionArtifact)
+        : Task<unit> =
+        task {
+            match extractionFolder deps doc with
+            | None ->
+                return
+                    invalidOp
+                        $"Extraction write failed for doc {Document.id doc}: archive folder not found"
+            | Some folder ->
+                match!
+                    Generation.publishEffect
+                        deps.Db generation folder (fun () ->
+                            ArchiveWriter.writeExtraction
+                                deps.Fs artifact.FullPath artifact.Markdown)
+                with
+                | Generation.Published () -> return ()
+                | Generation.Superseded ->
+                    return
+                        invalidOp
+                            $"Extraction for doc {Document.id doc} was superseded by reflow"
+        }
+
+    let internal extractAt
+        (generation: Generation.Token)
+        (deps: Deps)
+        (doc: Document.T)
+        : Task<Document.T> =
+        task {
+            let! artifact = createExtractionArtifact deps doc
+            do! publishExtractionArtifact deps generation doc artifact
+            return artifact.Enriched
+        }
+
+    /// Extract text from a document file. Returns enriched document with extraction fields.
+    let extract (deps: Deps) (doc: Document.T) : Task<Document.T> =
+        task {
+            let! generation =
+                Generation.current deps.Db (Document.id doc)
+            return! extractAt generation deps doc
         }
 
     // ─── Understand stage ──────────────────────────────────────
@@ -176,87 +238,185 @@ module Stages =
             if hint.Length > 300 then Some hint.[..299] else Some hint
         with _ -> None
 
-    /// Find 1–2 past high-confidence comprehension schema hints for similar documents.
-    /// Match by sender domain (primary) or extracted vendor (fallback).
-    let private findExamples (db: Algebra.Database) (fs: Algebra.FileSystem) (archiveDir: string) (doc: Document.T) : Task<string list> =
-        let docId = Document.id doc
+    [<Literal>]
+    let private triageStageName = "triage"
 
-        let readComprehensionFromRow (r: Map<string, obj>) =
-            let rr = Prelude.RowReader(r)
-            let savedPath = rr.String "saved_path" ""
-            let folderPath = rr.OptString "folder_path"
-            let folder =
-                folderPath
-                |> Option.defaultWith (fun () ->
-                    let full =
-                        if IO.Path.IsPathRooted(savedPath) then savedPath
-                        else IO.Path.Combine(archiveDir, savedPath)
-                    IO.Path.GetDirectoryName(full) |> Option.ofObj |> Option.defaultValue "")
-            let absFolder =
-                if IO.Path.IsPathRooted(folder) then folder
-                else IO.Path.Combine(archiveDir, folder)
-            absFolder
+    [<Literal>]
+    let private deepComprehendStageName = "deep-comprehend"
 
-        let extractHintsAsync (rows: Map<string, obj> list) =
-            task {
-                let hints = ResizeArray<string>()
-                for row in rows do
-                    let folder = readComprehensionFromRow row
-                    let! compOpt = ArchiveWriter.readComprehension fs folder
-                    compOpt
-                    |> Option.bind compactSchemaHint
-                    |> Option.iter hints.Add
-                return hints |> Seq.toList
-            }
+    type private ExampleMatch =
+        | SenderDomain of string
+        | Vendor of string
 
-        let querySender domain =
-            db.execReader
-                """SELECT saved_path, folder_path FROM documents
-                   WHERE classification_tier IS NOT NULL
-                   AND id <> @docId
-                   AND sender LIKE @pattern
-                   AND classification_confidence >= 0.7
-                   ORDER BY extracted_at DESC
-                   LIMIT 2"""
-                [ ("@pattern", Database.boxVal $"%%@{domain}%%")
-                  ("@docId",   Database.boxVal docId) ]
+    type private ExampleCandidate =
+        { DocumentId: int64
+          FolderPath: string
+          Folder: PublicationFence.ArtifactFolder }
 
-        let queryVendor vendor =
-            db.execReader
-                """SELECT saved_path, folder_path FROM documents
-                   WHERE classification_tier IS NOT NULL
-                   AND id <> @docId
-                   AND extracted_vendor = @vendor
-                   AND classification_confidence >= 0.7
-                   ORDER BY extracted_at DESC
-                   LIMIT 2"""
-                [ ("@vendor", Database.boxVal vendor)
-                  ("@docId",  Database.boxVal docId) ]
+    let private exampleCandidate archiveDir (row: Map<string, obj>) =
+        let reader = Prelude.RowReader(row)
+        let savedPath = reader.String "saved_path" ""
+        let folderPath = reader.OptString "folder_path"
+        match
+            PublicationFence.ArtifactFolder.tryFromMetadata
+                archiveDir savedPath folderPath
+        with
+        | None -> None
+        | Some folder ->
+            match PublicationFence.ArtifactFolder.resolve archiveDir folder with
+            | Error _ -> None
+            | Ok resolved ->
+                Some
+                    { DocumentId = reader.Int64 "document_id" 0L
+                      FolderPath = resolved
+                      Folder = folder }
 
+    let private hasCurrentComprehension
+        (db: Algebra.Database)
+        (documentId: int64)
+        : Task<bool> =
         task {
-            let senderDomain =
+            let! value =
+                db.execScalar
+                    """SELECT 1
+                       FROM stage_completions sc
+                       JOIN comprehension c ON c.document_id = sc.document_id
+                       WHERE sc.document_id = @doc
+                         AND sc.stage_name = @stage
+                       LIMIT 1"""
+                    [ ("@doc", Database.boxVal documentId)
+                      ("@stage", Database.boxVal deepComprehendStageName) ]
+            return match value with null -> false | _ -> true
+        }
+
+    let private validateCurrentHint
+        (db: Algebra.Database)
+        (candidate: ExampleCandidate)
+        (json: string)
+        : Task<string option> =
+        task {
+            let! current =
+                hasCurrentComprehension db candidate.DocumentId
+            return if current then compactSchemaHint json else None
+        }
+
+    let private readCurrentHint
+        (db: Algebra.Database)
+        (fs: Algebra.FileSystem)
+        (candidate: ExampleCandidate)
+        : Task<string option> =
+        task {
+            let! generation =
+                Generation.current db candidate.DocumentId
+            let! publication =
+                Generation.readArtifactStable
+                    db generation candidate.Folder (fun () ->
+                        task {
+                            let! comprehension =
+                                ArchiveWriter.readComprehension
+                                    fs candidate.FolderPath
+                            return!
+                                comprehension
+                                |> Option.map
+                                    (validateCurrentHint db candidate)
+                                |> Option.defaultValue
+                                    (Task.FromResult(None))
+                        })
+            return
+                match publication with
+                | Generation.Published hint -> hint
+                | Generation.Superseded -> None
+        }
+
+    let private addCurrentHint
+        (db: Algebra.Database)
+        (fs: Algebra.FileSystem)
+        (hints: string list)
+        (candidate: ExampleCandidate)
+        : Task<string list> =
+        task {
+            let! hint = readCurrentHint db fs candidate
+            return
+                hint
+                |> Option.map (fun value -> value :: hints)
+                |> Option.defaultValue hints
+        }
+
+    let private extractCurrentHints
+        (db: Algebra.Database)
+        (fs: Algebra.FileSystem)
+        (archiveDir: string)
+        (rows: Map<string, obj> list)
+        : Task<string list> =
+        task {
+            let! reversed =
+                rows
+                |> List.choose (exampleCandidate archiveDir)
+                |> Prelude.foldTask (addCurrentHint db fs) []
+            return List.rev reversed
+        }
+
+    let private queryExampleCandidates
+        (db: Algebra.Database)
+        (docId: int64)
+        (criterion: ExampleMatch)
+        : Task<Map<string, obj> list> =
+        let predicate, matchValue =
+            match criterion with
+            | SenderDomain domain -> "d.sender LIKE @match", $"%%@{domain}%%"
+            | Vendor vendor -> "d.extracted_vendor = @match", vendor
+        db.execReader
+            $"""SELECT d.id AS document_id, d.saved_path, d.folder_path
+                FROM documents d
+                JOIN stage_completions sc
+                  ON sc.document_id = d.id AND sc.stage_name = @stage
+                JOIN comprehension c ON c.document_id = d.id
+                WHERE d.classification_tier IS NOT NULL
+                  AND d.id <> @docId
+                  AND {predicate}
+                  AND d.classification_confidence >= 0.7
+                ORDER BY d.extracted_at DESC
+                LIMIT 2"""
+            [ ("@stage", Database.boxVal deepComprehendStageName)
+              ("@docId", Database.boxVal docId)
+              ("@match", Database.boxVal matchValue) ]
+
+    let private loadExampleHints
+        (db: Algebra.Database)
+        (fs: Algebra.FileSystem)
+        (archiveDir: string)
+        (docId: int64)
+        (criterion: ExampleMatch)
+        : Task<string list> =
+        task {
+            let! rows = queryExampleCandidates db docId criterion
+            return! extractCurrentHints db fs archiveDir rows
+        }
+
+    /// Find 1–2 current, high-confidence comprehension schema hints.
+    let private findExamples (db: Algebra.Database) (fs: Algebra.FileSystem) (archiveDir: string) (doc: Document.T) : Task<string list> =
+        task {
+            let docId = Document.id doc
+            let senderMatch =
                 doc
                 |> Document.decode<string> "sender"
                 |> Option.bind extractSenderDomain
-
-            let! domainHints =
-                match senderDomain with
-                | Some domain -> task { let! rows = querySender domain in return! extractHintsAsync rows }
-                | None -> Task.FromResult([])
-
-            if domainHints.Length > 0 then
-                return domainHints
+                |> Option.map SenderDomain
+            let! senderHints =
+                senderMatch
+                |> Option.map (loadExampleHints db fs archiveDir docId)
+                |> Option.defaultValue (Task.FromResult<string list>([]))
+            if not senderHints.IsEmpty then return senderHints
             else
                 let vendor =
                     doc
                     |> Document.decode<string> "extracted_vendor"
                     |> Option.defaultValue ""
-
-                if String.IsNullOrWhiteSpace(vendor) then
-                    return []
+                if String.IsNullOrWhiteSpace vendor then return []
                 else
-                    let! rows = queryVendor vendor
-                    return! extractHintsAsync rows
+                    return!
+                        loadExampleHints
+                            db fs archiveDir docId (Vendor vendor)
         }
 
     let private addPreferences (preferences: string) (context: string) =
@@ -293,15 +453,16 @@ module Stages =
         }
 
     /// Record a sender→document_type pattern for RAC knowledge accumulation.
-    let private upsertLearnedPattern
-        (db: Algebra.Database)
+    let private upsertLearnedPatternWith
+        (execNonQuery:
+            string -> (string * obj) list -> Task<int>)
         (senderDomain: string)
         (documentType: string)
         (confidence: float)
         : Task<unit> =
         task {
             let! _ =
-                db.execNonQuery
+                execNonQuery
                     """INSERT INTO learned_patterns (sender_domain, document_type, count, avg_confidence, last_seen)
                        VALUES (@domain, @type, 1, @conf, datetime('now'))
                        ON CONFLICT(sender_domain, document_type) DO UPDATE SET
@@ -315,122 +476,160 @@ module Stages =
             return ()
         }
 
+    let private upsertLearnedPattern (db: Algebra.Database) =
+        upsertLearnedPatternWith db.execNonQuery
+
+    let private upsertLearnedPatternIn
+        (scope: Algebra.TransactionScope) =
+        upsertLearnedPatternWith scope.execNonQuery
+
+    let private claimLearnedPatternEvidenceIn
+        (scope: Algebra.TransactionScope)
+        (generation: Generation.Token)
+        (stageName: string)
+        (senderDomain: string)
+        (parsed: ComprehensionSchema.NormalisedResponse)
+        : Task<bool> =
+        task {
+            let! affected =
+                scope.execNonQuery
+                    """INSERT INTO learned_pattern_evidence
+                         (document_id, stage_name, generation, sender_domain,
+                          document_type, confidence)
+                       VALUES (@doc, @stage, @generation, @domain, @type, @confidence)
+                       ON CONFLICT(document_id, stage_name, generation) DO NOTHING"""
+                    [ ("@doc", Database.boxVal generation.DocumentId)
+                      ("@stage", Database.boxVal stageName)
+                      ("@generation", Database.boxVal generation.Value)
+                      ("@domain", Database.boxVal senderDomain)
+                      ("@type", Database.boxVal parsed.DocumentType)
+                      ("@confidence", Database.boxVal parsed.Confidence) ]
+            return affected = 1
+        }
+
     /// Create a review suggestion when comprehension confidence is below threshold.
-    let private createSuggestion
-        (db: Algebra.Database)
+    let private createSuggestionIn
+        (scope: Algebra.TransactionScope)
         (docId: int64)
         (proposedCategory: string)
         (currentCategory: string option)
         (confidence: float)
         : Task<unit> =
         task {
+            let current = currentCategory |> Option.defaultValue ""
             let! _ =
-                db.execNonQuery
+                scope.execNonQuery
                     """INSERT INTO suggestions
-                       (document_id, proposed_category, current_category, confidence)
-                       VALUES (@docId, @proposed, @current, @conf)"""
+                         (document_id, proposed_category, current_category, confidence)
+                       SELECT @docId, @proposed, @current, @conf
+                       WHERE NOT EXISTS (
+                           SELECT 1 FROM suggestions
+                           WHERE document_id = @docId
+                             AND proposed_category = @proposed
+                             AND COALESCE(current_category, '') = @current
+                             AND status = 'pending')"""
                     [ ("@docId", Database.boxVal docId)
                       ("@proposed", Database.boxVal proposedCategory)
-                      ("@current",
-                       currentCategory
-                       |> Option.defaultValue ""
-                       |> Database.boxVal)
+                      ("@current", Database.boxVal current)
                       ("@conf", Database.boxVal confidence) ]
 
             return ()
         }
 
-    let private learnFromResult
-        (deps: Deps)
+    let private learnFromResultIn
+        (scope: Algebra.TransactionScope)
+        (generation: Generation.Token)
+        (stageName: string)
         (doc: Document.T)
         (parsed: ComprehensionSchema.NormalisedResponse)
         : Task<unit> =
         task {
-            try
-                match
-                    doc
-                    |> Document.decode<string> "sender"
-                    |> Option.bind extractSenderDomain
-                with
-                | Some domain ->
+            match
+                doc
+                |> Document.decode<string> "sender"
+                |> Option.bind extractSenderDomain
+            with
+            | None -> return ()
+            | Some domain ->
+                let! claimed =
+                    claimLearnedPatternEvidenceIn
+                        scope generation stageName domain parsed
+                if claimed then
                     do!
-                        upsertLearnedPattern
-                            deps.Db
-                            domain
-                            parsed.DocumentType
-                            parsed.Confidence
-                | None -> ()
-            with ex ->
-                deps.Logger.debug
-                    $"Learned pattern upsert failed for doc {Document.id doc}: {ex.Message}"
+                        upsertLearnedPatternIn
+                            scope domain parsed.DocumentType parsed.Confidence
         }
 
-    let private suggestReview
-        (deps: Deps)
+    let private suggestReviewIn
+        (scope: Algebra.TransactionScope)
+        (documentId: int64)
+        (currentCategory: string option)
+        (parsed: ComprehensionSchema.NormalisedResponse)
+        : Task<unit> =
+        if parsed.Confidence < 0.7 then
+            createSuggestionIn
+                scope
+                documentId
+                parsed.CanonicalCategory
+                currentCategory
+                parsed.Confidence
+        else
+            Task.FromResult(())
+
+    let private recordReviewSignalsIn
+        (scope: Algebra.TransactionScope)
+        (generation: Generation.Token)
+        (stageName: string)
         (doc: Document.T)
+        (currentCategory: string option)
         (parsed: ComprehensionSchema.NormalisedResponse)
         : Task<unit> =
         task {
-            if parsed.Confidence < 0.7 then
-                try
-                    let currentCategory =
-                        doc |> Document.decode<string> "category"
-
-                    do!
-                        createSuggestion
-                            deps.Db
-                            (Document.id doc)
-                            parsed.CanonicalCategory
-                            currentCategory
-                            parsed.Confidence
-                with ex ->
-                    deps.Logger.debug
-                        $"Suggestion creation failed for doc {Document.id doc}: {ex.Message}"
+            do! learnFromResultIn scope generation stageName doc parsed
+            do!
+                suggestReviewIn
+                    scope (Document.id doc) currentCategory parsed
         }
 
-    let private recordReviewSignals deps doc parsed : Task<unit> =
-        task {
-            do! learnFromResult deps doc parsed
-            do! suggestReview deps doc parsed
-        }
+    type private ComprehensionArtifact =
+        { Resource: PublicationFence.ArtifactFolder
+          FolderPath: string }
 
-    let private archiveFolderPath (deps: Deps) (doc: Document.T) =
-        doc
-        |> Document.decode<string> "saved_path"
-        |> Option.filter (fun path -> not (String.IsNullOrWhiteSpace path))
-        |> Option.map (fun path ->
-            if IO.Path.IsPathRooted path then path
-            else IO.Path.Combine(deps.ArchiveDir, path))
-        |> Option.bind (fun path ->
-            IO.Path.GetDirectoryName(path)
-            |> Option.ofObj
-            |> Option.filter (fun folder -> not (String.IsNullOrWhiteSpace folder)))
+    let private comprehensionArtifact (deps: Deps) (doc: Document.T) =
+        let documentId = Document.id doc
+        let savedPath =
+            doc |> Document.decode<string> "saved_path" |> Option.defaultValue ""
+        let folderPath = doc |> Document.decode<string> "folder_path"
+        match
+            PublicationFence.ArtifactFolder.tryFromMetadata
+                deps.ArchiveDir savedPath folderPath
+        with
+        | None ->
+            Error $"Comprehension write failed for doc {documentId}: archive folder not found"
+        | Some resource ->
+            PublicationFence.ArtifactFolder.resolve deps.ArchiveDir resource
+            |> Result.map (fun path ->
+                { Resource = resource; FolderPath = path })
+            |> Result.mapError (fun error ->
+                $"Comprehension write failed for doc {documentId}: {error}")
 
     let private writeComprehensionArtifact
         (deps: Deps)
-        (doc: Document.T)
+        (artifact: ComprehensionArtifact)
         (parsed: ComprehensionSchema.NormalisedResponse)
         : Task<unit> =
-        task {
-            try
-                match archiveFolderPath deps doc with
-                | Some folder ->
-                    do! ArchiveWriter.writeComprehension deps.Fs folder parsed.RawJson
-                | None -> ()
-            with ex ->
-                deps.Logger.debug
-                    $"Comprehension file write failed for doc {Document.id doc}: {ex.Message}"
-        }
+        ArchiveWriter.writeComprehension
+            deps.Fs artifact.FolderPath parsed.RawJson
 
-    let private insertComprehensionTag
-        (db: Algebra.Database)
+    let private insertComprehensionTagIn
+        (scope: Algebra.TransactionScope)
         (docId: int64)
         (confidence: float)
         (tag: string)
         : Task<unit> =
         task {
             let! _ =
-                db.execNonQuery
+                scope.execNonQuery
                     """INSERT OR IGNORE INTO tags
                        (document_id, tag, source, confidence)
                        VALUES (@docId, @tag, 'comprehension', @confidence)"""
@@ -441,34 +640,174 @@ module Stages =
             return ()
         }
 
-    let private writeComprehensionTags
-        (deps: Deps)
+    let private writeComprehensionTagsIn
+        (scope: Algebra.TransactionScope)
         (doc: Document.T)
         (parsed: ComprehensionSchema.NormalisedResponse)
         : Task<unit> =
+        parsed.Tags
+        |> Prelude.foldTask
+            (fun () tag ->
+                insertComprehensionTagIn
+                    scope
+                    (Document.id doc)
+                    parsed.Confidence
+                    tag)
+            ()
+
+    type internal ComprehensionPublisher =
+        Algebra.TransactionScope ->
+            Document.T ->
+            ComprehensionSchema.NormalisedResponse ->
+            Task<unit>
+
+    type private CanonicalComprehension =
+        { Response: ComprehensionSchema.NormalisedResponse
+          CurrentCategory: string option }
+
+    let private noComprehensionOutput : ComprehensionPublisher =
+        fun _ _ _ -> Task.FromResult(())
+
+    let private optionalDbValue = function
+        | Some value -> Database.boxVal value
+        | None -> Database.boxVal DBNull.Value
+
+    let private canonicalComprehensionFromRow
+        stageName
+        (row: Map<string, obj>) =
+        let reader = Prelude.RowReader(row)
+        let json = reader.String "response_json" ""
+        match ComprehensionSchema.normaliseResponse json with
+        | Ok response ->
+            { Response = response
+              CurrentCategory = reader.OptString "current_category" }
+        | Error error ->
+            invalidOp
+                $"Stored canonical response for stage '{stageName}' is invalid: {error}"
+
+    let private readCanonicalComprehensionIn
+        (scope: Algebra.TransactionScope)
+        (generation: Generation.Token)
+        (stageName: string)
+        : Task<CanonicalComprehension> =
         task {
-            try
-                do!
-                    parsed.Tags
-                    |> Prelude.foldTask
-                        (fun () tag ->
-                            insertComprehensionTag
-                                deps.Db
-                                (Document.id doc)
-                                parsed.Confidence
-                                tag)
-                        ()
-            with ex ->
-                deps.Logger.debug
-                    $"Tag write failed for doc {Document.id doc}: {ex.Message}"
+            let! rows =
+                scope.execReader
+                    """SELECT response_json, current_category
+                       FROM stage_publications
+                       WHERE document_id = @doc
+                         AND stage_name = @stage
+                         AND generation = @generation"""
+                    [ ("@doc", Database.boxVal generation.DocumentId)
+                      ("@stage", Database.boxVal stageName)
+                      ("@generation", Database.boxVal generation.Value) ]
+            return
+                rows
+                |> List.tryHead
+                |> Option.map
+                    (canonicalComprehensionFromRow stageName)
+                |> Option.defaultWith (fun () ->
+                    invalidOp
+                        $"Canonical response for stage '{stageName}' was not persisted")
         }
 
-    let private recordFinalComprehension deps doc parsed : Task<unit> =
+    let private claimComprehensionIn
+        (generation: Generation.Token)
+        (stageName: string)
+        (doc: Document.T)
+        (response: ComprehensionSchema.NormalisedResponse)
+        (scope: Algebra.TransactionScope)
+        : Task<CanonicalComprehension> =
         task {
-            do! recordReviewSignals deps doc parsed
-            do! writeComprehensionArtifact deps doc parsed
-            do! writeComprehensionTags deps doc parsed
+            let currentCategory =
+                doc |> Document.decode<string> "category"
+            let! _ =
+                scope.execNonQuery
+                    """INSERT INTO stage_publications
+                         (document_id, stage_name, generation,
+                          response_json, current_category)
+                       VALUES
+                         (@doc, @stage, @generation, @response, @current)
+                       ON CONFLICT(document_id, stage_name, generation)
+                       DO NOTHING"""
+                    [ ("@doc", Database.boxVal generation.DocumentId)
+                      ("@stage", Database.boxVal stageName)
+                      ("@generation", Database.boxVal generation.Value)
+                      ("@response", Database.boxVal response.RawJson)
+                      ("@current", optionalDbValue currentCategory) ]
+            return!
+                readCanonicalComprehensionIn
+                    scope generation stageName
         }
+
+    let private publishComprehensionDataIn
+        (generation: Generation.Token)
+        (stageName: string)
+        (isFinal:
+            ComprehensionSchema.NormalisedResponse -> bool)
+        (publishOutput: ComprehensionPublisher)
+        (doc: Document.T)
+        (canonical: CanonicalComprehension)
+        (scope: Algebra.TransactionScope)
+        : Task<unit> =
+        task {
+            let parsed = canonical.Response
+            let sender = doc |> Document.decode<string> "sender"
+            let! _ =
+                ContactExtraction.harvestAndLinkIn
+                    scope (Document.id doc) parsed.RawJson sender
+            if isFinal parsed then
+                do!
+                    recordReviewSignalsIn
+                        scope generation stageName doc
+                        canonical.CurrentCategory parsed
+                do! writeComprehensionTagsIn scope doc parsed
+            do! publishOutput scope doc parsed
+        }
+
+    let private publishComprehensionAt
+        (deps: Deps)
+        (generation: Generation.Token)
+        (stageName: string)
+        (isFinal:
+            ComprehensionSchema.NormalisedResponse -> bool)
+        (publishOutput: ComprehensionPublisher)
+        (doc: Document.T)
+        (parsed: ComprehensionSchema.NormalisedResponse)
+        : Task<Generation.Publication<ComprehensionSchema.NormalisedResponse>> =
+        task {
+            match comprehensionArtifact deps doc with
+            | Error error -> return invalidOp error
+            | Ok artifact ->
+                let! publication =
+                    Generation.publishCanonical
+                        deps.Db generation artifact.Resource
+                        (claimComprehensionIn
+                            generation stageName doc parsed)
+                        (fun canonical ->
+                            writeComprehensionArtifact
+                                deps artifact canonical.Response)
+                        (publishComprehensionDataIn
+                            generation stageName isFinal
+                            publishOutput doc)
+                return
+                    match publication with
+                    | Generation.Published canonical ->
+                        Generation.Published canonical.Response
+                    | Generation.Superseded ->
+                        Generation.Superseded
+        }
+
+    let private requirePublished
+        (documentId: int64)
+        (publication:
+            Generation.Publication<ComprehensionSchema.NormalisedResponse>)
+        : ComprehensionSchema.NormalisedResponse =
+        match publication with
+        | Generation.Published response -> response
+        | Generation.Superseded ->
+            invalidOp
+                $"Comprehension for doc {documentId} was superseded by reflow"
 
     let private confidenceTier prefix confidence =
         if confidence >= 0.7 then prefix
@@ -554,7 +893,11 @@ Document text:
     /// Understand a document using two-phase approach:
     /// Phase 1 (triage): fast classification with small model → sets stage to "understood" or "triaged"
     /// Phase 2 (deepComprehend): full extraction with large model → only for "triaged" (financial) docs
-    let triage (deps: Deps) (doc: Document.T) : Task<Document.T> =
+    let internal triageAt
+        (generation: Generation.Token)
+        (deps: Deps)
+        (doc: Document.T)
+        : Task<Document.T> =
         let docId = Document.id doc
 
         let understood category tier confidence =
@@ -564,15 +907,12 @@ Document text:
             |> Document.encode "classification_confidence" (box confidence)
             |> Document.encode "stage" (box "understood")
 
-        let passThrough () =
-            doc |> Document.encode "stage" (box "understood")
-
         task {
             let! text = readExtractedText deps doc
 
             if String.IsNullOrWhiteSpace(text) then
-                deps.Logger.debug $"Triage skip doc {docId}: no extracted text file"
-                return passThrough ()
+                deps.Logger.warn $"Triage failed doc {docId}: no extracted text"
+                return failwith $"Triage failed doc {docId}: no extracted text"
             else
 
             // Fast path: content rules (no LLM needed)
@@ -586,8 +926,8 @@ Document text:
                 let triageChat = deps.TriageProvider |> Option.orElse deps.ChatProvider
                 match triageChat with
                 | None ->
-                    deps.Logger.debug $"Triage skip doc {docId}: no chat provider"
-                    return passThrough ()
+                    deps.Logger.warn $"Triage failed doc {docId}: no chat provider configured"
+                    return failwith $"Triage failed doc {docId}: no chat provider configured"
                 | Some chat ->
                     let! context =
                         augmentComprehensionContext
@@ -609,24 +949,32 @@ Document text:
                     match triageResult with
                     | Error e ->
                         deps.Logger.warn $"Triage failed for doc {docId}: {e}"
-                        return passThrough ()
+                        return failwith $"Triage failed for doc {docId}: {e}"
 
                     | Ok triageResponse ->
                         match ComprehensionSchema.normaliseResponse triageResponse with
                         | Error parseErr ->
                             let preview = triageResponse.[..min 200 (triageResponse.Length - 1)]
                             deps.Logger.warn $"Triage parse doc {docId}: {parseErr}: {preview}"
-                            return passThrough ()
+                            return failwith $"Triage parse failed for doc {docId}: {parseErr}"
 
                         | Ok triaged ->
+                            let isFinal
+                                (response: ComprehensionSchema.NormalisedResponse) =
+                                not
+                                    (financialCategories.Contains
+                                        response.CanonicalCategory)
+                            let! publication =
+                                publishComprehensionAt
+                                    deps generation triageStageName isFinal
+                                    noComprehensionOutput doc triaged
+                            let triaged =
+                                requirePublished docId publication
                             let canonical = triaged.CanonicalCategory
-                            let sender = doc |> Document.decode<string> "sender"
-                            do! ContactExtraction.harvestAndLink deps.Db deps.Logger docId triaged.RawJson sender
 
                             if financialCategories.Contains canonical then
                                 // Financial doc → mark for deep comprehension
                                 let tier = if triaged.Confidence >= 0.7 then "triage" else "triage_review"
-                                do! writeComprehensionArtifact deps doc triaged
                                 deps.Logger.info $"Triaged doc {docId} as '{canonical}' ({tier}, conf={triaged.Confidence:F2}) → queued for deep comprehension: {triaged.Summary}"
                                 return
                                     doc
@@ -638,8 +986,6 @@ Document text:
                                     |> Document.encode "stage" (box "triaged")
                             else
                                 // Non-financial triage is the final comprehension decision.
-                                do! recordFinalComprehension deps doc triaged
-
                                 let tier =
                                     if triaged.Confidence >= 0.7 then
                                         "triage"
@@ -657,6 +1003,16 @@ Document text:
                                     |> Document.encode "comprehension" (box triaged.RawJson)
                                     |> Document.encode "comprehension_schema" (box "v2")
                                     |> Document.encode "stage" (box "understood")
+        }
+
+    let triage
+        (deps: Deps)
+        (doc: Document.T)
+        : Task<Document.T> =
+        task {
+            let! generation =
+                Generation.current deps.Db (Document.id doc)
+            return! triageAt generation deps doc
         }
 
     let private buildDeepContext (deps: Deps) (doc: Document.T) : Task<string> =
@@ -690,75 +1046,73 @@ Document text:
         | None ->
             fallbackSystemPrompt, fallbackUserPrompt text context
 
-    let private readStoredComprehension deps doc : Task<string option> =
-        task {
-            match doc |> Document.decode<string> "comprehension" with
-            | Some json -> return Some json
-            | None ->
-                match archiveFolderPath deps doc with
-                | Some folder ->
-                    return! ArchiveWriter.readComprehension deps.Fs folder
-                | None ->
-                    return None
-        }
-
-    let private completeFromTriage deps doc : Task<Document.T> =
-        task {
-            let! comprehension = readStoredComprehension deps doc
-
-            match comprehension |> Option.map ComprehensionSchema.normaliseResponse with
-            | Some (Ok parsed) ->
-                do! recordFinalComprehension deps doc parsed
-            | _ -> ()
-
-            return
-                doc
-                |> Document.encode "deep_comprehended" (box true)
-                |> Document.encode "stage" (box "understood")
-        }
-
     let private applyDeepResult
         (deps: Deps)
+        (generation: Generation.Token)
+        (publishOutput: ComprehensionPublisher)
         (doc: Document.T)
         (parsed: ComprehensionSchema.NormalisedResponse)
         : Task<Document.T> =
         task {
             let docId = Document.id doc
-            let sender = doc |> Document.decode<string> "sender"
-            let tier = confidenceTier "comprehension" parsed.Confidence
 
-            do! ContactExtraction.harvestAndLink deps.Db deps.Logger docId parsed.RawJson sender
-            do! recordFinalComprehension deps doc parsed
+            let! publication =
+                publishComprehensionAt
+                    deps generation deepComprehendStageName
+                    (fun _ -> true)
+                    publishOutput doc parsed
+            let committed =
+                requirePublished docId publication
+            let tier =
+                confidenceTier
+                    "comprehension" committed.Confidence
 
             deps.Logger.info
-                $"Understood doc {docId} as '{parsed.CanonicalCategory}' ({parsed.DocumentType}, {tier}, conf={parsed.Confidence:F2}): {parsed.Summary}"
+                $"Understood doc {docId} as '{committed.CanonicalCategory}' ({committed.DocumentType}, {tier}, conf={committed.Confidence:F2}): {committed.Summary}"
 
             return
                 doc
-                |> withComprehension "understood" tier parsed
+                |> withComprehension "understood" tier committed
                 |> Document.encode "deep_comprehended" (box true)
         }
 
-    let private handleDeepResponse deps doc response : Task<Document.T> =
+    let private handleDeepResponse
+        (deps: Deps)
+        (generation: Generation.Token)
+        (publishOutput: ComprehensionPublisher)
+        (doc: Document.T)
+        (response: string)
+        : Task<Document.T> =
         match ComprehensionSchema.normaliseResponse response with
         | Ok parsed ->
-            applyDeepResult deps doc parsed
+            applyDeepResult
+                deps generation publishOutput doc parsed
         | Error parseError ->
             deps.Logger.warn
-                $"Deep comprehension parse doc {Document.id doc}: {parseError}, keeping triage"
+                $"Deep comprehension parse doc {Document.id doc}: {parseError}"
 
-            completeFromTriage deps doc
+            failwith $"Deep comprehension parse failed for doc {Document.id doc}: {parseError}"
 
     /// Phase 2: Deep comprehension for financially relevant documents.
-    let deepComprehend (deps: Deps) (doc: Document.T) : Task<Document.T> =
+    let internal deepComprehendAt
+        (generation: Generation.Token)
+        (publishOutput: ComprehensionPublisher)
+        (deps: Deps)
+        (doc: Document.T)
+        : Task<Document.T> =
         task {
             let docId = Document.id doc
             let! text = readExtractedText deps doc
 
+            if String.IsNullOrWhiteSpace(text) then
+                deps.Logger.warn $"DeepComprehend failed doc {docId}: no extracted text"
+                return failwith $"DeepComprehend failed doc {docId}: no extracted text"
+            else
+
             match deps.ChatProvider with
             | None ->
-                deps.Logger.debug $"DeepComprehend skip doc {docId}: no chat provider"
-                return! completeFromTriage deps doc
+                deps.Logger.warn $"DeepComprehend failed doc {docId}: no chat provider configured"
+                return failwith $"DeepComprehend failed doc {docId}: no chat provider configured"
             | Some chat ->
                 let! context = buildDeepContext deps doc
                 let systemPrompt, userPrompt =
@@ -768,12 +1122,24 @@ Document text:
 
                 match result with
                 | Ok response ->
-                    return! handleDeepResponse deps doc response
+                    return!
+                        handleDeepResponse
+                            deps generation publishOutput doc response
                 | Error error ->
-                    deps.Logger.warn
-                        $"Deep comprehension failed for doc {docId}: {error}, keeping triage result"
+                    deps.Logger.warn $"Deep comprehension failed for doc {docId}: {error}"
+                    return failwith $"Deep comprehension failed for doc {docId}: {error}"
+        }
 
-                    return! completeFromTriage deps doc
+    let deepComprehend
+        (deps: Deps)
+        (doc: Document.T)
+        : Task<Document.T> =
+        task {
+            let! generation =
+                Generation.current deps.Db (Document.id doc)
+            return!
+                deepComprehendAt
+                    generation noComprehensionOutput deps doc
         }
 
     // ─── Suggestion approval ─────────────────────────────────────
@@ -835,8 +1201,11 @@ Document text:
 
     // ─── Embed stage ─────────────────────────────────────────────
 
-    /// Generate embeddings for a document's extracted text.
-    let embed (deps: Deps) (doc: Document.T) : Task<Document.T> =
+    let internal embedAt
+        (generation: Generation.Token)
+        (deps: Deps)
+        (doc: Document.T)
+        : Task<Document.T> =
         task {
             let docId = Document.id doc
             let savedPath = doc |> Document.decode<string> "saved_path" |> Option.defaultValue ""
@@ -848,21 +1217,20 @@ Document text:
 
             match deps.Embedder with
             | None ->
-                deps.Logger.debug $"Embed skip doc {docId}: no embedder configured"
-                return doc |> Document.encode "stage" (box "embedded")
+                deps.Logger.warn $"Embed failed doc {docId}: no embedder configured"
+                return failwith $"Embed failed doc {docId}: no embedder configured"
             | Some embedder ->
                 let! available = embedder.isAvailable ()
                 if not available then
                     return failwith $"Embedding service unavailable for doc {docId}"
                 elif String.IsNullOrWhiteSpace(text) then
-                    deps.Logger.debug $"Embed skip doc {docId}: no text to embed"
-                    return
-                        doc
-                        |> Document.encode "embedded_at" (box (deps.Clock.utcNow().ToString("o")))
-                        |> Document.encode "chunk_count" (box 0L)
-                        |> Document.encode "stage" (box "embedded")
+                    deps.Logger.warn $"Embed failed doc {docId}: no extracted text to embed"
+                    return failwith $"Embed failed doc {docId}: no extracted text to embed"
                 else
-                    let! result = Embeddings.embedDocument deps.Db deps.Logger deps.Clock embedder docId text
+                    let! result =
+                        Embeddings.embedDocumentAt
+                            deps.Db deps.Logger deps.Clock
+                            embedder generation text
                     match result with
                     | Ok chunkCount ->
                         return
@@ -872,6 +1240,14 @@ Document text:
                             |> Document.encode "stage" (box "embedded")
                     | Error e ->
                         return failwith $"Embedding failed for doc {docId}: {e}"
+        }
+
+    /// Generate embeddings for a document's extracted text.
+    let embed (deps: Deps) (doc: Document.T) : Task<Document.T> =
+        task {
+            let! generation =
+                Generation.current deps.Db (Document.id doc)
+            return! embedAt generation deps doc
         }
 
     // ─── Stage definitions ───────────────────────────────────────

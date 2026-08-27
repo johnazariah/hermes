@@ -21,13 +21,24 @@ let private testLogger () =
 
 /// Helper: a minimal in-memory DB that only supports persist.
 let private fakeDb () : Algebra.Database =
-    { execNonQuery = fun _ _ -> task { return 1 }
-      execScalar = fun _ _ -> task { return box 0L }
-      execReader = fun _ _ -> task { return [] }
-      initSchema = fun () -> task { return Ok () }
-      tableExists = fun _ -> task { return true }
-      schemaVersion = fun () -> task { return 1 }
-      dispose = fun () -> () }
+    let rec db : Algebra.Database =
+        { execNonQuery = fun _ _ -> task { return 1 }
+          execScalar = fun _ _ -> task { return box 0L }
+          execReader = fun _ _ -> task { return [] }
+          initSchema = fun () -> task { return Ok () }
+          tableExists = fun _ -> task { return true }
+          schemaVersion = fun () -> task { return 1 }
+          inTransaction =
+            fun f ->
+                task {
+                    let scope : Algebra.TransactionScope =
+                        { execNonQuery = db.execNonQuery
+                          execScalar = db.execScalar
+                          execReader = db.execReader }
+                    return! f scope
+                }
+          dispose = fun () -> () }
+    db
 
 [<Fact>]
 [<Trait("Category", "Unit")>]

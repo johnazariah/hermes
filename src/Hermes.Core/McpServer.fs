@@ -146,9 +146,22 @@ module McpServer =
                     [ "document_id", intProp "Document ID (required)"
                       "new_category", stringProp "Target category (required)" ]
                     [ "document_id"; "new_category" ] }
+          { Name = "hermes_reflow"
+            Description =
+                "Request a DAG-safe reflow. Defaults to dry_run; use mode='apply' to invalidate and re-queue."
+            InputSchema =
+                mkSchema
+                    [ "document_id", intProp "Document ID (required)"
+                      "operation", stringProp "One of: reextract, recomprehend, reembed"
+                      "mode", stringProp "One of: dry_run (default), apply" ]
+                    [ "document_id"; "operation" ] }
+          { Name = "hermes_reflow_status"
+            Description = "Get reflow operation status and per-stage outcomes."
+            InputSchema =
+                mkSchema [ "operation_id", intProp "Reflow operation ID (required)" ] [ "operation_id" ] }
           { Name = "hermes_reextract"
             Description =
-                "Clear extraction fields and re-queue document for extraction on next sync cycle."
+                "DAG-safe legacy alias for reextract apply."
             InputSchema =
                 mkSchema [ "document_id", intProp "Document ID (required)" ] [ "document_id" ] }
           { Name = "hermes_get_processing_queue"
@@ -290,9 +303,11 @@ module McpServer =
 
     let private handleToolCall
         (db: Algebra.Database)
+        (reflowDb: Algebra.Database)
         (fs: Algebra.FileSystem)
         (logger: Algebra.Logger)
         (clock: Algebra.Clock)
+        (dag: PipelineV5.Dag)
         (archiveDir: string)
         (deepDeps: McpTools.DeepExtractionDeps option)
         (toolName: string)
@@ -339,8 +354,14 @@ module McpServer =
             | "hermes_reclassify" ->
                 let! result = McpTools.reclassifyDocument db fs archiveDir toolArgs
                 return Ok result
+            | "hermes_reflow" ->
+                let! result = McpTools.reflowDocument reflowDb logger dag toolArgs
+                return Ok result
+            | "hermes_reflow_status" ->
+                let! result = McpTools.reflowStatus reflowDb dag toolArgs
+                return Ok result
             | "hermes_reextract" ->
-                let! result = McpTools.reextractDocument db toolArgs
+                let! result = McpTools.reextractDocument reflowDb logger dag toolArgs
                 return Ok result
             | "hermes_get_processing_queue" ->
                 let! result = McpTools.getProcessingQueue db toolArgs
@@ -371,11 +392,13 @@ module McpServer =
     // ─── Main dispatch ───────────────────────────────────────────────
 
     /// Process a single JSON-RPC request and return a response.
-    let handleRequest
+    let private handleRequestWithReflowDb
         (db: Algebra.Database)
+        (reflowDb: Algebra.Database)
         (fs: Algebra.FileSystem)
         (logger: Algebra.Logger)
         (clock: Algebra.Clock)
+        (dag: PipelineV5.Dag)
         (archiveDir: string)
         (deepDeps: McpTools.DeepExtractionDeps option)
         (request: JsonRpcRequest)
@@ -432,7 +455,9 @@ module McpServer =
                         | Some p -> tryGetNode p "arguments"
                         | None -> None
 
-                    let! callResult = handleToolCall db fs logger clock archiveDir deepDeps name toolArgs
+                    let! callResult =
+                        handleToolCall
+                            db reflowDb fs logger clock dag archiveDir deepDeps name toolArgs
 
                     match callResult with
                     | Ok resultNode ->
@@ -455,12 +480,28 @@ module McpServer =
                 return makeError request.Id -32601 $"Method not found: {unknown}"
         }
 
-    /// Parse a JSON string, process the request, and return a JSON response string.
-    let processMessage
+    /// Backward-compatible request handler for single-connection hosts.
+    let handleRequest
         (db: Algebra.Database)
         (fs: Algebra.FileSystem)
         (logger: Algebra.Logger)
         (clock: Algebra.Clock)
+        (dag: PipelineV5.Dag)
+        (archiveDir: string)
+        (deepDeps: McpTools.DeepExtractionDeps option)
+        (request: JsonRpcRequest)
+        : Task<JsonRpcResponse> =
+        handleRequestWithReflowDb
+            db db fs logger clock dag archiveDir deepDeps request
+
+    /// Parse and process a message using a dedicated reflow connection.
+    let processMessageWithReflowDb
+        (db: Algebra.Database)
+        (reflowDb: Algebra.Database)
+        (fs: Algebra.FileSystem)
+        (logger: Algebra.Logger)
+        (clock: Algebra.Clock)
+        (dag: PipelineV5.Dag)
         (archiveDir: string)
         (deepDeps: McpTools.DeepExtractionDeps option)
         (message: string)
@@ -471,6 +512,22 @@ module McpServer =
                 let resp = makeError None -32700 msg
                 return serialiseResponse resp
             | Ok request ->
-                let! resp = handleRequest db fs logger clock archiveDir deepDeps request
+                let! resp =
+                    handleRequestWithReflowDb
+                        db reflowDb fs logger clock dag archiveDir deepDeps request
                 return serialiseResponse resp
         }
+
+    /// Backward-compatible message processor for tests and single-connection hosts.
+    let processMessage
+        (db: Algebra.Database)
+        (fs: Algebra.FileSystem)
+        (logger: Algebra.Logger)
+        (clock: Algebra.Clock)
+        (dag: PipelineV5.Dag)
+        (archiveDir: string)
+        (deepDeps: McpTools.DeepExtractionDeps option)
+        (message: string)
+        : Task<string> =
+        processMessageWithReflowDb
+            db db fs logger clock dag archiveDir deepDeps message

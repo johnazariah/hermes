@@ -5,6 +5,8 @@
 open Xunit
 open Hermes.Core
 open System.Text.Json.Nodes
+open System
+open System.Threading.Tasks
 
 // ─── promptFileForType tests ─────────────────────────────────────────
 
@@ -230,6 +232,23 @@ let private mkDeepDeps (chatResponse: string) : McpTools.DeepExtractionDeps =
       Provider = "ollama"
       Model = "llama3" }
 
+let private markDeepExtractionInputsCurrent db documentId =
+    task {
+        do! TestHelpers.initV5 db
+        let! _ =
+            db.execNonQuery
+                """INSERT OR IGNORE INTO comprehension
+                       (document_id, document_type, category, confidence)
+                   VALUES (@doc, 'payslip', 'payslips', 1.0)"""
+                [ ("@doc", Database.boxVal documentId) ]
+        let! _ =
+            db.execNonQuery
+                """INSERT OR IGNORE INTO stage_completions (document_id, stage_name)
+                   VALUES (@doc, 'extract'), (@doc, 'deep-comprehend')"""
+                [ ("@doc", Database.boxVal documentId) ]
+        return ()
+    }
+
 [<Fact>]
 [<Trait("Category", "Integration")>]
 let ``McpTools_deepExtract_ValidDocument_ReturnsMergedResult`` () =
@@ -237,19 +256,87 @@ let ``McpTools_deepExtract_ValidDocument_ReturnsMergedResult`` () =
         let db = TestHelpers.createDb ()
         let m = TestHelpers.memFs ()
         try
-            let comp = """{"document_type":"payslip","summary":"test payslip"}"""
+            let text = "Employee: John payslip data"
+            let sourceHash = DeepExtraction.computeHash text
+            let comp =
+                sprintf
+                    """{"document_type":"payslip","summary":"test payslip","deep_extraction":{"metadata":{"source_hash":"%s"},"fields":{"gross_pay":1000}}}"""
+                    sourceHash
             let! _ =
                 db.execNonQuery
                     """INSERT INTO documents (original_name, source_type, saved_path, category, sha256, extracted_at)
                        VALUES ('test.pdf', 'manual_drop', 'payslips/test.pdf', 'payslips', 'sha-deep-1', datetime('now'))"""
                     [  ]
-            m.Put "/archive/payslips/test.pdf.extracted.md" "Employee: John payslip data"
+            do! markDeepExtractionInputsCurrent db 1L
+            m.Put "/archive/payslips/test.pdf.extracted.md" text
             m.Put "/archive/payslips/thread.comprehension.json" comp
             let deps = mkDeepDeps """{"gross_pay": 5000}"""
             let args = JsonObject()
             args["document_id"] <- JsonValue.Create(1L)
+            args["force"] <- JsonValue.Create(true)
             let! result = McpTools.deepExtract db m.Fs "/archive" deps (args :> JsonNode)
             Assert.Equal("extracted", result["status"].GetValue<string>())
+            let comprehension: JsonNode = result.["comprehension"]
+            let deepExtraction: JsonNode = comprehension.["deep_extraction"]
+            let fields: JsonNode = deepExtraction.["fields"]
+            let grossPay = fields.["gross_pay"].GetValue<int>()
+            Assert.Equal(5000, grossPay)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``McpTools_deepExtract_InvalidatedComprehension_ReturnsErrorEvenWhenForced`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        try
+            let! _ =
+                db.execNonQuery
+                    """INSERT INTO documents (original_name, source_type, saved_path, category, sha256)
+                       VALUES ('test.pdf', 'manual_drop', 'payslips/test.pdf', 'payslips', 'sha-stale')"""
+                    []
+            do! markDeepExtractionInputsCurrent db 1L
+            let! _ =
+                db.execNonQuery
+                    """DELETE FROM stage_completions
+                       WHERE document_id = 1 AND stage_name = 'deep-comprehend'"""
+                    []
+            m.Put "/archive/payslips/test.pdf.extracted.md" "stale extracted text"
+            m.Put "/archive/payslips/thread.comprehension.json" """{"document_type":"payslip"}"""
+            let args = JsonObject()
+            args["document_id"] <- JsonValue.Create(1L)
+            args["force"] <- JsonValue.Create(true)
+            let! result =
+                McpTools.deepExtract db m.Fs "/archive" (mkDeepDeps "{}") (args :> JsonNode)
+            Assert.Contains("not current", result["error"].GetValue<string>())
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``McpTools_deepExtract_MissingComprehensionOutput_ReturnsNotCurrentEvenWhenForced`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        try
+            let! _ =
+                db.execNonQuery
+                    """INSERT INTO documents (original_name, source_type, saved_path, category, sha256)
+                       VALUES ('test.pdf', 'manual_drop', 'payslips/test.pdf', 'payslips', 'sha-stale-output')"""
+                    []
+            do! markDeepExtractionInputsCurrent db 1L
+            let! _ = db.execNonQuery "DELETE FROM comprehension WHERE document_id = 1" []
+            let comprehensionPath = "/archive/payslips/thread.comprehension.json"
+            let staleComprehension = """{"document_type":"payslip"}"""
+            m.Put "/archive/payslips/test.pdf.extracted.md" "stale extracted text"
+            m.Put comprehensionPath staleComprehension
+            let args = JsonObject()
+            args["document_id"] <- JsonValue.Create(1L)
+            args["force"] <- JsonValue.Create(true)
+            let! result = McpTools.deepExtract db m.Fs "/archive" (mkDeepDeps "{}") args
+            Assert.Contains("not current", result["error"].GetValue<string>())
+            Assert.Equal(Some staleComprehension, m.Get comprehensionPath)
         finally db.dispose ()
     }
 
@@ -259,6 +346,7 @@ let ``McpTools_deepExtract_MissingDocument_ReturnsError`` () =
     task {
         let db = TestHelpers.createDb ()
         try
+            do! TestHelpers.initV5 db
             let args = JsonObject()
             args["document_id"] <- JsonValue.Create(999L)
             let! result = McpTools.deepExtract db (TestHelpers.memFs().Fs) "/archive" (mkDeepDeps "{}") (args :> JsonNode)
@@ -277,6 +365,7 @@ let ``McpTools_deepExtract_NoComprehension_ReturnsError`` () =
                     """INSERT INTO documents (original_name, source_type, saved_path, category, sha256, extracted_at)
                        VALUES ('test.pdf', 'manual_drop', 'payslips/test.pdf', 'payslips', 'sha-deep-2', datetime('now'))"""
                     []
+            do! markDeepExtractionInputsCurrent db 1L
             let args = JsonObject()
             args["document_id"] <- JsonValue.Create(1L)
             let! result = McpTools.deepExtract db (TestHelpers.memFs().Fs) "/archive" (mkDeepDeps "{}") (args :> JsonNode)
@@ -294,4 +383,188 @@ let ``McpTools_deepExtract_MissingDocumentId_ReturnsError`` () =
             let! result = McpTools.deepExtract db (TestHelpers.memFs().Fs) "/archive" (mkDeepDeps "{}") emptyArgs
             Assert.Contains("document_id is required", result["error"].GetValue<string>())
         finally db.dispose ()
+    }
+
+/// Parks the caller in the LLM call — before the publication fence is taken —
+/// so a test can order a reflow and a newer publication ahead of a stale write.
+let private gatedChatProvider
+    (entered: TaskCompletionSource<unit>)
+    (release: TaskCompletionSource<unit>)
+    (response: string)
+    : Algebra.ChatProvider =
+    { complete =
+        fun _ _ ->
+            task {
+                entered.TrySetResult() |> ignore
+                do! release.Task
+                return Ok response
+            } }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``McpTools_deepExtract_ReflowThenNewerPublication_CannotOverwriteNewerSidecar`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let mem = TestHelpers.memFs ()
+        let entered =
+            TaskCompletionSource<unit>(
+                TaskCreationOptions.RunContinuationsAsynchronously)
+        let release =
+            TaskCompletionSource<unit>(
+                TaskCreationOptions.RunContinuationsAsynchronously)
+        try
+            let! _ =
+                db.execNonQuery
+                    """INSERT INTO documents
+                         (original_name, source_type, saved_path,
+                          category, sha256)
+                       VALUES
+                         ('test.pdf', 'manual_drop',
+                          'payslips/test.pdf', 'payslips',
+                          'sha-deep-race')"""
+                    []
+            do! markDeepExtractionInputsCurrent db 1L
+            let folder = "/archive/payslips"
+            let sidecar = folder + "/thread.comprehension.json"
+            let original = """{"document_type":"payslip","epoch":"old"}"""
+            mem.Put (folder + "/test.pdf.extracted.md") "Employee payslip"
+            mem.Put sidecar original
+            let deps =
+                { mkDeepDeps """{"gross_pay":5000}""" with
+                    Chat =
+                        gatedChatProvider entered release """{"gross_pay":5000}""" }
+            let args = JsonObject()
+            args["document_id"] <- JsonValue.Create(1L)
+            args["force"] <- JsonValue.Create(true)
+            // OLD publisher: captured generation 0, parked before its write.
+            let stale =
+                McpTools.deepExtract db mem.Fs "/archive" deps (args :> JsonNode)
+            do! entered.Task
+
+            // Reflow accepts and bumps the generation, then the new generation
+            // republishes the shared sidecar — both complete before the old
+            // write is released.
+            let! reflow =
+                Reflow.request
+                    db TestHelpers.silentLogger
+                    (TestHelpers.standardV5Dag ())
+                    1L Reflow.Recomprehend Reflow.Apply
+            match reflow with
+            | Error error -> failwith error
+            | Ok _ -> ()
+            do! markDeepExtractionInputsCurrent db 1L
+            let! current = Generation.current db 1L
+            let newest = """{"document_type":"payslip","epoch":"new"}"""
+            let artifactFolder =
+                PublicationFence.ArtifactFolder.tryFromMetadata
+                    "payslips/test.pdf" None
+                |> Option.defaultWith (fun () ->
+                    failwith "Expected an artifact folder")
+            let! republished =
+                Generation.publishEffect db current artifactFolder (fun () ->
+                    ArchiveWriter.writeComprehension mem.Fs folder newest)
+
+            release.TrySetResult() |> ignore
+            let! result = stale
+            let! outputs =
+                db.execScalar
+                    "SELECT count(*) FROM comprehension WHERE document_id = 1"
+                    []
+            match republished with
+            | Generation.Published () -> ()
+            | Generation.Superseded ->
+                failwith "New-generation publication was rejected"
+            Assert.Contains(
+                "reflowed",
+                result["error"].GetValue<string>())
+            // The stale publisher never wrote: newer bytes survive intact and
+            // the shared sidecar is never deleted.
+            Assert.Equal(Some newest, mem.Get sidecar)
+            Assert.True(mem.Fs.fileExists sidecar)
+            Assert.Equal(1L, outputs :?> int64)
+        finally
+            release.TrySetResult() |> ignore
+            db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``McpTools_deepExtract_SiblingPublishesDuringLlm_MergesAgainstLatestSidecar`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let mem = TestHelpers.memFs ()
+        let entered =
+            TaskCompletionSource<unit>(
+                TaskCreationOptions.RunContinuationsAsynchronously)
+        let release =
+            TaskCompletionSource<unit>(
+                TaskCreationOptions.RunContinuationsAsynchronously)
+        try
+            // Two documents in ONE folder, described with different metadata
+            // forms, so they only contend correctly once folder identity is
+            // resolved against the archive root.
+            let! _ =
+                db.execNonQuery
+                    """INSERT INTO documents
+                         (original_name, source_type, saved_path, category, sha256)
+                       VALUES
+                         ('a.pdf', 'manual_drop', 'payslips/a.pdf', 'payslips', 'sha-sib-a'),
+                         ('b.pdf', 'manual_drop', '/archive/payslips/b.pdf', 'payslips', 'sha-sib-b')"""
+                    []
+            do! markDeepExtractionInputsCurrent db 1L
+            do! markDeepExtractionInputsCurrent db 2L
+            let folder = "/archive/payslips"
+            let sidecar = folder + "/thread.comprehension.json"
+            mem.Put (folder + "/a.pdf.extracted.md") "Employee payslip A"
+            mem.Put sidecar """{"document_type":"payslip","owner":"a"}"""
+            let deps =
+                { mkDeepDeps "{}" with
+                    Chat =
+                        gatedChatProvider entered release """{"gross_pay":5000}""" }
+            let args = JsonObject()
+            args["document_id"] <- JsonValue.Create(1L)
+            args["force"] <- JsonValue.Create(true)
+            let running =
+                McpTools.deepExtract db mem.Fs "/archive" deps (args :> JsonNode)
+            do! entered.Task
+
+            // The sibling publishes while the LLM runs. Document 1's
+            // generation never changes, so only the folder fence plus a
+            // re-read inside it can protect the sibling's bytes.
+            let! siblingGeneration = Generation.current db 2L
+            let siblingFolder =
+                PublicationFence.ArtifactFolder.tryFromMetadata
+                    "/archive" "/archive/payslips/b.pdf" None
+                |> Option.defaultWith (fun () -> failwith "Expected a folder")
+            let siblingJson =
+                """{"document_type":"payslip","owner":"a","sibling":"published"}"""
+            let! published =
+                Generation.publishEffect db siblingGeneration siblingFolder (fun () ->
+                    ArchiveWriter.writeComprehension mem.Fs folder siblingJson)
+            match published with
+            | Generation.Published () -> ()
+            | Generation.Superseded -> failwith "Sibling publication was rejected"
+
+            release.TrySetResult() |> ignore
+            let! result = running
+            Assert.Equal("extracted", result["status"].GetValue<string>())
+            let committed = result["comprehension"]
+            // Sibling fields survive …
+            Assert.Equal("published", committed["sibling"].GetValue<string>())
+            // … and this document's own delta is present.
+            Assert.Equal(
+                5000,
+                (committed["deep_extraction"].["fields"].["gross_pay"]).GetValue<int>())
+            // The returned JSON is exactly what was committed to disk.
+            let onDisk =
+                mem.Get sidecar
+                |> Option.defaultWith (fun () -> failwith "Sidecar missing")
+            Assert.Contains("\"sibling\"", onDisk)
+            Assert.Contains("gross_pay", onDisk)
+            Assert.Equal(
+                JsonNode.Parse(onDisk).ToJsonString(),
+                committed.ToJsonString())
+        finally
+            release.TrySetResult() |> ignore
+            db.dispose ()
     }

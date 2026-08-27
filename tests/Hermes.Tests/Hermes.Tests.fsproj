@@ -35,6 +35,7 @@
     <Compile Include="ActivityLogTests.fs" />
     <Compile Include="DocumentBrowserTests.fs" />
     <Compile Include="DocumentManagementTests.fs" />
+    <Compile Include="ReflowTests.fs" />
     <Compile Include="ThreadsTests.fs" />
     <Compile Include="ExcelExtractionTests.fs" />
     <Compile Include="WordExtractionTests.fs" />
@@ -50,6 +51,7 @@
     <Compile Include="OutlookProviderTests.fs" />
     <Compile Include="ComprehensionRacTests.fs" />
     <Compile Include="ArchiveWriterTests.fs" />
+    <Compile Include="ApiReflowTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
@@ -62,5 +64,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Hermes.Core\Hermes.Core.fsproj" />
+    <ProjectReference Include="..\..\src\Hermes.Service\Hermes.Service.fsproj" />
   </ItemGroup>
 </Project>

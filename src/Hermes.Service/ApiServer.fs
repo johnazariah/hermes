@@ -15,11 +15,98 @@ module ApiServer =
 
     let private json v = Results.Json(v, JsonSerializerOptions(PropertyNamingPolicy = JsonNamingPolicy.CamelCase))
 
+    let private tryGetString (root: JsonElement) (name: string) : string option =
+        let mutable el = JsonElement()
+        if root.TryGetProperty(name, &el) then el.GetString() |> Option.ofObj else None
+
+    let private parseReflowRequest (bodyText: string) : Result<Reflow.OperationKind * Reflow.RequestMode, string> =
+        try
+            let root = JsonDocument.Parse(bodyText).RootElement
+            match tryGetString root "operation" with
+            | None -> Error "operation is required"
+            | Some opStr ->
+                Reflow.OperationKind.parse opStr
+                |> Result.bind (fun kind ->
+                    let modeStr = tryGetString root "mode" |> Option.defaultValue "dry_run"
+                    Reflow.RequestMode.parse modeStr
+                    |> Result.map (fun mode -> kind, mode))
+        with ex -> Error ex.Message
+
+    let private stageOutcomeDto (s: Reflow.StageStatus) =
+        {| stageName = s.StageName
+           outcome = Reflow.StageOutcome.toString s.Outcome
+           error = s.Error |}
+
+    let private operationStatusDto (s: Reflow.OperationStatus) =
+        {| operationId = s.OperationId
+           documentId = s.DocumentId
+           operation = Reflow.OperationKind.toString s.Kind
+           mode = Reflow.RequestMode.toString s.Mode
+           lifecycle = Reflow.Lifecycle.toString s.Lifecycle
+           dagSignature = s.DagSignature
+           createdAt = s.CreatedAt
+           completedAt = s.CompletedAt
+           error = s.Error
+           stages = s.Stages |> List.map stageOutcomeDto |}
+
+    let private planDto (p: Reflow.Plan) =
+        {| documentId = p.DocumentId
+           operation = Reflow.OperationKind.toString p.Kind
+           invalidatedStages = p.InvalidatedStages
+           currentStages = p.CurrentStages
+           dagSignature = p.DagSignature |}
+
+    let private requestResultDto (r: Reflow.RequestResult) =
+        {| plan = planDto r.Plan
+           duplicate = r.Duplicate
+           status = r.Status |> Option.map operationStatusDto |}
+
+    let private legacyOperationDto (r: Reflow.RequestResult) =
+        {| operationId = r.Status |> Option.map (fun s -> s.OperationId)
+           duplicate = r.Duplicate
+           requeued = true |}
+
+    let private applyLegacyReflow
+        (db: Algebra.Database) (logger: Algebra.Logger) (dag: PipelineV5.Dag)
+        (id: int64) (kind: Reflow.OperationKind) : Task<IResult> =
+        task {
+            let! result = Reflow.request db logger dag id kind Reflow.RequestMode.Apply
+            match result with
+            | Ok r -> return json (legacyOperationDto r)
+            | Error e -> return Results.BadRequest({| error = e |})
+        }
+
+    let private countsByKey (rows: Map<string, obj> list) (keyCol: string) : Map<string, int64> =
+        rows
+        |> List.map (fun row ->
+            let r = Prelude.RowReader(row)
+            r.String keyCol "", r.Int64 "cnt" 0L)
+        |> Map.ofList
+
+    let private reflowLifecycleCounts (db: Algebra.Database) : Task<Map<string, int64>> =
+        task {
+            let! rows = db.execReader "SELECT lifecycle, COUNT(*) AS cnt FROM reflow_operations GROUP BY lifecycle" []
+            return countsByKey rows "lifecycle"
+        }
+
+    let private reflowStageOutcomeCounts (db: Algebra.Database) : Task<Map<string, int64>> =
+        task {
+            let! rows =
+                db.execReader
+                    "SELECT outcome, COUNT(*) AS cnt FROM reflow_operation_stages WHERE outcome IN ('pending', 'failed') GROUP BY outcome"
+                    []
+            return countsByKey rows "outcome"
+        }
+
     /// Map all API routes onto the endpoint builder.
-    let mapRoutes
+    let mapRoutesWithReflowDb
         (app: IEndpointRouteBuilder)
-        (db: Algebra.Database) (fs: Algebra.FileSystem) (logger: Algebra.Logger)
+        (db: Algebra.Database)
+        (reflowDb: Algebra.Database)
+        (fs: Algebra.FileSystem)
+        (logger: Algebra.Logger)
         (clock: Algebra.Clock)
+        (dag: PipelineV5.Dag)
         (chatProvider: Algebra.ChatProvider option)
         (archiveDir: string) (configDir: string) =
 
@@ -140,11 +227,21 @@ module ApiServer =
             task {
                 let! counts = Document.stageCounts db
                 let get key = counts |> Map.tryFind key |> Option.defaultValue 0L
+                let! lifecycleCounts = reflowLifecycleCounts reflowDb
+                let! stageOutcomeCounts = reflowStageOutcomeCounts reflowDb
+                let getLifecycle key = lifecycleCounts |> Map.tryFind key |> Option.defaultValue 0L
+                let getStageOutcome key = stageOutcomeCounts |> Map.tryFind key |> Option.defaultValue 0L
                 return json {| received = get "received"
                                extracted = get "extracted"
                                understood = get "understood"
                                embedded = get "embedded"
-                               failed = get "failed" |}
+                               failed = get "failed"
+                               reflow = {| pending = getLifecycle "pending"
+                                           running = getLifecycle "running"
+                                           completed = getLifecycle "completed"
+                                           failed = getLifecycle "failed"
+                                           stagesPending = getStageOutcome "pending"
+                                           stagesFailed = getStageOutcome "failed" |} |}
             })) |> ignore
 
         // ── Reminders ───────────────────────────────────────────────
@@ -316,14 +413,37 @@ module ApiServer =
                     return json {| error = ex.Message |}
             })) |> ignore
 
-        // ── Re-comprehend document ───────────────────────────────────
-        app.MapPost("/api/documents/{id:long}/recomprehend", Func<int64, Task<IResult>>(fun id ->
+        // ── Reflow operations ────────────────────────────────────────
+        app.MapPost("/api/documents/{id:long}/reflow", Func<int64, HttpContext, Task<IResult>>(fun id ctx ->
             task {
-                let! result = DocumentManagement.recomprehend db id
-                match result with
-                | Ok () -> return json {| requeued = true |}
-                | Error e -> return json {| error = e |}
+                use sr = new StreamReader(ctx.Request.Body)
+                let! bodyText = sr.ReadToEndAsync()
+                match parseReflowRequest bodyText with
+                | Error e -> return Results.BadRequest({| error = e |})
+                | Ok (kind, mode) ->
+                    let! result = Reflow.request reflowDb logger dag id kind mode
+                    match result with
+                    | Ok r -> return json (requestResultDto r)
+                    | Error e -> return Results.BadRequest({| error = e |})
             })) |> ignore
+
+        app.MapGet("/api/reflow/{id:long}", Func<int64, Task<IResult>>(fun id ->
+            task {
+                let! result = Reflow.getStatus dag reflowDb id
+                match result with
+                | Ok status -> return json (operationStatusDto status)
+                | Error e when e.Contains "not found" -> return Results.NotFound({| error = e |})
+                | Error e -> return Results.BadRequest({| error = e |})
+            })) |> ignore
+
+        app.MapPost("/api/documents/{id:long}/recomprehend", Func<int64, Task<IResult>>(fun id ->
+            applyLegacyReflow reflowDb logger dag id Reflow.OperationKind.Recomprehend)) |> ignore
+
+        app.MapPost("/api/documents/{id:long}/reextract", Func<int64, Task<IResult>>(fun id ->
+            applyLegacyReflow reflowDb logger dag id Reflow.OperationKind.Reextract)) |> ignore
+
+        app.MapPost("/api/documents/{id:long}/reembed", Func<int64, Task<IResult>>(fun id ->
+            applyLegacyReflow reflowDb logger dag id Reflow.OperationKind.Reembed)) |> ignore
 
         // ── List corrections (for prompt tuning) ─────────────────────
         app.MapGet("/api/corrections", Func<HttpContext, Task<IResult>>(fun ctx ->
@@ -588,3 +708,17 @@ module ApiServer =
                 | Ok () -> return json {| rejected = true; id = id |}
                 | Error e -> return json {| error = e |}
             })) |> ignore
+
+    /// Backward-compatible route mapping for tests and single-connection hosts.
+    let mapRoutes
+        (app: IEndpointRouteBuilder)
+        (db: Algebra.Database)
+        (fs: Algebra.FileSystem)
+        (logger: Algebra.Logger)
+        (clock: Algebra.Clock)
+        (dag: PipelineV5.Dag)
+        (chatProvider: Algebra.ChatProvider option)
+        (archiveDir: string)
+        (configDir: string) =
+        mapRoutesWithReflowDb
+            app db db fs logger clock dag chatProvider archiveDir configDir

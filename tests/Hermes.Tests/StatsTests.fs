@@ -184,13 +184,30 @@ let ``Stats_GetAccountStats_NullSyncAt_ReturnsNone`` () =
 
 // ─── getPipelineCounts ───────────────────────────────────────────────
 
+let private stubExecScalar (_: string) (_: (string * obj) list) : Task<obj | null> =
+    Task.FromResult(box 0L)
+
+let private stubExecNonQuery (_: string) (_: (string * obj) list) : Task<int> =
+    Task.FromResult(0)
+
+let private stubExecReader (_: string) (_: (string * obj) list) : Task<Map<string, obj> list> =
+    Task.FromResult([] : Map<string, obj> list)
+
+let private stubInTransaction (f: Algebra.TransactionScope -> Task<Result<unit, string>>) : Task<Result<unit, string>> =
+    let scope : Algebra.TransactionScope =
+        { execNonQuery = stubExecNonQuery
+          execScalar = stubExecScalar
+          execReader = stubExecReader }
+    f scope
+
 let private pipelineStubDb : Algebra.Database =
-    { execScalar = fun _ _ -> Task.FromResult(box 0L)
-      execNonQuery = fun _ _ -> Task.FromResult(0)
-      execReader = fun _ _ -> Task.FromResult([] : Map<string, obj> list)
+    { execScalar = stubExecScalar
+      execNonQuery = stubExecNonQuery
+      execReader = stubExecReader
       initSchema = fun () -> Task.FromResult(Ok ())
       tableExists = fun _ -> Task.FromResult(false)
       schemaVersion = fun () -> Task.FromResult(0)
+      inTransaction = stubInTransaction
       dispose = ignore }
 
 let private customDb (extracting: int) (classifying: int) : Algebra.Database =

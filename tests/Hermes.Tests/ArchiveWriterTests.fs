@@ -190,6 +190,56 @@ let ``ArchiveWriter_ReadComprehension_ReturnsNone_WhenNotExists`` () =
     let result = ArchiveWriter.readComprehension m.Fs "/nonexistent-folder" |> Async.AwaitTask |> Async.RunSynchronously
     Assert.Equal(None, result)
 
+// ─── Publication fence folder identity ───────────────────────────────
+
+let private fenceIdentities archiveRoot savedPath folderPath =
+    PublicationFence.ArtifactFolder.tryFromMetadata archiveRoot savedPath folderPath
+    |> Option.map PublicationFence.ArtifactFolder.identities
+    |> Option.defaultWith (fun () -> failwith "Expected an artifact folder")
+
+let private canonicalOf (path: string) =
+    let full =
+        System.IO.Path.GetFullPath(path)
+        |> System.IO.Path.TrimEndingDirectorySeparator
+    if System.OperatingSystem.IsWindows() then full.ToUpperInvariant() else full
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``PublicationFence_RelativeAndAbsoluteSiblings_ShareTheSameGate`` () =
+    // One physical folder, two persisted metadata forms: an archive-relative
+    // saved_path and an absolute, trailing-separator folder_path.
+    let relative = fenceIdentities "/archive" "invoice.pdf" None
+    let absolute = fenceIdentities "/archive" "/archive/statement.pdf" (Some "/archive/")
+    Assert.NotEmpty(relative)
+    Assert.Equal<string list>(relative, absolute)
+    // Stable multi-key ordering: sorted and duplicate free, so acquiring any
+    // key set in stripe order cannot deadlock against another key set.
+    Assert.Equal<string list>(relative, List.sort relative)
+    Assert.Equal<string list>(relative, List.distinct relative)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``PublicationFence_RelativeIdentity_ResolvesAgainstArchiveRootNotCwd`` () =
+    let identities = fenceIdentities "/archive" "payslips/test.pdf" None
+    let rooted = canonicalOf (System.IO.Path.Combine("/archive", "payslips"))
+    let workingDirectory = canonicalOf "payslips"
+    Assert.True(List.contains rooted identities, "Identity must resolve against the archive root")
+    Assert.False(List.contains workingDirectory identities, "Identity must not resolve against the process CWD")
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``PublicationFence_UnknownArchiveRoot_MeetsRootedCallerOnSharedGate`` () =
+    // Reflow fences without an archive root. Its identities must always be a
+    // subset of the identities a rooted publisher claims for the same folder.
+    let assertSubset savedPath =
+        let rooted = fenceIdentities "/archive" savedPath None
+        let unrooted = fenceIdentities PublicationFence.UnknownArchiveRoot savedPath None
+        Assert.NotEmpty(unrooted)
+        for key in unrooted do
+            Assert.True(List.contains key rooted, $"Unshared gate for '{savedPath}': {key}")
+    assertSubset "payslips/test.pdf"
+    assertSubset "/archive/payslips/test.pdf"
+
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``ArchiveWriter_ReadExtraction_ReturnsContent_WhenExists`` () =

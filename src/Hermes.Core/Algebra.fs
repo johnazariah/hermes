@@ -49,6 +49,13 @@ module Algebra =
 
     // ─── Database ────────────────────────────────────────────────────
 
+    /// Bound to an in-flight SqliteTransaction. Same query surface as Database,
+    /// scoped so callers cannot escape the transaction.
+    type TransactionScope =
+        { execNonQuery: string -> (string * obj) list -> Task<int>
+          execScalar: string -> (string * obj) list -> Task<obj | null>
+          execReader: string -> (string * obj) list -> Task<Map<string, obj> list> }
+
     type Database =
         { execNonQuery: string -> (string * obj) list -> Task<int>
           execScalar: string -> (string * obj) list -> Task<obj | null>
@@ -56,6 +63,8 @@ module Algebra =
           initSchema: unit -> Task<Result<unit, string>>
           tableExists: string -> Task<bool>
           schemaVersion: unit -> Task<int>
+          /// Run callback inside a transaction. Ok commits; Error or an exception rolls back.
+          inTransaction: (TransactionScope -> Task<Result<unit, string>>) -> Task<Result<unit, string>>
           dispose: unit -> unit }
 
     // ─── Stage queue (pipeline work queues) ──────────────────────────

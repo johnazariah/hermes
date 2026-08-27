@@ -139,6 +139,65 @@ let createRawDb () : Algebra.Database =
     cmd.ExecuteNonQuery() |> ignore
     Database.fromConnection conn
 
+let private v5ExtractionSchema = """
+    CREATE TABLE IF NOT EXISTS extraction (
+        document_id INTEGER PRIMARY KEY REFERENCES documents(id), extracted_date TEXT,
+        extracted_amount REAL, extracted_vendor TEXT, extracted_abn TEXT, method TEXT,
+        confidence REAL, extracted_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )"""
+
+let private v5TriageSchema = """
+    CREATE TABLE IF NOT EXISTS triage (
+        document_id INTEGER PRIMARY KEY REFERENCES documents(id), document_type TEXT NOT NULL,
+        category TEXT NOT NULL, confidence REAL NOT NULL,
+        triaged_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )"""
+
+let private v5ComprehensionSchema = """
+    CREATE TABLE IF NOT EXISTS comprehension (
+        document_id INTEGER PRIMARY KEY REFERENCES documents(id), document_type TEXT,
+        category TEXT, confidence REAL, schema_version TEXT DEFAULT 'v2',
+        comprehended_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )"""
+
+let private v5EmbeddingSchema = """
+    CREATE TABLE IF NOT EXISTS embedding (
+        document_id INTEGER PRIMARY KEY REFERENCES documents(id), chunk_count INTEGER NOT NULL DEFAULT 0,
+        embedded_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )"""
+
+let private v5NoopProcess
+    (_db: Algebra.Database)
+    (_logger: Algebra.Logger)
+    (_execution: PipelineV5.StageExecution)
+    : Task<PipelineV5.StageOutcome> =
+    task { return PipelineV5.Completed }
+
+let standardV5Stages : PipelineV5.StageDefinition list =
+    [ { Name = "extract"; DependsOn = []; OutputTable = "extraction"
+        Schema = v5ExtractionSchema; Process = v5NoopProcess
+        Gate = None; GpuModel = None; Mode = PipelineV5.Channel; Concurrency = 1 }
+      { Name = "triage"; DependsOn = [ "extract" ]; OutputTable = "triage"
+        Schema = v5TriageSchema; Process = v5NoopProcess
+        Gate = None; GpuModel = None; Mode = PipelineV5.Channel; Concurrency = 1 }
+      { Name = "deep-comprehend"; DependsOn = [ "extract"; "triage" ]; OutputTable = "comprehension"
+        Schema = v5ComprehensionSchema; Process = v5NoopProcess
+        Gate = None; GpuModel = None; Mode = PipelineV5.Channel; Concurrency = 1 }
+      { Name = "embed"; DependsOn = [ "extract" ]; OutputTable = "embedding"
+        Schema = v5EmbeddingSchema; Process = v5NoopProcess
+        Gate = None; GpuModel = None; Mode = PipelineV5.Channel; Concurrency = 1 } ]
+
+let standardV5Dag () : PipelineV5.Dag =
+    match PipelineV5.buildDag standardV5Stages with
+    | Ok dag -> dag
+    | Error msg -> failwith $"Failed to build standard v5 DAG: {msg}"
+
+let initV5 (db: Algebra.Database) : Task<unit> =
+    task {
+        do! Embeddings.initSchema db
+        do! PipelineV5.initSchema db standardV5Stages
+    }
+
 // ─── Mock email provider ─────────────────────────────────────────────
 
 let private emptyPage : Algebra.MessagePage =
