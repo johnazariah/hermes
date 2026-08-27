@@ -140,7 +140,7 @@ module McpServer =
                     [ "document_id" ] }
           { Name = "hermes_reclassify"
             Description =
-                "Move a document to a different category. Moves file on disk and updates DB."
+               "Update category metadata and its provenance tag without moving or rewriting the source file."
             InputSchema =
                 mkSchema
                     [ "document_id", intProp "Document ID (required)"

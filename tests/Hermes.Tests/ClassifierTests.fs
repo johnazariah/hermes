@@ -570,10 +570,11 @@ let ``Classifier_ReclassifyUnsortedBatch_ContentRuleMatch`` () =
                 Confidence = 0.8 } ]
 
         try
-            let! (reclassified, _remaining) =
+            let! batch =
                 Classifier.reclassifyUnsortedBatch db m.Fs contentRules archiveDir 10
 
-            Assert.True(reclassified >= 1, $"Expected at least 1 reclassified, got {reclassified}")
+            Assert.Equal(1, batch.ReclassifiedCount)
+            Assert.Equal(0, batch.FailedCount)
 
             let! catResult =
                 db.execScalar

@@ -98,6 +98,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-08-27 - Metadata-only reclassification completed
+
+- **Changed:** Reclassification now updates compatibility category, provenance, generated category tags, and FTS metadata atomically without moving source bytes; REST, MCP, Classifier, and React expose explicit outcomes, and bounded legacy repair changes only SHA-proven path metadata.
+- **Evidence:** Issue #17; `Reclassification.fs`, `LegacyReclassification.fs`, `ReclassificationApi.fs`, `ApiServer.fs`, `McpTools.fs`, and the three new reclassification test modules.
+- **Validation:** Full solution build passed with 0 warnings/errors; 898 .NET tests ran (888 passed, 10 skipped); Core coverage reached 66.84% line / 31.22% branch; React build and changed-file ESLint passed.
+- **Blockers:** The pre-existing out-of-sync React lockfile and four unrelated full-lint errors remain assigned to later stabilization work.
+- **Next:** Review and merge PR B, then rebase dependent Phase 1A work without expanding into replay or Phase 1B search.
+
 ### 2026-08-27 - Phase 0 review correction
 
 - **Changed:** Preserved the original completion entry and appended the PR review gate, issue #18, documentation truth corrections, and final privacy scrub.

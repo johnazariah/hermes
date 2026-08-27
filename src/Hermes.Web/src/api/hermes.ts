@@ -1,4 +1,4 @@
-import type { CategoryCount, DocumentSummary, DocumentDetail, IndexStats, ReminderItem, Suggestion, TagCount } from '../types/hermes';
+import type { BatchReclassificationResponse, CategoryCount, DocumentSummary, DocumentDetail, IndexStats, ReminderItem, Suggestion, TagCount } from '../types/hermes';
 
 const BASE = '';
 
@@ -90,10 +90,28 @@ export async function removeDocumentTag(docId: number, tag: string): Promise<voi
   });
 }
 
-export async function batchDocuments(documentIds: number[], action: string, tag?: string): Promise<void> {
-  await fetch(`${BASE}/api/documents/batch`, {
+export async function batchDocuments(documentIds: number[], action: "tag" | "star", value?: string): Promise<void> {
+  const res = await fetch(`${BASE}/api/documents/batch`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ documentIds, action, tag }),
+    body: JSON.stringify({ docIds: documentIds, action, value }),
   });
+  if (!res.ok) throw new Error(`Batch ${action} failed`);
+}
+
+export async function reclassifyDocuments(
+  documentIds: number[],
+  category: string,
+): Promise<BatchReclassificationResponse> {
+  const res = await fetch(`${BASE}/api/documents/batch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      docIds: documentIds,
+      action: 'reclassify',
+      value: category,
+    }),
+  });
+  if (!res.ok) throw new Error('Reclassification request failed');
+  return res.json();
 }

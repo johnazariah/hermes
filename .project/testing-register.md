@@ -6,13 +6,13 @@
 
 | Category | Count |
 |----------|-------|
-| Unit | 565 |
+| Unit | 569 |
 | Property | 5 |
-| Integration | 291 |
+| Integration | 318 |
 | ManualTest | 6 |
-| **Total** | **867** |
+| **Total** | **898** |
 
-> 843 unique test methods; 867 total test cases
+> 863 unique test methods; 898 total test cases
 > (Theory/InlineData tests contribute multiple cases per method)
 
 ## Execution Baseline
@@ -31,6 +31,13 @@ documentation-only rebaseline commits:
 | React locked install | Failed: `package-lock.json` is out of sync |
 | React build after no-lock install | Passed |
 | React lint | Failed: 4 errors |
+
+### PR #17 PR B validation
+
+The metadata-only reclassification branch adds 31 cases without changing the
+current-main skip set: 898 discovered, 888 passed, 10 skipped, and 0 failed.
+Core-only coverage is 66.84% line / 31.22% branch, above the 65.0% / 31.1%
+Phase 0 baseline. The full solution builds with 0 warnings and 0 errors.
 
 Skip-quality findings:
 
@@ -791,6 +798,41 @@ skip and Playwright execution evidence.
 | DocumentManagement_Reextract_ClearsExtractedAt | Integration |
 | DocumentManagement_GetProcessingQueue_EmptyDb_AllZeros | Integration |
 | DocumentManagement_GetProcessingQueue_MixedDocs_CorrectCounts | Integration |
+
+## ReclassificationTests.fs (9 tests)
+
+| Test | Category |
+|------|----------|
+| Content_Reclassification_ReportsProvenanceChangesOnly | Integration |
+| Reclassification_RejectsConcurrentCategoryAndProvenanceChanges | Integration |
+| Reclassification_PreservesSourceIdentityAndDoesNotCreateCategoryDirectory | Integration |
+| Reclassification_MissingSourceFailsBeforeMetadataMutation | Integration |
+| Reclassification_IsIdempotentAndUpdatesProvenanceTagAndFts | Integration |
+| Reclassification_ReplacesGeneratedCategoryTagAndPreservesUserTags | Integration |
+| Reclassification_PreservesUserTagMatchingGeneratedCategory | Integration |
+| Reclassification_RollsBackCategoryTagAndFtsWhenTriggerWriteFails | Integration |
+| Reclassification_PreservesEveryV5CompletionAndOutput | Integration |
+
+## LegacyReclassificationTests.fs (18 cases)
+
+| Test | Category |
+|------|----------|
+| Legacy_ScanBoundsRejectUnsafeLimits (4 cases) | Unit |
+| Legacy_DetectorDryRunAndRepairUseUniqueShaEvidenceOnly | Integration |
+| Legacy_RepairLeavesAmbiguousShaEvidenceUnchanged | Integration |
+| Legacy_RepairLeavesMissingShaEvidenceUnchangedAndVisible | Integration |
+| Legacy_RepairExcludesGeneratedArtifactsFromShaCandidates (9 cases) | Integration |
+| Legacy_RepairLeavesCurrentPathShaMismatchUnchangedAndVisible | Integration |
+| Legacy_TruncatedScanNeverClaimsUniqueIdentity | Integration |
+
+## ReclassificationApiTests.fs (4 tests)
+
+| Test | Category |
+|------|----------|
+| Rest_SingleReturnsExplicitIdentityPreservingOutcome | Integration |
+| Rest_SingleReportsIdempotentReclassificationAsUnchanged | Integration |
+| Rest_SingleMapsWhitespaceCategoryValidationExplicitly | Integration |
+| Rest_BatchRetainsPerDocumentPartialFailures | Integration |
 
 ## ThreadsTests.fs (7 tests)
 

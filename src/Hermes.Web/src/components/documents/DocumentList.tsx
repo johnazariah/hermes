@@ -1,6 +1,11 @@
 import { useState, useMemo, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchDocuments, fetchCategories } from "../../api/hermes";
+import {
+    batchDocuments,
+    fetchCategories,
+    fetchDocuments,
+    reclassifyDocuments,
+} from "../../api/hermes";
 import type { DocumentSummary } from "../../types/hermes";
 
 type GroupBy = "none" | "origin" | "vendor" | "date";
@@ -94,6 +99,7 @@ export function DocumentList({
     const [groupBy, setGroupBy] = useState<GroupBy>("origin");
     const [sortBy, setSortBy] = useState<SortBy>("date");
     const [selected, setSelected] = useState<Set<number>>(new Set());
+    const [batchErrors, setBatchErrors] = useState<string[]>([]);
     const [contextMenu, setContextMenu] = useState<{
         x: number;
         y: number;
@@ -128,17 +134,22 @@ export function DocumentList({
     }, [docs]);
 
     const batchAction = useCallback(
-        async (action: string, value: string) => {
+        async (action: "tag" | "star", value: string) => {
             const docIds = [...selected];
             if (docIds.length === 0) return;
-            await fetch("/api/documents/batch", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ docIds, action, value }),
-            });
-            setSelected(new Set());
-            queryClient.invalidateQueries({ queryKey: ["documents"] });
-            queryClient.invalidateQueries({ queryKey: ["categories"] });
+            try {
+                await batchDocuments(docIds, action, value);
+                setBatchErrors([]);
+                setSelected(new Set());
+                queryClient.invalidateQueries({ queryKey: ["documents"] });
+                queryClient.invalidateQueries({ queryKey: ["categories"] });
+            } catch (error) {
+                setBatchErrors([
+                    error instanceof Error
+                        ? error.message
+                        : `Batch ${action} failed`,
+                ]);
+            }
         },
         [selected, queryClient],
     );
@@ -152,21 +163,36 @@ export function DocumentList({
         [selected],
     );
 
-    const moveToCategory = useCallback(
+    const setCategory = useCallback(
         async (cat: string) => {
-            const docIds = contextMenu ? [...selected] : [];
+            const docIds = [...selected];
             if (docIds.length === 0) return;
-            await fetch("/api/documents/batch", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ docIds, action: "move", value: cat }),
-            });
-            setSelected(new Set());
-            setContextMenu(null);
-            queryClient.invalidateQueries({ queryKey: ["documents"] });
-            queryClient.invalidateQueries({ queryKey: ["categories"] });
+            try {
+                const response = await reclassifyDocuments(docIds, cat);
+                const failures = response.outcomes.filter(
+                    (outcome) => outcome.status === "failed",
+                );
+                setBatchErrors(
+                    failures.map(
+                        (outcome) =>
+                            `Document ${outcome.documentId}: ${outcome.error ?? "Reclassification failed"}`,
+                    ),
+                );
+                setSelected(
+                    new Set(failures.map((outcome) => outcome.documentId)),
+                );
+                setContextMenu(null);
+                queryClient.invalidateQueries({ queryKey: ["documents"] });
+                queryClient.invalidateQueries({ queryKey: ["categories"] });
+            } catch (error) {
+                setBatchErrors([
+                    error instanceof Error
+                        ? error.message
+                        : "Reclassification request failed",
+                ]);
+            }
         },
-        [contextMenu, selected, queryClient],
+        [selected, queryClient],
     );
 
     const selectGroup = useCallback((docIds: number[]) => {
@@ -204,14 +230,16 @@ export function DocumentList({
                         Clear
                     </button>
                     <span className="border-l border-neutral-700 h-4 mx-1" />
-                    <span className="text-xs text-neutral-400">Move to:</span>
+                    <span className="text-xs text-neutral-400">
+                        Set category:
+                    </span>
                     {categories
                         ?.filter((c) => c.category !== category)
                         .slice(0, 5)
                         .map((c) => (
                             <button
                                 key={c.category}
-                                onClick={() => batchAction("move", c.category)}
+                                onClick={() => setCategory(c.category)}
                                 className="text-xs px-2 py-0.5 bg-neutral-800 rounded hover:bg-neutral-700"
                             >
                                 {c.category}
@@ -234,6 +262,22 @@ export function DocumentList({
                     >
                         🏷 Tag
                     </button>
+                </div>
+            )}
+
+            {batchErrors.length > 0 && (
+                <div
+                    role="alert"
+                    className="mb-3 rounded-lg border border-red-900/60 bg-red-950/30 px-3 py-2 text-sm text-red-300"
+                >
+                    <div className="font-medium">
+                        Some documents were not updated:
+                    </div>
+                    <ul className="mt-1 list-disc pl-5">
+                        {batchErrors.map((error) => (
+                            <li key={error}>{error}</li>
+                        ))}
+                    </ul>
                 </div>
             )}
 
@@ -302,14 +346,14 @@ export function DocumentList({
                     }}
                 >
                     <div className="px-3 py-1 text-[10px] text-neutral-500 uppercase tracking-wider">
-                        Move to
+                        Set category
                     </div>
                     {categories
                         ?.filter((c) => c.category !== category)
                         .map((c) => (
                             <button
                                 key={c.category}
-                                onClick={() => moveToCategory(c.category)}
+                                onClick={() => setCategory(c.category)}
                                 className="w-full text-left px-3 py-1.5 text-sm hover:bg-neutral-700 transition-colors"
                             >
                                 📁 {c.category}
@@ -319,7 +363,7 @@ export function DocumentList({
                         onClick={() => {
                             const name = prompt("New category name:");
                             if (name)
-                                moveToCategory(
+                                setCategory(
                                     name.toLowerCase().replace(/\s+/g, "-"),
                                 );
                         }}

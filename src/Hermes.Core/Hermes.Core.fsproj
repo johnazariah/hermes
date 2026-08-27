@@ -17,6 +17,8 @@
     <Compile Include="Config.fs" />
     <Compile Include="Logging.fs" />
     <Compile Include="Database.fs" />
+    <Compile Include="Reclassification.fs" />
+    <Compile Include="LegacyReclassification.fs" />
     <Compile Include="Document.fs" />
     <Compile Include="Rules.fs" />
     <Compile Include="SenderClassification.fs" />
@@ -35,6 +37,7 @@
     <Compile Include="DeepExtraction.fs" />
     <Compile Include="DocumentFeed.fs" />
     <Compile Include="DocumentManagement.fs" />
+    <Compile Include="ReclassificationApi.fs" />
     <Compile Include="Classifier.fs" />
     <Compile Include="DocumentBrowser.fs" />
     <Compile Include="Threads.fs" />

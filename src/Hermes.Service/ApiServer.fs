@@ -99,14 +99,7 @@ module ApiServer =
                 match detail with
                 | Some d ->
                     let primaryPath = Path.Combine(archiveDir, d.FilePath)
-                    // Fallback: try category folder if saved_path is stale
-                    let fileName = Path.GetFileName(d.FilePath) |> Option.ofObj |> Option.defaultValue ""
-                    let categoryPath = Path.Combine(archiveDir, d.Summary.Category, fileName)
-                    let fullPath =
-                        if File.Exists(primaryPath) then primaryPath
-                        elif File.Exists(categoryPath) then categoryPath
-                        else primaryPath
-                    if File.Exists(fullPath) then
+                    if File.Exists(primaryPath) then
                         let name = d.Summary.OriginalName
                         let dot = name.LastIndexOf('.')
                         let ext = if dot >= 0 then name.Substring(dot).ToLowerInvariant() else ""
@@ -120,7 +113,7 @@ module ApiServer =
                             | ".csv" -> "text/csv"
                             | ".txt" | ".md" | ".log" -> "text/plain"
                             | _ -> "application/octet-stream"
-                        let! bytes = File.ReadAllBytesAsync(fullPath)
+                        let! bytes = File.ReadAllBytesAsync(primaryPath)
                         return Results.Bytes(bytes, contentType)
                     else
                         return Results.NotFound({| error = "File not found on disk" |})
@@ -270,7 +263,7 @@ module ApiServer =
                 return json entries
             })) |> ignore
 
-        // ── Move document to category ───────────────────────────────
+        // ── Reclassify document metadata ───────────────────────────
         app.MapPut("/api/documents/{id:long}/category", Func<int64, HttpContext, Task<IResult>>(fun id ctx ->
             task {
                 use sr = new StreamReader(ctx.Request.Body)
@@ -282,10 +275,10 @@ module ApiServer =
                     with _ -> ""
                 if category = "" then return json {| error = "category required" |}
                 else
-                    let! result = DocumentManagement.reclassify db fs archiveDir id category
-                    match result with
-                    | Ok () -> return json {| moved = true; category = category |}
-                    | Error e -> return json {| error = e |}
+                    let! response =
+                        Hermes.Core.ReclassificationApi.single
+                            db fs archiveDir id category
+                    return json response
             })) |> ignore
 
         // ── Correct document fields ──────────────────────────────────
@@ -380,7 +373,7 @@ module ApiServer =
                 let tag = ctx.Request.Query["tag"].ToString()
                 if tag <> "" then
                     let! rows = db.execReader
-                                    """SELECT d.id, d.original_name, d.category, d.extracted_date, d.extracted_amount, d.sender, d.extracted_vendor
+                                    """SELECT DISTINCT d.id, d.original_name, d.category, d.extracted_date, d.extracted_amount, d.sender, d.extracted_vendor
                                        FROM documents d JOIN tags t ON d.id = t.document_id WHERE t.tag = @tag ORDER BY d.id DESC LIMIT 100"""
                                     [ ("@tag", Database.boxVal tag) ]
                     let docs =
@@ -394,7 +387,7 @@ module ApiServer =
                                vendor = rd.OptString "extracted_vendor" |})
                     return json docs
                 else
-                    let! rows = db.execReader "SELECT tag, COUNT(*) as cnt FROM tags GROUP BY tag ORDER BY cnt DESC" []
+                    let! rows = db.execReader "SELECT tag, COUNT(DISTINCT document_id) as cnt FROM tags GROUP BY tag ORDER BY cnt DESC" []
                     let tags =
                         rows |> List.map (fun r ->
                             let rd = Prelude.RowReader(r)
@@ -414,12 +407,12 @@ module ApiServer =
                     let value = try doc.RootElement.GetProperty("value").GetString() |> Option.ofObj |> Option.defaultValue "" with _ -> ""
 
                     match action with
-                    | "move" ->
-                        let mutable moved = 0
-                        for docId in docIds do
-                            let! result = DocumentManagement.reclassify db fs archiveDir docId value
-                            match result with Ok () -> moved <- moved + 1 | _ -> ()
-                        return json {| action = "move"; count = moved |}
+                    | "move"
+                    | "reclassify" ->
+                        let! response =
+                            Hermes.Core.ReclassificationApi.batch
+                                db fs archiveDir docIds value
+                        return json response
                     | "tag" ->
                         for docId in docIds do
                             let! _ = db.execNonQuery "INSERT OR IGNORE INTO tags (document_id, tag, source) VALUES (@id, @tag, 'user')" [ ("@id", Database.boxVal docId); ("@tag", Database.boxVal value) ]

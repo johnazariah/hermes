@@ -35,6 +35,9 @@
     <Compile Include="ActivityLogTests.fs" />
     <Compile Include="DocumentBrowserTests.fs" />
     <Compile Include="DocumentManagementTests.fs" />
+    <Compile Include="ReclassificationTests.fs" />
+    <Compile Include="LegacyReclassificationTests.fs" />
+    <Compile Include="ReclassificationApiTests.fs" />
     <Compile Include="ThreadsTests.fs" />
     <Compile Include="ExcelExtractionTests.fs" />
     <Compile Include="WordExtractionTests.fs" />

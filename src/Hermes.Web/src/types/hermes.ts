@@ -84,3 +84,21 @@ export interface TagCount {
   tag: string;
   count: number;
 }
+
+export interface ReclassificationOutcome {
+  documentId: number;
+  status: "reclassified" | "unchanged" | "failed";
+  previousCategory: string | null;
+  category: string | null;
+  changed: boolean;
+  savedPath: string | null;
+  sha256: string | null;
+  error: string | null;
+}
+
+export interface BatchReclassificationResponse {
+  action: "reclassify";
+  succeeded: number;
+  failed: number;
+  outcomes: ReclassificationOutcome[];
+}

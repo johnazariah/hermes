@@ -9,7 +9,7 @@ open Microsoft.Data.Sqlite
 [<RequireQualifiedAccess>]
 module Database =
 
-    let [<Literal>] CurrentSchemaVersion = 8
+    let [<Literal>] CurrentSchemaVersion = 10
 
     // ─── Schema DDL ──────────────────────────────────────────────────
 
@@ -168,7 +168,35 @@ module Database =
         """
            "CREATE INDEX IF NOT EXISTS idx_tags_doc ON tags(document_id);"
            "CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag);"
-           "CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_unique ON tags(document_id, tag);"
+           "DROP INDEX IF EXISTS idx_tags_unique;"
+           "CREATE UNIQUE INDEX idx_tags_unique ON tags(document_id, tag, COALESCE(created_by, ''));"
+
+           // Keep the compatibility category and its provenance tag in the
+           // same SQLite statement as a documents metadata update.
+           "DROP TRIGGER IF EXISTS doc_reclassification_tag;"
+           """
+        CREATE TRIGGER doc_reclassification_tag
+        AFTER UPDATE OF category, classification_tier, classification_confidence ON documents
+        WHEN new.classification_tier IN ('manual', 'content')
+        BEGIN
+            DELETE FROM tags
+            WHERE document_id = new.id
+              AND created_by = 'reclassification'
+              AND tag <> new.category;
+
+            INSERT INTO tags (document_id, tag, source, confidence, created_by)
+            VALUES (
+                new.id,
+                new.category,
+                CASE new.classification_tier WHEN 'manual' THEN 'user' ELSE 'classifier' END,
+                new.classification_confidence,
+                'reclassification')
+            ON CONFLICT(document_id, tag, COALESCE(created_by, '')) DO UPDATE SET
+                source = excluded.source,
+                confidence = excluded.confidence,
+                created_by = excluded.created_by;
+        END;
+        """
 
            // ── Contacts (address book) ──────────────────────────────────
            """
