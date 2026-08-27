@@ -7,17 +7,26 @@
 
 **Local-first document intelligence service.**
 
-Hermes ingests documents from email and local folders, understands them through LLM comprehension, and exposes structured knowledge via MCP server and web UI. Everything runs locally — Ollama for AI, SQLite for storage, no cloud dependency.
+Hermes ingests documents from email and local folders, understands them through
+LLM comprehension, and exposes structured knowledge via MCP server and web UI.
+Processing is local by default with Ollama and SQLite; optional cloud model
+providers require explicit configuration and may receive prompt content.
 
 ## What It Does
 
-- **Syncs email** from multiple Gmail accounts — every message and attachment becomes a searchable document
+- **Syncs email** from Gmail and Outlook into the file-first archive; metadata is
+  searchable today, while file-backed body/content indexing is tracked in #11
 - **Watches folders** (Downloads, Desktop) for new files
 - **Extracts text** from PDFs, Excel, Word, CSV → structured markdown
 - **Comprehends documents** — LLM reads each document and produces structured JSON with document type, key fields, and summary
-- **Indexes everything** — FTS5 keyword search + vector embeddings for semantic search
+- **Indexes document metadata** — FTS5 and vector internals exist; file-backed content
+  indexing and production semantic/hybrid reachability remain tracked in
+  [#11](https://github.com/johnazariah/hermes/issues/11) and
+  [#6](https://github.com/johnazariah/hermes/issues/6)
 - **MCP server** — AI agents query documents, search, and get structured data
-- **Preview web UI** — React routes for Home, Pipeline, Documents, Search, Chat, Settings, and onboarding
+- **Preview web UI** — registered React routes for Home, Documents, Search,
+  Settings, and onboarding; Pipeline and Chat route wiring remains in
+  [#9](https://github.com/johnazariah/hermes/issues/9)
 
 ## Architecture
 
@@ -43,7 +52,7 @@ See [Pipeline V5 Architecture](.project/design/30-pipeline-v5-architecture.md) f
 |-----------|--------|
 | Runtime | .NET 9, F# |
 | Database | SQLite + FTS5 + sqlite-vec |
-| AI | Ollama (llama3:8b + nomic-embed-text) |
+| AI | Local Ollama by default; optional Azure OpenAI; nomic-embed-text |
 | Web UI | React 19 + Vite + Tailwind |
 | Testing | xUnit + FsCheck (F#), Playwright (UI) |
 

@@ -96,7 +96,10 @@ See [24-comprehension-stage.md](24-comprehension-stage.md).
 
 - **REST:** document browsing, file/content retrieval, pipeline status, corrections, recomprehension, tags, suggestions, preferences, sync, chat, and activity.
 - **MCP:** streamable HTTP at `/mcp` for downstream consumers such as Osprey.
-- **Web:** React 19/Vite application with Home, Pipeline, Documents, Search, Chat, Settings, and onboarding routes.
+- **Web:** React 19/Vite application with registered Home, Documents, Search,
+  Settings, and onboarding routes. Pipeline and Chat components are not routed;
+  issue [#9](https://github.com/johnazariah/hermes/issues/9) owns canonical
+  route and asset stabilization.
 - **Desktop:** Windows tray plus MAUI shell builds for Windows and macOS.
 
 ## Design Rules

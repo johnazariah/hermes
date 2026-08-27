@@ -18,7 +18,9 @@ A **step-by-step wizard** that collects structured household information. Data s
 
 Every step of the wizard displays:
 
-> 🔒 **This information stays on your device.** It configures Hermes locally to help classify your documents. Nothing is shared with any external service.
+> 🔒 **Your profile is stored on this device.** Hermes may include it in
+> comprehension prompts. Local Ollama processing stays on-device; a cloud
+> provider receives profile context only after explicit disclosure and consent.
 
 ## Wizard Steps
 
@@ -36,7 +38,8 @@ Before the wizard begins:
 │ This takes about 5 minutes. You can skip    │
 │ any step and come back to it later.         │
 │                                             │
-│ 🔒 Everything stays on your device.         │
+│ 🔒 Profile stored locally; cloud AI use     │
+│    requires consent.                        │
 │                                             │
 │ ━━━━━━━━━━━━━━━━ ○○○○○○○○                  │
 │ 8 steps                                     │
@@ -106,15 +109,15 @@ Bank accounts — can be shared (joint) or individual.
 
 ```
 ┌─────────────────────────────────────────────┐
-│ Bank: [Commonwealth Bank       ▼]           │
+│ Bank: [Example Bank            ▼]           │
 │ Type: [Everyday ▼] (Everyday/Savings/       │
 │        Mortgage/Credit Card/Loan)           │
-│ Owners: [☑ John] [☑ Smitha]               │
+│ Owners: [☑ Alex] [☑ Jordan]                │
 │                                    [+ Add]  │
 │                                             │
-│ Bank: [Westpac                 ▼]           │
+│ Bank: [Sample Bank             ▼]           │
 │ Type: [Mortgage ▼]                          │
-│ Owners: [☑ John] [☑ Smitha]               │
+│ Owners: [☑ Alex] [☑ Jordan]                │
 │                                    [+ Add]  │
 └─────────────────────────────────────────────┘
 ```
@@ -217,7 +220,7 @@ Freeform for anything the structured steps didn't cover.
 
 ```yaml
 # Hermes Household Profile
-# This file configures Hermes locally. Nothing is shared externally.
+# Stored locally. Cloud prompt use requires explicit disclosure and consent.
 
 members:
   - name: Alex Morgan
@@ -228,12 +231,12 @@ members:
       - address: alex.work@example.com
         provider: gmail
     employment:
-      employer: Microsoft
-      role: Principal SWE
+      employer: Contoso
+      role: Engineer
     investments:
-      super_fund: AustralianSuper
-      broker: CommSec
-      holdings: [MSFT, VAS, VGS]
+      super_fund: Example Super
+      broker: Example Broker
+      holdings: [ABC, XYZ]
       employee_share_plan: true
     calendars:
       - provider: google
@@ -245,16 +248,16 @@ members:
       - address: jordan@example.com
         provider: gmail
     employment:
-      employer: QLD Education
+      employer: Fabrikam
       role: Teacher
     investments:
-      super_fund: QSuper
+      super_fund: Sample Super
 
 banking:
-  - bank: Commonwealth Bank
+  - bank: Example Bank
     type: everyday
     owners: [Alex Morgan, Jordan Morgan]
-  - bank: Westpac
+  - bank: Sample Bank
     type: mortgage
     owners: [Alex Morgan, Jordan Morgan]
 
@@ -274,15 +277,18 @@ preferences: |
 
 ## How the profile helps comprehension
 
-The household profile is injected into the comprehension prompt as structured context:
+The household profile can be injected into the comprehension prompt as
+structured context. The UI must identify the active provider before enabling
+this behavior. Local processing is the default; cloud processing requires
+explicit opt-in and sends only the fields needed for the current task.
 
 ```
 Household context:
 - Members: Alex Morgan (primary, works at Contoso), Jordan Morgan (spouse, works at Fabrikam)
 - Properties: 10 Sample St Exampleton (Sample Property Management), 20 Demo Rd Testville (Demo Realty)
-- Banking: Commonwealth Bank (joint everyday), Westpac (joint mortgage)
+- Banking: Example Bank (joint everyday), Sample Bank (joint mortgage)
 - Alex's super: Example Super, broker: Example Broker, holdings: ABC/XYZ, employee share plan
-- Smitha's super: QSuper
+- Jordan's super: Sample Super
 ```
 
 This gives the LLM enough context to:
@@ -307,6 +313,6 @@ This gives the LLM enough context to:
 ## Open questions
 
 1. **Calendar OAuth**: Google Calendar API requires separate OAuth scope. Do we extend the existing Gmail OAuth, or create a separate calendar connection?
-2. **Bank account matching**: How do we match "Commonwealth Bank" in the profile to bank statements? By sender domain? By content keywords?
+2. **Bank account matching**: How do we match "Example Bank" in the profile to bank statements? By sender domain? By content keywords?
 3. **Multi-person document ownership**: When a joint bank statement arrives, does it get tagged to both people? How does the UI show this?
 4. **Profile migration**: When household.yaml changes (property sold, employer changed), do we re-comprehend affected documents?

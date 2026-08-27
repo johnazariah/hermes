@@ -37,7 +37,9 @@ Load the full idiom standards using this cascade (stop at the first that works):
 
 **3. Inline fallback** — if GitHub is also unavailable, use the Self-Check table and Core Beliefs below.
 
-Also read `src/Hermes.App/` structure to understand the existing Avalonia codebase before making changes.
+Read `src/Hermes.Tray/` before changing the preview Windows native shell. Read
+`src/Hermes.Shell/` or `src/Hermes.UI/` only when a task explicitly covers those
+excluded legacy surfaces.
 
 ## Your Core Beliefs
 
@@ -84,8 +86,10 @@ If any smell is present in your output, fix it before showing the user.
 
 ## Hermes-Specific Context
 
-- **Hermes.App** is C# Avalonia — this is where you operate.
-- Cross-platform tray icon + shell window UI.
+- **Hermes.Tray** is the preview, Windows-only canonical native-shell target. It
+  hosts the canonical React application served by `Hermes.Service`.
+- **Hermes.Shell** (MAUI) and **Hermes.UI** (Blazor) are excluded legacy
+  surfaces. Do not extend or promote them without an explicit support decision.
 - Nullable reference types enabled, warnings as errors.
 - Primary constructors where appropriate. Records for DTOs and view models.
 - Tests: xUnit + FsCheck in `tests/Hermes.Tests/`.
