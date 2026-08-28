@@ -146,9 +146,22 @@ module McpServer =
                     [ "document_id", intProp "Document ID (required)"
                       "new_category", stringProp "Target category (required)" ]
                     [ "document_id"; "new_category" ] }
+          { Name = "hermes_reflow"
+            Description =
+                "Request a DAG-safe reflow. Defaults to dry_run; use mode='apply' to invalidate and re-queue."
+            InputSchema =
+                mkSchema
+                    [ "document_id", intProp "Document ID (required)"
+                      "operation", stringProp "One of: reextract, recomprehend, reembed"
+                      "mode", stringProp "One of: dry_run (default), apply" ]
+                    [ "document_id"; "operation" ] }
+          { Name = "hermes_reflow_status"
+            Description = "Get reflow operation status and per-stage outcomes."
+            InputSchema =
+                mkSchema [ "operation_id", intProp "Reflow operation ID (required)" ] [ "operation_id" ] }
           { Name = "hermes_reextract"
             Description =
-                "Clear extraction fields and re-queue document for extraction on next sync cycle."
+                "DAG-safe legacy alias for reextract apply."
             InputSchema =
                 mkSchema [ "document_id", intProp "Document ID (required)" ] [ "document_id" ] }
           { Name = "hermes_get_processing_queue"
@@ -194,6 +207,25 @@ module McpServer =
                 "Backfill contacts from already-comprehended documents that haven't been linked yet. Run once after enabling the address book."
             InputSchema =
                 mkSchema [] [] } ]
+
+    // ─── tools/list projection ───────────────────────────────────────
+
+    /// One tools/list entry. Schema nodes are shared module-level state and a
+    /// JsonNode may have only one parent, so every response carries its own
+    /// detached copy.
+    let private toolEntry (toolDef: ToolDef) : JsonObject =
+        let tool = JsonObject()
+        tool["name"] <- JsonValue.Create(toolDef.Name)
+        tool["description"] <- JsonValue.Create(toolDef.Description)
+        tool["inputSchema"] <- toolDef.InputSchema.DeepClone()
+        tool
+
+    /// Fresh tool array for a single response, in declaration order.
+    let private toolEntries () : JsonArray =
+        let tools = JsonArray()
+        toolDefinitions
+        |> List.iter (fun toolDef -> tools.Add(toolEntry toolDef))
+        tools
 
     // ─── Request parsing ─────────────────────────────────────────────
 
@@ -278,104 +310,185 @@ module McpServer =
           Result = Some result
           Error = None }
 
+    // ─── Tool content envelope ───────────────────────────────────────
+
+    /// MCP text content for a tool payload.
+    let private textContent (payload: JsonNode) : JsonObject =
+        let item = JsonObject()
+        item["type"] <- JsonValue.Create("text")
+        item["text"] <- JsonValue.Create(payload.ToJsonString(jsonOptions))
+
+        let content = JsonArray()
+        content.Add(item)
+
+        let result = JsonObject()
+        result["content"] <- content
+        result
+
+    /// Successful tool content - no isError marker (MCP default is false).
+    let private successContent (payload: JsonNode) : JsonNode =
+        textContent payload :> JsonNode
+
+    /// Truthful tool failure - identical content shape plus the isError
+    /// marker, so clients cannot read a failure as a successful call.
+    let private errorContent (payload: JsonNode) : JsonNode =
+        let result = textContent payload
+        result["isError"] <- JsonValue.Create(true)
+        result :> JsonNode
+
     // ─── Tool dispatch ───────────────────────────────────────────────
 
     /// Safely access a JsonNode property, returning option.
+    /// Named members exist only on JSON objects: `node.[key]` raises for
+    /// arrays and scalars, so kind-checked access keeps every container total.
     let private tryGetNode (node: JsonNode) (key: string) : JsonNode option =
-        let result: JsonNode | null = node.[key]
+        match node with
+        | :? JsonObject as properties ->
+            match properties.TryGetPropertyValue(key) with
+            | true, value -> Option.ofObj value
+            | false, _ -> None
+        | _ -> None
 
-        match result with
-        | null -> None
-        | v -> Some v
+    /// How a tool call must be reported over the protocol.
+    /// Succeeded and Failed are both tool content; Failed carries isError.
+    /// Rejected is a JSON-RPC invalid-params error.
+    type private CallOutcome =
+        | Succeeded of JsonNode
+        | Failed of JsonNode
+        | Rejected of string
+
+    /// Lift a tool that always yields a payload.
+    let private succeeded (payload: Task<JsonNode>) : Task<CallOutcome> =
+        task {
+            let! result = payload
+            return Succeeded result
+        }
+
+    /// Lift a tool that separates schema violations from domain failures.
+    let private attempted
+        (outcome: Task<Result<JsonNode, McpTools.ToolFailure>>)
+        : Task<CallOutcome> =
+        task {
+            let! result = outcome
+            return
+                match result with
+                | Ok payload -> Succeeded payload
+                | Error (McpTools.DomainFailure message) ->
+                    Failed(McpTools.errorJson message)
+                | Error (McpTools.InvalidArguments message) ->
+                    Rejected message
+        }
+
+    /// A validated tools/call envelope: an object `params` carrying a string
+    /// tool name and an object argument set.
+    type private ToolCall =
+        { Name: string
+          Arguments: JsonNode }
+
+    /// Named members exist only on JSON objects, so any other container kind is
+    /// a protocol error rather than a silently empty member set.
+    let private requireObject
+        (label: string)
+        (node: JsonNode)
+        : Result<JsonNode, string> =
+        match node with
+        | :? JsonObject -> Ok node
+        | _ -> Error $"{label} must be an object"
+
+    /// Tool name lookup. A missing or non-string name is invalid params.
+    let private toolNameOf (parms: JsonNode) : Result<string, string> =
+        McpTools.Args.text parms "name"
+        |> Result.bind (function
+            | Some name -> Ok name
+            | None -> Error "Missing tool name")
+
+    /// Clients nest tool arguments under "arguments"; an absent member is an
+    /// empty argument set and a non-object member is invalid params, never a
+    /// flat or empty one.
+    let private toolArgumentsOf
+        (parms: JsonNode)
+        : Result<JsonNode, string> =
+        match tryGetNode parms "arguments" with
+        | None -> Ok(JsonObject() :> JsonNode)
+        | Some arguments -> requireObject "arguments" arguments
+
+    /// Validates the whole envelope before any tool runs.
+    let private toolCallOf
+        (parms: JsonNode option)
+        : Result<ToolCall, string> =
+        match parms with
+        | None -> Error "Missing tool name"
+        | Some node ->
+            requireObject "params" node
+            |> Result.bind (fun container ->
+                match toolNameOf container, toolArgumentsOf container with
+                | Error message, _ -> Error message
+                | _, Error message -> Error message
+                | Ok name, Ok arguments ->
+                    Ok { Name = name; Arguments = arguments })
 
     let private handleToolCall
         (db: Algebra.Database)
+        (reflowDb: Algebra.Database)
         (fs: Algebra.FileSystem)
         (logger: Algebra.Logger)
         (clock: Algebra.Clock)
+        (dag: PipelineV5.Dag)
         (archiveDir: string)
         (deepDeps: McpTools.DeepExtractionDeps option)
         (toolName: string)
-        (args: JsonNode option)
-        : Task<Result<JsonNode, string>> =
-        task {
-            let toolArgs =
-                match args with
-                | Some a ->
-                    tryGetNode a "arguments" |> Option.defaultValue a
-                | None -> JsonObject() :> JsonNode
-
-            match toolName with
-            | "hermes_search" ->
-                let! result = McpTools.search db toolArgs
-                return Ok result
-            | "hermes_get_document" ->
-                let! result = McpTools.getDocument db toolArgs
-                return Ok result
-            | "hermes_list_categories" ->
-                let! result = McpTools.listCategories db toolArgs
-                return Ok result
-            | "hermes_stats" ->
-                let! result = McpTools.stats db toolArgs
-                return Ok result
-            | "hermes_read_file" ->
-                let! result = McpTools.readFile fs archiveDir toolArgs
-                return Ok result
-            | "hermes_list_reminders" ->
-                let! result = McpTools.listReminders db clock toolArgs
-                return Ok result
-            | "hermes_update_reminder" ->
-                let! result = McpTools.updateReminder db clock toolArgs
-                return Ok result
-            | "hermes_list_documents" ->
-                let! result = McpTools.listDocumentsFeed db toolArgs
-                return Ok result
-            | "hermes_get_feed_stats" ->
-                let! result = McpTools.getFeedStats db toolArgs
-                return Ok result
-            | "hermes_get_document_content" ->
-                let! result = McpTools.getDocumentContent db fs archiveDir toolArgs
-                return Ok result
-            | "hermes_reclassify" ->
-                let! result = McpTools.reclassifyDocument db fs archiveDir toolArgs
-                return Ok result
-            | "hermes_reextract" ->
-                let! result = McpTools.reextractDocument db toolArgs
-                return Ok result
-            | "hermes_get_processing_queue" ->
-                let! result = McpTools.getProcessingQueue db toolArgs
-                return Ok result
-            | "hermes_deep_extract" ->
-                match deepDeps with
-                | None -> return Error "Deep extraction not configured (no chat provider)"
-                | Some deps ->
-                    let! result = McpTools.deepExtract db fs archiveDir deps toolArgs
-                    return Ok result
-            | "hermes_contacts" ->
-                let! result = McpTools.listContacts db toolArgs
-                return Ok result
-            | "hermes_contact_detail" ->
-                let! result = McpTools.contactDetail db toolArgs
-                return Ok result
-            | "hermes_contact_set_tax_relevant" ->
-                let! result = McpTools.setTaxRelevant db toolArgs
-                return Ok result
-            | "hermes_contacts_backfill" ->
-                let! result = McpTools.contactsBackfill db fs archiveDir logger toolArgs
-                return Ok result
-            | unknown ->
-                logger.warn $"Unknown tool: {unknown}"
-                return Error $"Unknown tool: {unknown}"
-        }
+        (toolArgs: JsonNode)
+        : Task<CallOutcome> =
+        match toolName with
+        | "hermes_search" -> succeeded (McpTools.search db toolArgs)
+        | "hermes_get_document" -> succeeded (McpTools.getDocument db toolArgs)
+        | "hermes_list_categories" -> succeeded (McpTools.listCategories db toolArgs)
+        | "hermes_stats" -> succeeded (McpTools.stats db toolArgs)
+        | "hermes_read_file" -> succeeded (McpTools.readFile fs archiveDir toolArgs)
+        | "hermes_list_reminders" -> succeeded (McpTools.listReminders db clock toolArgs)
+        | "hermes_update_reminder" -> succeeded (McpTools.updateReminder db clock toolArgs)
+        | "hermes_list_documents" -> succeeded (McpTools.listDocumentsFeed db toolArgs)
+        | "hermes_get_feed_stats" -> succeeded (McpTools.getFeedStats db toolArgs)
+        | "hermes_get_document_content" ->
+            succeeded (McpTools.getDocumentContent db fs archiveDir toolArgs)
+        | "hermes_reclassify" ->
+            succeeded (McpTools.reclassifyDocument db fs archiveDir toolArgs)
+        | "hermes_reflow" ->
+            attempted (McpTools.reflowDocument reflowDb logger dag toolArgs)
+        | "hermes_reflow_status" ->
+            attempted (McpTools.reflowStatus reflowDb dag toolArgs)
+        | "hermes_reextract" ->
+            attempted (McpTools.reextractDocument reflowDb logger dag toolArgs)
+        | "hermes_get_processing_queue" ->
+            succeeded (McpTools.getProcessingQueue db toolArgs)
+        | "hermes_deep_extract" ->
+            match deepDeps with
+            | None ->
+                Task.FromResult(
+                    Rejected "Deep extraction not configured (no chat provider)")
+            | Some deps ->
+                succeeded (McpTools.deepExtract db fs archiveDir deps toolArgs)
+        | "hermes_contacts" -> succeeded (McpTools.listContacts db toolArgs)
+        | "hermes_contact_detail" ->
+            succeeded (McpTools.contactDetail db toolArgs)
+        | "hermes_contact_set_tax_relevant" ->
+            succeeded (McpTools.setTaxRelevant db toolArgs)
+        | "hermes_contacts_backfill" ->
+            succeeded (McpTools.contactsBackfill db fs archiveDir logger toolArgs)
+        | unknown ->
+            logger.warn $"Unknown tool: {unknown}"
+            Task.FromResult(Rejected $"Unknown tool: {unknown}")
 
     // ─── Main dispatch ───────────────────────────────────────────────
 
     /// Process a single JSON-RPC request and return a response.
-    let handleRequest
+    let private handleRequestWithReflowDb
         (db: Algebra.Database)
+        (reflowDb: Algebra.Database)
         (fs: Algebra.FileSystem)
         (logger: Algebra.Logger)
         (clock: Algebra.Clock)
+        (dag: PipelineV5.Dag)
         (archiveDir: string)
         (deepDeps: McpTools.DeepExtractionDeps option)
         (request: JsonRpcRequest)
@@ -403,64 +516,54 @@ module McpServer =
                 return makeResult request.Id (JsonObject() :> JsonNode)
 
             | "tools/list" ->
-                let tools = JsonArray()
-
-                for toolDef in toolDefinitions do
-                    let tool = JsonObject()
-                    tool["name"] <- JsonValue.Create(toolDef.Name)
-                    tool["description"] <- JsonValue.Create(toolDef.Description)
-                    tool["inputSchema"] <- toolDef.InputSchema
-                    tools.Add(tool)
-
                 let result = JsonObject()
-                result["tools"] <- tools
+                result["tools"] <- toolEntries ()
                 return makeResult request.Id (result :> JsonNode)
 
             | "tools/call" ->
-                let toolName =
-                    match request.Params with
-                    | Some p ->
-                        tryGetNode p "name"
-                        |> Option.map (fun n -> n.GetValue<string>())
-                    | None -> None
-
-                match toolName with
-                | None -> return makeError request.Id -32602 "Missing tool name"
-                | Some name ->
-                    let toolArgs =
-                        match request.Params with
-                        | Some p -> tryGetNode p "arguments"
-                        | None -> None
-
-                    let! callResult = handleToolCall db fs logger clock archiveDir deepDeps name toolArgs
+                match toolCallOf request.Params with
+                | Error message -> return makeError request.Id -32602 message
+                | Ok call ->
+                    let! callResult =
+                        handleToolCall
+                            db reflowDb fs logger clock dag archiveDir deepDeps
+                            call.Name call.Arguments
 
                     match callResult with
-                    | Ok resultNode ->
-                        let content = JsonArray()
-                        let contentItem = JsonObject()
-                        contentItem["type"] <- JsonValue.Create("text")
-
-                        contentItem["text"] <-
-                            JsonValue.Create(resultNode.ToJsonString(jsonOptions))
-
-                        content.Add(contentItem)
-
-                        let result = JsonObject()
-                        result["content"] <- content
-                        return makeResult request.Id (result :> JsonNode)
-                    | Error msg -> return makeError request.Id -32602 msg
+                    | Succeeded payload ->
+                        return makeResult request.Id (successContent payload)
+                    | Failed payload ->
+                        return makeResult request.Id (errorContent payload)
+                    | Rejected message ->
+                        return makeError request.Id -32602 message
 
             | unknown ->
                 logger.debug $"Unknown method: {unknown}"
                 return makeError request.Id -32601 $"Method not found: {unknown}"
         }
 
-    /// Parse a JSON string, process the request, and return a JSON response string.
-    let processMessage
+    /// Backward-compatible request handler for single-connection hosts.
+    let handleRequest
         (db: Algebra.Database)
         (fs: Algebra.FileSystem)
         (logger: Algebra.Logger)
         (clock: Algebra.Clock)
+        (dag: PipelineV5.Dag)
+        (archiveDir: string)
+        (deepDeps: McpTools.DeepExtractionDeps option)
+        (request: JsonRpcRequest)
+        : Task<JsonRpcResponse> =
+        handleRequestWithReflowDb
+            db db fs logger clock dag archiveDir deepDeps request
+
+    /// Parse and process a message using a dedicated reflow connection.
+    let processMessageWithReflowDb
+        (db: Algebra.Database)
+        (reflowDb: Algebra.Database)
+        (fs: Algebra.FileSystem)
+        (logger: Algebra.Logger)
+        (clock: Algebra.Clock)
+        (dag: PipelineV5.Dag)
         (archiveDir: string)
         (deepDeps: McpTools.DeepExtractionDeps option)
         (message: string)
@@ -471,6 +574,22 @@ module McpServer =
                 let resp = makeError None -32700 msg
                 return serialiseResponse resp
             | Ok request ->
-                let! resp = handleRequest db fs logger clock archiveDir deepDeps request
+                let! resp =
+                    handleRequestWithReflowDb
+                        db reflowDb fs logger clock dag archiveDir deepDeps request
                 return serialiseResponse resp
         }
+
+    /// Backward-compatible message processor for tests and single-connection hosts.
+    let processMessage
+        (db: Algebra.Database)
+        (fs: Algebra.FileSystem)
+        (logger: Algebra.Logger)
+        (clock: Algebra.Clock)
+        (dag: PipelineV5.Dag)
+        (archiveDir: string)
+        (deepDeps: McpTools.DeepExtractionDeps option)
+        (message: string)
+        : Task<string> =
+        processMessageWithReflowDb
+            db db fs logger clock dag archiveDir deepDeps message

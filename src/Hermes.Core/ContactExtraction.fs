@@ -164,10 +164,13 @@ module ContactExtraction =
 
     // ─── Resolve existing contact ────────────────────────────────────
 
-    let private tryFindByAbn (db: Algebra.Database) (abn: string) : Task<string option> =
+    let private tryFindByAbnWith
+        (execScalar: string -> (string * obj) list -> Task<obj | null>)
+        (abn: string)
+        : Task<string option> =
         task {
             let! result =
-                db.execScalar
+                execScalar
                     "SELECT id FROM contacts WHERE abn = @abn LIMIT 1"
                     [ ("@abn", Database.boxVal abn) ]
 
@@ -177,10 +180,13 @@ module ContactExtraction =
                 | v -> Some (v :?> string)
         }
 
-    let private tryFindByName (db: Algebra.Database) (canonical: string) : Task<string option> =
+    let private tryFindByNameWith
+        (execScalar: string -> (string * obj) list -> Task<obj | null>)
+        (canonical: string)
+        : Task<string option> =
         task {
             let! result =
-                db.execScalar
+                execScalar
                     "SELECT id FROM contacts WHERE canonical_name = @name LIMIT 1"
                     [ ("@name", Database.boxVal canonical) ]
 
@@ -190,24 +196,44 @@ module ContactExtraction =
                 | v -> Some (v :?> string)
         }
 
-    let resolveExistingContact (db: Algebra.Database) (contact: ContactData) : Task<string option> =
+    let private resolveExistingContactWith
+        (execScalar:
+            string -> (string * obj) list -> Task<obj | null>)
+        (contact: ContactData)
+        : Task<string option> =
         task {
             match contact.Abn with
             | Some abn ->
-                let! byAbn = tryFindByAbn db abn
+                let! byAbn = tryFindByAbnWith execScalar abn
                 match byAbn with
                 | Some _ -> return byAbn
-                | None -> return! tryFindByName db contact.CanonicalName
+                | None ->
+                    return!
+                        tryFindByNameWith
+                            execScalar contact.CanonicalName
             | None ->
-                return! tryFindByName db contact.CanonicalName
+                return!
+                    tryFindByNameWith
+                        execScalar contact.CanonicalName
         }
+
+    let resolveExistingContact
+        (db: Algebra.Database)
+        (contact: ContactData)
+        : Task<string option> =
+        resolveExistingContactWith db.execScalar contact
 
     // ─── Upsert contact ─────────────────────────────────────────────
 
-    let private updateExisting (db: Algebra.Database) (id: string) (contact: ContactData) : Task<unit> =
+    let private updateExistingWith
+        (execNonQuery:
+            string -> (string * obj) list -> Task<int>)
+        (id: string)
+        (contact: ContactData)
+        : Task<unit> =
         task {
             let! _ =
-                db.execNonQuery
+                execNonQuery
                     """UPDATE contacts SET
                         last_seen_at = datetime('now'),
                         email = COALESCE(@email, email),
@@ -223,10 +249,15 @@ module ContactExtraction =
             ()
         }
 
-    let private insertNew (db: Algebra.Database) (id: string) (contact: ContactData) : Task<unit> =
+    let private insertNewWith
+        (execNonQuery:
+            string -> (string * obj) list -> Task<int>)
+        (id: string)
+        (contact: ContactData)
+        : Task<unit> =
         task {
             let! _ =
-                db.execNonQuery
+                execNonQuery
                     """INSERT INTO contacts
                         (id, name, canonical_name, email, abn, phone, address,
                          contact_type, tax_relevant, source_sender,
@@ -248,26 +279,46 @@ module ContactExtraction =
             ()
         }
 
-    let upsertContact (db: Algebra.Database) (contact: ContactData) : Task<string> =
+    let private upsertContactWith
+        (execScalar:
+            string -> (string * obj) list -> Task<obj | null>)
+        (execNonQuery:
+            string -> (string * obj) list -> Task<int>)
+        (contact: ContactData)
+        : Task<string> =
         task {
-            let! existing = resolveExistingContact db contact
+            let! existing =
+                resolveExistingContactWith execScalar contact
 
             match existing with
             | Some id ->
-                do! updateExisting db id contact
+                do! updateExistingWith execNonQuery id contact
                 return id
             | None ->
                 let id = computeContactId contact.CanonicalName contact.Abn
-                do! insertNew db id contact
+                do! insertNewWith execNonQuery id contact
                 return id
         }
 
+    let upsertContact
+        (db: Algebra.Database)
+        (contact: ContactData)
+        : Task<string> =
+        upsertContactWith
+            db.execScalar db.execNonQuery contact
+
     // ─── Link document to contact ────────────────────────────────────
 
-    let linkDocument (db: Algebra.Database) (documentId: int64) (contactId: string) (role: string) : Task<unit> =
+    let private linkDocumentWith
+        (execNonQuery:
+            string -> (string * obj) list -> Task<int>)
+        (documentId: int64)
+        (contactId: string)
+        (role: string)
+        : Task<unit> =
         task {
             let! _ =
-                db.execNonQuery
+                execNonQuery
                     "INSERT OR IGNORE INTO document_contacts (document_id, contact_id, role) VALUES (@doc, @contact, @role)"
                     [ ("@doc", Database.boxVal documentId)
                       ("@contact", Database.boxVal contactId)
@@ -275,7 +326,68 @@ module ContactExtraction =
             ()
         }
 
+    let linkDocument
+        (db: Algebra.Database)
+        (documentId: int64)
+        (contactId: string)
+        (role: string)
+        : Task<unit> =
+        linkDocumentWith
+            db.execNonQuery documentId contactId role
+
+    type internal LinkedContact =
+        { ContactId: string
+          Name: string }
+
+    let internal harvestAndLinkIn
+        (scope: Algebra.TransactionScope)
+        (documentId: int64)
+        (comprehensionJson: string)
+        (sender: string option)
+        : Task<LinkedContact option> =
+        task {
+            match harvestFromComprehension comprehensionJson sender with
+            | None -> return None
+            | Some contact ->
+                let! contactId =
+                    upsertContactWith
+                        scope.execScalar scope.execNonQuery contact
+                do!
+                    linkDocumentWith
+                        scope.execNonQuery documentId contactId "issuer"
+                return
+                    Some
+                        { ContactId = contactId
+                          Name = contact.Name }
+        }
+
     // ─── Main entry point ────────────────────────────────────────────
+
+    let harvestAndLinkAt
+        (db: Algebra.Database)
+        (logger: Algebra.Logger)
+        (generation: Generation.Token)
+        (comprehensionJson: string)
+        (sender: string option)
+        : Task<Generation.Publication<unit>> =
+        task {
+            let! publication =
+                Generation.publish db generation (fun scope ->
+                    harvestAndLinkIn
+                        scope generation.DocumentId
+                        comprehensionJson sender)
+            match publication with
+            | Generation.Superseded ->
+                return Generation.Superseded
+            | Generation.Published None ->
+                logger.debug
+                    $"ContactExtraction: no contact data for doc {generation.DocumentId}"
+                return Generation.Published ()
+            | Generation.Published (Some linked) ->
+                logger.info
+                    $"ContactExtraction: linked doc {generation.DocumentId} → contact {linked.ContactId} ({linked.Name})"
+                return Generation.Published ()
+        }
 
     let harvestAndLink
         (db: Algebra.Database)
@@ -285,14 +397,9 @@ module ContactExtraction =
         (sender: string option)
         : Task<unit> =
         task {
-            try
-                match harvestFromComprehension comprehensionJson sender with
-                | None ->
-                    logger.debug $"ContactExtraction: no contact data for doc {documentId}"
-                | Some contact ->
-                    let! contactId = upsertContact db contact
-                    do! linkDocument db documentId contactId "issuer"
-                    logger.info $"ContactExtraction: linked doc {documentId} → contact {contactId} ({contact.Name})"
-            with ex ->
-                logger.error $"ContactExtraction: failed for doc {documentId}: {ex.Message}"
+            let! generation = Generation.current db documentId
+            let! _ =
+                harvestAndLinkAt
+                    db logger generation comprehensionJson sender
+            return ()
         }

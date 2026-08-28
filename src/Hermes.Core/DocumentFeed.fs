@@ -109,6 +109,79 @@ module DocumentFeed =
             | idx -> text.Substring(idx + 3).TrimStart()
         else text
 
+    type private ContentSource =
+        { SavedPath: string
+          FolderPath: string option
+          ExtractCurrent: bool
+          Generation: Generation.Token }
+
+    let private contentSource (row: Map<string, obj>) : ContentSource =
+        let reader = Prelude.RowReader(row)
+        let documentId = reader.Int64 "id" 0L
+        { SavedPath = reader.String "saved_path" ""
+          FolderPath = reader.OptString "folder_path"
+          ExtractCurrent = reader.Int64 "extract_current" 0L = 1L
+          Generation =
+            { DocumentId = documentId
+              Value = reader.Int64 "generation" 0L } }
+
+    let private fullContentPath (archiveDir: string) (savedPath: string) =
+        if IO.Path.IsPathRooted(savedPath) then savedPath
+        else IO.Path.Combine(archiveDir, savedPath)
+
+    let private readExtractedContent
+        (fs: Algebra.FileSystem)
+        (fullPath: string)
+        (format: ContentFormat) =
+        task {
+            let! content = ArchiveWriter.readExtraction fs fullPath
+            match content with
+            | None -> return Error "No extracted content available"
+            | Some value when format = Text ->
+                return Ok (stripFrontmatter value)
+            | Some value -> return Ok value
+        }
+
+    let private readRawContent
+        (fs: Algebra.FileSystem)
+        (savedPath: string)
+        (fullPath: string) =
+        task {
+            if fs.fileExists fullPath then
+                let! content = fs.readAllText fullPath
+                return Ok content
+            else
+                return Error $"File not found: {savedPath}"
+        }
+
+    let private readCurrentExtractedContent
+        (db: Algebra.Database)
+        (fs: Algebra.FileSystem)
+        (archiveDir: string)
+        (source: ContentSource)
+        (fullPath: string)
+        (format: ContentFormat)
+        : Task<Result<string, string>> =
+        task {
+            match
+                PublicationFence.ArtifactFolder.tryFromMetadata
+                    archiveDir source.SavedPath source.FolderPath
+            with
+            | None ->
+                return Error "No extracted content available (artifact folder is invalid)"
+            | Some folder ->
+                match!
+                    Generation.readArtifactStable
+                        db source.Generation folder (fun () ->
+                            readExtractedContent fs fullPath format)
+                with
+                | Generation.Published result -> return result
+                | Generation.Superseded ->
+                    return
+                        Error
+                            "No extracted content available (extract completion is not current)"
+        }
+
     /// Get document content in the specified format.
     let getDocumentContent
         (db: Algebra.Database) (fs: Algebra.FileSystem)
@@ -117,33 +190,37 @@ module DocumentFeed =
         task {
             let! rows =
                 db.execReader
-                    "SELECT saved_path FROM documents WHERE id = @id"
+                    """SELECT d.id, d.saved_path, d.folder_path,
+                              COALESCE(
+                                  (SELECT generation
+                                   FROM document_generations
+                                   WHERE document_id = d.id), 0)
+                                  AS generation,
+                              EXISTS (
+                                  SELECT 1 FROM stage_completions sc
+                                  WHERE sc.document_id = d.id
+                                    AND sc.stage_name = 'extract'
+                              ) AS extract_current
+                       FROM documents d WHERE d.id = @id"""
                     [ ("@id", Database.boxVal documentId) ]
             match rows with
             | [] -> return Error $"Document {documentId} not found"
             | row :: _ ->
-                let r = Prelude.RowReader(row)
-                let savedPath = r.String "saved_path" ""
+                let source = contentSource row
+                let fullPath =
+                    fullContentPath archiveDir source.SavedPath
                 match format with
-                | Markdown | Text ->
-                    let fullSavedPath =
-                        if IO.Path.IsPathRooted(savedPath) then savedPath
-                        else IO.Path.Combine(archiveDir, savedPath)
-                    let! textOpt = ArchiveWriter.readExtraction fs fullSavedPath
-                    match textOpt with
-                    | Some content ->
-                        let result = if format = Text then stripFrontmatter content else content
-                        return Ok result
-                    | None -> return Error "No extracted content available"
                 | Raw ->
-                    let fullPath =
-                        if IO.Path.IsPathRooted(savedPath) then savedPath
-                        else IO.Path.Combine(archiveDir, savedPath)
-                    if fs.fileExists fullPath then
-                        let! content = fs.readAllText fullPath
-                        return Ok content
-                    else
-                        return Error $"File not found: {savedPath}"
+                    return! readRawContent fs source.SavedPath fullPath
+                | Markdown
+                | Text when not source.ExtractCurrent ->
+                    return
+                        Error
+                             "No extracted content available (extract completion is not current)"
+                | requested ->
+                    return!
+                        readCurrentExtractedContent
+                            db fs archiveDir source fullPath requested
         }
 
     // ─── JSON serialization ──────────────────────────────────────────

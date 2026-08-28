@@ -17,26 +17,103 @@ module McpTools =
     // ─── Nullable JsonNode helpers ───────────────────────────────────
 
     /// Safely access a property of a JsonNode, returning option.
+    /// Named properties exist only on JSON objects: `node.[key]` raises for
+    /// arrays and scalars, so kind-checked access keeps every container total.
     let private tryGetNode (node: JsonNode) (key: string) : JsonNode option =
-        let result: JsonNode | null = node.[key]
+        match node with
+        | :? JsonObject as properties ->
+            match properties.TryGetPropertyValue(key) with
+            | true, value -> Option.ofObj value
+            | false, _ -> None
+        | _ -> None
 
-        match result with
-        | null -> None
-        | v -> Some v
+    /// Total accessors for tool arguments. An absent argument is `Ok None`;
+    /// an argument of the wrong JSON type is a deterministic `Error`. These
+    /// never raise, so malformed client input cannot escape as an unhandled
+    /// exception (HTTP 500 on the /mcp endpoint).
+    module Args =
 
-    /// Get a string property from a JsonNode, returning option.
+        /// Detached JsonElement view of a node - kind inspection is total.
+        let private element (node: JsonNode) : JsonElement =
+            use parsed = JsonDocument.Parse(node.ToJsonString())
+            parsed.RootElement.Clone()
+
+        let private asText (value: JsonElement) : string option =
+            match value.ValueKind with
+            | JsonValueKind.String -> value.GetString() |> Option.ofObj
+            | _ -> None
+
+        let private asInteger (value: JsonElement) : int64 option =
+            match value.ValueKind with
+            | JsonValueKind.Number ->
+                match value.TryGetInt64() with
+                | true, parsed -> Some parsed
+                | _ -> None
+            | _ -> None
+
+        let private asFlag (value: JsonElement) : bool option =
+            match value.ValueKind with
+            | JsonValueKind.True -> Some true
+            | JsonValueKind.False -> Some false
+            | _ -> None
+
+        let private read
+            (expected: string)
+            (convert: JsonElement -> 'T option)
+            (node: JsonNode)
+            (key: string)
+            : Result<'T option, string> =
+            match tryGetNode node key with
+            | None -> Ok None
+            | Some value ->
+                match convert (element value) with
+                | Some converted -> Ok(Some converted)
+                | None -> Error $"{key} must be {expected}"
+
+        /// Optional string argument.
+        let text (node: JsonNode) (key: string) : Result<string option, string> =
+            read "a string" asText node key
+
+        /// Optional integer argument.
+        let integer (node: JsonNode) (key: string) : Result<int64 option, string> =
+            read "an integer" asInteger node key
+
+        /// Optional boolean flag argument.
+        let flag (node: JsonNode) (key: string) : Result<bool option, string> =
+            read "a boolean" asFlag node key
+
+        /// Integer argument the tool schema declares as required.
+        let requiredInteger (node: JsonNode) (key: string) : Result<int64, string> =
+            integer node key
+            |> Result.bind (function
+                | Some value -> Ok value
+                | None -> Error $"{key} is required")
+
+    /// Why a tool call produced no payload.
+    /// `InvalidArguments` violates the declared input schema - a protocol
+    /// error. `DomainFailure` is a truthful tool error: the request was
+    /// well-formed but the operation could not be performed.
+    type ToolFailure =
+        | InvalidArguments of string
+        | DomainFailure of string
+
+    /// Get a string property, ignoring values of the wrong type.
     let private tryGetString (node: JsonNode) (key: string) : string option =
-        tryGetNode node key |> Option.map (fun n -> n.GetValue<string>())
+        match Args.text node key with
+        | Ok value -> value
+        | Error _ -> None
 
-    /// Get an int property from a JsonNode, with default.
+    /// Get an int property, defaulting when absent or wrongly typed.
     let private tryGetInt (node: JsonNode) (key: string) (defaultValue: int) : int =
-        tryGetNode node key
-        |> Option.map (fun n -> n.GetValue<int>())
-        |> Option.defaultValue defaultValue
+        match Args.integer node key with
+        | Ok (Some value) -> int value
+        | _ -> defaultValue
 
-    /// Get an int64 property from a JsonNode, returning option.
+    /// Get an int64 property, ignoring values of the wrong type.
     let private tryGetInt64 (node: JsonNode) (key: string) : int64 option =
-        tryGetNode node key |> Option.map (fun n -> n.GetValue<int64>())
+        match Args.integer node key with
+        | Ok value -> value
+        | Error _ -> None
 
     // ─── Path sandboxing ─────────────────────────────────────────────
 
@@ -463,25 +540,140 @@ module McpTools =
                     return err :> JsonNode
         }
 
-    let reextractDocument (db: Algebra.Database) (args: JsonNode) : Task<JsonNode> =
+    /// Failure payload shared by every tool: { "error": message }.
+    let errorJson (message: string) : JsonNode =
+        let err = JsonObject()
+        err["error"] <- JsonValue.Create(message)
+        err :> JsonNode
+
+    let private stageStatusToJson (stage: Reflow.StageStatus) : JsonObject =
+        let obj = JsonObject()
+        obj["stage_name"] <- JsonValue.Create(stage.StageName)
+        obj["outcome"] <- JsonValue.Create(Reflow.StageOutcome.toString stage.Outcome)
+        stage.Error |> Option.iter (fun e -> obj["error"] <- JsonValue.Create(e))
+        obj
+
+    let private planToJson (plan: Reflow.Plan) : JsonObject =
+        let obj = JsonObject()
+        obj["document_id"] <- JsonValue.Create(plan.DocumentId)
+        obj["kind"] <- JsonValue.Create(Reflow.OperationKind.toString plan.Kind)
+        let invalidated = JsonArray()
+        plan.InvalidatedStages |> List.iter (fun s -> invalidated.Add(JsonValue.Create(s)))
+        obj["invalidated_stages"] <- invalidated
+        let current = JsonArray()
+        plan.CurrentStages |> List.iter (fun s -> current.Add(JsonValue.Create(s)))
+        obj["current_stages"] <- current
+        obj["dag_signature"] <- JsonValue.Create(plan.DagSignature)
+        obj
+
+    let private operationStatusToJson (status: Reflow.OperationStatus) : JsonObject =
+        let obj = JsonObject()
+        obj["operation_id"] <- JsonValue.Create(status.OperationId)
+        obj["document_id"] <- JsonValue.Create(status.DocumentId)
+        obj["kind"] <- JsonValue.Create(Reflow.OperationKind.toString status.Kind)
+        obj["mode"] <- JsonValue.Create(Reflow.RequestMode.toString status.Mode)
+        obj["lifecycle"] <- JsonValue.Create(Reflow.Lifecycle.toString status.Lifecycle)
+        obj["dag_signature"] <- JsonValue.Create(status.DagSignature)
+        obj["created_at"] <- JsonValue.Create(status.CreatedAt)
+        status.CompletedAt |> Option.iter (fun v -> obj["completed_at"] <- JsonValue.Create(v))
+        status.Error |> Option.iter (fun v -> obj["error"] <- JsonValue.Create(v))
+        let stages = JsonArray()
+        status.Stages |> List.iter (fun s -> stages.Add(stageStatusToJson s))
+        obj["stages"] <- stages
+        obj
+
+    let private requestResultToJson (result: Reflow.RequestResult) : JsonObject =
+        let obj = JsonObject()
+        obj["plan"] <- planToJson result.Plan
+        result.Status |> Option.iter (fun s -> obj["status"] <- operationStatusToJson s)
+        obj["duplicate"] <- JsonValue.Create(result.Duplicate)
+        obj
+
+    type private ReflowRequestArgs =
+        { DocumentId: int64
+          Kind: Reflow.OperationKind
+          Mode: Reflow.RequestMode }
+
+    let private parseReflowKind (args: JsonNode) : Result<Reflow.OperationKind, string> =
+        Args.text args "operation"
+        |> Result.bind (function
+            | Some operation -> Reflow.OperationKind.parse operation
+            | None -> Error "operation is required (reextract|recomprehend|reembed)")
+
+    let private parseReflowMode (args: JsonNode) : Result<Reflow.RequestMode, string> =
+        Args.text args "mode"
+        |> Result.map (Option.defaultValue "dry_run")
+        |> Result.bind Reflow.RequestMode.parse
+
+    let private parseReflowArgs (args: JsonNode) : Result<ReflowRequestArgs, string> =
+        Args.requiredInteger args "document_id"
+        |> Result.bind (fun documentId ->
+            parseReflowKind args
+            |> Result.bind (fun kind ->
+                parseReflowMode args
+                |> Result.map (fun mode ->
+                    { DocumentId = documentId
+                      Kind = kind
+                      Mode = mode })))
+
+    /// Request a reflow. Schema violations are InvalidArguments; a reflow the
+    /// pipeline cannot perform (unknown document, stale DAG) is a DomainFailure.
+    let reflowDocument
+        (db: Algebra.Database)
+        (logger: Algebra.Logger)
+        (dag: PipelineV5.Dag)
+        (args: JsonNode)
+        : Task<Result<JsonNode, ToolFailure>> =
         task {
-            match tryGetInt64 args "document_id" with
-            | None ->
-                let err = JsonObject()
-                err["error"] <- JsonValue.Create("document_id is required")
-                return err :> JsonNode
-            | Some docId ->
-                let! result = DocumentManagement.reextract db docId
-                match result with
-                | Ok () ->
-                    let obj = JsonObject()
-                    obj["status"] <- JsonValue.Create("queued_for_reextraction")
-                    obj["document_id"] <- JsonValue.Create(docId)
-                    return obj :> JsonNode
-                | Error e ->
-                    let err = JsonObject()
-                    err["error"] <- JsonValue.Create(e)
-                    return err :> JsonNode
+            match parseReflowArgs args with
+            | Error e -> return Error(InvalidArguments e)
+            | Ok parsed ->
+                let! result = Reflow.request db logger dag parsed.DocumentId parsed.Kind parsed.Mode
+                return
+                    match result with
+                    | Ok requestResult -> Ok(requestResultToJson requestResult :> JsonNode)
+                    | Error e -> Error(DomainFailure e)
+        }
+
+    let reflowStatus
+        (db: Algebra.Database)
+        (dag: PipelineV5.Dag)
+        (args: JsonNode)
+        : Task<Result<JsonNode, ToolFailure>> =
+        task {
+            match Args.requiredInteger args "operation_id" with
+            | Error e -> return Error(InvalidArguments e)
+            | Ok opId ->
+                let! result = Reflow.getStatus dag db opId
+                return
+                    match result with
+                    | Ok status -> Ok(operationStatusToJson status :> JsonNode)
+                    | Error e -> Error(DomainFailure e)
+        }
+
+    let private legacyReextractJson (docId: int64) (result: Reflow.RequestResult) : JsonNode =
+        let obj = JsonObject()
+        obj["status"] <- JsonValue.Create("queued_for_reextraction")
+        obj["document_id"] <- JsonValue.Create(docId)
+        result.Status |> Option.iter (fun s -> obj["operation_id"] <- JsonValue.Create(s.OperationId))
+        obj["duplicate"] <- JsonValue.Create(result.Duplicate)
+        obj :> JsonNode
+
+    let reextractDocument
+        (db: Algebra.Database)
+        (logger: Algebra.Logger)
+        (dag: PipelineV5.Dag)
+        (args: JsonNode)
+        : Task<Result<JsonNode, ToolFailure>> =
+        task {
+            match Args.requiredInteger args "document_id" with
+            | Error e -> return Error(InvalidArguments e)
+            | Ok docId ->
+                let! result = Reflow.request db logger dag docId Reflow.Reextract Reflow.Apply
+                return
+                    match result with
+                    | Ok requestResult -> Ok(legacyReextractJson docId requestResult)
+                    | Error e -> Error(DomainFailure e)
         }
 
     let getProcessingQueue (db: Algebra.Database) (args: JsonNode) : Task<JsonNode> =
@@ -509,6 +701,356 @@ module McpTools =
           Provider: string
           Model: string }
 
+    type private DeepArtifactPaths =
+        { Source: string
+          Folder: string
+          Fence: PublicationFence.ArtifactFolder }
+
+    type private DeepExtractRequest =
+        { DocumentId: int64
+          Force: bool }
+
+    type private DeepTarget =
+        { Generation: Generation.Token
+          Artifacts: DeepArtifactPaths }
+
+    type private DeepArtifactSnapshot =
+        { ExtractedText: string
+          Comprehension: string
+          /// Folder revision observed with these bytes, under the folder fence.
+          Revision: ArtifactRevision.Token
+          Current: bool }
+
+    let private sourceArtifactPath docId archiveDir savedPath =
+        if String.IsNullOrWhiteSpace savedPath then
+            Error $"Document {docId} has no usable saved_path"
+        elif Path.IsPathRooted savedPath then
+            Ok savedPath
+        elif String.IsNullOrWhiteSpace archiveDir then
+            Error $"Document {docId} has a relative saved_path but no archive root"
+        else
+            try Ok(Path.Combine(archiveDir, savedPath))
+            with error -> Error $"Document {docId} has an invalid saved_path: {error.Message}"
+
+    let private deepArtifactPaths docId archiveDir savedPath folderPath =
+        match
+            PublicationFence.ArtifactFolder.tryFromMetadata
+                archiveDir savedPath folderPath
+        with
+        | None ->
+            Error $"Document {docId} has no usable folder for thread.comprehension.json"
+        | Some fence ->
+            PublicationFence.ArtifactFolder.resolve archiveDir fence
+            |> Result.mapError (fun error -> $"Document {docId}: {error}")
+            |> Result.bind (fun folder ->
+                sourceArtifactPath docId archiveDir savedPath
+                |> Result.map (fun source ->
+                     { Source = source; Folder = folder; Fence = fence }))
+
+    let private deepArtifactsCurrentSql =
+        """SELECT CASE WHEN
+             EXISTS (
+                 SELECT 1 FROM stage_completions
+                 WHERE document_id = @doc AND stage_name = 'extract')
+             AND EXISTS (
+                 SELECT 1 FROM stage_completions
+                 WHERE document_id = @doc AND stage_name = 'deep-comprehend')
+             AND EXISTS (
+                 SELECT 1 FROM comprehension
+                 WHERE document_id = @doc)
+           THEN 1 ELSE 0 END"""
+
+    let private deepArtifactsPresentWith
+        (execScalar:
+            string -> (string * obj) list -> Task<obj | null>)
+        documentId =
+        task {
+            let! value =
+                execScalar
+                    deepArtifactsCurrentSql
+                    [ ("@doc", Database.boxVal documentId) ]
+            return
+                match value with
+                | :? int64 as number -> number = 1L
+                | :? int as number -> number = 1
+                | _ -> false
+        }
+
+    let private deepArtifactsCurrent
+        (db: Algebra.Database)
+        (generation: Generation.Token) =
+        task {
+            let! before = Generation.isCurrent db generation
+            if not before then
+                return false
+            else
+                let! outputs =
+                    deepArtifactsPresentWith
+                        db.execScalar generation.DocumentId
+                let! after = Generation.isCurrent db generation
+                return outputs && after
+        }
+
+    let private deepArtifactsCurrentIn
+        (generation: Generation.Token)
+        (scope: Algebra.TransactionScope) =
+        task {
+            let! current =
+                Generation.isCurrentIn scope generation
+            if not current then return false
+            else
+                return!
+                    deepArtifactsPresentWith
+                        scope.execScalar generation.DocumentId
+        }
+
+    let private deepExtractRequest
+        (args: JsonNode)
+        : Result<DeepExtractRequest, string> =
+        Args.requiredInteger args "document_id"
+        |> Result.bind (fun documentId ->
+            Args.flag args "force"
+            |> Result.map (fun force ->
+                { DocumentId = documentId
+                  Force = force |> Option.defaultValue false }))
+
+    let private deepTargetSql =
+        """SELECT saved_path, folder_path,
+                  COALESCE(
+                    (SELECT generation
+                     FROM document_generations
+                     WHERE document_id = d.id), 0)
+                      AS generation,
+                  (SELECT COUNT(*) FROM stage_completions sc
+                   WHERE sc.document_id = d.id
+                     AND sc.stage_name IN ('extract', 'deep-comprehend'))
+                      AS current_input_count,
+                  (SELECT COUNT(*) FROM comprehension c
+                   WHERE c.document_id = d.id)
+                      AS current_output_count
+           FROM documents d WHERE id = @id"""
+
+    let private deepTargetFromRow
+        (archiveDir: string)
+        (documentId: int64)
+        (row: Map<string, obj>)
+        : Result<DeepTarget, string> =
+        let reader = Prelude.RowReader(row)
+        if
+            reader.Int64 "current_input_count" 0L <> 2L
+            || reader.Int64 "current_output_count" 0L <> 1L
+        then
+            Error
+                $"Document {documentId} extract and deep-comprehend artifacts are not current"
+        else
+            let generation: Generation.Token =
+                { DocumentId = documentId
+                  Value = reader.Int64 "generation" 0L }
+            deepArtifactPaths
+                documentId archiveDir
+                (reader.String "saved_path" "")
+                (reader.OptString "folder_path")
+            |> Result.map (fun artifacts ->
+                { Generation = generation
+                  Artifacts = artifacts })
+
+    let private loadDeepTarget
+        (db: Algebra.Database)
+        (archiveDir: string)
+        (documentId: int64)
+        : Task<Result<DeepTarget, string>> =
+        task {
+            let! rows =
+                db.execReader
+                    deepTargetSql
+                    [ ("@id", Database.boxVal documentId) ]
+            return
+                match rows |> List.tryHead with
+                | None -> Error $"Document {documentId} not found"
+                | Some row ->
+                    deepTargetFromRow
+                        archiveDir documentId row
+        }
+
+    let private readDeepArtifactFiles
+        (fs: Algebra.FileSystem)
+        (paths: DeepArtifactPaths) =
+        task {
+            let! text =
+                ArchiveWriter.readExtraction fs paths.Source
+            let! comprehension =
+                ArchiveWriter.readComprehension fs paths.Folder
+            return text, comprehension
+        }
+
+    /// Captured under the folder fence with the bytes it describes, before the
+    /// slow model call, so a sibling that republishes the shared artifact can
+    /// be detected before this call writes anything.
+    let private readDeepSnapshot
+        db fs
+        (target: DeepTarget)
+        ()
+        : Task<DeepArtifactSnapshot> =
+        task {
+            let! text, comprehension =
+                readDeepArtifactFiles fs target.Artifacts
+            let! revision =
+                ArtifactRevision.current db target.Artifacts.Fence
+            let! current = deepArtifactsCurrent db target.Generation
+            return
+                { ExtractedText = text |> Option.defaultValue ""
+                  Comprehension = comprehension |> Option.defaultValue ""
+                  Revision = revision
+                  Current = current }
+        }
+
+    let private readDeepArtifacts
+        db fs
+        (target: DeepTarget)
+        : Task<DeepArtifactSnapshot option> =
+        task {
+            let! publication =
+                Generation.readArtifactStable
+                    db target.Generation target.Artifacts.Fence
+                    (readDeepSnapshot db fs target)
+            return
+                match publication with
+                | Generation.Published snapshot
+                    when snapshot.Current -> Some snapshot
+                | _ -> None
+        }
+
+    let private prepareDeepMerge
+        documentId fs
+        (paths: DeepArtifactPaths)
+        deep =
+        task {
+            let! latest =
+                ArchiveWriter.readComprehension fs paths.Folder
+            return
+                match latest with
+                | Some json when not (String.IsNullOrWhiteSpace json) ->
+                    DeepExtraction.mergeIntoComprehension json deep
+                | _ ->
+                    Error
+                        $"Document {documentId} has no comprehension (run Pass 1 first)"
+        }
+
+    let private publishDeepResult
+        db fs
+        (target: DeepTarget)
+        (revision: ArtifactRevision.Token)
+        deep =
+        Generation.republishArtifact
+            db target.Generation target.Artifacts.Fence revision
+            (deepArtifactsCurrentIn target.Generation)
+            (fun () ->
+                prepareDeepMerge
+                    target.Generation.DocumentId
+                    fs target.Artifacts deep)
+            (fun merged ->
+                ArchiveWriter.writeComprehension
+                    fs target.Artifacts.Folder merged)
+
+    let private deepResultJson
+        (status: string)
+        (documentId: int64)
+        (comprehension: string)
+        : JsonNode =
+        let result = JsonObject()
+        result["status"] <- JsonValue.Create(status)
+        result["document_id"] <- JsonValue.Create(documentId)
+        result["comprehension"] <- JsonNode.Parse(comprehension)
+        result :> JsonNode
+
+    let private validateDeepDocumentType documentId comprehension =
+        if String.IsNullOrWhiteSpace comprehension then
+            Error
+                $"Document {documentId} has no comprehension (run Pass 1 first)"
+        else
+            match DeepExtraction.getDocumentType comprehension with
+            | None ->
+                Error "Cannot determine document_type from comprehension"
+            | Some documentType ->
+                match DeepExtraction.promptFileForType documentType with
+                | Some _ -> Ok documentType
+                | None ->
+                    Error
+                        $"No deep extraction prompt for document type: {documentType}"
+
+    let private publishDeepDelta
+        db fs documentId
+        (target: DeepTarget)
+        (revision: ArtifactRevision.Token)
+        deep =
+        task {
+            match! publishDeepResult db fs target revision deep with
+            | Error error -> return errorJson error
+            | Ok Generation.Superseded ->
+                return
+                    errorJson
+                        $"Document {documentId} was reflowed, or its shared folder was republished, while deep extraction ran; retry after comprehension is current"
+            | Ok (Generation.Published merged) ->
+                return
+                    deepResultJson
+                        "extracted" documentId merged
+        }
+
+    let private runDeepExtraction
+        db fs
+        (deps: DeepExtractionDeps)
+        (request: DeepExtractRequest)
+        (target: DeepTarget)
+        (snapshot: DeepArtifactSnapshot)
+        documentType =
+        task {
+            let sourceHash =
+                DeepExtraction.computeHash snapshot.ExtractedText
+            if
+                not request.Force
+                && DeepExtraction.hasValidDeepExtraction
+                    snapshot.Comprehension sourceHash
+            then
+                return
+                    deepResultJson
+                        "cached" request.DocumentId
+                        snapshot.Comprehension
+            else
+                match!
+                    DeepExtraction.extract
+                        deps.Chat deps.Registry deps.Provider deps.Model
+                        documentType snapshot.ExtractedText ""
+                with
+                | Error error -> return errorJson error
+                | Ok deep ->
+                    return!
+                        publishDeepDelta
+                            db fs request.DocumentId target
+                            snapshot.Revision deep
+        }
+
+    let private processDeepTarget
+        db fs deps request
+        (target: DeepTarget) =
+        task {
+            match! readDeepArtifacts db fs target with
+            | None ->
+                return
+                    errorJson
+                        $"Document {request.DocumentId} extract and deep-comprehend artifacts are not current"
+            | Some snapshot ->
+                match
+                    validateDeepDocumentType
+                        request.DocumentId snapshot.Comprehension
+                with
+                | Error error -> return errorJson error
+                | Ok documentType ->
+                    return!
+                        runDeepExtraction
+                            db fs deps request target
+                            snapshot documentType
+        }
+
     let deepExtract
         (db: Algebra.Database)
         (fs: Algebra.FileSystem)
@@ -517,104 +1059,18 @@ module McpTools =
         (args: JsonNode)
         : Task<JsonNode> =
         task {
-            match tryGetInt64 args "document_id" with
-            | None ->
-                let err = JsonObject()
-                err["error"] <- JsonValue.Create("document_id is required")
-                return err :> JsonNode
-            | Some docId ->
-                let force =
-                    tryGetNode args "force"
-                    |> Option.map (fun n -> n.GetValue<bool>())
-                    |> Option.defaultValue false
-
-                // Load document
-                let! rows =
-                    db.execReader
-                        "SELECT saved_path, folder_path FROM documents WHERE id = @id"
-                        [ ("@id", Database.boxVal docId) ]
-
-                match rows |> List.tryHead with
-                | None ->
-                    let err = JsonObject()
-                    err["error"] <- JsonValue.Create($"Document {docId} not found")
-                    return err :> JsonNode
-                | Some row ->
-                    let r = Prelude.RowReader(row)
-                    let savedPath = r.String "saved_path" ""
-                    let folderPath = r.OptString "folder_path"
-
-                    let fullPath =
-                        if Path.IsPathRooted(savedPath) then savedPath
-                        else Path.Combine(archiveDir, savedPath)
-                    let! textOpt = ArchiveWriter.readExtraction fs fullPath
-                    let text = textOpt |> Option.defaultValue ""
-                    let folder =
-                        folderPath
-                        |> Option.defaultWith (fun () ->
-                            Path.GetDirectoryName(fullPath) |> Option.ofObj |> Option.defaultValue "")
-                    let absFolder =
-                        if Path.IsPathRooted(folder) then folder
-                        else Path.Combine(archiveDir, folder)
-                    let! compOpt = ArchiveWriter.readComprehension fs absFolder
-                    let comprehension = compOpt |> Option.defaultValue ""
-
-                    if String.IsNullOrWhiteSpace(comprehension) then
-                        let err = JsonObject()
-                        err["error"] <- JsonValue.Create($"Document {docId} has no comprehension (run Pass 1 first)")
-                        return err :> JsonNode
-                    else
-
-                    // Get document type from comprehension
-                    match DeepExtraction.getDocumentType comprehension with
-                    | None ->
-                        let err = JsonObject()
-                        err["error"] <- JsonValue.Create($"Cannot determine document_type from comprehension")
-                        return err :> JsonNode
-                    | Some docType ->
-
-                    // Check if deep prompt exists
-                    match DeepExtraction.promptFileForType docType with
-                    | None ->
-                        let err = JsonObject()
-                        err["error"] <- JsonValue.Create($"No deep extraction prompt for document type: {docType}")
-                        return err :> JsonNode
-                    | Some _ ->
-
-                    // Check cache
-                    let sourceHash = DeepExtraction.computeHash text
-                    if not force && DeepExtraction.hasValidDeepExtraction comprehension sourceHash then
-                        let obj = JsonObject()
-                        obj["status"] <- JsonValue.Create("cached")
-                        obj["document_id"] <- JsonValue.Create(docId)
-                        obj["comprehension"] <- JsonNode.Parse(comprehension)
-                        return obj :> JsonNode
-                    else
-
-                    // Run deep extraction
-                    let! result =
-                        DeepExtraction.extract deps.Chat deps.Registry deps.Provider deps.Model docType text ""
-
-                    match result with
-                    | Error e ->
-                        let err = JsonObject()
-                        err["error"] <- JsonValue.Create(e)
-                        return err :> JsonNode
-                    | Ok deep ->
-                        match DeepExtraction.mergeIntoComprehension comprehension deep with
-                        | Error e ->
-                            let err = JsonObject()
-                            err["error"] <- JsonValue.Create(e)
-                            return err :> JsonNode
-                        | Ok merged ->
-                            // Write merged comprehension to file
-                            do! ArchiveWriter.writeComprehension fs absFolder merged
-
-                            let obj = JsonObject()
-                            obj["status"] <- JsonValue.Create("extracted")
-                            obj["document_id"] <- JsonValue.Create(docId)
-                            obj["comprehension"] <- JsonNode.Parse(merged)
-                            return obj :> JsonNode
+            match deepExtractRequest args with
+            | Error error -> return errorJson error
+            | Ok request ->
+                match!
+                    loadDeepTarget
+                        db archiveDir request.DocumentId
+                with
+                | Error error -> return errorJson error
+                | Ok target ->
+                    return!
+                        processDeepTarget
+                            db fs deps request target
         }
 
     // ─── Contact tools ──────────────────────────────────────────────
@@ -764,51 +1220,133 @@ module McpTools =
             return result :> JsonNode
         }
 
+    type private BackfillTarget =
+        { Generation: Generation.Token
+          Folder: string
+          Fence: PublicationFence.ArtifactFolder
+          Sender: string option }
+
+    type private BackfillTally =
+        { Linked: int
+          Skipped: int
+          Superseded: int }
+
+    let private backfillTarget
+        (archiveDir: string)
+        (row: Map<string, obj>)
+        : BackfillTarget option =
+        let reader = Prelude.RowReader(row)
+        let documentId = reader.Int64 "id" 0L
+        let savedPath = reader.String "saved_path" ""
+        match
+            PublicationFence.ArtifactFolder.tryFromMetadata
+                archiveDir savedPath
+                (reader.OptString "folder_path")
+        with
+        | None -> None
+        | Some fence ->
+            match PublicationFence.ArtifactFolder.resolve archiveDir fence with
+            | Error _ -> None
+            | Ok folder ->
+                Some
+                    { Generation =
+                        { DocumentId = documentId
+                          Value = reader.Int64 "generation" 0L }
+                      Folder = folder
+                      Fence = fence
+                      Sender = reader.OptString "sender" }
+
+    let private backfillOne
+        (db: Algebra.Database)
+        (fs: Algebra.FileSystem)
+        (logger: Algebra.Logger)
+        (archiveDir: string)
+        (tally: BackfillTally)
+        (row: Map<string, obj>)
+        : Task<BackfillTally> =
+        task {
+            match backfillTarget archiveDir row with
+            | None ->
+                return { tally with Skipped = tally.Skipped + 1 }
+            | Some target ->
+                let! comprehension =
+                    Generation.readArtifactStable
+                        db target.Generation target.Fence (fun () ->
+                            ArchiveWriter.readComprehension
+                                fs target.Folder)
+                match comprehension with
+                | Generation.Superseded ->
+                    return
+                        { tally with
+                            Superseded = tally.Superseded + 1 }
+                | Generation.Published None ->
+                    return { tally with Skipped = tally.Skipped + 1 }
+                | Generation.Published (Some json)
+                    when String.IsNullOrWhiteSpace json ->
+                    return { tally with Skipped = tally.Skipped + 1 }
+                | Generation.Published (Some json) ->
+                    let! publication =
+                        ContactExtraction.harvestAndLinkAt
+                            db logger target.Generation
+                            json target.Sender
+                    return
+                        match publication with
+                        | Generation.Published () ->
+                            { tally with Linked = tally.Linked + 1 }
+                        | Generation.Superseded ->
+                            { tally with
+                                Superseded = tally.Superseded + 1 }
+        }
+
     /// Backfill contacts from already-comprehended documents.
-    let contactsBackfill (db: Algebra.Database) (fs: Algebra.FileSystem) (archiveDir: string) (logger: Algebra.Logger) (_args: JsonNode) : Task<JsonNode> =
+    let contactsBackfill
+        (db: Algebra.Database)
+        (fs: Algebra.FileSystem)
+        (archiveDir: string)
+        (logger: Algebra.Logger)
+        (_args: JsonNode)
+        : Task<JsonNode> =
         task {
             let! unlinked =
                 db.execReader
-                    """SELECT d.id, d.saved_path, d.folder_path, d.sender
+                    """SELECT d.id, d.saved_path, d.folder_path, d.sender,
+                              COALESCE(
+                                (SELECT generation
+                                 FROM document_generations
+                                 WHERE document_id = d.id), 0)
+                                  AS generation
                        FROM documents d
-                       WHERE d.classification_tier IS NOT NULL
-                         AND d.id NOT IN (SELECT document_id FROM document_contacts)
+                       WHERE EXISTS (
+                           SELECT 1 FROM stage_completions sc
+                           WHERE sc.document_id = d.id
+                             AND sc.stage_name = 'deep-comprehend')
+                         AND EXISTS (
+                           SELECT 1 FROM comprehension c
+                           WHERE c.document_id = d.id)
+                         AND NOT EXISTS (
+                           SELECT 1 FROM document_contacts dc
+                           WHERE dc.document_id = d.id)
                        LIMIT 500"""
                     []
 
-            let mutable linked = 0
-            let mutable skipped = 0
-
-            for row in unlinked do
-                let r = Prelude.RowReader(row)
-                let docId = r.Int64 "id" 0L
-                let savedPath = r.String "saved_path" ""
-                let folderPath = r.OptString "folder_path"
-                let sender = r.OptString "sender"
-
-                let fullPath =
-                    if Path.IsPathRooted(savedPath) then savedPath
-                    else Path.Combine(archiveDir, savedPath)
-                let folder =
-                    folderPath
-                    |> Option.defaultWith (fun () ->
-                        Path.GetDirectoryName(fullPath) |> Option.ofObj |> Option.defaultValue "")
-                let absFolder =
-                    if Path.IsPathRooted(folder) then folder
-                    else Path.Combine(archiveDir, folder)
-                let! compOpt = ArchiveWriter.readComprehension fs absFolder
-                let comp = compOpt |> Option.defaultValue ""
-
-                if not (String.IsNullOrWhiteSpace(comp)) then
-                    do! ContactExtraction.harvestAndLink db logger docId comp sender
-                    linked <- linked + 1
-                else
-                    skipped <- skipped + 1
+            let! tally =
+                unlinked
+                |> Prelude.foldTask
+                    (backfillOne db fs logger archiveDir)
+                    { Linked = 0
+                      Skipped = 0
+                      Superseded = 0 }
 
             let result = JsonObject()
             result["status"] <- JsonValue.Create("backfill_complete")
-            result["processed"] <- JsonValue.Create(linked)
-            result["skipped"] <- JsonValue.Create(skipped)
-            result["remaining"] <- JsonValue.Create(unlinked.Length - linked - skipped)
+            result["processed"] <- JsonValue.Create(tally.Linked)
+            result["skipped"] <- JsonValue.Create(tally.Skipped)
+            result["superseded"] <- JsonValue.Create(tally.Superseded)
+            result["remaining"] <-
+                JsonValue.Create(
+                    unlinked.Length
+                    - tally.Linked
+                    - tally.Skipped
+                    - tally.Superseded)
             return result :> JsonNode
         }

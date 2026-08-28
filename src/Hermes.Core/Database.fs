@@ -1,6 +1,7 @@
 namespace Hermes.Core
 
 open System.IO
+open System.Threading
 open System.Threading.Tasks
 open Microsoft.Data.Sqlite
 
@@ -9,7 +10,7 @@ open Microsoft.Data.Sqlite
 [<RequireQualifiedAccess>]
 module Database =
 
-    let [<Literal>] CurrentSchemaVersion = 8
+    let [<Literal>] CurrentSchemaVersion = 12
 
     // ─── Schema DDL ──────────────────────────────────────────────────
 
@@ -153,6 +154,20 @@ module Database =
             dismissed     INTEGER NOT NULL DEFAULT 0
         );
         """
+           """
+        UPDATE dead_letters
+        SET dismissed = 1
+        WHERE dismissed = 0
+          AND EXISTS (
+              SELECT 1
+              FROM dead_letters newer
+              WHERE newer.doc_id = dead_letters.doc_id
+                AND newer.stage = dead_letters.stage
+                AND newer.dismissed = 0
+                AND newer.id > dead_letters.id
+          );
+        """
+           "CREATE UNIQUE INDEX IF NOT EXISTS idx_dead_letters_active ON dead_letters(doc_id, stage) WHERE dismissed = 0;"
 
            // ── Tags ─────────────────────────────────────────────────────
            """
@@ -229,6 +244,35 @@ module Database =
         );
         """
 
+           // ── Durable learned-pattern evidence (v11) ───────────────
+           """
+        CREATE TABLE IF NOT EXISTS learned_pattern_evidence (
+            document_id     INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            stage_name      TEXT NOT NULL,
+            generation      INTEGER NOT NULL,
+            sender_domain   TEXT NOT NULL,
+            document_type   TEXT NOT NULL,
+            confidence      REAL NOT NULL,
+            observed_at     TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (document_id, stage_name, generation)
+        );
+        """
+           "CREATE INDEX IF NOT EXISTS idx_learned_evidence_pattern ON learned_pattern_evidence(sender_domain, document_type);"
+
+           // ── Durable canonical stage responses (v12) ─────────────
+           """
+        CREATE TABLE IF NOT EXISTS stage_publications (
+            document_id       INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            stage_name        TEXT NOT NULL,
+            generation        INTEGER NOT NULL,
+            response_json     TEXT NOT NULL,
+            current_category  TEXT,
+            published_at      TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (document_id, stage_name, generation)
+        );
+        """
+           "CREATE INDEX IF NOT EXISTS idx_stage_publications_stage ON stage_publications(stage_name, generation);"
+
            // ── Suggestions (low-confidence review queue) ────────────────
            """
         CREATE TABLE IF NOT EXISTS suggestions (
@@ -244,6 +288,55 @@ module Database =
         """
            "CREATE INDEX IF NOT EXISTS idx_suggestions_status ON suggestions(status);"
            "CREATE INDEX IF NOT EXISTS idx_suggestions_doc ON suggestions(document_id);"
+
+           // ── Reflow operations (v9) ─────────────────────────────────
+           """
+        CREATE TABLE IF NOT EXISTS reflow_operations (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            document_id     INTEGER NOT NULL REFERENCES documents(id),
+            operation_kind  TEXT NOT NULL,
+            requested_mode  TEXT NOT NULL CHECK (requested_mode IN ('dry_run', 'apply')),
+            lifecycle       TEXT NOT NULL DEFAULT 'pending' CHECK (lifecycle IN ('pending', 'running', 'completed', 'failed')),
+            dag_signature   TEXT,
+            created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+            completed_at    TEXT,
+            error           TEXT
+        );
+        """
+           "CREATE UNIQUE INDEX IF NOT EXISTS idx_reflow_ops_active_apply ON reflow_operations(document_id, operation_kind) WHERE requested_mode = 'apply' AND lifecycle IN ('pending', 'running');"
+           "CREATE INDEX IF NOT EXISTS idx_reflow_ops_doc ON reflow_operations(document_id);"
+           "CREATE INDEX IF NOT EXISTS idx_reflow_ops_lifecycle ON reflow_operations(lifecycle);"
+
+           """
+        CREATE TABLE IF NOT EXISTS reflow_operation_stages (
+            operation_id    INTEGER NOT NULL REFERENCES reflow_operations(id),
+            stage_name      TEXT NOT NULL,
+            outcome         TEXT NOT NULL CHECK (outcome IN ('current', 'pending', 'reran', 'failed', 'skipped')),
+            started_at      TEXT,
+            completed_at    TEXT,
+            error           TEXT,
+            PRIMARY KEY (operation_id, stage_name)
+        );
+        """
+           "CREATE INDEX IF NOT EXISTS idx_reflow_stages_op ON reflow_operation_stages(operation_id);"
+
+           // ── Per-document reflow generation (v10) ─────────────────
+           """
+        CREATE TABLE IF NOT EXISTS document_generations (
+            document_id INTEGER PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+            generation  INTEGER NOT NULL DEFAULT 0,
+            updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        """
+
+           // ── Shared artifact folder revisions ─────────────────────
+           """
+        CREATE TABLE IF NOT EXISTS artifact_folder_revisions (
+            folder_identity TEXT PRIMARY KEY,
+            revision        INTEGER NOT NULL DEFAULT 0,
+            updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        """
         |]
 
     let private ftsSql =
@@ -329,12 +422,8 @@ module Database =
             return result
         }
 
-    let private execReader (conn: SqliteConnection) (sql: string) (ps: (string * obj) list) =
+    let private readRows (reader: SqliteDataReader) =
         task {
-            use cmd = conn.CreateCommand()
-            cmd.CommandText <- sql
-            addParams cmd ps
-            use! reader = cmd.ExecuteReaderAsync()
             let results = ResizeArray<Map<string, obj>>()
             let! firstRow = reader.ReadAsync()
             let mutable hasMore = firstRow
@@ -358,6 +447,45 @@ module Database =
                 hasMore <- nextRow
 
             return results |> Seq.toList
+        }
+
+    let private execReader (conn: SqliteConnection) (sql: string) (ps: (string * obj) list) =
+        task {
+            use cmd = conn.CreateCommand()
+            cmd.CommandText <- sql
+            addParams cmd ps
+            use! reader = cmd.ExecuteReaderAsync()
+            return! readRows reader
+        }
+
+    // ─── Transaction-bound query helpers ─────────────────────────────
+
+    let private execNonQueryTx (conn: SqliteConnection) (tx: SqliteTransaction) (sql: string) (ps: (string * obj) list) =
+        task {
+            use cmd = conn.CreateCommand()
+            cmd.Transaction <- tx
+            cmd.CommandText <- sql
+            addParams cmd ps
+            return! cmd.ExecuteNonQueryAsync()
+        }
+
+    let private execScalarTx (conn: SqliteConnection) (tx: SqliteTransaction) (sql: string) (ps: (string * obj) list) =
+        task {
+            use cmd = conn.CreateCommand()
+            cmd.Transaction <- tx
+            cmd.CommandText <- sql
+            addParams cmd ps
+            return! cmd.ExecuteScalarAsync()
+        }
+
+    let private execReaderTx (conn: SqliteConnection) (tx: SqliteTransaction) (sql: string) (ps: (string * obj) list) =
+        task {
+            use cmd = conn.CreateCommand()
+            cmd.Transaction <- tx
+            cmd.CommandText <- sql
+            addParams cmd ps
+            use! reader = cmd.ExecuteReaderAsync()
+            return! readRows reader
         }
 
     let private toInt64 (value: obj | null) : int64 =
@@ -386,8 +514,7 @@ module Database =
 
     // ─── Migrations ─────────────────────────────────────────────────
 
-    /// No-op: all tables and columns are in coreSchemaSql.
-    /// Schema version 5 = clean slate, no migration path needed.
+    /// Versioned schema additions use idempotent DDL in coreSchemaSql.
     let private runMigrations (_conn: SqliteConnection) =
         task { () }
 
@@ -426,30 +553,109 @@ module Database =
                 return Error $"Schema init failed: {ex.Message}"
         }
 
+    // ─── Transactions ──────────────────────────────────────────────────
+
+    let private scopeFor (conn: SqliteConnection) (tx: SqliteTransaction) : Algebra.TransactionScope =
+        { execNonQuery = execNonQueryTx conn tx
+          execScalar = execScalarTx conn tx
+          execReader = execReaderTx conn tx }
+
+    let private settleTransaction (tx: SqliteTransaction) (result: Result<unit, string>) =
+        match result with
+        | Ok () ->
+            tx.Commit()
+            Ok()
+        | Error e ->
+            tx.Rollback()
+            Error e
+
+    /// BEGIN IMMEDIATE. Taking the write lock at BEGIN keeps a read-then-write
+    /// transaction from failing with SQLITE_BUSY_SNAPSHOT when the second write
+    /// connection commits between our first read and our first write.
+    let private beginImmediate (conn: SqliteConnection) : SqliteTransaction =
+        conn.BeginTransaction(deferred = false)
+
+    let private inTransactionImpl
+        (conn: SqliteConnection)
+        (gate: SemaphoreSlim)
+        (callback: Algebra.TransactionScope -> Task<Result<unit, string>>)
+        =
+        task {
+            do! gate.WaitAsync()
+
+            try
+                use tx = beginImmediate conn
+
+                try
+                    let! result = callback (scopeFor conn tx)
+                    return settleTransaction tx result
+                with ex ->
+                    tx.Rollback()
+                    return Error $"Transaction failed: {ex.Message}"
+            finally
+                gate.Release() |> ignore
+        }
+
+    let private withConnection
+        (gate: SemaphoreSlim)
+        (operation: unit -> Task<'T>)
+        : Task<'T> =
+        task {
+            do! gate.WaitAsync()
+            try
+                return! operation ()
+            finally
+                gate.Release() |> ignore
+        }
+
     // ─── Connection management ───────────────────────────────────────
 
-    /// Open a connection with WAL mode and foreign keys enabled.
+    /// WAL for reader/writer concurrency, foreign keys for referential
+    /// integrity, and a busy timeout so a competing writer waits for the write
+    /// lock instead of failing immediately.
+    let private applyConnectionPragmas (conn: SqliteConnection) : unit =
+        use pragma = conn.CreateCommand()
+        pragma.CommandText <-
+            "PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 30000;"
+        pragma.ExecuteNonQuery() |> ignore
+
+    /// Open a connection with WAL mode, foreign keys, and a busy timeout.
     let openConnection (dbPath: string) =
         let conn = new SqliteConnection($"Data Source={dbPath}")
         conn.Open()
-
-        use pragma = conn.CreateCommand()
-        pragma.CommandText <- "PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;"
-        pragma.ExecuteNonQuery() |> ignore
-
+        applyConnectionPragmas conn
         conn
 
     // ─── Build the Database algebra from a connection ────────────────
 
     /// Create a Database algebra record backed by the given SqliteConnection.
     let fromConnection (conn: SqliteConnection) : Algebra.Database =
-        { execNonQuery = fun sql ps -> execNonQuery conn sql ps
-          execScalar = fun sql ps -> execScalar conn sql ps
-          execReader = fun sql ps -> execReader conn sql ps
-          initSchema = fun () -> initSchemaImpl conn
-          tableExists = fun name -> tableExistsImpl conn name
-          schemaVersion = fun () -> schemaVersionImpl conn
-          dispose = fun () -> conn.Dispose() }
+        applyConnectionPragmas conn
+        let txGate = new SemaphoreSlim(1, 1)
+
+        { execNonQuery =
+            fun sql ps ->
+                withConnection txGate (fun () -> execNonQuery conn sql ps)
+          execScalar =
+            fun sql ps ->
+                withConnection txGate (fun () -> execScalar conn sql ps)
+          execReader =
+            fun sql ps ->
+                withConnection txGate (fun () -> execReader conn sql ps)
+          initSchema =
+            fun () ->
+                withConnection txGate (fun () -> initSchemaImpl conn)
+          tableExists =
+            fun name ->
+                withConnection txGate (fun () -> tableExistsImpl conn name)
+          schemaVersion =
+            fun () ->
+                withConnection txGate (fun () -> schemaVersionImpl conn)
+          inTransaction = fun callback -> inTransactionImpl conn txGate callback
+          dispose =
+            fun () ->
+                txGate.Dispose()
+                conn.Dispose() }
 
     /// Create a Database algebra from a file path. Opens connection + enables WAL.
     let fromPath (dbPath: string) : Algebra.Database =

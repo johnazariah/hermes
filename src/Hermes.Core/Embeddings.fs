@@ -228,18 +228,146 @@ module Embeddings =
     /// Progress callback: (completed, total)
     type ProgressCallback = int -> int -> unit
 
-    /// Embed a single document: chunk text, embed each chunk, store results.
-    let private embedChunk (db: Algebra.Database) (logger: Algebra.Logger) (clock: Algebra.Clock) (client: Algebra.EmbeddingClient) (docId: int64) (errors: int) (chunk: TextChunk) =
+    type private ChunkOutcome =
+        | ChunkEmbedded of TextChunk * float32[]
+        | ChunkFailed of int * string
+
+    type private ChunkOutcomes =
+        { Succeeded: (TextChunk * float32[]) list
+          Failures: (int * string) list }
+
+    let private embedOneChunk (client: Algebra.EmbeddingClient) (logger: Algebra.Logger) (docId: int64) (chunk: TextChunk) =
         task {
             let! result = client.embed chunk.Text
             match result with
-            | Ok embedding ->
-                do! storeChunk db clock docId chunk.Index chunk.Text (Some embedding)
-                return errors
+            | Ok embedding -> return ChunkEmbedded(chunk, embedding)
             | Error e ->
                 logger.warn $"Document {docId}, chunk {chunk.Index}: embedding failed: {e}"
-                do! storeChunk db clock docId chunk.Index chunk.Text None
-                return errors + 1
+                return ChunkFailed(chunk.Index, e)
+        }
+
+    let private embedAllChunks (client: Algebra.EmbeddingClient) (logger: Algebra.Logger) (docId: int64) (chunks: TextChunk list) =
+        task {
+            let! reversed =
+                Prelude.foldTask
+                    (fun acc chunk ->
+                        task {
+                            let! outcome = embedOneChunk client logger docId chunk
+                            return outcome :: acc
+                        })
+                    []
+                    chunks
+            return List.rev reversed
+        }
+
+    let private partitionOutcomes (outcomes: ChunkOutcome list) : ChunkOutcomes =
+        let folder (acc: ChunkOutcomes) outcome =
+            match outcome with
+            | ChunkEmbedded (chunk, embedding) -> { acc with Succeeded = (chunk, embedding) :: acc.Succeeded }
+            | ChunkFailed (index, err) -> { acc with Failures = (index, err) :: acc.Failures }
+
+        let reversed = outcomes |> List.fold folder { Succeeded = []; Failures = [] }
+        { Succeeded = List.rev reversed.Succeeded
+          Failures = List.rev reversed.Failures }
+
+    let private describeFailures (total: int) (failures: (int * string) list) : string =
+        let details =
+            failures
+            |> List.map (fun (index, err) -> $"chunk {index}: {err}")
+            |> String.concat "; "
+        $"{failures.Length} of {total} chunks failed: {details}"
+
+    let private storeChunkTx (tx: Algebra.TransactionScope) (clock: Algebra.Clock) (docId: int64) (chunk: TextChunk, embedding: float32[]) =
+        task {
+            let! _ =
+                tx.execNonQuery
+                    """INSERT OR REPLACE INTO document_chunks (document_id, chunk_index, chunk_text, embedding, embedded_at)
+                       VALUES (@docId, @idx, @text, @emb, @at)"""
+                    [ ("@docId", Database.boxVal docId)
+                      ("@idx", Database.boxVal chunk.Index)
+                      ("@text", Database.boxVal chunk.Text)
+                      ("@emb", Database.boxVal (embeddingToBlob embedding))
+                      ("@at", Database.boxVal ((clock.utcNow ()).ToString("o"))) ]
+            return ()
+        }
+
+    let internal replaceChunksIn
+        (scope: Algebra.TransactionScope)
+        (clock: Algebra.Clock)
+        (docId: int64)
+        (embedded: (TextChunk * float32[]) list)
+        : Task<unit> =
+        task {
+            let! _ =
+                scope.execNonQuery
+                    "DELETE FROM document_chunks WHERE document_id = @docId"
+                    [ ("@docId", Database.boxVal docId) ]
+            do!
+                embedded
+                |> Prelude.foldTask
+                    (fun () pair ->
+                        storeChunkTx scope clock docId pair)
+                    ()
+            let! _ =
+                scope.execNonQuery
+                    "UPDATE documents SET embedded_at = @at, chunk_count = @cnt WHERE id = @id"
+                    [ ("@at", Database.boxVal ((clock.utcNow ()).ToString("o")))
+                      ("@cnt", Database.boxVal embedded.Length)
+                      ("@id", Database.boxVal docId) ]
+            return ()
+        }
+
+    let private publishEmbeddedChunks
+        (db: Algebra.Database)
+        (logger: Algebra.Logger)
+        (clock: Algebra.Clock)
+        (generation: Generation.Token)
+        (chunkCount: int)
+        (embedded: (TextChunk * float32[]) list)
+        : Task<Result<int, string>> =
+        task {
+            try
+                match!
+                    Generation.publish db generation (fun scope ->
+                        replaceChunksIn
+                            scope clock generation.DocumentId embedded)
+                with
+                | Generation.Published () ->
+                    logger.debug
+                        $"Document {generation.DocumentId}: embedded {chunkCount} chunks"
+                    return Ok chunkCount
+                | Generation.Superseded ->
+                    return
+                        Error
+                            $"Embedding for doc {generation.DocumentId} was superseded by reflow"
+            with error ->
+                logger.error
+                    $"Document {generation.DocumentId}: transaction failed: {error.Message}"
+                return Error error.Message
+        }
+
+    let embedDocumentAt
+        (db: Algebra.Database)
+        (logger: Algebra.Logger)
+        (clock: Algebra.Clock)
+        (client: Algebra.EmbeddingClient)
+        (generation: Generation.Token)
+        (text: string)
+        : Task<Result<int, string>> =
+        task {
+            let chunks = chunkText 500 100 text
+            let! outcomes =
+                embedAllChunks
+                    client logger generation.DocumentId chunks
+            let partitioned = partitionOutcomes outcomes
+
+            if not partitioned.Failures.IsEmpty then
+                return Error(describeFailures chunks.Length partitioned.Failures)
+            else
+                return!
+                    publishEmbeddedChunks
+                        db logger clock generation
+                        chunks.Length partitioned.Succeeded
         }
 
     let embedDocument
@@ -249,26 +377,12 @@ module Embeddings =
         (client: Algebra.EmbeddingClient)
         (docId: int64)
         (text: string)
-        =
+        : Task<Result<int, string>> =
         task {
-            let chunks = chunkText 500 100 text
-            if chunks.IsEmpty then
-                logger.debug $"Document {docId}: no text to embed"
-                return Ok 0
-            else
-            let! errors = Prelude.foldTask (embedChunk db logger clock client docId) 0 chunks
-
-            let! _ =
-                db.execNonQuery
-                    "UPDATE documents SET embedded_at = @at, chunk_count = @cnt WHERE id = @id"
-                    [ ("@at", Database.boxVal ((clock.utcNow ()).ToString("o")))
-                      ("@cnt", Database.boxVal chunks.Length)
-                      ("@id", Database.boxVal docId) ]
-
-            if errors > 0 then return Error $"{errors} of {chunks.Length} chunks failed"
-            else
-                logger.debug $"Document {docId}: embedded {chunks.Length} chunks"
-                return Ok chunks.Length
+            let! generation = Generation.current db docId
+            return!
+                embedDocumentAt
+                    db logger clock client generation text
         }
 
     /// Batch-embed documents that have extracted text but no embeddings.

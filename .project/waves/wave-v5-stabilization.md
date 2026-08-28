@@ -42,7 +42,7 @@ follow-on work.
 | 0 | Reconcile stale phase issues with proof | Kobayashi / Hockney | ✅ Done | Closed #1-#5, #7, #10, #12; rewrote #6, #8, #9, #11; created #16, #17 |
 | 0 | Capture redacted current-main baseline | Hockney / Fenster / McManus / Verbal / Rai | ✅ Done | Evidence below; personal archive not accessed |
 | 0 | Reconcile testing register and support matrix | Hockney / Keaton | ✅ Done | Baseline below and testing register |
-| 1A | Stabilize V5 reflow and reclassification | McManus / Hockney | ⬜ Blocked | #17; requires PR #15 review/merge |
+| 1A | Stabilize V5 reflow and reclassification | McManus / Hockney | ⏳ Active | #17; PR #19 open, deterministic reflow PR pending |
 | 1B | Restore file-first FTS, semantic/hybrid, and Osprey reachability | McManus / Hockney | ⬜ Blocked | #11 and #6; depends on Phase 1A contracts |
 | 1C | Enforce local HTTP/MCP trust boundary | McManus / Keaton / Rai | ⬜ Blocked | #6; depends on final MCP contract |
 | 1D | Stabilize canonical React/Tray assets and SSE | Verbal / Fenster / Hockney | ⬜ Blocked | #9 and #8; depends on trust-boundary browser policy |
@@ -97,6 +97,94 @@ or live document was opened. Results record behavior and counts, not content.
 8. PR #15 is reviewed and merged before Phase 1A implementation starts.
 
 ## Log
+
+### 2026-08-28 - Phase 1A PR A coordinator gate corrections approved
+
+- **Changed:** Closed stale sibling and deep-extraction sidecar overwrites with folder revision fencing; made stage-attempt cleanup recover from transient failures; made schema startup fail fast and shutdown quiesce before disposal; made MCP reflow failures and malformed containers protocol-truthful; and replaced the artificial v11 migration check with a populated deployed-v8 to v12 proof.
+- **Evidence:** Deterministic tests force sibling/deep-extraction interleavings, cleanup deletion faults, unresponsive shutdown, malformed MCP value/container types, repeated `tools/list`, populated migration with duplicate active dead letters, and second-run idempotency. Per-algebra SQLite serialization also passed 20 repeated Release stress iterations; EmailSync multi-command identity remains independently owned by blocking PR #21.
+- **Validation:** Release Core, Service, and Tests build with 0 warnings/errors; full suite executes 967 tests (957 passed, 10 skipped); local CI-equivalent coverage is 71.71% aggregate line / 35.91% branch and 79.13% Core line / 39.84% branch. Independent `fsharp-dev` review approved race safety, migration/idempotency, connection lifetime, cancellation, and compatibility.
+- **Blockers:** PR #20 must not merge before PR #19; it must then rebase and resolve Database/API/MCP/project/docs conflicts. The Windows workflow's authoritative 75% aggregate line check remains red and is not claimed as cleared; issue #18 retains the 85% / 60% wave-close target.
+- **Next:** Push the reviewed correction head, keep PR #19 separate, then rebase PR #20 after #19 lands before final merge consideration.
+
+### 2026-08-28 - Phase 1A PR A coordinator gate reassessed
+
+- **Changed:** Confirmed the process-wide shared-connection risk exists on `main` and is already closed in PR #20 by one algebra-scoped semaphore covering every command and transaction; clarified Core-package, aggregate-CI, current merge, and wave-close coverage measures.
+- **Evidence:** `main` exposes one raw shared `SqliteConnection` without serialization; PR #20 routes all `Algebra.Database` operations through the same gate, uses separate physical pipeline/reflow connections, and passed 20 Release stress iterations covering same-connection command/transaction exclusion plus two-connection write coordination.
+- **Validation:** PR head `83f208c`; macOS .NET, Shell, and Tray checks pass. Windows Release build and all 940 tests pass, then coverage fails at 71.3% aggregate line / 35.5% aggregate branch. The current workflow enforces 75% aggregate line only; the authoritative wave-close target remains 85% line / 60% branch under #18.
+- **Blockers:** Coordinator merge gate remains in force pending renewed scope review; no coverage gate is claimed as cleared.
+- **Next:** Complete renewed race, migration, lifetime, cancellation, and compatibility review, then return disposition to the master session.
+
+### 2026-08-27 - Phase 1A PR A Release compiler correction
+
+- **Changed:** Replaced a task-expression `for` loop in the stale-stage-output regression with a tail-recursive task helper so F# Release compilation remains statically resumable under warnings-as-errors.
+- **Evidence:** PR #20 initial CI identified FS3511 at `ReflowTests.fs`; the production implementation was unaffected.
+- **Validation:** Release test-project build passed with 0 warnings/errors; the affected regression passed; the full Release suite executed 940 tests (930 passed, 10 skipped).
+- **Blockers:** Awaiting refreshed PR checks; issue #18 retains ownership of the 85% / 60% wave-close gate.
+- **Next:** Push the correction and verify cross-platform CI.
+
+### 2026-08-27 - Phase 1A PR A cross-document publication races closed
+
+- **Changed:** Canonicalized artifact lock identities against the archive root, moved deep-extraction merge/read/write under the shared folder fence, fenced every V5 stage-owned output with its captured generation, persisted one canonical comprehension publication per stage generation, and made extracted-content reads stable across reflow.
+- **Evidence:** Issue #17 PR A scope on `johnazariah-17-v5-file-first-correctness`; deterministic regressions cover relative/absolute folder aliases, sibling publication during an LLM call, stale extract/triage/deep/embed output publication, divergent comprehension retry responses, reextract during content read, and schema-v12 upgrade/idempotency.
+- **Validation:** Full build passed with 0 warnings/errors; expanded focused suite passed 277 tests; full suite executed 940 tests (930 passed, 10 skipped); comparable Core coverage is 79.06% line / 39.61% branch (+14.06 / +8.51 points from baseline), with overall collected coverage 70.75% / 35.59%.
+- **Blockers:** None for PR A pending renewed independent approval; issue #18 retains ownership of the 85% / 60% wave-close gate, and Phase 1B remains independently owned.
+- **Next:** Obtain renewed independent approval and open PR A for review.
+
+### 2026-08-27 - Phase 1A PR A shared-artifact and retry idempotency closed
+
+- **Changed:** Extended publication fencing from document identity to normalized shared artifact folders, made apply requests fail without mutation when a safe folder identity cannot be derived, and added durable per-document learned-pattern evidence plus equivalent-pending-suggestion guards so real comprehension retries remain exactly once after finalization rollback.
+- **Evidence:** Issue #17 PR A scope on `johnazariah-17-v5-file-first-correctness`; two-document same-folder ordering proves stale work cannot overwrite newer thread bytes, and real triage/deep-comprehend finalization-fault cases prove retries do not inflate learned evidence or duplicate suggestions while evidence from distinct documents still accumulates.
+- **Validation:** Full build passed with 0 warnings/errors; focused concurrency and comprehension suite passed 131 tests; full suite executed 932 tests (922 passed, 10 skipped); comparable Core coverage is 78.85% line / 39.12% branch (+13.85 / +8.02 points from baseline), with overall collected coverage 70.23% / 35.03%.
+- **Blockers:** None for PR A pending renewed independent approval; issue #18 retains ownership of the 85% / 60% wave-close gate, and Phase 1B remains independently owned.
+- **Next:** Obtain renewed independent approval and open PR A for review.
+
+### 2026-08-27 - Phase 1A PR A final concurrency review blockers closed
+
+- **Changed:** Serialized canonical sidecar publication with reflow acceptance, switched write transactions to `BEGIN IMMEDIATE` for safe two-connection fencing, isolated and recorded pipeline-cycle faults, observed terminal background-task failures, and kept transient finalization faults retryable without false dead letters.
+- **Evidence:** Issue #17 PR A scope on `johnazariah-17-v5-file-first-correctness`; deterministic tests prove stale deep extraction cannot overwrite newer-generation sidecar bytes, a second file-backed writer waits and commits without `SQLITE_BUSY_SNAPSHOT`, and injected finalization/cycle faults remain observable while later retries converge.
+- **Validation:** Full build passed with 0 warnings/errors; focused concurrency suite passed 103 tests; full suite executed 928 tests (918 passed, 10 skipped); comparable Core coverage is 78.31% line / 38.70% branch (+13.31 / +7.60 points from baseline), with overall collected coverage 69.65% / 34.60%.
+- **Blockers:** None for PR A pending renewed independent approval; issue #18 retains ownership of the 85% / 60% wave-close gate, and Phase 1B remains independently owned.
+- **Next:** Obtain renewed independent approval and open PR A for review.
+
+### 2026-08-27 - Phase 1A PR A generation fencing validated
+
+- **Changed:** Added per-document generations and stage-attempt leases so reflow acceptance atomically supersedes in-flight work; stale stage output is discarded before retry, identical active requests still coalesce, different reflow kinds retain independent attribution, and deep extraction, contact backfill, RAC hints, and comprehension publication are generation-fenced without deleting shared sidecars.
+- **Evidence:** Issue #17 PR A scope on `johnazariah-17-v5-file-first-correctness`; deterministic barrier tests cover reflow during an active processor, duplicate and different-kind overlap, stale-lease recovery, deep-extraction publication, contact linking, and RAC sidecar use.
+- **Validation:** Full build passed with 0 warnings/errors; focused reflow/race suite passed 98 tests; full suite executed 924 tests (914 passed, 10 skipped); comparable Core coverage is 77.85% line / 37.90% branch (+12.85 / +6.80 points from baseline), with overall collected coverage 69.29% / 33.87%.
+- **Blockers:** None for PR A; issue #18 retains ownership of the 85% / 60% wave-close gate, and Phase 1B remains independently owned.
+- **Next:** Obtain final independent approval and open PR A for review.
+
+### 2026-08-27 - Phase 1A PR A stale-artifact consumers closed
+
+- **Changed:** Required current deep-comprehend completion plus document-level comprehension output before deep extraction or contact backfill can consume shared sidecar content, preventing manual classifications or skipped content-rule gates from revalidating stale comprehension.
+- **Evidence:** Issue #17 PR A scope on `johnazariah-17-v5-file-first-correctness`; 49 net-new synthetic cases from the Phase 0 baseline now include stale-sidecar contact backfill and missing-output deep-extraction regressions while proving the shared sidecar remains untouched.
+- **Validation:** Full build passed with 0 warnings/errors; focused stale-artifact suite passed 74 tests; full suite executed 916 tests (906 passed, 10 skipped); comparable Core coverage is 76.45% line / 36.76% branch (+11.45 / +5.66 points from baseline), with overall collected coverage 68.13% / 33.00%.
+- **Blockers:** None for PR A; issue #18 retains ownership of the 85% / 60% wave-close gate, and Phase 1B remains independently owned.
+- **Next:** Obtain final independent approval and open PR A for review.
+
+### 2026-08-27 - Phase 1A PR A final review blockers closed
+
+- **Changed:** Made stage success/failure finalization atomic, made status reads snapshot-consistent, retired stale-DAG operations without executing them, derived legacy stage from the completion ledger, removed comprehension-owned current state during invalidation, gated extracted/comprehension artifact readers on current completions, and retained the legacy `requeued` response field.
+- **Evidence:** Issue #17 PR A scope on `johnazariah-17-v5-file-first-correctness`; 47 net-new synthetic cases from the Phase 0 baseline now include fault-injected finalization rollback, stale-DAG handling, two-connection status coherence, derived-state ownership, compatibility projection, artifact currentness, and legacy API contracts.
+- **Validation:** Full build passed with 0 warnings/errors; focused review suite passed 169 tests with 1 expected platform skip; full suite executed 914 tests (904 passed, 10 skipped); comparable Core coverage is 76.39% line / 36.72% branch (+11.39 / +5.62 points from baseline), with overall collected coverage 68.08% / 32.96%.
+- **Blockers:** None for PR A; issue #18 retains ownership of the 85% / 60% wave-close gate, and Phase 1B remains independently owned.
+- **Next:** Obtain final independent approval and open PR A for review.
+
+### 2026-08-27 - Phase 1A PR A concurrency correction validated
+
+- **Changed:** Made reflow acceptance a single transaction from operation creation through invalidation, serialized all use of each SQLite connection, isolated production REST/MCP reflow traffic on a dedicated connection, and prevented pending or stale failed operations from corrupting stage claims/completions.
+- **Evidence:** Issue #17 PR A scope on `johnazariah-17-v5-file-first-correctness`; 35 net-new synthetic cases now cover DAG policy, atomic visibility/rollback, connection serialization, operation identity, retries, stale-ledger recovery, chunk replacement, migration, and supported surfaces.
+- **Validation:** Full build passed with 0 warnings/errors; focused concurrency/reflow/API/MCP suite passed 109 with 1 expected platform skip; full suite executed 902 tests (892 passed, 10 skipped); comparable Core coverage is 71.17% line / 34.05% branch (+6.17 / +2.95 points from baseline), with overall collected coverage 63.34% / 30.49%.
+- **Blockers:** None for PR A; issue #18 retains ownership of the 85% / 60% wave-close gate, and Phase 1B remains independently owned.
+- **Next:** Complete final independent review and open PR A for review.
+
+### 2026-08-27 - Phase 1A PR A DAG reflow implemented
+
+- **Changed:** Added typed dry-run/apply reextract, recomprehend, and reembed operations with DAG-closure validation, atomic invalidation, v9 audit state, truthful retries, and REST/MCP/pipeline/activity/dead-letter observability.
+- **Evidence:** Issue #17 PR A scope on `johnazariah-17-v5-file-first-correctness`; 29 synthetic cases cover policy closure, exact preservation/invalidation, rollback, retry, chunk replacement, migration, and supported surfaces.
+- **Validation:** Full build passed with 0 warnings/errors; 896 .NET tests executed (886 passed, 10 skipped); comparable Core coverage 71.3% line / 33.5% branch (+6.3 / +2.4 points from baseline).
+- **Blockers:** None for PR A; reclassification remains separately scoped, and issue #18 retains ownership of the 85% / 60% wave-close gate.
+- **Next:** Prepare PR A for review without claiming Phase 1B search or whole-wave coverage completion.
 
 ### 2026-08-27 - Phase 0 review correction
 

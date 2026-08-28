@@ -28,6 +28,21 @@ let insertTestDocument (db: Algebra.Database) (category: string) (name: string) 
         ()
     }
 
+let private markExtractCurrent
+    (db: Algebra.Database)
+    (documentId: int64)
+    : Task<unit> =
+    task {
+        do! PipelineV5.initSchema db []
+        let! _ =
+            db.execNonQuery
+                """INSERT OR IGNORE INTO stage_completions
+                     (document_id, stage_name)
+                   VALUES (@doc, 'extract')"""
+                [ ("@doc", Database.boxVal documentId) ]
+        return ()
+    }
+
 // ─── JSON-RPC request/response format ────────────────────────────────
 
 [<Fact>]
@@ -99,7 +114,7 @@ let ``McpServer_Dispatch_Initialize_ReturnsCapabilities`` () =
             let json =
                 """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"""
 
-            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" None json
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock (TestHelpers.standardV5Dag ()) "/archive" None json
             let doc = JsonDocument.Parse(response)
             let root = doc.RootElement
 
@@ -111,6 +126,412 @@ let ``McpServer_Dispatch_Initialize_ReturnsCapabilities`` () =
         finally
             db.dispose ()
     }
+
+let private reflowLastRowId (db: Algebra.Database) =
+    task {
+        let! value = db.execScalar "SELECT last_insert_rowid()" []
+        return match value with :? int64 as i -> i | _ -> 0L
+    }
+
+let private reflowInnerContent (response: string) : JsonElement =
+    let outer = JsonDocument.Parse(response).RootElement
+    let text =
+        outer.GetProperty("result").GetProperty("content").[0].GetProperty("text").GetString()
+        |> Option.ofObj
+        |> Option.defaultValue "{}"
+    (JsonDocument.Parse(text).RootElement).Clone()
+
+/// True when tools/call reported a truthful tool failure (MCP isError marker).
+let private toolCallIsError (response: string) : bool =
+    match (JsonDocument.Parse(response).RootElement).TryGetProperty("result") with
+    | true, result ->
+        match result.TryGetProperty("isError") with
+        | true, marker -> marker.GetBoolean()
+        | _ -> false
+    | _ -> false
+
+/// The JSON-RPC error object of a protocol-level rejection.
+let private jsonRpcError (response: string) : JsonElement =
+    ((JsonDocument.Parse(response).RootElement).GetProperty("error")).Clone()
+
+let private elementText (element: JsonElement) (name: string) : string =
+    element.GetProperty(name).GetString() |> Option.ofObj |> Option.defaultValue ""
+
+/// Issue a tools/call request with a raw JSON arguments object.
+let private callTool
+    (db: Algebra.Database)
+    (m: TestHelpers.MemFs)
+    (tool: string)
+    (argsJson: string)
+    =
+    let json =
+        $"""{{"jsonrpc":"2.0","id":90,"method":"tools/call","params":{{"name":"{tool}","arguments":{argsJson}}}}}"""
+    McpServer.processMessage
+        db m.Fs TestHelpers.silentLogger TestHelpers.defaultClock
+        (TestHelpers.standardV5Dag ()) "/archive" None json
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``McpServer_Reflow_DryRun_DefaultsSafelyAndDoesNotWrite`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        try
+            do! TestHelpers.initV5 db
+            do! insertTestDocument db "invoices" "dryrun.pdf"
+            let! docId = reflowLastRowId db
+            let json =
+                sprintf """{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"hermes_reflow","arguments":{"document_id":%d,"operation":"reembed"}}}""" docId
+            let! response =
+                McpServer.processMessage db m.Fs TestHelpers.silentLogger TestHelpers.defaultClock
+                    (TestHelpers.standardV5Dag ()) "/archive" None json
+            let inner = reflowInnerContent response
+            Assert.False(toolCallIsError response)
+            let stages = inner.GetProperty("plan").GetProperty("invalidated_stages")
+            Assert.Equal(1, stages.GetArrayLength())
+            Assert.Equal("embed", stages.[0].GetString())
+            let! count = db.execScalar "SELECT count(*) FROM reflow_operations" []
+            Assert.Equal(0L, count :?> int64)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``McpServer_Reflow_ApplyThenStatus_ReportsPendingStages`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        try
+            do! TestHelpers.initV5 db
+            do! insertTestDocument db "invoices" "apply.pdf"
+            let! docId = reflowLastRowId db
+            let dag = TestHelpers.standardV5Dag ()
+            let applyJson =
+                sprintf """{"jsonrpc":"2.0","id":31,"method":"tools/call","params":{"name":"hermes_reflow","arguments":{"document_id":%d,"operation":"reextract","mode":"apply"}}}""" docId
+            let! response =
+                McpServer.processMessage db m.Fs TestHelpers.silentLogger TestHelpers.defaultClock dag "/archive" None applyJson
+            let applied = reflowInnerContent response
+            let opId = applied.GetProperty("status").GetProperty("operation_id").GetInt64()
+            let statusJson =
+                sprintf """{"jsonrpc":"2.0","id":32,"method":"tools/call","params":{"name":"hermes_reflow_status","arguments":{"operation_id":%d}}}""" opId
+            let! statusResponse =
+                McpServer.processMessage db m.Fs TestHelpers.silentLogger TestHelpers.defaultClock dag "/archive" None statusJson
+            let status = reflowInnerContent statusResponse
+            Assert.Equal("running", status.GetProperty("lifecycle").GetString())
+            let pending =
+                status.GetProperty("stages").EnumerateArray()
+                |> Seq.filter (fun stage -> stage.GetProperty("outcome").GetString() = "pending")
+                |> Seq.length
+            Assert.Equal(4, pending)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``McpServer_Reflow_MissingDocument_ReturnsError`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        try
+            do! TestHelpers.initV5 db
+            let json =
+                """{"jsonrpc":"2.0","id":33,"method":"tools/call","params":{"name":"hermes_reflow","arguments":{"document_id":999999,"operation":"reembed","mode":"apply"}}}"""
+            let! response =
+                McpServer.processMessage db m.Fs TestHelpers.silentLogger TestHelpers.defaultClock
+                    (TestHelpers.standardV5Dag ()) "/archive" None json
+            let inner = reflowInnerContent response
+            Assert.Contains("not found", inner.GetProperty("error").GetString())
+            Assert.True(toolCallIsError response)
+            let! count = db.execScalar "SELECT count(*) FROM reflow_operations" []
+            Assert.Equal(0L, count :?> int64)
+        finally db.dispose ()
+    }
+
+/// Assert one malformed tools/call payload is rejected as JSON-RPC invalid params.
+let private assertInvalidParams
+    (db: Algebra.Database)
+    (m: TestHelpers.MemFs)
+    (tool: string, arguments: string, field: string)
+    : Task<unit> =
+    task {
+        let! response = callTool db m tool arguments
+        let error = jsonRpcError response
+        Assert.Equal(-32602, error.GetProperty("code").GetInt32())
+        Assert.Contains(field, elementText error "message")
+        Assert.False(toolCallIsError response)
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``McpServer_Reflow_MalformedArgumentTypes_ReturnInvalidParams`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        try
+            do! TestHelpers.initV5 db
+
+            let malformed =
+                [ "hermes_reflow", """{"document_id":"1","operation":"reembed"}""", "document_id"
+                  "hermes_reflow", """{"document_id":1,"operation":7}""", "operation"
+                  "hermes_reflow", """{"document_id":1,"operation":"reembed","mode":true}""", "mode"
+                  "hermes_reflow_status", """{"operation_id":[]}""", "operation_id"
+                  "hermes_reextract", """{"document_id":{}}""", "document_id" ]
+
+            do!
+                malformed
+                |> Prelude.foldTask (fun () -> assertInvalidParams db m) ()
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``McpServer_ToolsCall_NonStringToolName_ReturnsInvalidParams`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        try
+            let json =
+                """{"jsonrpc":"2.0","id":91,"method":"tools/call","params":{"name":7,"arguments":{}}}"""
+            let! response =
+                McpServer.processMessage
+                    db m.Fs TestHelpers.silentLogger TestHelpers.defaultClock
+                    (TestHelpers.standardV5Dag ()) "/archive" None json
+            let error = jsonRpcError response
+            Assert.Equal(-32602, error.GetProperty("code").GetInt32())
+            Assert.Contains("name", elementText error "message")
+        finally db.dispose ()
+    }
+
+/// Parse a JSON fixture into a node, failing the test if it is not JSON.
+let private parseNode (json: string) : JsonNode =
+    match JsonNode.Parse(json) with
+    | null -> failwith $"Test fixture is not a JSON node: {json}"
+    | node -> node
+
+/// Assert one malformed tools/call container is a protocol error rather than
+/// an exception escaping the handler.
+let private assertContainerRejected
+    (db: Algebra.Database)
+    (m: TestHelpers.MemFs)
+    (parameters: string, expected: string)
+    : Task<unit> =
+    task {
+        let json =
+            $"""{{"jsonrpc":"2.0","id":92,"method":"tools/call","params":{parameters}}}"""
+        let! outcome =
+            task {
+                try
+                    let! response =
+                        McpServer.processMessage
+                            db m.Fs TestHelpers.silentLogger
+                            TestHelpers.defaultClock
+                            (TestHelpers.standardV5Dag ())
+                            "/archive" None json
+                    return Ok response
+                with error ->
+                    return Error error.Message
+            }
+        match outcome with
+        | Error message ->
+            failwith $"tools/call raised for params {parameters}: {message}"
+        | Ok response ->
+            let error = jsonRpcError response
+            Assert.Equal(-32602, error.GetProperty("code").GetInt32())
+            Assert.Equal(expected, elementText error "message")
+            Assert.False(toolCallIsError response)
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``McpServer_ToolsCall_NonObjectContainers_ReturnInvalidParams`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let m = TestHelpers.memFs ()
+        try
+            do! TestHelpers.initV5 db
+
+            let malformed =
+                [ """["hermes_search"]""", "params must be an object"
+                  "\"hermes_search\"", "params must be an object"
+                  """{"name":"hermes_search","arguments":[]}""",
+                    "arguments must be an object"
+                  """{"name":"hermes_search","arguments":7}""",
+                    "arguments must be an object" ]
+
+            do!
+                malformed
+                |> Prelude.foldTask
+                    (fun () -> assertContainerRejected db m) ()
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``McpServer_ToolsCall_AbsentArguments_StillDispatches`` () =
+    task {
+        let db = TestHelpers.createRawDb ()
+        let m = TestHelpers.memFs ()
+        try
+            let! _ = db.initSchema ()
+            let! _ = insertTestDocument db "invoices" "absent-args.pdf"
+            let json =
+                """{"jsonrpc":"2.0","id":93,"method":"tools/call","params":{"name":"hermes_stats"}}"""
+            let! response =
+                McpServer.processMessage
+                    db m.Fs TestHelpers.silentLogger
+                    TestHelpers.defaultClock
+                    (TestHelpers.standardV5Dag ())
+                    "/archive" None json
+            let root = JsonDocument.Parse(response).RootElement
+            Assert.False(root.TryGetProperty("error") |> fst)
+            Assert.True(
+                root.GetProperty("result").TryGetProperty("content") |> fst)
+            Assert.False(toolCallIsError response)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``McpTools_Args_NonObjectContainer_IsAbsentNotAnException`` () =
+    let assertTotal (container: JsonNode) =
+        match McpTools.Args.text container "operation" with
+        | Ok None -> ()
+        | other -> failwith $"Expected no string value, got {other}"
+
+        match McpTools.Args.integer container "document_id" with
+        | Ok None -> ()
+        | other -> failwith $"Expected no integer value, got {other}"
+
+        match McpTools.Args.flag container "force" with
+        | Ok None -> ()
+        | other -> failwith $"Expected no boolean value, got {other}"
+
+        match McpTools.Args.requiredInteger container "document_id" with
+        | Error message -> Assert.Equal("document_id is required", message)
+        | Ok value ->
+            failwith $"Expected a required-argument error, got {value}"
+
+    [ "[1,2,3]"; "7"; "\"text\""; "true" ]
+    |> List.map parseNode
+    |> List.iter assertTotal
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``McpTools_ReflowDocument_MissingDocument_IsDomainFailure`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            do! TestHelpers.initV5 db
+            let args = JsonObject()
+            args["document_id"] <- JsonValue.Create(999999L)
+            args["operation"] <- JsonValue.Create("reembed")
+            args["mode"] <- JsonValue.Create("apply")
+            let! result =
+                McpTools.reflowDocument
+                    db TestHelpers.silentLogger (TestHelpers.standardV5Dag ())
+                    (args :> JsonNode)
+            match result with
+            | Error (McpTools.DomainFailure message) ->
+                Assert.Contains("not found", message)
+            | other -> failwith $"Expected a domain failure, got {other}"
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``McpTools_ReflowStatus_UnknownOperation_IsDomainFailure`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            do! TestHelpers.initV5 db
+            let args = JsonObject()
+            args["operation_id"] <- JsonValue.Create(4242L)
+            let! result =
+                McpTools.reflowStatus
+                    db (TestHelpers.standardV5Dag ()) (args :> JsonNode)
+            match result with
+            | Error (McpTools.DomainFailure message) ->
+                Assert.Contains("not found", message)
+            | other -> failwith $"Expected a domain failure, got {other}"
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``McpTools_ReflowDocument_WrongTypedArguments_AreInvalidArguments`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let dag = TestHelpers.standardV5Dag ()
+        try
+            let wrongId = JsonObject()
+            wrongId["document_id"] <- JsonValue.Create("1")
+            wrongId["operation"] <- JsonValue.Create("reembed")
+            let! byId =
+                McpTools.reflowDocument
+                    db TestHelpers.silentLogger dag (wrongId :> JsonNode)
+
+            let wrongMode = JsonObject()
+            wrongMode["document_id"] <- JsonValue.Create(1L)
+            wrongMode["operation"] <- JsonValue.Create("reembed")
+            wrongMode["mode"] <- JsonValue.Create(1L)
+            let! byMode =
+                McpTools.reflowDocument
+                    db TestHelpers.silentLogger dag (wrongMode :> JsonNode)
+
+            match byId, byMode with
+            | Error (McpTools.InvalidArguments idMessage),
+              Error (McpTools.InvalidArguments modeMessage) ->
+                Assert.Equal("document_id must be an integer", idMessage)
+                Assert.Equal("mode must be a string", modeMessage)
+            | other -> failwith $"Expected validation failures, got {other}"
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``McpTools_Args_WrongTypes_ReturnErrorsInsteadOfThrowing`` () =
+    let args = JsonObject()
+    args["document_id"] <- JsonValue.Create("1")
+    args["operation"] <- JsonValue.Create(7L)
+    args["force"] <- JsonValue.Create("yes")
+    let node = args :> JsonNode
+
+    match McpTools.Args.integer node "document_id" with
+    | Error message -> Assert.Equal("document_id must be an integer", message)
+    | Ok value -> failwith $"Expected a validation error, got {value}"
+
+    match McpTools.Args.text node "operation" with
+    | Error message -> Assert.Equal("operation must be a string", message)
+    | Ok value -> failwith $"Expected a validation error, got {value}"
+
+    match McpTools.Args.flag node "force" with
+    | Error message -> Assert.Equal("force must be a boolean", message)
+    | Ok value -> failwith $"Expected a validation error, got {value}"
+
+    match McpTools.Args.text node "absent" with
+    | Ok None -> ()
+    | other -> failwith $"Expected no value for an absent argument, got {other}"
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``McpTools_Args_WellTypedValues_StillParse`` () =
+    let args = JsonObject()
+    args["document_id"] <- JsonValue.Create(7L)
+    args["operation"] <- JsonValue.Create("reembed")
+    args["force"] <- JsonValue.Create(true)
+    let node = args :> JsonNode
+
+    match McpTools.Args.requiredInteger node "document_id" with
+    | Ok value -> Assert.Equal(7L, value)
+    | Error message -> failwith $"Expected an integer, got {message}"
+
+    match McpTools.Args.text node "operation" with
+    | Ok (Some value) -> Assert.Equal("reembed", value)
+    | other -> failwith $"Expected a string, got {other}"
+
+    match McpTools.Args.flag node "force" with
+    | Ok (Some value) -> Assert.True(value)
+    | other -> failwith $"Expected a boolean, got {other}"
 
 [<Fact>]
 [<Trait("Category", "Integration")>]
@@ -124,11 +545,11 @@ let ``McpServer_Dispatch_ToolsList_ReturnsAllTools`` () =
             let json =
                 """{"jsonrpc":"2.0","id":2,"method":"tools/list","params":null}"""
 
-            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" None json
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock (TestHelpers.standardV5Dag ()) "/archive" None json
             let doc = JsonDocument.Parse(response)
             let result = doc.RootElement.GetProperty("result")
             let tools = result.GetProperty("tools")
-            Assert.Equal(18, tools.GetArrayLength())
+            Assert.Equal(20, tools.GetArrayLength())
 
             let toolNames =
                 [ for i in 0 .. tools.GetArrayLength() - 1 ->
@@ -142,6 +563,58 @@ let ``McpServer_Dispatch_ToolsList_ReturnsAllTools`` () =
             Assert.Contains("hermes_list_documents", toolNames :> seq<string>)
             Assert.Contains("hermes_get_feed_stats", toolNames :> seq<string>)
             Assert.Contains("hermes_get_document_content", toolNames :> seq<string>)
+            Assert.Contains("hermes_reflow", toolNames :> seq<string>)
+            Assert.Contains("hermes_reflow_status", toolNames :> seq<string>)
+        finally
+            db.dispose ()
+    }
+
+/// Tool names in the exact order tools/list must report them.
+let private expectedToolNames: string list =
+    McpServer.toolDefinitions |> List.map (fun toolDef -> toolDef.Name)
+
+/// A tools/list response must be error-free and carry every tool, in order,
+/// each with its own input schema.
+let private assertFullToolList (response: string) : unit =
+    let root = JsonDocument.Parse(response).RootElement
+    Assert.False(root.TryGetProperty("error") |> fst)
+
+    let entries =
+        let tools = root.GetProperty("result").GetProperty("tools")
+        [ for index in 0 .. tools.GetArrayLength() - 1 -> tools.[index] ]
+
+    let names =
+        entries |> List.map (fun entry -> elementText entry "name")
+
+    Assert.Equal<string list>(expectedToolNames, names)
+
+    Assert.True(
+        entries
+        |> List.forall (fun entry ->
+            elementText (entry.GetProperty("inputSchema")) "type" = "object"))
+
+/// Schema nodes are shared module-level state, so a second tools/list must
+/// still render the full list rather than fail on an already-parented node.
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``McpServer_Dispatch_ToolsList_TwiceInOneProcess_ReturnsFullListBothTimes`` () =
+    task {
+        let db = TestHelpers.createRawDb ()
+        let m = TestHelpers.memFs ()
+        let logger = TestHelpers.silentLogger
+
+        let listTools () =
+            McpServer.processMessage
+                db m.Fs logger TestHelpers.defaultClock
+                (TestHelpers.standardV5Dag ()) "/archive" None
+                """{"jsonrpc":"2.0","id":21,"method":"tools/list","params":null}"""
+
+        try
+            let! first = listTools ()
+            let! second = listTools ()
+
+            assertFullToolList first
+            assertFullToolList second
         finally
             db.dispose ()
     }
@@ -158,7 +631,7 @@ let ``McpServer_Dispatch_UnknownMethod_ReturnsError`` () =
             let json =
                 """{"jsonrpc":"2.0","id":3,"method":"unknown/method","params":null}"""
 
-            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" None json
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock (TestHelpers.standardV5Dag ()) "/archive" None json
             let doc = JsonDocument.Parse(response)
             let root = doc.RootElement
             Assert.True(root.TryGetProperty("error") |> fst)
@@ -180,7 +653,7 @@ let ``McpServer_Dispatch_ToolsCallUnknownTool_ReturnsError`` () =
             let json =
                 """{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"nonexistent_tool","arguments":{}}}"""
 
-            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" None json
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock (TestHelpers.standardV5Dag ()) "/archive" None json
             let doc = JsonDocument.Parse(response)
             let root = doc.RootElement
             Assert.True(root.TryGetProperty("error") |> fst)
@@ -205,7 +678,7 @@ let ``McpServer_Dispatch_ToolsCallSearch_ReturnsContent`` () =
             let json =
                 """{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"hermes_search","arguments":{"query":"invoice"}}}"""
 
-            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" None json
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock (TestHelpers.standardV5Dag ()) "/archive" None json
             let doc = JsonDocument.Parse(response)
             let root = doc.RootElement
 
@@ -232,7 +705,7 @@ let ``McpServer_Dispatch_ToolsCallStats_ReturnsStats`` () =
             let json =
                 """{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"hermes_stats","arguments":{}}}"""
 
-            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" None json
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock (TestHelpers.standardV5Dag ()) "/archive" None json
             let doc = JsonDocument.Parse(response)
             let result = doc.RootElement.GetProperty("result")
             let content = result.GetProperty("content")
@@ -262,7 +735,7 @@ let ``McpServer_Dispatch_ToolsCallListCategories_ReturnsCategories`` () =
             let json =
                 """{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"hermes_list_categories","arguments":{}}}"""
 
-            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" None json
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock (TestHelpers.standardV5Dag ()) "/archive" None json
             let doc = JsonDocument.Parse(response)
             let result = doc.RootElement.GetProperty("result")
             let content = result.GetProperty("content")
@@ -418,7 +891,7 @@ let ``McpServer_ProcessMessage_CompleteRoundTrip_ValidJsonRpc`` () =
             let json =
                 """{"jsonrpc":"2.0","id":42,"method":"initialize","params":{}}"""
 
-            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" None json
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock (TestHelpers.standardV5Dag ()) "/archive" None json
             let doc = JsonDocument.Parse(response)
             let root = doc.RootElement
 
@@ -455,7 +928,7 @@ let ``MCP_ListReminders_ReturnsActiveReminders`` () =
             let! _ = db.initSchema ()
             let! _ = insertReminder db "invoices" 500.0 "2026-04-10"
             let json = """{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"hermes_list_reminders","arguments":{}}}"""
-            let! response = McpServer.processMessage db m.Fs TestHelpers.silentLogger TestHelpers.defaultClock "/archive" None json
+            let! response = McpServer.processMessage db m.Fs TestHelpers.silentLogger TestHelpers.defaultClock (TestHelpers.standardV5Dag ()) "/archive" None json
             let doc = JsonDocument.Parse(response)
             let root = doc.RootElement
             if root.TryGetProperty("error") |> fst then
@@ -490,7 +963,7 @@ let ``MCP_UpdateReminder_MarkComplete_ChangesStatus`` () =
             args["action"] <- JsonValue.Create("complete")
             ps["arguments"] <- args
             req["params"] <- ps
-            let! response = McpServer.processMessage db m.Fs TestHelpers.silentLogger TestHelpers.defaultClock "/archive" None (req.ToJsonString())
+            let! response = McpServer.processMessage db m.Fs TestHelpers.silentLogger TestHelpers.defaultClock (TestHelpers.standardV5Dag ()) "/archive" None (req.ToJsonString())
             let doc = JsonDocument.Parse(response)
             let root = doc.RootElement
             if root.TryGetProperty("error") |> fst then
@@ -522,6 +995,7 @@ let ``McpServer_GetDocumentContent_Markdown_ReturnsStructuredContent`` () =
             m.Put "/archive/invoices/test.pdf.extracted.md" mdContent
             let! idObj = db.execScalar "SELECT MAX(id) FROM documents" []
             let docId = match idObj with :? int64 as i -> i | _ -> 1L
+            do! markExtractCurrent db docId
             let req = JsonObject()
             req["jsonrpc"] <- JsonValue.Create("2.0")
             req["id"] <- JsonValue.Create(1)
@@ -533,7 +1007,7 @@ let ``McpServer_GetDocumentContent_Markdown_ReturnsStructuredContent`` () =
             args["format"] <- JsonValue.Create("markdown")
             ps["arguments"] <- args
             req["params"] <- ps
-            let! response = McpServer.processMessage db m.Fs TestHelpers.silentLogger TestHelpers.defaultClock "/archive" None (req.ToJsonString())
+            let! response = McpServer.processMessage db m.Fs TestHelpers.silentLogger TestHelpers.defaultClock (TestHelpers.standardV5Dag ()) "/archive" None (req.ToJsonString())
             let doc = JsonDocument.Parse(response)
             let root = doc.RootElement
             if root.TryGetProperty("error") |> fst then
@@ -616,12 +1090,16 @@ let ``McpTools_ReextractDocument_ValidId_ReturnsSuccess`` () =
     task {
         let db = TestHelpers.createDb ()
         try
+            do! TestHelpers.initV5 db
             let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_at) VALUES ('manual_drop', 'a.pdf', 'invoices', 'sha1', datetime('now'))" []
             let args = JsonObject()
             args["document_id"] <- JsonValue.Create(1L)
-            let! result = McpTools.reextractDocument db (args :> JsonNode)
-            let obj = result :?> JsonObject
-            Assert.Equal("queued_for_reextraction", obj["status"].GetValue<string>())
+            let! result = McpTools.reextractDocument db TestHelpers.silentLogger (TestHelpers.standardV5Dag ()) (args :> JsonNode)
+            match result with
+            | Ok payload ->
+                let obj = payload :?> JsonObject
+                Assert.Equal("queued_for_reextraction", obj["status"].GetValue<string>())
+            | Error failure -> failwith $"Expected success, got {failure}"
         finally db.dispose ()
     }
 
@@ -632,9 +1110,11 @@ let ``McpTools_ReextractDocument_MissingId_ReturnsError`` () =
         let db = TestHelpers.createDb ()
         try
             let args = JsonObject() :> JsonNode
-            let! result = McpTools.reextractDocument db args
-            let obj = result :?> JsonObject
-            Assert.True(obj.ContainsKey("error"))
+            let! result = McpTools.reextractDocument db TestHelpers.silentLogger (TestHelpers.standardV5Dag ()) args
+            match result with
+            | Error (McpTools.InvalidArguments message) ->
+                Assert.Contains("document_id is required", message)
+            | other -> failwith $"Expected a validation failure, got {other}"
         finally db.dispose ()
     }
 
@@ -688,6 +1168,7 @@ let ``McpTools_GetDocumentContent_ValidId_ReturnsContent`` () =
         try
             let! _ = db.execNonQuery "INSERT INTO documents (source_type, saved_path, category, sha256, extracted_at) VALUES ('manual_drop', 'inv/a.pdf', 'invoices', 'sha1', datetime('now'))" []
             m.Put "/archive/inv/a.pdf.extracted.md" "Hello world"
+            do! markExtractCurrent db 1L
             let args = JsonObject()
             args["document_id"] <- JsonValue.Create(1L)
             args["format"] <- JsonValue.Create("markdown")
@@ -896,7 +1377,7 @@ let ``McpServer_Dispatch_ToolsCallGetDocument_ReturnsResult`` () =
             let! _ = insertTestDocument db "invoices" "test-doc.pdf"
             let json =
                 """{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"hermes_get_document","arguments":{"id":1}}}"""
-            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" None json
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock (TestHelpers.standardV5Dag ()) "/archive" None json
             let doc = JsonDocument.Parse(response)
             Assert.True(doc.RootElement.TryGetProperty("result") |> fst)
         finally db.dispose ()
@@ -914,7 +1395,7 @@ let ``McpServer_Dispatch_ToolsCallListDocuments_ReturnsResult`` () =
             let! _ = insertTestDocument db "invoices" "list-test.pdf"
             let json =
                 """{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"hermes_list_documents","arguments":{"limit":10}}}"""
-            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" None json
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock (TestHelpers.standardV5Dag ()) "/archive" None json
             let doc = JsonDocument.Parse(response)
             Assert.True(doc.RootElement.TryGetProperty("result") |> fst)
         finally db.dispose ()
@@ -931,7 +1412,7 @@ let ``McpServer_Dispatch_ToolsCallGetProcessingQueue_ReturnsResult`` () =
             let! _ = db.initSchema ()
             let json =
                 """{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"hermes_get_processing_queue","arguments":{}}}"""
-            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" None json
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock (TestHelpers.standardV5Dag ()) "/archive" None json
             let doc = JsonDocument.Parse(response)
             Assert.True(doc.RootElement.TryGetProperty("result") |> fst)
         finally db.dispose ()
@@ -949,7 +1430,7 @@ let ``McpServer_Dispatch_ToolsCallReadFile_ReturnsResult`` () =
             let! _ = db.initSchema ()
             let json =
                 """{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"hermes_read_file","arguments":{"path":"invoices/test.pdf"}}}"""
-            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" None json
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock (TestHelpers.standardV5Dag ()) "/archive" None json
             let doc = JsonDocument.Parse(response)
             Assert.True(doc.RootElement.TryGetProperty("result") |> fst)
         finally db.dispose ()
@@ -966,7 +1447,7 @@ let ``McpServer_Dispatch_ToolsCallListReminders_ReturnsResult`` () =
             let! _ = db.initSchema ()
             let json =
                 """{"jsonrpc":"2.0","id":14,"method":"tools/call","params":{"name":"hermes_list_reminders","arguments":{}}}"""
-            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" None json
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock (TestHelpers.standardV5Dag ()) "/archive" None json
             let doc = JsonDocument.Parse(response)
             Assert.True(doc.RootElement.TryGetProperty("result") |> fst)
         finally db.dispose ()
@@ -983,7 +1464,7 @@ let ``McpServer_Dispatch_ToolsCallGetFeedStats_ReturnsResult`` () =
             let! _ = db.initSchema ()
             let json =
                 """{"jsonrpc":"2.0","id":15,"method":"tools/call","params":{"name":"hermes_get_feed_stats","arguments":{}}}"""
-            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" None json
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock (TestHelpers.standardV5Dag ()) "/archive" None json
             let doc = JsonDocument.Parse(response)
             Assert.True(doc.RootElement.TryGetProperty("result") |> fst)
         finally db.dispose ()
@@ -995,14 +1476,15 @@ let ``McpServer_Dispatch_ToolsCallGetDocumentContent_ReturnsResult`` () =
     task {
         let db = TestHelpers.createRawDb ()
         let m = TestHelpers.memFs ()
-        m.Put "/archive/invoices/content-test.pdf" "pdf content"
+        m.Put "/archive/invoices/content-test.pdf.extracted.md" "pdf content"
         let logger = TestHelpers.silentLogger
         try
             let! _ = db.initSchema ()
             let! _ = insertTestDocument db "invoices" "content-test.pdf"
+            do! markExtractCurrent db 1L
             let json =
                 """{"jsonrpc":"2.0","id":16,"method":"tools/call","params":{"name":"hermes_get_document_content","arguments":{"id":1}}}"""
-            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" None json
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock (TestHelpers.standardV5Dag ()) "/archive" None json
             let doc = JsonDocument.Parse(response)
             Assert.True(doc.RootElement.TryGetProperty("result") |> fst)
         finally db.dispose ()
@@ -1027,7 +1509,7 @@ let ``McpServer_Dispatch_ToolsCallReclassify_ReturnsResult`` () =
                     []
             let json =
                 """{"jsonrpc":"2.0","id":17,"method":"tools/call","params":{"name":"hermes_reclassify","arguments":{"id":1,"category":"invoices"}}}"""
-            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" None json
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock (TestHelpers.standardV5Dag ()) "/archive" None json
             let doc = JsonDocument.Parse(response)
             Assert.True(doc.RootElement.TryGetProperty("result") |> fst)
         finally db.dispose ()
@@ -1035,7 +1517,7 @@ let ``McpServer_Dispatch_ToolsCallReclassify_ReturnsResult`` () =
 
 [<Fact>]
 [<Trait("Category", "Integration")>]
-let ``McpServer_Dispatch_ToolsCallReextract_ReturnsResult`` () =
+let ``McpServer_Dispatch_ToolsCallReextract_MissingDocumentId_ReturnsInvalidParams`` () =
     task {
         let db = TestHelpers.createRawDb ()
         let m = TestHelpers.memFs ()
@@ -1045,9 +1527,10 @@ let ``McpServer_Dispatch_ToolsCallReextract_ReturnsResult`` () =
             let! _ = insertTestDocument db "invoices" "reext-test.pdf"
             let json =
                 """{"jsonrpc":"2.0","id":18,"method":"tools/call","params":{"name":"hermes_reextract","arguments":{"id":1}}}"""
-            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" None json
-            let doc = JsonDocument.Parse(response)
-            Assert.True(doc.RootElement.TryGetProperty("result") |> fst)
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock (TestHelpers.standardV5Dag ()) "/archive" None json
+            let error = jsonRpcError response
+            Assert.Equal(-32602, error.GetProperty("code").GetInt32())
+            Assert.Contains("document_id", elementText error "message")
         finally db.dispose ()
     }
 
@@ -1070,7 +1553,7 @@ let ``McpServer_Dispatch_DeepExtract_NoDeps_ReturnsError`` () =
                       ("@sha", Database.boxVal "deadbeef01234567") ]
             let json =
                 """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"hermes_deep_extract","arguments":{"document_id":1}}}"""
-            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" None json
+            let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock (TestHelpers.standardV5Dag ()) "/archive" None json
             let doc = JsonDocument.Parse(response)
             let root = doc.RootElement
             Assert.True(root.TryGetProperty("error") |> fst)
