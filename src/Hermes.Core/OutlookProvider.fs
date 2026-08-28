@@ -31,7 +31,7 @@ module OutlookProvider =
 
     // ─── Mapping helpers ─────────────────────────────────────────────
 
-    let private formatSender (msg: Message) =
+    let internal formatSender (msg: Message) =
         match msg.From with
         | null -> None
         | from ->
@@ -46,7 +46,7 @@ module OutlookProvider =
                 | n, "" -> Some n
                 | n, a -> Some $"{n} <{a}>"
 
-    let private toLabels (msg: Message) =
+    let internal toLabels (msg: Message) =
         let categories =
             match msg.Categories with
             | null -> []
@@ -62,7 +62,7 @@ module OutlookProvider =
 
         categories @ flagLabel
 
-    let private parseDate (dto: Nullable<DateTimeOffset>) =
+    let internal parseDate (dto: Nullable<DateTimeOffset>) =
         if dto.HasValue then Some dto.Value else None
 
     let private mapToEmailMessage (bodyText: string option) (msg: Message) : Domain.EmailMessage =
@@ -81,7 +81,7 @@ module OutlookProvider =
             |> Option.defaultValue false
           BodyText = bodyText }
 
-    let private mapToPreview (msg: Message) : Domain.EmailMessage =
+    let internal mapToPreview (msg: Message) : Domain.EmailMessage =
         msg.BodyPreview
         |> Option.ofObj
         |> Option.bind (fun s -> if String.IsNullOrWhiteSpace(s) then None else Some s)
@@ -99,7 +99,7 @@ module OutlookProvider =
                 else c)
             |> Option.bind (fun s -> if String.IsNullOrWhiteSpace(s) then None else Some s)
 
-    let private mapToFull (msg: Message) : Domain.EmailMessage =
+    let internal mapToFull (msg: Message) : Domain.EmailMessage =
         extractFullBody msg |> fun body -> mapToEmailMessage body msg
 
     // ─── Select fields ──────────────────────────────────────────────
