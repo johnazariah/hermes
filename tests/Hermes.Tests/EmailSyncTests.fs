@@ -901,6 +901,42 @@ let ``EmailSync_SyncAccountWithChannel_MessageFailure_ReturnsErrorWithoutAdvanci
 
 [<Fact>]
 [<Trait("Category", "Integration")>]
+let ``EmailSync_SyncAccountWithChannel_AttachmentFailure_ReturnsErrorWithoutRecordingMessage`` () =
+    let output = Channel.CreateUnbounded<Document.T>()
+    let provider =
+        { TestHelpers.emptyProvider with
+            listStubPage =
+                fun _ _ _ -> Task.FromResult(stubPage [ sampleMessage.ProviderId ] None)
+            getFullMessage =
+                fun _ -> Task.FromResult(sampleMessage)
+            getAttachments =
+                fun id ->
+                    Task.FromException<Domain.EmailAttachment list>(
+                        InvalidOperationException($"attachments failed {id}")) }
+
+    withDatabase (fun db ->
+        task {
+            let! result =
+                EmailSync.syncAccountWithChannel
+                    (TestHelpers.memFs ()).Fs db TestHelpers.silentLogger
+                    TestHelpers.defaultClock provider (emailTestConfig "/archive")
+                    "test-account" output.Writer 1 CancellationToken.None
+            let! messageCount = countRows db "messages"
+            let! documentCount = countRows db "documents"
+            let! state = EmailSync.loadSyncState db "test-account"
+            Assert.Equal(0, result.MessagesProcessed)
+            Assert.Equal(0, result.AttachmentsDownloaded)
+            Assert.Equal(0, result.DuplicatesSkipped)
+            Assert.Single(result.Errors) |> ignore
+            Assert.Contains(sampleMessage.ProviderId, result.Errors.Head)
+            Assert.Equal(0L, messageCount)
+            Assert.Equal(0L, documentCount)
+            Assert.True(state.IsNone)
+            Assert.True(tryRead output.Reader |> Option.isNone)
+        })
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
 let ``EmailSync_SyncAccountWithChannel_SyntheticMessage_ForwardsDocumentsAndAdvancesState`` () =
     let output = Channel.CreateUnbounded<Document.T>()
     let syncTime = DateTimeOffset(2024, 6, 15, 12, 0, 0, TimeSpan.Zero)
