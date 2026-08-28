@@ -1,6 +1,7 @@
 namespace Hermes.Core
 
 open System
+open System.Collections.Concurrent
 open System.IO
 open System.Security.Cryptography
 open System.Text.Json
@@ -179,10 +180,11 @@ module EmailSync =
         (now: DateTimeOffset)
         : Task<int64> =
         task {
-            let! _ =
-                db.execNonQuery
+            let! idObj =
+                db.execScalar
                     """INSERT INTO documents (source_type, gmail_id, thread_id, account, sender, subject, email_date, original_name, saved_path, category, mime_type, size_bytes, sha256)
-                       VALUES (@src, @gid, @tid, @acc, @sender, @subject, @date, @orig, @path, @cat, @mime, @size, @sha)"""
+                       VALUES (@src, @gid, @tid, @acc, @sender, @subject, @date, @orig, @path, @cat, @mime, @size, @sha)
+                       RETURNING id"""
                     [ ("@src", boxVal sourceType)
                       ("@gid", boxVal msg.ProviderId)
                       ("@tid", boxVal msg.ThreadId)
@@ -200,9 +202,11 @@ module EmailSync =
                       ("@size", boxVal att.SizeBytes)
                       ("@sha", boxVal sha256) ]
 
-            let! idObj = db.execScalar "SELECT last_insert_rowid()" []
-            let docId = match idObj with :? int64 as i -> i | _ -> 0L
-            return docId
+            return
+                match idObj with
+                | :? int64 as id -> id
+                | :? int as id -> int64 id
+                | _ -> 0L
         }
 
     // ─── Sync state ──────────────────────────────────────────────────
@@ -604,6 +608,15 @@ module EmailSync =
     // Channel-based sync: enumerate IDs → channel → N concurrent consumers
     // ═══════════════════════════════════════════════════════════════════
 
+    let private awaitEnumerationRetry (ct: CancellationToken) : Task<bool> =
+        task {
+            try
+                do! Task.Delay(TimeSpan.FromSeconds(30.0), ct)
+                return true
+            with :? OperationCanceledException ->
+                return false
+        }
+
     /// Producer: page through all Gmail stubs for an account, push IDs to a channel.
     /// Completes the channel writer when all pages are exhausted.
     let enumerateIds
@@ -635,19 +648,20 @@ module EmailSync =
                     if page.Ids.Length > 0 then
                         logger.debug $"[{account}] Enumerated {total} message IDs so far"
                 with
-                | :? OperationCanceledException -> hasMore <- false
+                | :? OperationCanceledException when ct.IsCancellationRequested ->
+                    hasMore <- false
                 | ex ->
                     logger.warn $"[{account}] Enumerate page failed: {ex.Message}, retrying in 30s"
-                    try do! Task.Delay(TimeSpan.FromSeconds(30.0), ct) with :? OperationCanceledException -> hasMore <- false
+                    let! shouldContinue = awaitEnumerationRetry ct
+                    hasMore <- shouldContinue
 
             output.Complete()
             logger.info $"[{account}] Enumeration complete: {total} message IDs"
             return total
         }
 
-    /// Consumer: pull message IDs from channel, check DB, fetch + save if new.
-    /// Calls onIngest callback for each new document (docId, relativePath).
-    let processMessageConsumer
+    let private processMessageConsumerWithErrors
+        (reportError: string -> unit)
         (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
         (clock: Algebra.Clock) (provider: Algebra.EmailProvider)
         (config: Domain.HermesConfig) (account: string)
@@ -669,7 +683,11 @@ module EmailSync =
                         let! exists = messageExists db account messageId
                         if not exists then
                             let! msg = provider.getFullMessage messageId
+                            let! atts = provider.getAttachments messageId
                             let now = clock.utcNow ()
+                            let valid = atts |> List.filter (fun a -> a.SizeBytes >= int64 config.MinAttachmentSize)
+
+                            // The message row must precede documents because of their immediate foreign key.
                             do! recordMessage db account msg now
 
                             // Save email body as a document — one per thread (latest wins)
@@ -740,10 +758,6 @@ module EmailSync =
                                             downloaded <- downloaded + 1
                                             logger.info $"[{account}/{consumerId}] Saved email body: {bodyFileName}"
 
-                            // Fetch attachments
-                            let! atts = provider.getAttachments messageId
-                            let valid = atts |> List.filter (fun a -> a.SizeBytes >= int64 config.MinAttachmentSize)
-
                             for att in valid do
                                 let sha = computeSha256 att.Content
                                 let! isDup = hashExists db sha
@@ -773,10 +787,13 @@ module EmailSync =
                             System.Threading.Interlocked.Increment(processedCount) |> ignore
                     with
                     | :? Google.GoogleApiException as ex when ex.HttpStatusCode = System.Net.HttpStatusCode.TooManyRequests ->
+                        reportError $"[{account}/{consumerId}] Rate limited while processing {messageId}"
                         logger.warn $"[{account}/{consumerId}] Rate limited, backing off 60s"
                         try do! Task.Delay(TimeSpan.FromSeconds(60.0), ct) with :? OperationCanceledException -> ()
                     | ex ->
-                        logger.warn $"[{account}/{consumerId}] Error processing {messageId}: {ex.Message}"
+                        let error = $"[{account}/{consumerId}] Error processing {messageId}: {ex.Message}"
+                        reportError error
+                        logger.warn error
             with
             | :? OperationCanceledException -> ()
             | :? ChannelClosedException -> ()
@@ -785,8 +802,48 @@ module EmailSync =
             return (processed, downloaded)
         }
 
+    /// Consumer: pull message IDs from channel, check DB, fetch + save if new.
+    /// Calls onIngest callback for each new document (docId, relativePath).
+    let processMessageConsumer
+        (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
+        (clock: Algebra.Clock) (provider: Algebra.EmailProvider)
+        (config: Domain.HermesConfig) (account: string)
+        (input: ChannelReader<string>)
+        (onIngest: int64 -> string -> Task<unit>)
+        (processedCount: int ref)
+        (consumerId: int)
+        (ct: CancellationToken)
+        : Task<int * int> =
+        processMessageConsumerWithErrors
+            ignore fs db logger clock provider config account input
+            onIngest processedCount consumerId ct
+
+    let private withSerializedAccess
+        (gate: SemaphoreSlim)
+        (db: Algebra.Database)
+        : Algebra.Database =
+        let serialized (operation: unit -> Task<'T>) : Task<'T> =
+            task {
+                do! gate.WaitAsync()
+                try
+                    return! operation ()
+                finally
+                    gate.Release() |> ignore
+            }
+
+        { db with
+            execNonQuery =
+                fun sql parameters ->
+                    serialized (fun () -> db.execNonQuery sql parameters)
+            execScalar =
+                fun sql parameters ->
+                    serialized (fun () -> db.execScalar sql parameters)
+            execReader =
+                fun sql parameters ->
+                    serialized (fun () -> db.execReader sql parameters) }
+
     /// Run a full channel-based sync for one account.
-    /// Enumerates all message IDs, processes concurrently, advances watermark when done.
+    /// Enumerates all message IDs, processes concurrently, advances watermark on success.
     /// Writes new documents to the pipeline's extract channel via onIngest callback.
     let syncAccountWithChannel
         (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
@@ -798,6 +855,7 @@ module EmailSync =
         : Task<SyncResult> =
         task {
             try
+                use gate = new SemaphoreSlim(1, 1)
                 let! lastSync = loadSyncState db account
                 let syncSince = lastSync |> Option.defaultWith (fun () -> defaultHighWaterMark clock)
                 let sinceStr = syncSince.ToString("yyyy-MM-dd")
@@ -805,11 +863,15 @@ module EmailSync =
                 let epoch = syncSince.ToUnixTimeSeconds()
                 let query = $"after:{epoch}"
                 logger.info $"[{account}] Channel sync since {sinceStr} with {concurrency} consumers"
+                let serializedDb = withSerializedAccess gate db
 
                 // Callback to ingest into pipeline channel
                 let onIngest (docId: int64) (_relPath: string) =
                     task {
-                        let! rows = db.execReader "SELECT * FROM documents WHERE id = @id" [ ("@id", Database.boxVal docId) ]
+                        let! rows =
+                            serializedDb.execReader
+                                "SELECT * FROM documents WHERE id = @id"
+                                [ ("@id", Database.boxVal docId) ]
                         match rows |> List.tryHead with
                         | Some row -> do! extractWriter.WriteAsync(Document.fromRow row)
                         | None -> ()
@@ -817,6 +879,7 @@ module EmailSync =
 
                 let enumeratedCounter = ref 0
                 let processedCounter = ref 0
+                let consumerErrors = ConcurrentQueue<string>()
 
                 // Create the message ID channel
                 let idChannel = Channel.CreateBounded<string>(BoundedChannelOptions(10000, FullMode = BoundedChannelFullMode.Wait))
@@ -827,7 +890,9 @@ module EmailSync =
                 // Start N consumers
                 let consumerTasks =
                     [| for i in 1..concurrency ->
-                        processMessageConsumer fs db logger clock provider config account idChannel.Reader onIngest processedCounter i ct |]
+                        processMessageConsumerWithErrors
+                            consumerErrors.Enqueue fs serializedDb logger clock provider config account
+                            idChannel.Reader onIngest processedCounter i ct |]
 
                 // Wait for enumeration to finish (completes the channel)
                 let! totalEnumerated = enumTask
@@ -837,9 +902,20 @@ module EmailSync =
 
                 let totalProcessed = results |> Array.sumBy fst
                 let totalDownloaded = results |> Array.sumBy snd
+                let consumerErrorList = consumerErrors.ToArray() |> Array.toList
+                let wasCancelled = ct.IsCancellationRequested
+                let errors =
+                    if wasCancelled then
+                        $"[{account}] Sync cancelled after enumerating {totalEnumerated} message(s); {totalProcessed} processed before cancellation"
+                        :: consumerErrorList
+                    else
+                        consumerErrorList
+                let duplicates =
+                    if wasCancelled then 0
+                    else max 0 (totalEnumerated - totalProcessed - consumerErrorList.Length)
 
-                // Advance watermark: enumeration is complete and channel is drained
-                if totalEnumerated > 0 then
+                // Advance only after enumeration and draining finish without cancellation or errors.
+                if totalEnumerated > 0 && not wasCancelled && List.isEmpty errors then
                     do! saveSyncState db account totalProcessed queryTimestamp
                     logger.info $"[{account}] Sync complete: {totalEnumerated} enumerated, {totalProcessed} new, {totalDownloaded} attachments"
 
@@ -847,8 +923,8 @@ module EmailSync =
                     { Account = account
                       MessagesProcessed = totalProcessed
                       AttachmentsDownloaded = totalDownloaded
-                      DuplicatesSkipped = totalEnumerated - totalProcessed
-                      Errors = [] }
+                      DuplicatesSkipped = duplicates
+                      Errors = errors }
             with ex ->
                 logger.error $"[{account}] Channel sync failed: {ex.Message}"
                 return

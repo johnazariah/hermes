@@ -31,12 +31,12 @@ module GmailProvider =
                     ApplicationName = "Hermes"))
         }
 
-    let private decodeBase64Url (s: string) : byte array =
+    let internal decodeBase64Url (s: string) : byte array =
         let padded = s.Replace('-', '+').Replace('_', '/')
         let padded = padded.PadRight(padded.Length + (4 - padded.Length % 4) % 4, '=')
         Convert.FromBase64String(padded)
 
-    let private extractBodyText (payload: MessagePart) : string =
+    let internal extractBodyText (payload: MessagePart) : string =
         let rec walk (part: MessagePart) =
             if System.Object.ReferenceEquals(part, null) then ""
             elif part.Body <> null && not (String.IsNullOrEmpty(part.Body.Data)) &&
@@ -50,6 +50,19 @@ module GmailProvider =
                 |> Option.defaultValue ""
             else ""
         walk payload
+
+    let internal isRealAttachment (part: MessagePart) =
+        not (String.IsNullOrEmpty(part.Filename)) &&
+        part.Body <> null &&
+        not (String.IsNullOrEmpty(part.Body.AttachmentId)) &&
+        (part.Headers = null ||
+         not (
+             part.Headers
+             |> Seq.exists (fun header ->
+                 header.Name = "Content-Disposition" &&
+                 header.Value <> null &&
+                 header.Value.StartsWith("inline", StringComparison.OrdinalIgnoreCase))) ||
+         (part.Body.Size.HasValue && part.Body.Size.Value > 50000))
 
     /// Create an EmailProvider algebra backed by the Gmail API.
     let create (credentialBytes: byte array) (tokenDir: string) (label: string) (logger: Algebra.Logger) : Task<Algebra.EmailProvider> =
@@ -146,18 +159,6 @@ module GmailProvider =
                         if msg.Payload = null || msg.Payload.Parts = null then
                             return []
                         else
-                            let isRealAttachment (p: MessagePart) =
-                                not (String.IsNullOrEmpty(p.Filename)) &&
-                                p.Body <> null &&
-                                not (String.IsNullOrEmpty(p.Body.AttachmentId)) &&
-                                // Skip inline images (signatures, tracking pixels, logos)
-                                // unless they're large enough to be real content (>50KB)
-                                (p.Headers = null ||
-                                 not (p.Headers |> Seq.exists (fun h ->
-                                    h.Name = "Content-Disposition" &&
-                                    h.Value <> null &&
-                                    h.Value.StartsWith("inline", StringComparison.OrdinalIgnoreCase))) ||
-                                 (p.Body.Size.HasValue && p.Body.Size.Value > 50000))
                             let attParts = msg.Payload.Parts |> Seq.filter isRealAttachment
                             let! attachments = attParts |> Seq.map (fetchAttachment messageId) |> Task.WhenAll
                             return attachments |> Array.toList
