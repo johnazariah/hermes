@@ -328,6 +328,15 @@ module Database =
             updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
         );
         """
+
+           // ── Shared artifact folder revisions ─────────────────────
+           """
+        CREATE TABLE IF NOT EXISTS artifact_folder_revisions (
+            folder_identity TEXT PRIMARY KEY,
+            revision        INTEGER NOT NULL DEFAULT 0,
+            updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        """
         |]
 
     let private ftsSql =

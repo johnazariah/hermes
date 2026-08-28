@@ -621,6 +621,17 @@ module Stages =
         ArchiveWriter.writeComprehension
             deps.Fs artifact.FolderPath parsed.RawJson
 
+    /// Captured before slow model work. Siblings share one thread artifact, so
+    /// this is what lets a later publisher reject an earlier, slower one.
+    let private currentArtifactRevision
+        (deps: Deps)
+        (doc: Document.T)
+        : Task<ArtifactRevision.Token> =
+        match comprehensionArtifact deps doc with
+        | Error error -> invalidOp error
+        | Ok artifact ->
+            ArtifactRevision.current deps.Db artifact.Resource
+
     let private insertComprehensionTagIn
         (scope: Algebra.TransactionScope)
         (docId: int64)
@@ -768,6 +779,7 @@ module Stages =
     let private publishComprehensionAt
         (deps: Deps)
         (generation: Generation.Token)
+        (artifactRevision: ArtifactRevision.Token)
         (stageName: string)
         (isFinal:
             ComprehensionSchema.NormalisedResponse -> bool)
@@ -781,7 +793,7 @@ module Stages =
             | Ok artifact ->
                 let! publication =
                     Generation.publishCanonical
-                        deps.Db generation artifact.Resource
+                        deps.Db generation artifact.Resource artifactRevision
                         (claimComprehensionIn
                             generation stageName doc parsed)
                         (fun canonical ->
@@ -929,6 +941,7 @@ Document text:
                     deps.Logger.warn $"Triage failed doc {docId}: no chat provider configured"
                     return failwith $"Triage failed doc {docId}: no chat provider configured"
                 | Some chat ->
+                    let! artifactRevision = currentArtifactRevision deps doc
                     let! context =
                         augmentComprehensionContext
                             deps.Db
@@ -966,7 +979,8 @@ Document text:
                                         response.CanonicalCategory)
                             let! publication =
                                 publishComprehensionAt
-                                    deps generation triageStageName isFinal
+                                    deps generation artifactRevision
+                                    triageStageName isFinal
                                     noComprehensionOutput doc triaged
                             let triaged =
                                 requirePublished docId publication
@@ -1049,6 +1063,7 @@ Document text:
     let private applyDeepResult
         (deps: Deps)
         (generation: Generation.Token)
+        (artifactRevision: ArtifactRevision.Token)
         (publishOutput: ComprehensionPublisher)
         (doc: Document.T)
         (parsed: ComprehensionSchema.NormalisedResponse)
@@ -1058,7 +1073,7 @@ Document text:
 
             let! publication =
                 publishComprehensionAt
-                    deps generation deepComprehendStageName
+                    deps generation artifactRevision deepComprehendStageName
                     (fun _ -> true)
                     publishOutput doc parsed
             let committed =
@@ -1079,6 +1094,7 @@ Document text:
     let private handleDeepResponse
         (deps: Deps)
         (generation: Generation.Token)
+        (artifactRevision: ArtifactRevision.Token)
         (publishOutput: ComprehensionPublisher)
         (doc: Document.T)
         (response: string)
@@ -1086,7 +1102,7 @@ Document text:
         match ComprehensionSchema.normaliseResponse response with
         | Ok parsed ->
             applyDeepResult
-                deps generation publishOutput doc parsed
+                deps generation artifactRevision publishOutput doc parsed
         | Error parseError ->
             deps.Logger.warn
                 $"Deep comprehension parse doc {Document.id doc}: {parseError}"
@@ -1102,6 +1118,7 @@ Document text:
         : Task<Document.T> =
         task {
             let docId = Document.id doc
+            let! artifactRevision = currentArtifactRevision deps doc
             let! text = readExtractedText deps doc
 
             if String.IsNullOrWhiteSpace(text) then
@@ -1124,7 +1141,8 @@ Document text:
                 | Ok response ->
                     return!
                         handleDeepResponse
-                            deps generation publishOutput doc response
+                            deps generation artifactRevision
+                            publishOutput doc response
                 | Error error ->
                     deps.Logger.warn $"Deep comprehension failed for doc {docId}: {error}"
                     return failwith $"Deep comprehension failed for doc {docId}: {error}"

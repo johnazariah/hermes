@@ -6,13 +6,13 @@
 
 | Category | Count |
 |----------|-------|
-| Unit | 569 |
+| Unit | 581 |
 | Property | 6 |
-| Integration | 359 |
+| Integration | 374 |
 | ManualTest | 6 |
-| **Total** | **940** |
+| **Total** | **967** |
 
-> 912 unique test methods; 940 total test cases
+> 939 unique test methods; 967 total test cases
 > (Theory/InlineData tests contribute multiple cases per method)
 
 ## Execution Baseline
@@ -40,9 +40,13 @@ Skip-quality findings:
 - 4 other Osprey parity tests use `Option.iter` and pass without assertions when
   their fixtures are unavailable; only the two PPTX fixtures are source-controlled.
 
-Phase 1A PR A validation: 940 discovered; 930 passed, 10 skipped, 0 failed.
-Core-only comparable coverage is 79.06% line / 39.61% branch, up from the
+Phase 1A PR A validation: 967 discovered; 957 passed, 10 skipped, 0 failed.
+Core-only comparable coverage is 79.13% line / 39.84% branch, up from the
 65.0% / 31.1% baseline. Issue #18 still owns the 85% / 60% wave-close gate.
+Current Windows CI reports 71.3% aggregate line / 35.5% aggregate branch and
+remains red because `ci.yml` separately enforces its existing 75% line threshold.
+The final local CI-equivalent run is 71.71% aggregate line / 35.91% branch;
+this does not clear or weaken the required workflow threshold.
 
 The active follow-on issues are #6, #8, #9, #11, #16, #17, and #18. The V5
 Stabilization wave closes only at 85% line and 60% branch coverage with truthful
@@ -70,7 +74,7 @@ skip and Playwright execution evidence.
 | Config_ChatProviderKind_FromString_ParsesVariants | Unit |
 | Config_ParseYaml_NeverThrows | Property |
 
-## DatabaseTests.fs (23 tests)
+## DatabaseTests.fs (24 tests)
 
 | Test | Category |
 |------|----------|
@@ -96,7 +100,8 @@ skip and Playwright execution evidence.
 | Database_InTransaction_Error_RollsBack | Integration |
 | Database_NormalCommand_WaitsForActiveTransactionOnSameConnection | Integration |
 | Database_InitSchema_DeduplicatesActiveDeadLettersBeforeUniqueIndex | Integration |
-| Database_InitSchema_FromV11_AddsStagePublicationsIdempotently | Integration |
+| Database_InitSchema_FromPopulatedV8_UpgradesAndPreservesData | Integration |
+| Database_InitSchema_FromPopulatedV8_SecondRunChangesNothing | Integration |
 
 ## RulesTests.fs (32 tests)
 
@@ -336,7 +341,7 @@ skip and Playwright execution evidence.
 | Search_SanitiseQuery_SpecialChars_SomeCleaned | Unit |
 | Search_DefaultFilter_HasCorrectDefaults | Unit |
 
-## McpTests.fs (62 tests)
+## McpTests.fs (73 tests)
 
 | Test | Category |
 |------|----------|
@@ -397,11 +402,22 @@ skip and Playwright execution evidence.
 | McpServer_Dispatch_ToolsCallGetFeedStats_ReturnsResult | Integration |
 | McpServer_Dispatch_ToolsCallGetDocumentContent_ReturnsResult | Integration |
 | McpServer_Dispatch_ToolsCallReclassify_ReturnsResult | Integration |
-| McpServer_Dispatch_ToolsCallReextract_ReturnsResult | Integration |
+| McpServer_Dispatch_ToolsCallReextract_MissingDocumentId_ReturnsInvalidParams | Integration |
 | McpServer_Dispatch_DeepExtract_NoDeps_ReturnsError | Integration |
 | McpServer_Reflow_DryRun_DefaultsSafelyAndDoesNotWrite | Integration |
 | McpServer_Reflow_ApplyThenStatus_ReportsPendingStages | Integration |
 | McpServer_Reflow_MissingDocument_ReturnsError | Integration |
+| McpServer_Reflow_MalformedArgumentTypes_ReturnInvalidParams | Integration |
+| McpServer_ToolsCall_NonStringToolName_ReturnsInvalidParams | Integration |
+| McpTools_ReflowDocument_MissingDocument_IsDomainFailure | Integration |
+| McpTools_ReflowStatus_UnknownOperation_IsDomainFailure | Integration |
+| McpTools_ReflowDocument_WrongTypedArguments_AreInvalidArguments | Integration |
+| McpTools_Args_WrongTypes_ReturnErrorsInsteadOfThrowing | Unit |
+| McpTools_Args_WellTypedValues_StillParse | Unit |
+| McpServer_ToolsCall_NonObjectContainers_ReturnInvalidParams | Integration |
+| McpServer_ToolsCall_AbsentArguments_StillDispatches | Integration |
+| McpTools_Args_NonObjectContainer_IsAbsentNotAnException | Unit |
+| McpServer_Dispatch_ToolsList_TwiceInOneProcess_ReturnsFullListBothTimes | Integration |
 
 ## EmailBodyTests.fs (24 tests)
 
@@ -808,7 +824,7 @@ skip and Playwright execution evidence.
 | DocumentManagement_GetProcessingQueue_EmptyDb_AllZeros | Integration |
 | DocumentManagement_GetProcessingQueue_MixedDocs_CorrectCounts | Integration |
 
-## ReflowTests.fs (43 tests)
+## ReflowTests.fs (46 tests)
 
 | Test | Category |
 |------|----------|
@@ -853,6 +869,9 @@ skip and Playwright execution evidence.
 | Reflow_StageOwnedOutputs_AfterGenerationBump_NeverBecomeObservable | Integration |
 | Reflow_Request_ApplyWithoutUsableArtifactFolder_FailsWithoutMutation | Integration |
 | PipelineV5_RealComprehension_FinalisationFault_RetriesEffectsExactlyOnce (2 cases) | Integration |
+| PipelineV5_CleanupAttempt_TransientDeleteFailure_StillReleasesLease | Integration |
+| PipelineV5_CleanupAttempt_ExhaustedRetries_NextCycleReclaimsLease | Integration |
+| PipelineV5_RecoverAbandonedAttempts_LiveAttempt_IsNeverReclaimed | Integration |
 
 ## ApiReflowTests.fs (6 tests)
 
@@ -991,7 +1010,7 @@ skip and Playwright execution evidence.
 | SenderClassification_formatHint_Unknown_ReturnsEmpty | Unit |
 | SenderClassification_formatHint_Utility_IncludesTypeAndLabel | Unit |
 
-## DeepExtractionTests.fs (31 tests)
+## DeepExtractionTests.fs (33 tests)
 
 | Test | Category |
 |------|----------|
@@ -1026,6 +1045,8 @@ skip and Playwright execution evidence.
 | McpTools_deepExtract_MissingDocument_ReturnsError | Integration |
 | McpTools_deepExtract_NoComprehension_ReturnsError | Integration |
 | McpTools_deepExtract_MissingDocumentId_ReturnsError | Integration |
+| McpTools_deepExtract_RepublishBump_BlocksStaleSiblingComprehension | Integration |
+| McpTools_deepExtract_Republish_AdvancesRevisionAndVoidsSiblingToken | Integration |
 
 ## ContactExtractionTests.fs (24 tests)
 
@@ -1098,7 +1119,7 @@ skip and Playwright execution evidence.
 | Config_ParseYaml_OutlookAccount_DefaultRedirectPort | Unit |
 | Extraction_IsPptx_DetectsCorrectly | Unit |
 
-## ComprehensionRacTests.fs (15 tests)
+## ComprehensionRacTests.fs (16 tests)
 
 | Test | Category |
 |------|----------|
@@ -1113,6 +1134,21 @@ skip and Playwright execution evidence.
 | Stages_RacExamples_StaleManualSidecarWithoutCurrentOutputIsExcluded | Integration |
 | Stages_RacRead_InvalidationBeforeUse_ExcludesSupersededHint | Integration |
 | Stages_TriageRetry_DivergentResponse_KeepsCanonicalPublicationExactlyOnce | Integration |
+| Stages_SharedFolderSiblings_StaleSibling_CannotOverwriteNewerSibling | Integration |
+
+## ServiceLifetimeTests.fs (9 tests)
+
+| Test | Category |
+|------|----------|
+| Lifetime_RequireSchema_Error_FailsStartupWithTheActualError | Unit |
+| Lifetime_RequireSchema_Ok_Continues | Unit |
+| Lifetime_ObserveBackground_FaultedWork_IsReportedAsError | Unit |
+| Lifetime_ObserveBackground_CancellationDuringShutdown_IsNotAFailure | Unit |
+| Lifetime_ObserveBackground_ExitBeforeShutdown_IsWarned | Unit |
+| Lifetime_Shutdown_WaitsForWorkerBeforeReportingQuiesced | Unit |
+| Lifetime_Shutdown_UnresponsiveWorker_AbandonsInsteadOfDisposing | Unit |
+| Lifetime_Shutdown_PartialCompletion_IsNotQuiesced | Unit |
+| Lifetime_Shutdown_NoBackgroundWork_IsQuiescedSilently | Unit |
 
 ## ArchiveWriterTests.fs (31 tests)
 

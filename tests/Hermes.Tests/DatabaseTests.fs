@@ -22,6 +22,27 @@ let cleanupDir dir =
     with
     | _ -> ()
 
+/// Read a scalar as int64, treating "no rows" as zero.
+let private scalarInt64
+    (db: Algebra.Database)
+    (sql: string)
+    (ps: (string * obj) list)
+    : Task<int64> =
+    task {
+        let! value = db.execScalar sql ps
+        return match value with null -> 0L | v -> v :?> int64
+    }
+
+/// Read a scalar that must be text.
+let private scalarText (db: Algebra.Database) (sql: string) : Task<string> =
+    task {
+        let! value = db.execScalar sql []
+        return
+            match value with
+            | :? string as text -> text
+            | _ -> failwith $"Expected text from: {sql}"
+    }
+
 // ─── Schema initialisation tests ─────────────────────────────────────
 
 [<Fact>]
@@ -100,32 +121,145 @@ let ``Database_SchemaVersion_BeforeInit_ReturnsZero`` () =
         finally db.dispose ()
     }
 
+// ─── v8 to current upgrade ────────────────────────────────────────────
+// v8 is the last version any archive actually ran - 9, 10 and 11 were never
+// merged - so v8 to Database.CurrentSchemaVersion is the only upgrade a real
+// database performs.
+
+/// Tables that exist only from v9 onward; a v8 archive must gain them all.
+let private addedTables =
+    [ "reflow_operations"
+      "reflow_operation_stages"
+      "document_generations"
+      "learned_pattern_evidence"
+      "stage_publications"
+      "artifact_folder_revisions"
+      "pipeline_stage_attempts" ]
+
+/// Indexes the upgrade adds, including the partial unique index that the
+/// dead-letter collapse has to make satisfiable.
+let private addedIndexes =
+    [ "idx_dead_letters_active"
+      "idx_reflow_ops_active_apply"
+      "idx_learned_evidence_pattern"
+      "idx_stage_publications_stage"
+      "idx_pipeline_stage_attempts_stage" ]
+
+/// Representative preserved columns of the document v8 finished processing.
+let private documentFingerprintSql =
+    """SELECT category || '|' || sha256 || '|' || saved_path || '|' ||
+              extracted_vendor || '|' || starred
+       FROM documents WHERE id = 1"""
+
+/// Document 1 completed 'embed' under v8; its ledger row must survive.
+let private embedCompletionSql =
+    "SELECT count(*) FROM stage_completions WHERE document_id = 1 AND stage_name = 'embed'"
+
+/// Active (not dismissed) dead letters: six at v8, three once they collapse.
+let private activeDeadLettersSql =
+    "SELECT count(*) FROM dead_letters WHERE dismissed = 0"
+
+/// documents_fts is external-content: a clobbered index would silently lose
+/// rows the documents table still holds.
+let private ftsProbeSql =
+    "SELECT count(*) FROM documents_fts WHERE documents_fts MATCH 'vendor'"
+
+/// Startup order used by Hermes.Service: core schema first, then the pipeline
+/// framework tables (stage_completions, pipeline_stage_attempts, outputs).
+let private runStartupSchema (db: Algebra.Database) : Task<unit> =
+    task {
+        match! db.initSchema () with
+        | Error error -> failwith $"initSchema failed: {error}"
+        | Ok () -> ()
+        do! TestHelpers.initV5 db
+    }
+
+let private readV8Counts (db: Algebra.Database) : Task<TestHelpers.V8Counts> =
+    task {
+        let! documents = scalarInt64 db "SELECT count(*) FROM documents" []
+        let! completions =
+            scalarInt64 db "SELECT count(*) FROM stage_completions" []
+        let! deadLetters =
+            scalarInt64 db "SELECT count(*) FROM dead_letters" []
+        let! active = scalarInt64 db activeDeadLettersSql []
+        let counts: TestHelpers.V8Counts =
+            { Documents = documents
+              StageCompletions = completions
+              DeadLetters = deadLetters
+              ActiveDeadLetters = active }
+
+        return counts
+    }
+
+let private assertTablesExist
+    (db: Algebra.Database)
+    (names: string list)
+    : Task<unit> =
+    task {
+        for name in names do
+            let! exists = db.tableExists name
+            Assert.True(exists, $"Upgrade must create table {name}")
+    }
+
+let private assertIndexesExist
+    (db: Algebra.Database)
+    (names: string list)
+    : Task<unit> =
+    task {
+        for name in names do
+            let! count =
+                scalarInt64 db
+                    "SELECT count(*) FROM sqlite_master WHERE type='index' AND name=@n"
+                    [ ("@n", Database.boxVal name) ]
+            Assert.True(count > 0L, $"Upgrade must create index {name}")
+    }
+
+/// Everything a v8 archive must still hold after any schema initialisation.
+let private assertV8DataIntact
+    (fixture: TestHelpers.V8Fixture)
+    : Task<unit> =
+    task {
+        let! counts = readV8Counts fixture.Db
+        Assert.Equal<TestHelpers.V8Counts>(fixture.Counts, counts)
+        let! fingerprint = scalarText fixture.Db documentFingerprintSql
+        Assert.Equal(fixture.DocumentFingerprint, fingerprint)
+        let! completed = scalarInt64 fixture.Db embedCompletionSql []
+        Assert.Equal(1L, completed)
+        let! indexed = scalarInt64 fixture.Db ftsProbeSql []
+        Assert.Equal(1L, indexed)
+    }
+
 [<Fact>]
 [<Trait("Category", "Integration")>]
-let ``Database_InitSchema_FromV11_AddsStagePublicationsIdempotently`` () =
+let ``Database_InitSchema_FromPopulatedV8_UpgradesAndPreservesData`` () =
     task {
-        let db = TestHelpers.createRawDb ()
+        let fixture = TestHelpers.createV8Db ()
         try
-            // A database recorded at the previous version.
-            let! _ =
-                db.execNonQuery
-                    "CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TEXT DEFAULT (datetime('now')))"
-                    []
-            let! _ = db.execNonQuery "INSERT INTO schema_version(version) VALUES (11)" []
-            match! db.initSchema () with
-            | Error error -> failwith error
-            | Ok () -> ()
-            let! exists = db.tableExists "stage_publications"
-            Assert.True(exists, "Migration must create stage_publications")
-            let! version = db.schemaVersion ()
+            do! runStartupSchema fixture.Db
+            let! version = fixture.Db.schemaVersion ()
             Assert.Equal(Database.CurrentSchemaVersion, version)
-            // Re-running the migration is a no-op.
-            match! db.initSchema () with
-            | Error error -> failwith error
-            | Ok () -> ()
-            let! again = db.schemaVersion ()
-            Assert.Equal(Database.CurrentSchemaVersion, again)
-        finally db.dispose ()
+            do! assertTablesExist fixture.Db addedTables
+            do! assertIndexesExist fixture.Db addedIndexes
+            do! assertV8DataIntact fixture
+        finally fixture.Db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``Database_InitSchema_FromPopulatedV8_SecondRunChangesNothing`` () =
+    task {
+        let fixture = TestHelpers.createV8Db ()
+        try
+            do! runStartupSchema fixture.Db
+            do! runStartupSchema fixture.Db
+            do! assertV8DataIntact fixture
+            let! version = fixture.Db.schemaVersion ()
+            Assert.Equal(Database.CurrentSchemaVersion, version)
+            // v8 history kept, the current version stamped exactly once.
+            let! stamps =
+                scalarInt64 fixture.Db "SELECT count(*) FROM schema_version" []
+            Assert.Equal(2L, stamps)
+        finally fixture.Db.dispose ()
     }
 
 let ``Database_SchemaVersion_BeforeInit_ReturnsZero_Original`` () =
@@ -488,45 +622,39 @@ let ``Database_FreshSchema_HasAllTables`` () =
         finally db.dispose ()
     }
 
+/// Largest number of active dead letters left in any (doc_id, stage) group.
+let private worstActiveGroupSql =
+    """SELECT COALESCE(MAX(active), 0) FROM
+         (SELECT count(*) AS active FROM dead_letters
+          WHERE dismissed = 0 GROUP BY doc_id, stage)"""
+
+/// The surviving active row of the (doc 3, 'extract') duplicate group.
+let private survivingExtractErrorSql =
+    """SELECT error FROM dead_letters
+       WHERE doc_id = 3 AND stage = 'extract' AND dismissed = 0"""
+
 [<Fact>]
 [<Trait("Category", "Integration")>]
 let ``Database_InitSchema_DeduplicatesActiveDeadLettersBeforeUniqueIndex`` () =
     task {
-        let db = TestHelpers.createDb ()
+        // v8 has no unique index over active dead letters, so a real archive
+        // reaches the upgrade holding duplicates for a (doc_id, stage).
+        let fixture = TestHelpers.createV8Db ()
         try
-            let! _ =
-                db.execNonQuery
-                    "DROP INDEX IF EXISTS idx_dead_letters_active"
-                    []
-            let! _ =
-                db.execNonQuery
-                    """INSERT INTO dead_letters
-                         (doc_id, stage, error, retryable, failed_at)
-                       VALUES (42, 'embed', 'old', 1, datetime('now')),
-                              (42, 'embed', 'new', 1, datetime('now'))"""
-                    []
-            let! result = db.initSchema ()
-            Assert.True(Result.isOk result)
-            let! active =
-                db.execScalar
-                    """SELECT count(*) FROM dead_letters
-                       WHERE doc_id = 42 AND stage = 'embed' AND dismissed = 0"""
-                    []
-            let! dismissed =
-                db.execScalar
-                    """SELECT count(*) FROM dead_letters
-                       WHERE doc_id = 42 AND stage = 'embed' AND dismissed = 1"""
-                    []
-            let! activeError =
-                db.execScalar
-                    """SELECT error FROM dead_letters
-                       WHERE doc_id = 42 AND stage = 'embed' AND dismissed = 0"""
-                    []
-            Assert.Equal(1L, active :?> int64)
-            Assert.Equal(1L, dismissed :?> int64)
-            match activeError with
-            | :? string as error -> Assert.Equal("new", error)
-            | _ -> Assert.Fail("Expected active error to be a string")
+            let! before =
+                scalarInt64 fixture.Db activeDeadLettersSql []
+            Assert.Equal(fixture.ActiveDeadLettersAtV8, before)
+            // Fails outright if the collapse does not run before the index.
+            do! runStartupSchema fixture.Db
+            let! worstGroup =
+                scalarInt64 fixture.Db worstActiveGroupSql []
+            Assert.Equal(1L, worstGroup)
+            // The survivor is deterministically the newest failure.
+            let! survivor =
+                scalarText fixture.Db survivingExtractErrorSql
+            Assert.Equal(fixture.SurvivingExtractError, survivor)
+            // Losers are dismissed, never deleted: the evidence survives.
+            do! assertV8DataIntact fixture
         finally
-            db.dispose ()
+            fixture.Db.dispose ()
     }

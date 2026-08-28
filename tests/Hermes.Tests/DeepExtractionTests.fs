@@ -181,6 +181,243 @@ let ``DeepExtraction_extract_ValidPayslip_ReturnsOkWithMetadata`` () =
         | Error e -> failwith $"Expected Ok, got Error: {e}"
     }
 
+// ─── Shared-folder revision fencing ──────────────────────────────────
+
+let private readDocumentRow
+    (db: Algebra.Database)
+    (documentId: int64)
+    : Task<Document.T> =
+    task {
+        let! rows =
+            db.execReader
+                "SELECT * FROM documents WHERE id = @doc"
+                [ ("@doc", Database.boxVal documentId) ]
+        return rows |> List.exactlyOne |> Document.fromRow
+    }
+
+let private siblingTriageDeps db fs provider : Stages.Deps =
+    { Fs = fs
+      Db = db
+      Logger = TestHelpers.silentLogger
+      Clock = TestHelpers.defaultClock
+      Extractor = Interpreters.nullTextExtractor
+      Embedder = None
+      ChatProvider = Some provider
+      TriageProvider = None
+      ContentRules = []
+      ComprehensionPrompt = None
+      TriagePrompt = None
+      Preferences = ""
+      ArchiveDir = "/archive" }
+
+let private payslipFence
+    (savedPath: string)
+    : PublicationFence.ArtifactFolder =
+    PublicationFence.ArtifactFolder.tryFromMetadata
+        "/archive" savedPath None
+    |> Option.defaultWith (fun () -> failwith "Expected an artifact folder")
+
+let private insertSiblingPayslips (db: Algebra.Database) : Task<unit> =
+    task {
+        let! _ =
+            db.execNonQuery
+                """INSERT INTO documents
+                     (original_name, source_type, saved_path, category, sha256)
+                   VALUES
+                     ('a.pdf', 'manual_drop', 'payslips/a.pdf', 'payslips', 'sha-rev-a'),
+                     ('b.pdf', 'manual_drop', 'payslips/b.pdf', 'payslips', 'sha-rev-b')"""
+                []
+        return ()
+    }
+
+let private markRevisionInputsCurrent db documentId =
+    task {
+        do! TestHelpers.initV5 db
+        let! _ =
+            db.execNonQuery
+                """INSERT OR IGNORE INTO comprehension
+                       (document_id, document_type, category, confidence)
+                   VALUES (@doc, 'payslip', 'payslips', 1.0)"""
+                [ ("@doc", Database.boxVal documentId) ]
+        let! _ =
+            db.execNonQuery
+                """INSERT OR IGNORE INTO stage_completions
+                       (document_id, stage_name)
+                   VALUES (@doc, 'extract'), (@doc, 'deep-comprehend')"""
+                [ ("@doc", Database.boxVal documentId) ]
+        return ()
+    }
+
+let private revisionDeepDeps
+    (chatResponse: string)
+    : McpTools.DeepExtractionDeps =
+    { Chat = TestHelpers.fakeChatProvider chatResponse
+      Registry = testRegistry
+      Provider = "ollama"
+      Model = "llama3" }
+
+let private revisionGatedProvider
+    (entered: TaskCompletionSource<unit>)
+    (release: TaskCompletionSource<unit>)
+    (response: string)
+    : Algebra.ChatProvider =
+    { complete =
+        fun _ _ ->
+            task {
+                entered.TrySetResult() |> ignore
+                do! release.Task
+                return Ok response
+            } }
+
+/// Sibling A captures the shared folder revision before its slow model call.
+/// Sibling B republishes the same sidecar through hermes_deep_extract while A
+/// is parked, so A must be rejected on resume instead of overwriting B.
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``McpTools_deepExtract_RepublishBump_BlocksStaleSiblingComprehension`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let mem = TestHelpers.memFs ()
+        let entered =
+            TaskCompletionSource<unit>(
+                TaskCreationOptions.RunContinuationsAsynchronously)
+        let release =
+            TaskCompletionSource<unit>(
+                TaskCreationOptions.RunContinuationsAsynchronously)
+        try
+            do! insertSiblingPayslips db
+            do! markRevisionInputsCurrent db 2L
+            let folder = "/archive/payslips"
+            let sidecar = folder + "/thread.comprehension.json"
+            mem.Put (folder + "/a.pdf.extracted.md") "Employee payslip A"
+            mem.Put (folder + "/b.pdf.extracted.md") "Employee payslip B"
+            mem.Put sidecar """{"document_type":"payslip","owner":"shared"}"""
+
+            // Sibling A captures the folder revision, then parks in its model call.
+            let! staleGeneration = Generation.current db 1L
+            let! staleDoc = readDocumentRow db 1L
+            let staleDeps =
+                siblingTriageDeps db mem.Fs
+                    (revisionGatedProvider entered release
+                        """{"document_type":"letter","confidence":0.9,"summary":"stale-sibling-a","tags":["alpha"]}""")
+            let staleWork =
+                Stages.triageAt staleGeneration staleDeps staleDoc
+            do! entered.Task
+
+            // Sibling B republishes the shared sidecar through deep extraction.
+            let args = JsonObject()
+            args["document_id"] <- JsonValue.Create(2L)
+            args["force"] <- JsonValue.Create(true)
+            let! published =
+                McpTools.deepExtract
+                    db mem.Fs "/archive"
+                    (revisionDeepDeps """{"gross_pay":5000}""")
+                    (args :> JsonNode)
+            Assert.Equal(
+                "extracted", published["status"].GetValue<string>())
+            let merged =
+                mem.Get sidecar
+                |> Option.defaultWith (fun () ->
+                    failwith "Deep extraction wrote no shared artifact")
+            Assert.Contains("gross_pay", merged)
+
+            // Sibling A resumes last against a revision that has moved on.
+            release.TrySetResult() |> ignore
+            let! staleFailure =
+                task {
+                    try
+                        let! _ = staleWork
+                        return None
+                    with error ->
+                        return Some error.Message
+                }
+            Assert.True(
+                staleFailure.IsSome,
+                "Stale sibling must not report a successful publication")
+            let settled =
+                mem.Get sidecar
+                |> Option.defaultWith (fun () ->
+                    failwith "Shared artifact was deleted")
+            Assert.Equal(merged, settled)
+            Assert.DoesNotContain("stale-sibling-a", settled)
+            let! stalePublications =
+                db.execScalar
+                    """SELECT count(*) FROM stage_publications
+                       WHERE document_id = 1 AND stage_name = 'triage'"""
+                    []
+            Assert.Equal(0L, stalePublications :?> int64)
+        finally
+            release.TrySetResult() |> ignore
+            db.dispose ()
+    }
+
+/// The republish must advance the folder revision transactionally, so a token
+/// a sibling captured before it can no longer publish, and no stale bytes
+/// reach the shared artifact.
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``McpTools_deepExtract_Republish_AdvancesRevisionAndVoidsSiblingToken`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        let mem = TestHelpers.memFs ()
+        try
+            let! _ =
+                db.execNonQuery
+                    """INSERT INTO documents
+                         (original_name, source_type, saved_path, category, sha256)
+                       VALUES
+                         ('test.pdf', 'manual_drop', 'payslips/test.pdf',
+                          'payslips', 'sha-rev-bump')"""
+                    []
+            do! markRevisionInputsCurrent db 1L
+            let folder = "/archive/payslips"
+            let sidecar = folder + "/thread.comprehension.json"
+            mem.Put (folder + "/test.pdf.extracted.md") "Employee payslip"
+            mem.Put sidecar """{"document_type":"payslip","owner":"shared"}"""
+
+            // A sibling captures the folder revision before the slow work.
+            let fence = payslipFence "payslips/test.pdf"
+            let! captured = ArtifactRevision.current db fence
+
+            let args = JsonObject()
+            args["document_id"] <- JsonValue.Create(1L)
+            args["force"] <- JsonValue.Create(true)
+            let! result =
+                McpTools.deepExtract
+                    db mem.Fs "/archive"
+                    (revisionDeepDeps """{"gross_pay":5000}""")
+                    (args :> JsonNode)
+            Assert.Equal("extracted", result["status"].GetValue<string>())
+
+            let! advanced = ArtifactRevision.current db fence
+            Assert.True(
+                advanced.Value > captured.Value,
+                "Republishing the shared artifact must advance its folder revision")
+
+            let merged =
+                mem.Get sidecar
+                |> Option.defaultWith (fun () -> failwith "Sidecar missing")
+            Assert.Contains("gross_pay", merged)
+
+            // The pre-captured token can no longer claim or write.
+            let! generation = Generation.current db 1L
+            let! stale =
+                Generation.publishCanonical
+                    db generation fence captured
+                    (fun _ -> Task.FromResult "stale-canonical")
+                    (fun _ ->
+                        ArchiveWriter.writeComprehension
+                            mem.Fs folder
+                            """{"document_type":"payslip","owner":"stale"}""")
+                    (fun _ _ -> Task.FromResult ())
+            match stale with
+            | Generation.Superseded -> ()
+            | Generation.Published value ->
+                failwith $"Stale sibling token must be rejected, got {value}"
+            Assert.Equal(Some merged, mem.Get sidecar)
+        finally db.dispose ()
+    }
+
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``DeepExtraction_extract_UnsupportedType_ReturnsError`` () =

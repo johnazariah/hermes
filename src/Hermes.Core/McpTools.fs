@@ -17,26 +17,103 @@ module McpTools =
     // ─── Nullable JsonNode helpers ───────────────────────────────────
 
     /// Safely access a property of a JsonNode, returning option.
+    /// Named properties exist only on JSON objects: `node.[key]` raises for
+    /// arrays and scalars, so kind-checked access keeps every container total.
     let private tryGetNode (node: JsonNode) (key: string) : JsonNode option =
-        let result: JsonNode | null = node.[key]
+        match node with
+        | :? JsonObject as properties ->
+            match properties.TryGetPropertyValue(key) with
+            | true, value -> Option.ofObj value
+            | false, _ -> None
+        | _ -> None
 
-        match result with
-        | null -> None
-        | v -> Some v
+    /// Total accessors for tool arguments. An absent argument is `Ok None`;
+    /// an argument of the wrong JSON type is a deterministic `Error`. These
+    /// never raise, so malformed client input cannot escape as an unhandled
+    /// exception (HTTP 500 on the /mcp endpoint).
+    module Args =
 
-    /// Get a string property from a JsonNode, returning option.
+        /// Detached JsonElement view of a node - kind inspection is total.
+        let private element (node: JsonNode) : JsonElement =
+            use parsed = JsonDocument.Parse(node.ToJsonString())
+            parsed.RootElement.Clone()
+
+        let private asText (value: JsonElement) : string option =
+            match value.ValueKind with
+            | JsonValueKind.String -> value.GetString() |> Option.ofObj
+            | _ -> None
+
+        let private asInteger (value: JsonElement) : int64 option =
+            match value.ValueKind with
+            | JsonValueKind.Number ->
+                match value.TryGetInt64() with
+                | true, parsed -> Some parsed
+                | _ -> None
+            | _ -> None
+
+        let private asFlag (value: JsonElement) : bool option =
+            match value.ValueKind with
+            | JsonValueKind.True -> Some true
+            | JsonValueKind.False -> Some false
+            | _ -> None
+
+        let private read
+            (expected: string)
+            (convert: JsonElement -> 'T option)
+            (node: JsonNode)
+            (key: string)
+            : Result<'T option, string> =
+            match tryGetNode node key with
+            | None -> Ok None
+            | Some value ->
+                match convert (element value) with
+                | Some converted -> Ok(Some converted)
+                | None -> Error $"{key} must be {expected}"
+
+        /// Optional string argument.
+        let text (node: JsonNode) (key: string) : Result<string option, string> =
+            read "a string" asText node key
+
+        /// Optional integer argument.
+        let integer (node: JsonNode) (key: string) : Result<int64 option, string> =
+            read "an integer" asInteger node key
+
+        /// Optional boolean flag argument.
+        let flag (node: JsonNode) (key: string) : Result<bool option, string> =
+            read "a boolean" asFlag node key
+
+        /// Integer argument the tool schema declares as required.
+        let requiredInteger (node: JsonNode) (key: string) : Result<int64, string> =
+            integer node key
+            |> Result.bind (function
+                | Some value -> Ok value
+                | None -> Error $"{key} is required")
+
+    /// Why a tool call produced no payload.
+    /// `InvalidArguments` violates the declared input schema - a protocol
+    /// error. `DomainFailure` is a truthful tool error: the request was
+    /// well-formed but the operation could not be performed.
+    type ToolFailure =
+        | InvalidArguments of string
+        | DomainFailure of string
+
+    /// Get a string property, ignoring values of the wrong type.
     let private tryGetString (node: JsonNode) (key: string) : string option =
-        tryGetNode node key |> Option.map (fun n -> n.GetValue<string>())
+        match Args.text node key with
+        | Ok value -> value
+        | Error _ -> None
 
-    /// Get an int property from a JsonNode, with default.
+    /// Get an int property, defaulting when absent or wrongly typed.
     let private tryGetInt (node: JsonNode) (key: string) (defaultValue: int) : int =
-        tryGetNode node key
-        |> Option.map (fun n -> n.GetValue<int>())
-        |> Option.defaultValue defaultValue
+        match Args.integer node key with
+        | Ok (Some value) -> int value
+        | _ -> defaultValue
 
-    /// Get an int64 property from a JsonNode, returning option.
+    /// Get an int64 property, ignoring values of the wrong type.
     let private tryGetInt64 (node: JsonNode) (key: string) : int64 option =
-        tryGetNode node key |> Option.map (fun n -> n.GetValue<int64>())
+        match Args.integer node key with
+        | Ok value -> value
+        | Error _ -> None
 
     // ─── Path sandboxing ─────────────────────────────────────────────
 
@@ -463,7 +540,8 @@ module McpTools =
                     return err :> JsonNode
         }
 
-    let private errorJson (message: string) : JsonNode =
+    /// Failure payload shared by every tool: { "error": message }.
+    let errorJson (message: string) : JsonNode =
         let err = JsonObject()
         err["error"] <- JsonValue.Create(message)
         err :> JsonNode
@@ -516,46 +594,61 @@ module McpTools =
           Kind: Reflow.OperationKind
           Mode: Reflow.RequestMode }
 
-    let private parseReflowArgs (args: JsonNode) : Result<ReflowRequestArgs, string> =
-        match tryGetInt64 args "document_id" with
-        | None -> Error "document_id is required"
-        | Some docId ->
-            match tryGetString args "operation" with
-            | None -> Error "operation is required (reextract|recomprehend|reembed)"
-            | Some operationStr ->
-                Reflow.OperationKind.parse operationStr
-                |> Result.bind (fun kind ->
-                    let modeStr = tryGetString args "mode" |> Option.defaultValue "dry_run"
-                    Reflow.RequestMode.parse modeStr
-                    |> Result.map (fun mode -> { DocumentId = docId; Kind = kind; Mode = mode }))
+    let private parseReflowKind (args: JsonNode) : Result<Reflow.OperationKind, string> =
+        Args.text args "operation"
+        |> Result.bind (function
+            | Some operation -> Reflow.OperationKind.parse operation
+            | None -> Error "operation is required (reextract|recomprehend|reembed)")
 
+    let private parseReflowMode (args: JsonNode) : Result<Reflow.RequestMode, string> =
+        Args.text args "mode"
+        |> Result.map (Option.defaultValue "dry_run")
+        |> Result.bind Reflow.RequestMode.parse
+
+    let private parseReflowArgs (args: JsonNode) : Result<ReflowRequestArgs, string> =
+        Args.requiredInteger args "document_id"
+        |> Result.bind (fun documentId ->
+            parseReflowKind args
+            |> Result.bind (fun kind ->
+                parseReflowMode args
+                |> Result.map (fun mode ->
+                    { DocumentId = documentId
+                      Kind = kind
+                      Mode = mode })))
+
+    /// Request a reflow. Schema violations are InvalidArguments; a reflow the
+    /// pipeline cannot perform (unknown document, stale DAG) is a DomainFailure.
     let reflowDocument
         (db: Algebra.Database)
         (logger: Algebra.Logger)
         (dag: PipelineV5.Dag)
         (args: JsonNode)
-        : Task<JsonNode> =
+        : Task<Result<JsonNode, ToolFailure>> =
         task {
             match parseReflowArgs args with
-            | Error e -> return errorJson e
+            | Error e -> return Error(InvalidArguments e)
             | Ok parsed ->
                 let! result = Reflow.request db logger dag parsed.DocumentId parsed.Kind parsed.Mode
                 return
                     match result with
-                    | Ok requestResult -> requestResultToJson requestResult :> JsonNode
-                    | Error e -> errorJson e
+                    | Ok requestResult -> Ok(requestResultToJson requestResult :> JsonNode)
+                    | Error e -> Error(DomainFailure e)
         }
 
-    let reflowStatus (db: Algebra.Database) (dag: PipelineV5.Dag) (args: JsonNode) : Task<JsonNode> =
+    let reflowStatus
+        (db: Algebra.Database)
+        (dag: PipelineV5.Dag)
+        (args: JsonNode)
+        : Task<Result<JsonNode, ToolFailure>> =
         task {
-            match tryGetInt64 args "operation_id" with
-            | None -> return errorJson "operation_id is required"
-            | Some opId ->
+            match Args.requiredInteger args "operation_id" with
+            | Error e -> return Error(InvalidArguments e)
+            | Ok opId ->
                 let! result = Reflow.getStatus dag db opId
                 return
                     match result with
-                    | Ok status -> operationStatusToJson status :> JsonNode
-                    | Error e -> errorJson e
+                    | Ok status -> Ok(operationStatusToJson status :> JsonNode)
+                    | Error e -> Error(DomainFailure e)
         }
 
     let private legacyReextractJson (docId: int64) (result: Reflow.RequestResult) : JsonNode =
@@ -571,16 +664,16 @@ module McpTools =
         (logger: Algebra.Logger)
         (dag: PipelineV5.Dag)
         (args: JsonNode)
-        : Task<JsonNode> =
+        : Task<Result<JsonNode, ToolFailure>> =
         task {
-            match tryGetInt64 args "document_id" with
-            | None -> return errorJson "document_id is required"
-            | Some docId ->
+            match Args.requiredInteger args "document_id" with
+            | Error e -> return Error(InvalidArguments e)
+            | Ok docId ->
                 let! result = Reflow.request db logger dag docId Reflow.Reextract Reflow.Apply
                 return
                     match result with
-                    | Ok requestResult -> legacyReextractJson docId requestResult
-                    | Error e -> errorJson e
+                    | Ok requestResult -> Ok(legacyReextractJson docId requestResult)
+                    | Error e -> Error(DomainFailure e)
         }
 
     let getProcessingQueue (db: Algebra.Database) (args: JsonNode) : Task<JsonNode> =
@@ -624,6 +717,8 @@ module McpTools =
     type private DeepArtifactSnapshot =
         { ExtractedText: string
           Comprehension: string
+          /// Folder revision observed with these bytes, under the folder fence.
+          Revision: ArtifactRevision.Token
           Current: bool }
 
     let private sourceArtifactPath docId archiveDir savedPath =
@@ -712,15 +807,12 @@ module McpTools =
     let private deepExtractRequest
         (args: JsonNode)
         : Result<DeepExtractRequest, string> =
-        tryGetInt64 args "document_id"
-        |> Option.map (fun documentId ->
-            { DocumentId = documentId
-              Force =
-                tryGetNode args "force"
-                |> Option.map (fun node -> node.GetValue<bool>())
-                |> Option.defaultValue false })
-        |> Option.map Ok
-        |> Option.defaultValue (Error "document_id is required")
+        Args.requiredInteger args "document_id"
+        |> Result.bind (fun documentId ->
+            Args.flag args "force"
+            |> Result.map (fun force ->
+                { DocumentId = documentId
+                  Force = force |> Option.defaultValue false }))
 
     let private deepTargetSql =
         """SELECT saved_path, folder_path,
@@ -791,6 +883,27 @@ module McpTools =
             return text, comprehension
         }
 
+    /// Captured under the folder fence with the bytes it describes, before the
+    /// slow model call, so a sibling that republishes the shared artifact can
+    /// be detected before this call writes anything.
+    let private readDeepSnapshot
+        db fs
+        (target: DeepTarget)
+        ()
+        : Task<DeepArtifactSnapshot> =
+        task {
+            let! text, comprehension =
+                readDeepArtifactFiles fs target.Artifacts
+            let! revision =
+                ArtifactRevision.current db target.Artifacts.Fence
+            let! current = deepArtifactsCurrent db target.Generation
+            return
+                { ExtractedText = text |> Option.defaultValue ""
+                  Comprehension = comprehension |> Option.defaultValue ""
+                  Revision = revision
+                  Current = current }
+        }
+
     let private readDeepArtifacts
         db fs
         (target: DeepTarget)
@@ -798,21 +911,8 @@ module McpTools =
         task {
             let! publication =
                 Generation.readArtifactStable
-                    db target.Generation target.Artifacts.Fence (fun () ->
-                        task {
-                            let! text, comprehension =
-                                readDeepArtifactFiles
-                                    fs target.Artifacts
-                            let! current =
-                                deepArtifactsCurrent
-                                    db target.Generation
-                            return
-                                { ExtractedText =
-                                    text |> Option.defaultValue ""
-                                  Comprehension =
-                                    comprehension |> Option.defaultValue ""
-                                  Current = current }
-                        })
+                    db target.Generation target.Artifacts.Fence
+                    (readDeepSnapshot db fs target)
             return
                 match publication with
                 | Generation.Published snapshot
@@ -839,9 +939,10 @@ module McpTools =
     let private publishDeepResult
         db fs
         (target: DeepTarget)
+        (revision: ArtifactRevision.Token)
         deep =
         Generation.republishArtifact
-            db target.Generation target.Artifacts.Fence
+            db target.Generation target.Artifacts.Fence revision
             (deepArtifactsCurrentIn target.Generation)
             (fun () ->
                 prepareDeepMerge
@@ -880,14 +981,15 @@ module McpTools =
     let private publishDeepDelta
         db fs documentId
         (target: DeepTarget)
+        (revision: ArtifactRevision.Token)
         deep =
         task {
-            match! publishDeepResult db fs target deep with
+            match! publishDeepResult db fs target revision deep with
             | Error error -> return errorJson error
             | Ok Generation.Superseded ->
                 return
                     errorJson
-                        $"Document {documentId} was reflowed while deep extraction ran; retry after comprehension is current"
+                        $"Document {documentId} was reflowed, or its shared folder was republished, while deep extraction ran; retry after comprehension is current"
             | Ok (Generation.Published merged) ->
                 return
                     deepResultJson
@@ -923,7 +1025,8 @@ module McpTools =
                 | Ok deep ->
                     return!
                         publishDeepDelta
-                            db fs request.DocumentId target deep
+                            db fs request.DocumentId target
+                            snapshot.Revision deep
         }
 
     let private processDeepTarget

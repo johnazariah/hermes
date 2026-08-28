@@ -374,3 +374,102 @@ let ``Stages_TriageRetry_DivergentResponse_KeepsCanonicalPublicationExactlyOnce`
             Assert.Equal(2L, (match learned with :? int64 as v -> v | _ -> 0L))
         finally db.dispose ()
     }
+
+// ─── Shared-folder sibling ordering ──────────────────────────────────
+
+/// Blocks inside the model call so the slow sibling holds no fence and no
+/// database gate while the fast sibling publishes.
+let private gatedProvider
+    (entered: TaskCompletionSource<unit>)
+    (release: TaskCompletionSource<unit>)
+    (response: string)
+    : Algebra.ChatProvider =
+    { complete =
+        fun _ _ ->
+            task {
+                entered.TrySetResult() |> ignore
+                do! release.Task
+                return Ok response
+            } }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``Stages_SharedFolderSiblings_StaleSibling_CannotOverwriteNewerSibling`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            do! TestHelpers.initV5 db
+            let mem = TestHelpers.memFs ()
+
+            // Two documents in ONE thread folder: they share thread.comprehension.json
+            // but own independent document generations.
+            let! slowId = insertRacDocument db "/archive/shared-thread" "triage"
+            let! fastId = insertRacDocument db "/archive/shared-thread" "triage"
+            mem.Put "/archive/shared-thread/source.pdf.extracted.md" "Shared thread text"
+
+            let entered =
+                TaskCompletionSource<unit>(
+                    TaskCreationOptions.RunContinuationsAsynchronously)
+            let release =
+                TaskCompletionSource<unit>(
+                    TaskCreationOptions.RunContinuationsAsynchronously)
+
+            // Sibling A starts FIRST and blocks inside the model call.
+            let! slowGeneration = Generation.current db slowId
+            let! slowDoc = readRacDocument db slowId
+            let slowDeps =
+                racDeps db mem.Fs
+                    (gatedProvider entered release
+                        """{"document_type":"letter","confidence":0.9,"summary":"stale-sibling-a","tags":["alpha"]}""")
+            let slowWork = Stages.triageAt slowGeneration slowDeps slowDoc
+            do! entered.Task
+
+            // Sibling B publishes newer state for the same shared artifact.
+            let! fastGeneration = Generation.current db fastId
+            let! fastDoc = readRacDocument db fastId
+            let fastDeps =
+                racDeps db mem.Fs
+                    (sequencedProvider
+                        [ """{"document_type":"letter","confidence":0.9,"summary":"newer-sibling-b","tags":["beta"]}""" ])
+            let! _ = Stages.triageAt fastGeneration fastDeps fastDoc
+
+            let published =
+                mem.Get "/archive/shared-thread/thread.comprehension.json"
+                |> Option.defaultWith (fun () ->
+                    failwith "Sibling B never wrote the shared artifact")
+            Assert.Contains("newer-sibling-b", published)
+
+            // Sibling A now completes LAST. It must not write any bytes.
+            release.TrySetResult() |> ignore
+            let! staleFailure =
+                task {
+                    try
+                        let! _ = slowWork
+                        return None
+                    with error ->
+                        return Some error.Message
+                }
+
+            let settled =
+                mem.Get "/archive/shared-thread/thread.comprehension.json"
+                |> Option.defaultWith (fun () ->
+                    failwith "Shared artifact was deleted")
+            Assert.Contains("newer-sibling-b", settled)
+            Assert.DoesNotContain("stale-sibling-a", settled)
+            Assert.True(
+                staleFailure.IsSome,
+                "Stale sibling must not report a successful publication")
+
+            // The stale sibling published nothing derived either.
+            let! stalePublications =
+                countOf db
+                    "SELECT count(*) FROM stage_publications WHERE document_id = @doc AND stage_name = 'triage'"
+                    slowId
+            Assert.Equal(0L, stalePublications)
+            let! freshPublications =
+                countOf db
+                    "SELECT count(*) FROM stage_publications WHERE document_id = @doc AND stage_name = 'triage'"
+                    fastId
+            Assert.Equal(1L, freshPublications)
+        finally db.dispose ()
+    }

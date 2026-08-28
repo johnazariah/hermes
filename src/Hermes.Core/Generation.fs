@@ -5,6 +5,109 @@ namespace Hermes.Core
 open System
 open System.Threading.Tasks
 
+/// Monotonic revision for artifacts shared by sibling documents in one folder.
+/// Sibling documents own independent document generations, so generation
+/// fencing alone cannot order two publishers that write the same file. This
+/// revision is captured before slow work and revalidated under the publication
+/// fence, so a stale sibling is rejected before it writes any bytes.
+[<RequireQualifiedAccess>]
+module ArtifactRevision =
+
+    type Token =
+        { Identities: string list
+          Value: int64 }
+
+    let private bumpSql =
+        """INSERT INTO artifact_folder_revisions
+             (folder_identity, revision, updated_at)
+           VALUES (@identity, @revision, datetime('now'))
+           ON CONFLICT(folder_identity) DO UPDATE SET
+             revision = MAX(artifact_folder_revisions.revision, excluded.revision),
+             updated_at = datetime('now')"""
+
+    let private readSql (count: int) =
+        let placeholders =
+            List.init count (fun index -> $"@identity{index}")
+            |> String.concat ", "
+        $"""SELECT COALESCE(MAX(revision), 0)
+            FROM artifact_folder_revisions
+            WHERE folder_identity IN ({placeholders})"""
+
+    let private readParameters identities =
+        identities
+        |> List.mapi (fun index identity ->
+            ($"@identity{index}", Database.boxVal identity))
+
+    let private revisionValue (value: obj | null) : int64 =
+        match value with
+        | :? int64 as revision -> revision
+        | :? int as revision -> int64 revision
+        | _ -> invalidOp "Artifact revision read did not return a revision"
+
+    let private readWith
+        (execScalar:
+            string -> (string * obj) list -> Task<obj | null>)
+        (identities: string list)
+        : Task<Token> =
+        task {
+            match identities with
+            | [] -> return { Identities = []; Value = 0L }
+            | _ ->
+                let! value =
+                    execScalar
+                        (readSql (List.length identities))
+                        (readParameters identities)
+                return
+                    { Identities = identities
+                      Value = revisionValue value }
+        }
+
+    let private identitiesOf folder =
+        PublicationFence.ArtifactFolder.identities folder
+
+    /// Captured outside any transaction, before slow work begins.
+    let current (db: Algebra.Database) folder : Task<Token> =
+        readWith db.execScalar (identitiesOf folder)
+
+    /// Revalidated inside the publication transaction that holds the fence.
+    let isCurrentIn
+        (scope: Algebra.TransactionScope)
+        (token: Token)
+        : Task<bool> =
+        task {
+            let! latest = readWith scope.execScalar token.Identities
+            return latest.Value = token.Value
+        }
+
+    let private bumpOne
+        (scope: Algebra.TransactionScope)
+        (revision: int64)
+        ()
+        (identity: string)
+        : Task<unit> =
+        task {
+            let! _ =
+                scope.execNonQuery
+                    bumpSql
+                    [ ("@identity", Database.boxVal identity)
+                      ("@revision", Database.boxVal revision) ]
+            return ()
+        }
+
+    /// Raises every identity of the folder above the value any sibling could
+    /// have captured, so overlapping identity sets always observe the change.
+    let bumpIn
+        (scope: Algebra.TransactionScope)
+        (folder: PublicationFence.ArtifactFolder)
+        : Task<unit> =
+        task {
+            let identities = identitiesOf folder
+            let! latest = readWith scope.execScalar identities
+            do!
+                identities
+                |> Prelude.foldTask (bumpOne scope (latest.Value + 1L)) ()
+        }
+
 /// Monotonic per-document generation fencing.
 [<RequireQualifiedAccess>]
 module Generation =
@@ -168,12 +271,47 @@ module Generation =
         : Task<Publication<'a>> =
         publishCore db token publication
 
+    /// Rejects the claim when a sibling has already advanced the shared folder,
+    /// so no stale canonical value is ever durably claimed.
+    let private claimWhenArtifactCurrent
+        (artifact: ArtifactRevision.Token)
+        (claim: Algebra.TransactionScope -> Task<'canonical>)
+        (scope: Algebra.TransactionScope)
+        : Task<'canonical option> =
+        task {
+            match! ArtifactRevision.isCurrentIn scope artifact with
+            | false -> return None
+            | true ->
+                let! canonical = claim scope
+                return Some canonical
+        }
+
+    /// Publishes derived data and advances the folder revision in the same
+    /// transaction, so the bump can never commit without its publication.
+    let private publishAndBump
+        (folder: PublicationFence.ArtifactFolder)
+        (artifact: ArtifactRevision.Token)
+        (publication: Algebra.TransactionScope -> Task<unit>)
+        (scope: Algebra.TransactionScope)
+        : Task<bool> =
+        task {
+            match! ArtifactRevision.isCurrentIn scope artifact with
+            | false -> return false
+            | true ->
+                do! publication scope
+                do! ArtifactRevision.bumpIn scope folder
+                return true
+        }
+
     /// Claims a durable canonical value, writes its artifact, then publishes
-    /// all derived data from that canonical value.
+    /// all derived data from that canonical value. The folder revision is
+    /// captured before slow work and revalidated here under the folder fence,
+    /// so a slow sibling can never overwrite a newer sibling's shared artifact.
     let publishCanonical
         (db: Algebra.Database)
         (token: Token)
         (folder: PublicationFence.ArtifactFolder)
+        (artifact: ArtifactRevision.Token)
         (claim: Algebra.TransactionScope -> Task<'canonical>)
         (writeArtifact: 'canonical -> Task<unit>)
         (publication:
@@ -181,13 +319,22 @@ module Generation =
         : Task<Publication<'canonical>> =
         fencedArtifact token.DocumentId folder (fun () ->
             task {
-                match! publishCore db token claim with
+                match!
+                    publishCore db token
+                        (claimWhenArtifactCurrent artifact claim)
+                    with
                 | Superseded -> return Superseded
-                | Published canonical ->
+                | Published None -> return Superseded
+                | Published (Some canonical) ->
                     do! writeArtifact canonical
-                    match! publishCore db token (publication canonical) with
+                    match!
+                        publishCore db token
+                            (publishAndBump
+                                folder artifact (publication canonical))
+                        with
                     | Superseded -> return Superseded
-                    | Published () -> return Published canonical
+                    | Published false -> return Superseded
+                    | Published true -> return Published canonical
             })
 
     let private validationPassed = function
@@ -203,45 +350,84 @@ module Generation =
             return validationPassed publication
         }
 
-    let private writeWhenCurrent
-        db token validate
-        (writeArtifact: 'artifact -> Task<unit>)
-        (artifact: 'artifact)
-        : Task<Publication<'artifact>> =
+    /// One transactional predicate for both fences: the folder revision
+    /// captured before slow work, and the caller's generation and output
+    /// validation.
+    let private artifactAndValidationCurrentIn
+        (artifact: ArtifactRevision.Token)
+        (validate: Algebra.TransactionScope -> Task<bool>)
+        (scope: Algebra.TransactionScope)
+        : Task<bool> =
         task {
-            let! current = validateCurrent db token validate
+            match! ArtifactRevision.isCurrentIn scope artifact with
+            | false -> return false
+            | true -> return! validate scope
+        }
+
+    /// Advances the folder revision in the same transaction that revalidates
+    /// the republication, so the bump can never commit without it and no
+    /// sibling can keep a token captured before these bytes were written.
+    let private validateAndBumpIn
+        (folder: PublicationFence.ArtifactFolder)
+        (stillCurrent: Algebra.TransactionScope -> Task<bool>)
+        (scope: Algebra.TransactionScope)
+        : Task<bool> =
+        task {
+            match! stillCurrent scope with
+            | false -> return false
+            | true ->
+                do! ArtifactRevision.bumpIn scope folder
+                return true
+        }
+
+    let private writeWhenCurrent
+        db token
+        (stillCurrent: Algebra.TransactionScope -> Task<bool>)
+        (commit: Algebra.TransactionScope -> Task<bool>)
+        (writeArtifact: 'content -> Task<unit>)
+        (content: 'content)
+        : Task<Publication<'content>> =
+        task {
+            let! current = validateCurrent db token stillCurrent
             if not current then
                 return Superseded
             else
-                do! writeArtifact artifact
-                let! committed = validateCurrent db token validate
+                do! writeArtifact content
+                let! committed = validateCurrent db token commit
                 return
-                    if committed then Published artifact
+                    if committed then Published content
                     else Superseded
         }
 
     /// Re-reads and merges a shared artifact while holding its folder fence,
-    /// then transactionally revalidates generation and output currentness.
+    /// then transactionally revalidates generation, output currentness and the
+    /// folder revision captured before the caller's slow work. That revision is
+    /// advanced with the write it publishes, so a sibling holding an older
+    /// token is rejected before it writes any bytes.
     let republishArtifact
         (db: Algebra.Database)
         (token: Token)
         (folder: PublicationFence.ArtifactFolder)
+        (artifact: ArtifactRevision.Token)
         (validate: Algebra.TransactionScope -> Task<bool>)
-        (prepare: unit -> Task<Result<'artifact, string>>)
-        (writeArtifact: 'artifact -> Task<unit>)
-        : Task<Result<Publication<'artifact>, string>> =
+        (prepare: unit -> Task<Result<'content, string>>)
+        (writeArtifact: 'content -> Task<unit>)
+        : Task<Result<Publication<'content>, string>> =
+        let stillCurrent = artifactAndValidationCurrentIn artifact validate
+        let commit = validateAndBumpIn folder stillCurrent
         fencedArtifact token.DocumentId folder (fun () ->
             task {
-                let! current = validateCurrent db token validate
+                let! current = validateCurrent db token stillCurrent
                 if not current then
                     return Ok Superseded
                 else
                     match! prepare () with
                     | Error error -> return Error error
-                    | Ok artifact ->
+                    | Ok content ->
                         let! publication =
                             writeWhenCurrent
-                                db token validate writeArtifact artifact
+                                db token stillCurrent commit
+                                writeArtifact content
                         return Ok publication
             })
 

@@ -24,6 +24,189 @@ let private freshDb () : Task<Algebra.Database> =
         return db
     }
 
+// ─── Stage attempt lease cleanup cannot strand a document ────────────
+
+let private leaseDag () =
+    match PipelineV5.buildDag TestHelpers.standardV5Stages with
+    | Ok value -> value
+    | Error error -> failwith error
+
+let private insertLeaseDocument (db: Algebra.Database) : Task<int64> =
+    task {
+        let! value =
+            db.execScalar
+                """INSERT INTO documents
+                     (source_type, saved_path, folder_path, category, sha256,
+                      sender, classification_tier, classification_confidence,
+                      extracted_at)
+                   VALUES
+                     ('email_attachment', '/archive/lease/source.pdf',
+                      '/archive/lease', 'invoices', 'lease-sha',
+                      'billing@example.com', 'triage', 0.95, datetime('now'))
+                   RETURNING id"""
+                []
+        return match value with :? int64 as id -> id | _ -> 0L
+    }
+
+let private insertLeaseRow
+    (db: Algebra.Database)
+    (docId: int64)
+    (stageName: string)
+    (token: string)
+    : Task<unit> =
+    task {
+        let! _ =
+            db.execNonQuery
+                """INSERT INTO pipeline_stage_attempts
+                     (document_id, stage_name, attempt_token)
+                   VALUES (@doc, @stage, @token)"""
+                [ ("@doc", Database.boxVal docId)
+                  ("@stage", Database.boxVal stageName)
+                  ("@token", Database.boxVal token) ]
+        return ()
+    }
+
+let private countScalar (db: Algebra.Database) (sql: string) : Task<int64> =
+    task {
+        let! value = db.execScalar sql []
+        return match value with :? int64 as v -> v | _ -> 0L
+    }
+
+/// Fails the token-qualified lease delete a fixed number of times, then lets it
+/// through. Every other statement runs against the real database.
+let private failingLeaseDeleteDb
+    (db: Algebra.Database)
+    (failures: int)
+    : Algebra.Database =
+    let seen = ref 0
+    { db with
+        execNonQuery =
+            fun sql parameters ->
+                if
+                    sql.Contains(
+                        "DELETE FROM pipeline_stage_attempts",
+                        System.StringComparison.Ordinal)
+                then
+                    seen.Value <- seen.Value + 1
+                    if seen.Value <= failures then
+                        failwith "transient lease delete failure"
+                    else
+                        db.execNonQuery sql parameters
+                else
+                    db.execNonQuery sql parameters }
+
+let private leaseToken (suffix: string) =
+    ("lease" + suffix).PadRight(32, '0').Substring(0, 32)
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``PipelineV5_CleanupAttempt_TransientDeleteFailure_StillReleasesLease`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            do! TestHelpers.initV5 db
+            let! docId = insertLeaseDocument db
+            let token = leaseToken "a"
+            do! insertLeaseRow db docId "embed" token
+            let identity: PipelineV5.StageAttemptIdentity =
+                { DocumentId = docId
+                  StageName = "embed"
+                  Token = token }
+
+            // Two transient faults, then success: no exception may escape.
+            do!
+                PipelineV5.cleanupAttempt
+                    (failingLeaseDeleteDb db 2) TestHelpers.silentLogger identity
+
+            let! leases =
+                countScalar db "SELECT count(*) FROM pipeline_stage_attempts"
+            Assert.Equal(0L, leases)
+
+            // A lease release is not a stage failure.
+            let! letters = countScalar db "SELECT count(*) FROM dead_letters"
+            Assert.Equal(0L, letters)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``PipelineV5_CleanupAttempt_ExhaustedRetries_NextCycleReclaimsLease`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            do! TestHelpers.initV5 db
+            let! docId = insertLeaseDocument db
+            let token = leaseToken "b"
+            do! insertLeaseRow db docId "embed" token
+            let identity: PipelineV5.StageAttemptIdentity =
+                { DocumentId = docId
+                  StageName = "embed"
+                  Token = token }
+
+            // Every delete fails: cleanup must give up quietly, never throw.
+            do!
+                PipelineV5.cleanupAttempt
+                    (failingLeaseDeleteDb db 99) TestHelpers.silentLogger identity
+            PipelineV5.untrackLiveAttempt token
+
+            let! stranded =
+                countScalar db "SELECT count(*) FROM pipeline_stage_attempts"
+            Assert.Equal(1L, stranded)
+
+            // The next cycle reclaims it, so the document is not stranded.
+            let! reclaimed =
+                PipelineV5.recoverAbandonedAttempts db (leaseDag ()).Stages
+            Assert.Equal(1, reclaimed)
+
+            let! leases =
+                countScalar db "SELECT count(*) FROM pipeline_stage_attempts"
+            Assert.Equal(0L, leases)
+
+            // Forward progress: the freed slot accepts a new lease.
+            do! insertLeaseRow db docId "extract" (leaseToken "c")
+            let! reacquired =
+                countScalar db "SELECT count(*) FROM pipeline_stage_attempts"
+            Assert.Equal(1L, reacquired)
+
+            // Recovery never inflates failures or dead letters.
+            let! letters = countScalar db "SELECT count(*) FROM dead_letters"
+            Assert.Equal(0L, letters)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``PipelineV5_RecoverAbandonedAttempts_LiveAttempt_IsNeverReclaimed`` () =
+    task {
+        let db = TestHelpers.createDb ()
+        try
+            do! TestHelpers.initV5 db
+            let! docId = insertLeaseDocument db
+            let token = leaseToken "d"
+            do! insertLeaseRow db docId "embed" token
+            let stages = (leaseDag ()).Stages
+
+            // A genuinely concurrent attempt holds its token.
+            PipelineV5.trackLiveAttempt token
+            let! untouched = PipelineV5.recoverAbandonedAttempts db stages
+            Assert.Equal(0, untouched)
+            let! held =
+                countScalar db "SELECT count(*) FROM pipeline_stage_attempts"
+            Assert.Equal(1L, held)
+
+            // Once it is no longer live the same row is reclaimable.
+            PipelineV5.untrackLiveAttempt token
+            let! reclaimed = PipelineV5.recoverAbandonedAttempts db stages
+            Assert.Equal(1, reclaimed)
+            let! leases =
+                countScalar db "SELECT count(*) FROM pipeline_stage_attempts"
+            Assert.Equal(0L, leases)
+
+            let! letters = countScalar db "SELECT count(*) FROM dead_letters"
+            Assert.Equal(0L, letters)
+        finally db.dispose ()
+    }
+
 type private FileDatabases =
     { Writer: Algebra.Database
       Observer: Algebra.Database

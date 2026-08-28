@@ -13,31 +13,6 @@ open Microsoft.Extensions.DependencyInjection
 open Hermes.Core
 open Serilog.Events
 
-/// Background work is fire-and-forget, but its terminal state must still be
-/// observed: a faulted background task can never disappear silently.
-let private observeBackground
-    (logger: Algebra.Logger)
-    (name: string)
-    (token: CancellationToken)
-    (work: Task)
-    : unit =
-    let describe (finished: Task) =
-        if finished.IsFaulted then
-            let detail =
-                match finished.Exception with
-                | null -> "unknown fault"
-                | error -> error.ToString()
-            logger.error $"Background task '{name}' faulted and stopped: {detail}"
-        elif finished.IsCanceled || token.IsCancellationRequested then
-            logger.info $"Background task '{name}' stopped"
-        else
-            logger.warn $"Background task '{name}' exited before shutdown"
-
-    work.ContinueWith(
-        Action<Task>(describe),
-        TaskContinuationOptions.ExecuteSynchronously)
-    |> ignore
-
 [<EntryPoint>]
 let main args =
     let fs = Interpreters.realFileSystem
@@ -71,7 +46,10 @@ let main args =
     let logger = Logging.configure configDir LogEventLevel.Information
     let dbPath = Path.Combine(archiveDir, "db.sqlite")
     let db = Database.fromPath dbPath
-    let _ = db.initSchema () |> Async.AwaitTask |> Async.RunSynchronously
+    db.initSchema ()
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
+    |> Lifetime.requireSchema
     Embeddings.initSchema db |> Async.AwaitTask |> Async.RunSynchronously
     let reflowDb = Database.fromPath dbPath
 
@@ -229,18 +207,20 @@ let main args =
 
     // Start v5 pipeline in background
     use cts = new CancellationTokenSource()
-    System.Threading.Tasks.Task.Run(fun () ->
-        PipelineV5.run
-            dag db logger gpu 200
-            (TimeSpan.FromMinutes 5.0)
-            (TimeSpan.FromSeconds 10.0)
-            cts.Token
-        :> System.Threading.Tasks.Task)
-    |> observeBackground logger "pipeline-v5" cts.Token
+    let pipelineTask =
+        System.Threading.Tasks.Task.Run(fun () ->
+            PipelineV5.run
+                dag db logger gpu 200
+                (TimeSpan.FromMinutes 5.0)
+                (TimeSpan.FromSeconds 10.0)
+                cts.Token
+            :> System.Threading.Tasks.Task)
+        |> Lifetime.observeBackground logger "pipeline-v5" cts.Token
 
     // Start producers (email sync, folder watcher) — they INSERT into documents table
     // v5 pipeline picks up new docs via readyQuery (no stage_completions = ready for extract)
-    System.Threading.Tasks.Task.Run(fun () ->
+    let producersTask =
+        System.Threading.Tasks.Task.Run(fun () ->
         task {
             // Initial delay for schema setup
             do! Task.Delay(TimeSpan.FromSeconds(5.0))
@@ -301,7 +281,7 @@ let main args =
                 try do! Task.Delay(TimeSpan.FromMinutes(float config.SyncIntervalMinutes), cts.Token)
                 with :? OperationCanceledException -> ()
         } :> System.Threading.Tasks.Task)
-    |> observeBackground logger "producers" cts.Token
+        |> Lifetime.observeBackground logger "producers" cts.Token
 
     // Build HTTP API
     let builder = WebApplication.CreateBuilder()
@@ -368,6 +348,17 @@ let main args =
     logger.info $"Hermes service starting on http://localhost:{port}"
     app.Run($"http://localhost:{port}")
     cts.Cancel()
-    reflowDb.dispose ()
-    db.dispose ()
-    0
+
+    // The connections are released only once every owned worker has provably
+    // stopped. Task.Run work runs on background threads, so returning here ends
+    // the process either way; leaving the connections to teardown is safer than
+    // disposing them beneath a live worker.
+    match
+        Lifetime.shutdown
+            logger (TimeSpan.FromSeconds 60.0) [ pipelineTask; producersTask ]
+        with
+    | Lifetime.Quiesced ->
+        reflowDb.dispose ()
+        db.dispose ()
+        0
+    | Lifetime.Abandoned _ -> Lifetime.AbandonedExitCode

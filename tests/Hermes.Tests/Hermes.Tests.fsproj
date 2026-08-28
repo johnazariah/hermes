@@ -52,6 +52,7 @@
     <Compile Include="ComprehensionRacTests.fs" />
     <Compile Include="ArchiveWriterTests.fs" />
     <Compile Include="ApiReflowTests.fs" />
+    <Compile Include="ServiceLifetimeTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

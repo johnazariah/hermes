@@ -98,6 +98,22 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-08-28 - Phase 1A PR A coordinator gate corrections approved
+
+- **Changed:** Closed stale sibling and deep-extraction sidecar overwrites with folder revision fencing; made stage-attempt cleanup recover from transient failures; made schema startup fail fast and shutdown quiesce before disposal; made MCP reflow failures and malformed containers protocol-truthful; and replaced the artificial v11 migration check with a populated deployed-v8 to v12 proof.
+- **Evidence:** Deterministic tests force sibling/deep-extraction interleavings, cleanup deletion faults, unresponsive shutdown, malformed MCP value/container types, repeated `tools/list`, populated migration with duplicate active dead letters, and second-run idempotency. Per-algebra SQLite serialization also passed 20 repeated Release stress iterations; EmailSync multi-command identity remains independently owned by blocking PR #21.
+- **Validation:** Release Core, Service, and Tests build with 0 warnings/errors; full suite executes 967 tests (957 passed, 10 skipped); local CI-equivalent coverage is 71.71% aggregate line / 35.91% branch and 79.13% Core line / 39.84% branch. Independent `fsharp-dev` review approved race safety, migration/idempotency, connection lifetime, cancellation, and compatibility.
+- **Blockers:** PR #20 must not merge before PR #19; it must then rebase and resolve Database/API/MCP/project/docs conflicts. The Windows workflow's authoritative 75% aggregate line check remains red and is not claimed as cleared; issue #18 retains the 85% / 60% wave-close target.
+- **Next:** Push the reviewed correction head, keep PR #19 separate, then rebase PR #20 after #19 lands before final merge consideration.
+
+### 2026-08-28 - Phase 1A PR A coordinator gate reassessed
+
+- **Changed:** Confirmed the process-wide shared-connection risk exists on `main` and is already closed in PR #20 by one algebra-scoped semaphore covering every command and transaction; clarified Core-package, aggregate-CI, current merge, and wave-close coverage measures.
+- **Evidence:** `main` exposes one raw shared `SqliteConnection` without serialization; PR #20 routes all `Algebra.Database` operations through the same gate, uses separate physical pipeline/reflow connections, and passed 20 Release stress iterations covering same-connection command/transaction exclusion plus two-connection write coordination.
+- **Validation:** PR head `83f208c`; macOS .NET, Shell, and Tray checks pass. Windows Release build and all 940 tests pass, then coverage fails at 71.3% aggregate line / 35.5% aggregate branch. The current workflow enforces 75% aggregate line only; the authoritative wave-close target remains 85% line / 60% branch under #18.
+- **Blockers:** Coordinator merge gate remains in force pending renewed scope review; no coverage gate is claimed as cleared.
+- **Next:** Complete renewed race, migration, lifetime, cancellation, and compatibility review, then return disposition to the master session.
+
 ### 2026-08-27 - Phase 1A PR A Release compiler correction
 
 - **Changed:** Replaced a task-expression `for` loop in the stale-stage-output regression with a tail-recursive task helper so F# Release compilation remains statically resumable under warnings-as-errors.

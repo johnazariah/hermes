@@ -193,7 +193,7 @@ LIMIT {limit}"""
 
     // ── Atomic stage lifecycle ───────────────────────────────────────
 
-    type private StageAttemptIdentity =
+    type internal StageAttemptIdentity =
         { DocumentId: int64
           StageName: string
           Token: string }
@@ -211,6 +211,24 @@ LIMIT {limit}"""
         { DocumentId = docId
           StageName = stageName
           Token = Guid.NewGuid().ToString("N") }
+
+    /// Attempt tokens owned by a live worker in this process. A lease row whose
+    /// token is absent here belongs to no running attempt, so reclaiming it
+    /// cannot race a genuinely concurrent worker. Tokens are tracked *before*
+    /// the lease row can exist, which closes the window between claim commit
+    /// and registration. This assumes a single pipeline host, the same
+    /// assumption startup recovery already makes.
+    let private liveAttemptTokens =
+        System.Collections.Concurrent.ConcurrentDictionary<string, byte>()
+
+    let internal trackLiveAttempt (token: string) : unit =
+        liveAttemptTokens.[token] <- 0uy
+
+    let internal untrackLiveAttempt (token: string) : unit =
+        liveAttemptTokens.TryRemove(token) |> ignore
+
+    let private isLiveAttempt (identity: StageAttemptIdentity) : bool =
+        liveAttemptTokens.ContainsKey identity.Token
 
     let deriveDocumentStage = StageState.deriveDocumentStage
 
@@ -400,6 +418,7 @@ LIMIT {limit}"""
         : Task<StageAttempt option> =
         task {
             let identity = createAttemptIdentity docId stage.Name
+            trackLiveAttempt identity.Token
             let captured =
                 TaskCompletionSource<StageAttempt option>(
                     TaskCreationOptions.RunContinuationsAsynchronously)
@@ -408,8 +427,13 @@ LIMIT {limit}"""
                     (startStageAttemptTransaction
                         currentSignature stage identity captured)
             match result with
-            | Ok () -> return! captured.Task
+            | Ok () ->
+                let! attempt = captured.Task
+                if Option.isNone attempt then
+                    untrackLiveAttempt identity.Token
+                return attempt
             | Error error ->
+                untrackLiveAttempt identity.Token
                 return invalidOp
                     $"Stage '{stage.Name}' attempt claim failed: {error}"
         }
@@ -629,24 +653,64 @@ LIMIT {limit}"""
             return Ok ()
         }
 
-    let private cleanupAttempt
+    let [<Literal>] private CleanupAttemptRetries = 3
+
+    let private cleanupBackoff (attempt: int) =
+        TimeSpan.FromMilliseconds(50.0 * float (pown 2 attempt))
+
+    let private tryDeleteAttempt
         (db: Algebra.Database)
         (identity: StageAttemptIdentity)
+        : Task<Result<unit, string>> =
+        task {
+            try
+                let! _ = deleteAttemptWith db.execNonQuery identity
+                return Ok ()
+            with error ->
+                return Error error.Message
+        }
+
+    /// The delete is token-qualified, so a retry can only ever remove this
+    /// attempt's own row. A transient failure must never replace the stage
+    /// result, and must never leave the document's single lease slot occupied:
+    /// once the retries are exhausted the token is released, so the next cycle
+    /// reclaims the row instead of stranding every stage for that document.
+    let rec private cleanupAttemptFrom
+        (db: Algebra.Database)
+        (logger: Algebra.Logger)
+        (identity: StageAttemptIdentity)
+        (attempt: int)
         : Task<unit> =
         task {
-            let! _ = deleteAttemptWith db.execNonQuery identity
-            return ()
+            match! tryDeleteAttempt db identity with
+            | Ok () -> return ()
+            | Error message when attempt >= CleanupAttemptRetries ->
+                logger.error
+                    $"Stage '{identity.StageName}' lease cleanup failed for doc {identity.DocumentId} after {CleanupAttemptRetries + 1} attempts; the next cycle will reclaim it: {message}"
+                return ()
+            | Error _ ->
+                do! Task.Delay(cleanupBackoff attempt)
+                return! cleanupAttemptFrom db logger identity (attempt + 1)
         }
+
+    let internal cleanupAttempt
+        (db: Algebra.Database)
+        (logger: Algebra.Logger)
+        (identity: StageAttemptIdentity)
+        : Task<unit> =
+        cleanupAttemptFrom db logger identity 0
 
     let private releaseAttemptWhenSettled
         (db: Algebra.Database)
+        (logger: Algebra.Logger)
         (identity: StageAttemptIdentity)
         (work: Task<'a>)
         : Task<'a> =
         task {
             let pending: Task array = [| work :> Task |]
             let! _ = Task.WhenAny(pending)
-            do! cleanupAttempt db identity
+            do! cleanupAttempt db logger identity
+            untrackLiveAttempt identity.Token
             return! work
         }
 
@@ -783,6 +847,63 @@ LIMIT {limit}"""
     let private requireCommit context = function
         | Ok () -> ()
         | Error error -> invalidOp $"{context}: {error}"
+
+    let private staleAttemptIdentities
+        (db: Algebra.Database)
+        : Task<StageAttemptIdentity list> =
+        task {
+            let! rows =
+                db.execReader
+                    """SELECT document_id, stage_name, attempt_token
+                       FROM pipeline_stage_attempts"""
+                    []
+            return
+                rows
+                |> List.map (fun row ->
+                    let reader = Prelude.RowReader(row)
+                    { DocumentId = reader.Int64 "document_id" 0L
+                      StageName = reader.String "stage_name" ""
+                      Token = reader.String "attempt_token" "" })
+        }
+
+    let private recoverOne
+        (db: Algebra.Database)
+        (stages: Map<string, StageDefinition>)
+        (count: int)
+        (identity: StageAttemptIdentity)
+        : Task<int> =
+        task {
+            let stage =
+                stages
+                |> Map.tryFind identity.StageName
+                |> Option.defaultWith (fun () ->
+                    invalidOp
+                        $"Stale attempt refers to unknown stage '{identity.StageName}'")
+            let! result =
+                db.inTransaction
+                    (discardStaleAttemptTransaction stage identity)
+            requireCommit
+                $"Stale attempt recovery for stage '{identity.StageName}' failed"
+                result
+            return count + 1
+        }
+
+    /// Reclaims lease rows left behind by an attempt that never finalised and
+    /// whose cleanup could not complete. Only rows whose token belongs to no
+    /// live attempt are touched, so a genuinely concurrent attempt is never
+    /// deleted. Safe to run on every cycle: with no abandoned rows it is a
+    /// single read and does nothing.
+    let internal recoverAbandonedAttempts
+        (db: Algebra.Database)
+        (stages: Map<string, StageDefinition>)
+        : Task<int> =
+        task {
+            let! identities = staleAttemptIdentities db
+            match identities |> List.filter (isLiveAttempt >> not) with
+            | [] -> return 0
+            | abandoned ->
+                return! abandoned |> Prelude.foldTask (recoverOne db stages) 0
+        }
 
     let private settleAttempt
         (db: Algebra.Database)
@@ -977,7 +1098,7 @@ LIMIT {limit}"""
                 return!
                     executeStageAttempt
                         currentSignature stage db logger active
-                    |> releaseAttemptWhenSettled db active.Identity
+                    |> releaseAttemptWhenSettled db logger active.Identity
         }
 
     /// A faulted finalisation is an infrastructure failure, not a stage
@@ -1219,6 +1340,13 @@ LIMIT {limit}"""
     let private runCycleSafely (context: RunContext) (dag: Dag) : Task<CycleOutcome> =
         task {
             try
+                // A lease abandoned by a faulted attempt would otherwise block
+                // every stage for its document until the next restart.
+                let! reclaimed =
+                    recoverAbandonedAttempts context.Db dag.Stages
+                if reclaimed > 0 then
+                    context.Logger.warn
+                        $"Reclaimed {reclaimed} abandoned pipeline stage attempt lease(s)"
                 let! processed = runCycle context dag
                 return CycleProcessed processed
             with error ->
@@ -1378,46 +1506,6 @@ LIMIT {limit}"""
         """
         "CREATE INDEX IF NOT EXISTS idx_pipeline_stage_attempts_stage ON pipeline_stage_attempts(stage_name);"
     |]
-
-    let private staleAttemptIdentities
-        (db: Algebra.Database)
-        : Task<StageAttemptIdentity list> =
-        task {
-            let! rows =
-                db.execReader
-                    """SELECT document_id, stage_name, attempt_token
-                       FROM pipeline_stage_attempts"""
-                    []
-            return
-                rows
-                |> List.map (fun row ->
-                    let reader = Prelude.RowReader(row)
-                    { DocumentId = reader.Int64 "document_id" 0L
-                      StageName = reader.String "stage_name" ""
-                      Token = reader.String "attempt_token" "" })
-        }
-
-    let private recoverOne
-        (db: Algebra.Database)
-        (stages: Map<string, StageDefinition>)
-        (count: int)
-        (identity: StageAttemptIdentity)
-        : Task<int> =
-        task {
-            let stage =
-                stages
-                |> Map.tryFind identity.StageName
-                |> Option.defaultWith (fun () ->
-                    invalidOp
-                        $"Stale attempt refers to unknown stage '{identity.StageName}'")
-            let! result =
-                db.inTransaction
-                    (discardStaleAttemptTransaction stage identity)
-            requireCommit
-                $"Stale attempt recovery for stage '{identity.StageName}' failed"
-                result
-            return count + 1
-        }
 
     /// Cleans crashed-attempt output and releases its lease. This must complete
     /// before workers or API traffic are started.
