@@ -903,12 +903,15 @@ let ``EmailSync_SyncAccountWithChannel_MessageFailure_ReturnsErrorWithoutAdvanci
 [<Trait("Category", "Integration")>]
 let ``EmailSync_SyncAccountWithChannel_AttachmentFailure_ReturnsErrorWithoutRecordingMessage`` () =
     let output = Channel.CreateUnbounded<Document.T>()
+    let fullMessageRequests = ConcurrentQueue<string>()
     let provider =
         { TestHelpers.emptyProvider with
             listStubPage =
                 fun _ _ _ -> Task.FromResult(stubPage [ sampleMessage.ProviderId ] None)
             getFullMessage =
-                fun _ -> Task.FromResult(sampleMessage)
+                fun id ->
+                    fullMessageRequests.Enqueue(id)
+                    Task.FromResult(sampleMessage)
             getAttachments =
                 fun id ->
                     Task.FromException<Domain.EmailAttachment list>(
@@ -928,7 +931,10 @@ let ``EmailSync_SyncAccountWithChannel_AttachmentFailure_ReturnsErrorWithoutReco
             Assert.Equal(0, result.AttachmentsDownloaded)
             Assert.Equal(0, result.DuplicatesSkipped)
             Assert.Single(result.Errors) |> ignore
+            Assert.Contains("attachments failed", result.Errors.Head)
             Assert.Contains(sampleMessage.ProviderId, result.Errors.Head)
+            Assert.Single(fullMessageRequests) |> ignore
+            Assert.Equal(sampleMessage.ProviderId, fullMessageRequests |> Seq.exactlyOne)
             Assert.Equal(0L, messageCount)
             Assert.Equal(0L, documentCount)
             Assert.True(state.IsNone)
