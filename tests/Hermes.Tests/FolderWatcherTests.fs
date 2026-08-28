@@ -1,6 +1,7 @@
 module Hermes.Tests.FolderWatcherTests
 
 open System
+open System.Collections.Concurrent
 open System.IO
 open System.Threading.Tasks
 open Xunit
@@ -10,6 +11,46 @@ open Hermes.Core
 
 let private watchTestConfig archiveDir watchFolders : Domain.HermesConfig =
     { TestHelpers.testConfig archiveDir with WatchFolders = watchFolders }
+
+let private assertFailed expectedError = function
+    | FolderWatcher.Failed error -> Assert.Equal(expectedError, error)
+    | result -> failwith $"Expected Failed, got {result}"
+
+let private assertCopied = function
+    | FolderWatcher.Copied _ -> ()
+    | result -> failwith $"Expected Copied, got {result}"
+
+let private assertPatternMismatch = function
+    | FolderWatcher.Skipped "pattern mismatch" -> ()
+    | result -> failwith $"Expected pattern mismatch, got {result}"
+
+type private ScanAllScenario =
+    { FileSystem: Algebra.FileSystem
+      Database: Algebra.Database
+      Config: Domain.HermesConfig
+      CopiedPaths: string list
+      SkippedPaths: string list }
+
+let private createScanAllScenario () =
+    let memory = TestHelpers.memFs ()
+    let archiveDir = "/archive"
+    let folders : Domain.WatchFolderConfig list =
+        [ { Path = "/watch/inbox"; Patterns = [ "*.pdf" ] }
+          { Path = "/watch/reports"; Patterns = [ "*.txt" ] } ]
+    let copiedPaths = [ "/watch/inbox/invoice.pdf"; "/watch/reports/summary.txt" ]
+    let skippedPaths = [ "/watch/inbox/notes.txt"; "/watch/reports/image.png" ]
+
+    archiveDir :: (folders |> List.map (fun folder -> folder.Path))
+    |> List.iter (fun path -> memory.Dirs.[path] <- true)
+
+    copiedPaths @ skippedPaths
+    |> List.iter (fun path -> memory.Put path path)
+
+    { FileSystem = memory.Fs
+      Database = TestHelpers.createDb ()
+      Config = watchTestConfig archiveDir folders
+      CopiedPaths = copiedPaths
+      SkippedPaths = skippedPaths }
 
 // ─── Glob pattern matching tests ─────────────────────────────────────
 
@@ -94,6 +135,22 @@ let ``FolderWatcher_IsDuplicate_NoExistingDoc_ReturnsFalse`` () =
         try
             let! isDup = FolderWatcher.isDuplicate db "abc123"
             Assert.False(isDup)
+        finally
+            db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``FolderWatcher_IsDuplicate_NullScalar_ReturnsFalse`` () =
+    let db = TestHelpers.createDb ()
+    let nullResultDb =
+        { db with
+            execScalar = fun _ _ -> Task.FromResult<obj | null>(null) }
+
+    task {
+        try
+            let! isDuplicate = FolderWatcher.isDuplicate nullResultDb "abc123"
+            Assert.False(isDuplicate)
         finally
             db.dispose ()
     }
@@ -282,6 +339,33 @@ let ``FolderWatcher_ProcessFile_MissingFile_ReturnsSkipped`` () =
 
 [<Fact>]
 [<Trait("Category", "Integration")>]
+let ``FolderWatcher_ProcessFile_ContentReadFails_ReturnsFailedAndLogsError`` () =
+    let memory = TestHelpers.memFs ()
+    let db = TestHelpers.createDb ()
+    let sourcePath = "/watch/broken.pdf"
+    let expectedError = "content read failed"
+    let errors = ConcurrentQueue<string>()
+    let fs =
+        { memory.Fs with
+            readAllBytes = fun _ -> Task.FromException<byte array>(IOException(expectedError)) }
+    let logger = { TestHelpers.silentLogger with error = errors.Enqueue }
+    let watchFolder : Domain.WatchFolderConfig = { Path = "/watch"; Patterns = [ "*.pdf" ] }
+    memory.Put sourcePath "existing content"
+
+    task {
+        try
+            let! result =
+                FolderWatcher.processFile fs db logger TestHelpers.defaultClock "/archive" watchFolder sourcePath
+            assertFailed expectedError result
+            let errorLog = errors.ToArray() |> Array.exactlyOne
+            [ Path.GetFileName(sourcePath) |> Option.ofObj |> Option.defaultValue ""; expectedError ]
+            |> List.iter (fun expected -> Assert.Contains(expected, errorLog))
+        finally
+            db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
 let ``FolderWatcher_ProcessFile_UsesSafeCopyRename`` () =
     task {
         let m = TestHelpers.memFs ()
@@ -437,6 +521,49 @@ let ``FolderWatcher_ScanFolder_ProcessesAllMatchingFiles`` () =
             Assert.Equal(1, skipped.Length)
         finally
             db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``FolderWatcher_ScanFolder_PathMissing_ReturnsEmptyAndWarns`` () =
+    let memory = TestHelpers.memFs ()
+    let db = TestHelpers.createDb ()
+    let missingPath = "/watch/missing"
+    let warnings = ConcurrentQueue<string>()
+    let fs = { memory.Fs with getFiles = fun _ _ -> failwith "getFiles must not be called" }
+    let logger = { TestHelpers.silentLogger with warn = warnings.Enqueue }
+    let watchFolder : Domain.WatchFolderConfig = { Path = missingPath; Patterns = [ "*" ] }
+
+    task {
+        try
+            let! results =
+                FolderWatcher.scanFolder fs db logger TestHelpers.defaultClock "/archive" watchFolder
+            Assert.Empty(results)
+            let warning = warnings.ToArray() |> Array.exactlyOne
+            Assert.Contains(missingPath, warning)
+        finally
+            db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``FolderWatcher_ScanAll_ConfiguredFolders_AggregatesMatchingAndMismatchingResults`` () =
+    let scenario = createScanAllScenario ()
+
+    task {
+        try
+            let! results =
+                FolderWatcher.scanAll scenario.FileSystem scenario.Database TestHelpers.silentLogger TestHelpers.defaultClock scenario.Config
+            let resultsByPath = results |> Map.ofList
+            let expectedCount = scenario.CopiedPaths.Length + scenario.SkippedPaths.Length
+            Assert.Equal(expectedCount, results.Length)
+            Assert.Equal(expectedCount, resultsByPath.Count)
+            scenario.CopiedPaths
+            |> List.iter (fun path -> resultsByPath |> Map.find path |> assertCopied)
+            scenario.SkippedPaths
+            |> List.iter (fun path -> resultsByPath |> Map.find path |> assertPatternMismatch)
+        finally
+            scenario.Database.dispose ()
     }
 
 // ─── Glob to regex tests ────────────────────────────────────────────
