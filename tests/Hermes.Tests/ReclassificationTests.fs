@@ -95,7 +95,13 @@ let private withCompetingClassification
                         db.execNonQuery competingClassificationSql
                             [ "@id", Database.boxVal documentId ]
                     return! db.execNonQuery sql parameters
-                } }
+                }
+        tryRepairSavedPath =
+            fun _ ->
+                System.Threading.Tasks.Task.FromException<
+                    Result<Algebra.SavedPathRepairDecision, string>>(
+                        InvalidOperationException(
+                            "Unexpected saved-path repair in classification fake")) }
 
 [<Fact>]
 [<Trait("Category", "Integration")>]

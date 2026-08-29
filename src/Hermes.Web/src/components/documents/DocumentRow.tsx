@@ -40,10 +40,12 @@ export function DocumentRow({
   doc,
   selected,
   onToggle,
+  disabled = false,
 }: {
   doc: DocumentSummary;
   selected: boolean;
   onToggle: (id: number) => void;
+  disabled?: boolean;
 }) {
   return (
     <div
@@ -55,6 +57,8 @@ export function DocumentRow({
         type="checkbox"
         checked={selected}
         onChange={() => onToggle(doc.id)}
+        disabled={disabled}
+        aria-label={`Select ${doc.originalName}`}
         className="h-4 w-4 rounded border-neutral-300 dark:border-neutral-600 accent-blue-600 cursor-pointer shrink-0"
       />
 

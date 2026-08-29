@@ -37,6 +37,7 @@
     <Compile Include="DocumentManagementTests.fs" />
     <Compile Include="ReclassificationTests.fs" />
     <Compile Include="LegacyReclassificationTests.fs" />
+    <Compile Include="McpLegacyReclassificationTests.fs" />
     <Compile Include="ReclassificationApiTests.fs" />
     <Compile Include="ThreadsTests.fs" />
     <Compile Include="ExcelExtractionTests.fs" />

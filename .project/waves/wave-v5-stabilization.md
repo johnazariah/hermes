@@ -98,6 +98,22 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-08-29 - File-first repair correction approved
+
+- **Changed:** Legacy path repair now uses atomic canonical ownership, archive containment, bounded resumable pages, snapshot restarts, and truthful apply outcomes; React reclassification clears hidden selections across direct and browser-history filter changes and surfaces malformed success responses as errors.
+- **Evidence:** PR #19 correction; `Database.fs`, `LegacyReclassification.fs`, `McpLegacyReclassification.fs`, `DocumentsPage.tsx`, and focused database, MCP, legacy-repair, and Playwright tests.
+- **Validation:** Release solution build passed with 0 warnings/errors; 951 .NET cases ran (941 passed, 10 skipped); Core coverage reached 68.50% line / 33.58% branch; changed-file ESLint passed; all 9 React reclassification Playwright cases passed; independent F# and React reviews approved the scoped correction.
+- **Blockers:** The pre-existing repository-wide 75% CI line gate remains owned by issue #18; Service-hosted React routing remains Phase 1D scope.
+- **Next:** Commit the independently approved correction for mechanical integration into PR #19 and branch-level CI review.
+
+### 2026-08-29 - Reclassification filter race prevented
+
+- **Changed:** Desktop and mobile document filters are disabled while reclassification is pending, preventing completion from restoring failed IDs into a different, invisible result view.
+- **Evidence:** `DocumentsPage.tsx`, `reclassification.spec.ts`, and the rebuilt React Service assets.
+- **Validation:** React TypeScript/Vite build and changed-file ESLint passed; all 6 reclassification Playwright cases passed against Vite preview, including delayed-mutation filter lockout.
+- **Blockers:** None.
+- **Next:** Return the correction for independent reviewer approval without committing or pushing.
+
 ### 2026-08-27 - Reclassification batch counts corrected
 
 - **Changed:** Batch reclassification now reports changed, unchanged, and failed outcomes separately so idempotent no-ops do not inflate the successful-change count.

@@ -128,7 +128,7 @@ let ``McpServer_Dispatch_ToolsList_ReturnsAllTools`` () =
             let doc = JsonDocument.Parse(response)
             let result = doc.RootElement.GetProperty("result")
             let tools = result.GetProperty("tools")
-            Assert.Equal(18, tools.GetArrayLength())
+            Assert.Equal(19, tools.GetArrayLength())
 
             let toolNames =
                 [ for i in 0 .. tools.GetArrayLength() - 1 ->
@@ -142,6 +142,7 @@ let ``McpServer_Dispatch_ToolsList_ReturnsAllTools`` () =
             Assert.Contains("hermes_list_documents", toolNames :> seq<string>)
             Assert.Contains("hermes_get_feed_stats", toolNames :> seq<string>)
             Assert.Contains("hermes_get_document_content", toolNames :> seq<string>)
+            Assert.Contains("hermes_legacy_reclassify_page", toolNames :> seq<string>)
         finally
             db.dispose ()
     }

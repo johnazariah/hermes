@@ -6,13 +6,13 @@
 
 | Category | Count |
 |----------|-------|
-| Unit | 569 |
+| Unit | 590 |
 | Property | 5 |
-| Integration | 318 |
+| Integration | 350 |
 | ManualTest | 6 |
-| **Total** | **898** |
+| **Total** | **951** |
 
-> 863 unique test methods; 898 total test cases
+> 913 unique test methods; 951 total test cases
 > (Theory/InlineData tests contribute multiple cases per method)
 
 ## Execution Baseline
@@ -51,6 +51,22 @@ The active follow-on issues are #6, #8, #9, #11, #16, #17, and #18. The V5
 Stabilization wave closes only at 85% line and 60% branch coverage with truthful
 skip and Playwright execution evidence.
 
+### PR #17 correction validation
+
+The lockout correction adds 53 cases: 8 database/canonical-path cases,
+26 legacy-repair cases, and 19 MCP cursor/operator cases. The full suite
+discovers 951 cases: 941 passed, 10 skipped, and 0 failed. Full-solution
+Release build passes with 0 warnings and 0 errors. Core coverage is 68.50%
+line / 33.58% branch, improving on the Phase 0 baseline without claiming
+ownership of the repository-wide coverage recovery.
+
+The canonical React preview adds 9 Playwright cases covering changed, no-op,
+partial, transport-failure, pending/validation, pending and ordinary browser
+history navigation, stale-selection prevention, and success-shaped API error
+responses. They pass against the Vite preview surface. The Service root still
+serves the excluded Blazor surface; canonical Service-hosted React routing
+remains Phase 1D scope.
+
 ---
 
 ## ConfigTests.fs (15 tests)
@@ -73,7 +89,7 @@ skip and Playwright execution evidence.
 | Config_ChatProviderKind_FromString_ParsesVariants | Unit |
 | Config_ParseYaml_NeverThrows | Property |
 
-## DatabaseTests.fs (18 tests)
+## DatabaseTests.fs (26 cases)
 
 | Test | Category |
 |------|----------|
@@ -95,6 +111,12 @@ skip and Playwright execution evidence.
 | Database_SchemaVersion_FreshDb_ReturnsLatest | Integration |
 | Database_InitSchema_Idempotent_CanRunTwice | Integration |
 | Database_FreshSchema_HasAllTables | Integration |
+| Documents change epoch advances on every mutation | Integration |
+| Schema reinitialization preserves epoch and trigger behavior | Integration |
+| Database_CanonicalArchivePath_RejectsRelativeEscape (3 cases) | Unit |
+| Database_CanonicalArchivePath_RejectsRootedEscape | Unit |
+| Database_CanonicalArchivePath_AllowsContainedDotDotSegments | Unit |
+| Database_CanonicalArchivePath_ArchiveRootIsStableAndSelfContained | Unit |
 
 ## RulesTests.fs (32 tests)
 
@@ -395,6 +417,30 @@ skip and Playwright execution evidence.
 | McpServer_Dispatch_ToolsCallReclassify_ReturnsResult | Integration |
 | McpServer_Dispatch_ToolsCallReextract_ReturnsResult | Integration |
 | McpServer_Dispatch_DeepExtract_NoDeps_ReturnsError | Integration |
+
+## McpLegacyReclassificationTests.fs (19 tests)
+
+| Test | Category |
+|------|----------|
+| Encode then decode round-trips a fresh cursor | Unit |
+| Encode then decode round-trips a cursor with candidates and continuations | Unit |
+| Decode rejects an empty cursor | Unit |
+| Decode rejects cursor text that is not valid base64url | Unit |
+| Decode rejects a base64url payload that is not JSON | Unit |
+| Decode rejects a JSON array payload | Unit |
+| Decode rejects a JSON object missing required fields | Unit |
+| Decode rejects an unsupported cursor version | Unit |
+| McpServer_LegacyReclassifyPage_MissingBounds_ReturnsError | Integration |
+| McpServer_LegacyReclassifyPage_RejectsOutOfRangeBounds | Integration |
+| McpServer_LegacyReclassifyPage_MalformedCursor_ReturnsInvalidCursorError | Integration |
+| McpServer_LegacyReclassifyPage_DryRun_StartsInProgressThenContinuesToCompletion | Integration |
+| McpServer_LegacyReclassifyPage_Apply_RepairsUniqueMatchAndIsIdempotent | Integration |
+| McpServer_LegacyReclassifyPage_CursorBoundsMismatch_IsRejected | Integration |
+| McpServer_LegacyReclassifyPage_TamperedArchiveRoot_IsRejected | Integration |
+| McpServer_LegacyReclassifyPage_SnapshotChanged_RestartsAndEventuallyStabilizes | Integration |
+| McpServer_LegacyReclassifyPage_TamperedCandidateSavedPath_EscapingArchive_IsRejected | Integration |
+| McpServer_LegacyReclassifyPage_TamperedCandidateOwnershipKey_Mismatch_IsRejected | Integration |
+| McpServer_LegacyReclassifyPage_Apply_ExternalWriteAfterRepair_ReportsCommittedOutcomesTruthfully | Integration |
 
 ## EmailBodyTests.fs (24 tests)
 
@@ -813,7 +859,7 @@ skip and Playwright execution evidence.
 | Reclassification_RollsBackCategoryTagAndFtsWhenTriggerWriteFails | Integration |
 | Reclassification_PreservesEveryV5CompletionAndOutput | Integration |
 
-## LegacyReclassificationTests.fs (18 cases)
+## LegacyReclassificationTests.fs (44 cases)
 
 | Test | Category |
 |------|----------|
@@ -824,6 +870,31 @@ skip and Playwright execution evidence.
 | Legacy_RepairExcludesGeneratedArtifactsFromShaCandidates (9 cases) | Integration |
 | Legacy_RepairLeavesCurrentPathShaMismatchUnchangedAndVisible | Integration |
 | Legacy_TruncatedScanNeverClaimsUniqueIdentity | Integration |
+| Legacy repair reports candidate ownership conflict without mutation | Integration |
+| Duplicate SHA rows with distinct files remain ambiguous | Integration |
+| Successful unowned repair is idempotent | Integration |
+| Same document canonical ownership is explicitly unchanged | Integration |
+| Unicode composed and decomposed paths collide conservatively | Unit |
+| Case equivalent paths collide conservatively | Unit |
+| Slash relative and dot equivalent paths collide | Unit |
+| Malformed existing saved path fails the ownership decision | Unit |
+| Repair transaction rejects a relative candidate path that escapes the archive | Integration |
+| Repair transaction rejects a rooted candidate path outside the archive | Integration |
+| Ownership transaction rolls back when update fails | Integration |
+| Concurrent repairs cannot assign one candidate to two documents | Integration |
+| Candidate evidence is deterministic distinct and capped at two | Integration |
+| Cursor validation rejects malformed identity epoch and continuations | Integration |
+| Cursor validation rejects impossible phase and oversized evidence | Integration |
+| Cursor validation rejects archive root and bounds mismatch | Integration |
+| Cursor validation rejects a candidate whose ownership key does not match its saved path | Unit |
+| Cursor validation rejects a candidate saved path that escapes the archive (2 cases) | Unit |
+| First bounded archive page advances without findings or outcomes | Integration |
+| Archive completion emits evidence only on the final page | Integration |
+| Archive continuation progresses beyond ten thousand files | Integration |
+| Document continuation evaluates more than one thousand IDs once | Integration |
+| Behind cursor insertion forces restart and is eventually covered | Integration |
+| Retrying unchanged archive cursor is deterministic and idempotent | Integration |
+| Apply repairs each proven path once and accounts for own epoch | Integration |
 
 ## ReclassificationApiTests.fs (4 tests)
 

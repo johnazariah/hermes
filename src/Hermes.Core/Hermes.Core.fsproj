@@ -55,6 +55,7 @@
     <Compile Include="Stages.fs" />
     <Compile Include="StagesV5.fs" />
     <Compile Include="Pipeline.fs" />
+    <Compile Include="McpLegacyReclassification.fs" />
     <Compile Include="McpTools.fs" />
     <Compile Include="McpServer.fs" />
     <Compile Include="ServiceInstaller.fs" />

@@ -49,12 +49,31 @@ module Algebra =
 
     // ─── Database ────────────────────────────────────────────────────
 
+    type SavedPathRepairRequest =
+        { ArchiveDirectory: string
+          DocumentId: int64
+          CurrentSavedPath: string
+          ExpectedSha256: string
+          CandidateSavedPath: string }
+
+    type SavedPathRepairDecision =
+        | SavedPathUpdated
+        /// This document already owns the candidate canonical path and no
+        /// other document owns it. The stored path is returned unchanged.
+        | SavedPathAlreadyOwnedByDocument of savedPath: string
+        /// Other documents own the candidate canonical path.
+        | SavedPathOwnedByOtherDocuments of documentIds: int64 list
+        /// The optimistic document identity no longer matches.
+        | SavedPathDocumentChanged
+
     type Database =
         { execNonQuery: string -> (string * obj) list -> Task<int>
           execScalar: string -> (string * obj) list -> Task<obj | null>
           execReader: string -> (string * obj) list -> Task<Map<string, obj> list>
           initSchema: unit -> Task<Result<unit, string>>
           tableExists: string -> Task<bool>
+          tryRepairSavedPath:
+              SavedPathRepairRequest -> Task<Result<SavedPathRepairDecision, string>>
           schemaVersion: unit -> Task<int>
           dispose: unit -> unit }
 

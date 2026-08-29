@@ -357,3 +357,126 @@ let ``Database_FreshSchema_HasAllTables`` () =
                 Assert.True(exists, $"Table {table} should exist")
         finally db.dispose ()
     }
+
+let private loadDocumentsEpoch (db: Algebra.Database) =
+    task {
+        let! value =
+            db.execScalar
+                """SELECT epoch FROM documents_change_epoch
+                   WHERE singleton = 1"""
+                []
+
+        return Assert.IsType<int64>(value)
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``Documents change epoch advances on every mutation`` () =
+    task {
+        let db = TestHelpers.createDb ()
+
+        try
+            let! initial = loadDocumentsEpoch db
+
+            let! _ =
+                db.execNonQuery
+                    """INSERT INTO documents
+                       (source_type, saved_path, category, sha256)
+                       VALUES ('manual_drop', 'epoch.pdf', 'unsorted', 'epoch')"""
+                    []
+
+            let! afterInsert = loadDocumentsEpoch db
+
+            let! _ =
+                db.execNonQuery
+                    """UPDATE documents
+                       SET category = 'receipts'
+                       WHERE saved_path = 'epoch.pdf'"""
+                    []
+
+            let! afterUpdate = loadDocumentsEpoch db
+
+            let! _ =
+                db.execNonQuery
+                    "DELETE FROM documents WHERE saved_path = 'epoch.pdf'"
+                    []
+
+            let! afterDelete = loadDocumentsEpoch db
+            Assert.Equal(initial + 1L, afterInsert)
+            Assert.Equal(afterInsert + 1L, afterUpdate)
+            Assert.Equal(afterUpdate + 1L, afterDelete)
+        finally
+            db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``Schema reinitialization preserves epoch and trigger behavior`` () =
+    task {
+        let db = TestHelpers.createDb ()
+
+        try
+            let! _ =
+                db.execNonQuery
+                    """INSERT INTO documents
+                       (source_type, saved_path, category, sha256)
+                       VALUES ('manual_drop', 'preserved.pdf', 'unsorted', 'p')"""
+                    []
+
+            let! beforeReinitialize = loadDocumentsEpoch db
+            let! initialized = db.initSchema ()
+            Assert.True(Result.isOk initialized)
+            let! afterReinitialize = loadDocumentsEpoch db
+            Assert.Equal(beforeReinitialize, afterReinitialize)
+
+            let! _ =
+                db.execNonQuery
+                    """UPDATE documents
+                       SET category = 'receipts'
+                       WHERE saved_path = 'preserved.pdf'"""
+                    []
+
+            let! afterMutation = loadDocumentsEpoch db
+            Assert.Equal(afterReinitialize + 1L, afterMutation)
+            let! version = db.schemaVersion ()
+            Assert.Equal(Database.CurrentSchemaVersion, version)
+        finally
+            db.dispose ()
+    }
+
+// ─── canonicalArchivePath containment (B1 hardening) ──────────────────
+
+[<Theory>]
+[<InlineData("../escape.pdf")>]
+[<InlineData("../../escape.pdf")>]
+[<InlineData("a/../../escape.pdf")>]
+[<Trait("Category", "Unit")>]
+let ``Database_CanonicalArchivePath_RejectsRelativeEscape`` (savedPath: string) =
+    match Database.canonicalArchivePath "/archive" savedPath with
+    | Error message -> Assert.Contains("escapes the archive directory", message)
+    | Ok canonical -> failwith $"Expected escape to be rejected, got {canonical.FullPath}"
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Database_CanonicalArchivePath_RejectsRootedEscape`` () =
+    let outside = Path.Combine(Path.GetTempPath(), "hermes-canonical-escape", "outside.pdf")
+
+    match Database.canonicalArchivePath "/archive" outside with
+    | Error message -> Assert.Contains("escapes the archive directory", message)
+    | Ok canonical -> failwith $"Expected rooted escape to be rejected, got {canonical.FullPath}"
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Database_CanonicalArchivePath_AllowsContainedDotDotSegments`` () =
+    match Database.canonicalArchivePath "/archive" "owned/../owned/source.pdf" with
+    | Ok canonical ->
+        Assert.EndsWith("owned/source.pdf", canonical.FullPath.Replace('\\', '/'))
+    | Error message -> failwith $"Expected contained path to be accepted, got {message}"
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Database_CanonicalArchivePath_ArchiveRootIsStableAndSelfContained`` () =
+    let first = Database.canonicalArchivePath "/archive" "." |> Result.defaultWith failwith
+    let second = Database.canonicalArchivePath "/archive" "./" |> Result.defaultWith failwith
+
+    Assert.Equal(first.OwnershipKey, second.OwnershipKey)
