@@ -128,7 +128,7 @@ let ``McpServer_Dispatch_ToolsList_ReturnsAllTools`` () =
             let doc = JsonDocument.Parse(response)
             let result = doc.RootElement.GetProperty("result")
             let tools = result.GetProperty("tools")
-            Assert.Equal(18, tools.GetArrayLength())
+            Assert.Equal(19, tools.GetArrayLength())
 
             let toolNames =
                 [ for i in 0 .. tools.GetArrayLength() - 1 ->
@@ -142,6 +142,7 @@ let ``McpServer_Dispatch_ToolsList_ReturnsAllTools`` () =
             Assert.Contains("hermes_list_documents", toolNames :> seq<string>)
             Assert.Contains("hermes_get_feed_stats", toolNames :> seq<string>)
             Assert.Contains("hermes_get_document_content", toolNames :> seq<string>)
+            Assert.Contains("hermes_legacy_reclassify_page", toolNames :> seq<string>)
         finally
             db.dispose ()
     }
@@ -835,6 +836,11 @@ let ``McpTools_ReclassifyDocument_ValidDoc_Reclassifies`` () =
             let! result = McpTools.reclassifyDocument db m.Fs "/archive" (args :> JsonNode)
             let doc = System.Text.Json.JsonDocument.Parse(result.ToJsonString())
             Assert.Equal("reclassified", doc.RootElement.GetProperty("status").GetString())
+            Assert.Equal(
+                "unsorted/test.pdf",
+                doc.RootElement.GetProperty("saved_path").GetString())
+            Assert.True(m.Fs.fileExists "/archive/unsorted/test.pdf")
+            Assert.False(m.Fs.fileExists "/archive/invoices/test.pdf")
         finally db.dispose ()
     }
 
@@ -1026,10 +1032,14 @@ let ``McpServer_Dispatch_ToolsCallReclassify_ReturnsResult`` () =
                        VALUES ('manual_drop', 'unsorted/recl-test.pdf', 'unsorted', 'sha-recl', 'recl-test.pdf')"""
                     []
             let json =
-                """{"jsonrpc":"2.0","id":17,"method":"tools/call","params":{"name":"hermes_reclassify","arguments":{"id":1,"category":"invoices"}}}"""
+                """{"jsonrpc":"2.0","id":17,"method":"tools/call","params":{"name":"hermes_reclassify","arguments":{"document_id":1,"new_category":"invoices"}}}"""
             let! response = McpServer.processMessage db m.Fs logger TestHelpers.defaultClock "/archive" None json
             let doc = JsonDocument.Parse(response)
             Assert.True(doc.RootElement.TryGetProperty("result") |> fst)
+            let text =
+                doc.RootElement.GetProperty("result")
+                    .GetProperty("content").[0].GetProperty("text").GetString()
+            Assert.Contains("reclassified", text)
         finally db.dispose ()
     }
 

@@ -268,10 +268,11 @@ let ``Classifier_ReclassifyUnsortedBatch_NoCandidates_ReturnsZeros`` () =
                 [ { Name = "payslip-rule"
                     Conditions = [ Domain.ContentAny [ "gross pay" ] ]
                     Category = "payslips"; Confidence = 0.85 } ]
-            let! (reclassified, remaining) =
+            let! batch =
                 Classifier.reclassifyUnsortedBatch db m.Fs contentRules "/archive" 50
-            Assert.Equal(0, reclassified)
-            Assert.Equal(0, remaining)
+            Assert.Equal(0, batch.ReclassifiedCount)
+            Assert.Equal(0, batch.FailedCount)
+            Assert.Equal(0, batch.Remaining)
         finally
             db.dispose ()
     }

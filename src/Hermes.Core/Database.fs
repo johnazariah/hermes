@@ -1,6 +1,8 @@
 namespace Hermes.Core
 
+open System
 open System.IO
+open System.Text
 open System.Threading.Tasks
 open Microsoft.Data.Sqlite
 
@@ -9,7 +11,7 @@ open Microsoft.Data.Sqlite
 [<RequireQualifiedAccess>]
 module Database =
 
-    let [<Literal>] CurrentSchemaVersion = 8
+    let [<Literal>] CurrentSchemaVersion = 11
 
     // ─── Schema DDL ──────────────────────────────────────────────────
 
@@ -90,6 +92,48 @@ module Database =
            "CREATE INDEX IF NOT EXISTS idx_doc_stage     ON documents(stage);"
 
            """
+        CREATE TABLE IF NOT EXISTS documents_change_epoch (
+            singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+            epoch     INTEGER NOT NULL CHECK (epoch >= 0)
+        );
+        """
+
+           """
+        INSERT OR IGNORE INTO documents_change_epoch (singleton, epoch)
+        VALUES (1, 0);
+        """
+
+           """
+        CREATE TRIGGER IF NOT EXISTS documents_epoch_insert
+        AFTER INSERT ON documents
+        BEGIN
+            UPDATE documents_change_epoch
+            SET epoch = epoch + 1
+            WHERE singleton = 1;
+        END;
+        """
+
+           """
+        CREATE TRIGGER IF NOT EXISTS documents_epoch_update
+        AFTER UPDATE ON documents
+        BEGIN
+            UPDATE documents_change_epoch
+            SET epoch = epoch + 1
+            WHERE singleton = 1;
+        END;
+        """
+
+           """
+        CREATE TRIGGER IF NOT EXISTS documents_epoch_delete
+        AFTER DELETE ON documents
+        BEGIN
+            UPDATE documents_change_epoch
+            SET epoch = epoch + 1
+            WHERE singleton = 1;
+        END;
+        """
+
+           """
         CREATE TABLE IF NOT EXISTS sync_state (
             account             TEXT PRIMARY KEY,
             last_history_id     TEXT,
@@ -168,7 +212,35 @@ module Database =
         """
            "CREATE INDEX IF NOT EXISTS idx_tags_doc ON tags(document_id);"
            "CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag);"
-           "CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_unique ON tags(document_id, tag);"
+           "DROP INDEX IF EXISTS idx_tags_unique;"
+           "CREATE UNIQUE INDEX idx_tags_unique ON tags(document_id, tag, COALESCE(created_by, ''));"
+
+           // Keep the compatibility category and its provenance tag in the
+           // same SQLite statement as a documents metadata update.
+           "DROP TRIGGER IF EXISTS doc_reclassification_tag;"
+           """
+        CREATE TRIGGER doc_reclassification_tag
+        AFTER UPDATE OF category, classification_tier, classification_confidence ON documents
+        WHEN new.classification_tier IN ('manual', 'content')
+        BEGIN
+            DELETE FROM tags
+            WHERE document_id = new.id
+              AND created_by = 'reclassification'
+              AND tag <> new.category;
+
+            INSERT INTO tags (document_id, tag, source, confidence, created_by)
+            VALUES (
+                new.id,
+                new.category,
+                CASE new.classification_tier WHEN 'manual' THEN 'user' ELSE 'classifier' END,
+                new.classification_confidence,
+                'reclassification')
+            ON CONFLICT(document_id, tag, COALESCE(created_by, '')) DO UPDATE SET
+                source = excluded.source,
+                confidence = excluded.confidence,
+                created_by = excluded.created_by;
+        END;
+        """
 
            // ── Contacts (address book) ──────────────────────────────────
            """
@@ -303,6 +375,70 @@ module Database =
 
     // ─── Low-level helpers ───────────────────────────────────────────
 
+    type CanonicalArchivePath =
+        { FullPath: string
+          OwnershipKey: string }
+
+    let private canonicalize (path: string) : string =
+        path
+        |> Path.GetFullPath
+        |> Path.TrimEndingDirectorySeparator
+        |> fun value -> value.Normalize(NormalizationForm.FormC)
+
+    let private resolveUnresolved
+        (archiveDirectory: string)
+        (savedPath: string)
+        : string =
+        let separator = Path.DirectorySeparatorChar
+        let normalizedSeparators =
+            savedPath.Replace('\\', separator).Replace('/', separator)
+
+        if Path.IsPathRooted normalizedSeparators then
+            normalizedSeparators
+        else
+            Path.Combine(archiveDirectory, normalizedSeparators)
+
+    /// True when `candidateKey` (already canonicalized: full path, trailing
+    /// separator trimmed, FormC-normalized, upper-invariant) is the archive
+    /// root itself, or a descendant of it.
+    let private isWithinArchive (rootKey: string) (candidateKey: string) : bool =
+        let separator = string Path.DirectorySeparatorChar
+
+        candidateKey = rootKey
+        || candidateKey.StartsWith(rootKey + separator, StringComparison.Ordinal)
+
+    /// Resolve an archive path using the conservative ownership contract used
+    /// by both filesystem validation and transactional database ownership.
+    /// Invariant case folding intentionally rejects case-distinct paths rather
+    /// than risking aliases on supported Windows/macOS filesystems. Rooted
+    /// paths and `..` segments are both resolved and then required to stay
+    /// inside the archive directory — callers (repair candidates, replayed
+    /// cursors) must never be able to address a path outside it.
+    let canonicalArchivePath
+        (archiveDirectory: string)
+        (savedPath: string)
+        : Result<CanonicalArchivePath, string> =
+        if String.IsNullOrWhiteSpace archiveDirectory then
+            Error "Archive directory must not be empty"
+        elif String.IsNullOrWhiteSpace savedPath then
+            Error "Saved path must not be empty"
+        else
+            try
+                let rootKey =
+                    archiveDirectory |> canonicalize |> fun value -> value.ToUpperInvariant()
+
+                let fullPath = resolveUnresolved archiveDirectory savedPath |> canonicalize
+                let ownershipKey = fullPath.ToUpperInvariant()
+
+                if isWithinArchive rootKey ownershipKey then
+                    Ok { FullPath = fullPath; OwnershipKey = ownershipKey }
+                else
+                    Error "Saved path escapes the archive directory"
+            with
+            | :? ArgumentException as ex -> Error ex.Message
+            | :? NotSupportedException as ex -> Error ex.Message
+            | :? PathTooLongException as ex -> Error ex.Message
+
     let boxVal (x: 'a) : obj = x :> obj
 
     let private addParams (cmd: SqliteCommand) (ps: (string * obj) list) =
@@ -358,6 +494,150 @@ module Database =
                 hasMore <- nextRow
 
             return results |> Seq.toList
+        }
+
+    type private PathOwner =
+        { DocumentId: int64
+          SavedPath: string }
+
+    let private canonicalOwner
+        archiveDirectory
+        candidateKey
+        documentId
+        savedPath =
+        canonicalArchivePath archiveDirectory savedPath
+        |> Result.mapError (fun error ->
+            $"Document {documentId} has an invalid saved_path: {error}")
+        |> Result.map (fun canonical ->
+            if canonical.OwnershipKey = candidateKey then
+                Some
+                    { DocumentId = documentId
+                      SavedPath = savedPath }
+            else
+                None)
+
+    let private readCanonicalOwners
+        (conn: SqliteConnection)
+        (transaction: SqliteTransaction)
+        archiveDirectory
+        candidateKey =
+        task {
+            use command = conn.CreateCommand()
+            command.Transaction <- transaction
+            command.CommandText <- "SELECT id, saved_path FROM documents ORDER BY id"
+            use! reader = command.ExecuteReaderAsync()
+
+            let rec loop owners =
+                task {
+                    let! hasRow = reader.ReadAsync()
+
+                    if not hasRow then
+                        return Ok(List.rev owners)
+                    else
+                        let documentId = reader.GetInt64(0)
+                        let savedPath = reader.GetString(1)
+
+                        match
+                            canonicalOwner
+                                archiveDirectory
+                                candidateKey
+                                documentId
+                                savedPath
+                        with
+                        | Error error -> return Error error
+                        | Ok None -> return! loop owners
+                        | Ok(Some owner) -> return! loop (owner :: owners)
+                }
+
+            return! loop []
+        }
+
+    let private ownershipDecision documentId owners =
+        let otherOwnerIds =
+            owners
+            |> List.choose (fun owner ->
+                if owner.DocumentId = documentId then None
+                else Some owner.DocumentId)
+            |> List.distinct
+            |> List.sort
+
+        if not otherOwnerIds.IsEmpty then
+            Some(Algebra.SavedPathOwnedByOtherDocuments otherOwnerIds)
+        else
+            owners
+            |> List.tryFind (fun owner -> owner.DocumentId = documentId)
+            |> Option.map (fun owner ->
+                Algebra.SavedPathAlreadyOwnedByDocument owner.SavedPath)
+
+    let private updateUnownedSavedPath
+        (conn: SqliteConnection)
+        (transaction: SqliteTransaction)
+        (request: Algebra.SavedPathRepairRequest) =
+        task {
+            use command = conn.CreateCommand()
+            command.Transaction <- transaction
+            command.CommandText <-
+                """UPDATE documents
+                   SET saved_path = @candidate
+                   WHERE id = @id
+                     AND saved_path = @current
+                     AND lower(sha256) = lower(@sha256)"""
+
+            addParams command
+                [ "@candidate", boxVal request.CandidateSavedPath
+                  "@id", boxVal request.DocumentId
+                  "@current", boxVal request.CurrentSavedPath
+                  "@sha256", boxVal request.ExpectedSha256 ]
+
+            let! affected = command.ExecuteNonQueryAsync()
+
+            return
+                if affected = 1 then Algebra.SavedPathUpdated
+                else Algebra.SavedPathDocumentChanged
+        }
+
+    let private executeSavedPathRepair
+        (conn: SqliteConnection)
+        (request: Algebra.SavedPathRepairRequest) =
+        task {
+            use transaction =
+                conn.BeginTransaction(deferred = false)
+
+            match
+                canonicalArchivePath
+                    request.ArchiveDirectory
+                    request.CandidateSavedPath
+            with
+            | Error error ->
+                return Error $"Invalid candidate saved_path: {error}"
+            | Ok candidate ->
+                let! owners =
+                    readCanonicalOwners
+                        conn
+                        transaction
+                        request.ArchiveDirectory
+                        candidate.OwnershipKey
+
+                match owners with
+                | Error error ->
+                    return Error error
+                | Ok values ->
+                    let! decision =
+                        match ownershipDecision request.DocumentId values with
+                        | Some value -> Task.FromResult value
+                        | None ->
+                            updateUnownedSavedPath conn transaction request
+
+                    transaction.Commit()
+                    return Ok decision
+        }
+
+    let private tryRepairSavedPath conn request =
+        task {
+            try
+                return! executeSavedPathRepair conn request
+            with
+            | :? SqliteException as ex -> return Error ex.Message
         }
 
     let private toInt64 (value: obj | null) : int64 =
@@ -448,6 +728,7 @@ module Database =
           execReader = fun sql ps -> execReader conn sql ps
           initSchema = fun () -> initSchemaImpl conn
           tableExists = fun name -> tableExistsImpl conn name
+          tryRepairSavedPath = tryRepairSavedPath conn
           schemaVersion = fun () -> schemaVersionImpl conn
           dispose = fun () -> conn.Dispose() }
 

@@ -3,7 +3,6 @@ namespace Hermes.Core
 #nowarn "3261"
 
 open System
-open System.IO
 open System.Threading.Tasks
 
 /// Document management operations: reclassify, re-extract, queue inspection.
@@ -21,42 +20,13 @@ module DocumentManagement =
 
     // ─── Reclassify ──────────────────────────────────────────────────
 
-    /// Move a document to a different category (file move + DB update).
+    /// Reclassify metadata without changing source identity or location.
     let reclassify
         (db: Algebra.Database) (fs: Algebra.FileSystem)
         (archiveDir: string) (documentId: int64) (newCategory: string)
-        : Task<Result<unit, string>> =
-        task {
-            let! rows =
-                db.execReader
-                    "SELECT saved_path, category FROM documents WHERE id = @id"
-                    [ ("@id", Database.boxVal documentId) ]
-            match rows with
-            | [] -> return Error $"Document {documentId} not found"
-            | row :: _ ->
-                let r = Prelude.RowReader(row)
-                let savedPath = r.String "saved_path" ""
-                let oldCategory = r.String "category" ""
-                let fileName = Path.GetFileName(savedPath)
-                let newPath = Path.Combine(newCategory, fileName)
-                let fullOld = Path.Combine(archiveDir, savedPath)
-                let fullNew = Path.Combine(archiveDir, newPath)
-                try
-                    fs.createDirectory (Path.GetDirectoryName(fullNew))
-                    if fs.fileExists fullOld then
-                        fs.moveFile fullOld fullNew
-                    let! _ =
-                        db.execNonQuery
-                            """UPDATE documents SET category = @cat, saved_path = @path,
-                               classification_tier = 'manual'
-                               WHERE id = @id"""
-                            [ ("@cat", Database.boxVal newCategory)
-                              ("@path", Database.boxVal newPath)
-                              ("@id", Database.boxVal documentId) ]
-                    return Ok ()
-                with ex ->
-                    return Error $"Reclassify failed: {ex.Message}"
-        }
+        : Task<Result<Reclassification.Outcome, Reclassification.Error>> =
+        Reclassification.reclassify
+            db fs archiveDir documentId newCategory
 
     // ─── Re-extract ──────────────────────────────────────────────────
 

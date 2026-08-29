@@ -318,6 +318,21 @@ module Classifier =
 
     // ─── Bulk reclassification ───────────────────────────────────────
 
+    type ContentReclassificationStatus =
+        | NoRuleMatched
+        | Reclassified of Reclassification.Outcome
+        | Failed of Reclassification.Error
+
+    type ContentReclassificationItem =
+        { DocumentId: int64
+          Status: ContentReclassificationStatus }
+
+    type ContentReclassificationBatch =
+        { Items: ContentReclassificationItem list
+          ReclassifiedCount: int
+          FailedCount: int
+          Remaining: int }
+
     /// Get unsorted documents that have extracted text (candidates for Tier 2).
     let getUnsortedWithText (db: Algebra.Database) (fs: Algebra.FileSystem) (archiveDir: string) (limit: int) =
         task {
@@ -346,34 +361,70 @@ module Classifier =
             return results |> Seq.toList
         }
 
+    let private classifyCandidate
+        db fs archiveDir contentRules
+        (docId, _savedPath, text, amount) =
+        task {
+            match ContentClassifier.classify text [] amount contentRules with
+            | None ->
+                return
+                    { DocumentId = docId
+                      Status = NoRuleMatched }
+            | Some (category, confidence) ->
+                let! result =
+                    Reclassification.reclassifyFromContent
+                        db fs archiveDir docId category confidence
+                return
+                    { DocumentId = docId
+                      Status =
+                        result
+                        |> Result.map Reclassified
+                        |> Result.defaultWith Failed }
+        }
+
+    let private classifyCandidates db fs archiveDir contentRules candidates =
+        let rec loop outcomes = function
+            | [] -> Threading.Tasks.Task.FromResult(List.rev outcomes)
+            | candidate :: tail ->
+                task {
+                    let! outcome =
+                        classifyCandidate
+                            db fs archiveDir contentRules candidate
+                    return! loop (outcome :: outcomes) tail
+                }
+
+        loop [] candidates
+
+    let private countStatus predicate items =
+        items
+        |> List.filter (fun item -> predicate item.Status)
+        |> List.length
+
     /// Reclassify a batch of unsorted documents using Tier 2 content rules.
     let reclassifyUnsortedBatch
         (db: Algebra.Database) (fs: Algebra.FileSystem)
         (contentRules: Domain.ContentRule list)
         (archiveDir: string) (batchSize: int)
-        : Threading.Tasks.Task<int * int> =
+        : Threading.Tasks.Task<ContentReclassificationBatch> =
         task {
             let! candidates = getUnsortedWithText db fs archiveDir batchSize
-            let mutable reclassified = 0
-            for (docId, _savedPath, text, amount) in candidates do
-                match ContentClassifier.classify text [] amount contentRules with
-                | Some (category, confidence) ->
-                    let! result = DocumentManagement.reclassify db fs archiveDir docId category
-                    match result with
-                    | Ok () ->
-                        let! _ =
-                            db.execNonQuery
-                                """UPDATE documents SET classification_tier = 'content',
-                                   classification_confidence = @conf WHERE id = @id"""
-                                [ ("@conf", Database.boxVal confidence)
-                                  ("@id", Database.boxVal docId) ]
-                        reclassified <- reclassified + 1
-                    | Error _ -> ()
-                | None -> ()
+            let! items =
+                classifyCandidates
+                    db fs archiveDir contentRules candidates
             let! remainingObj =
                 db.execScalar
                     "SELECT COUNT(*) FROM documents WHERE category = 'unsorted' OR category = 'unclassified'"
                     []
             let remaining = match remainingObj with :? int64 as i -> int i | _ -> 0
-            return (reclassified, remaining)
+            return
+                { Items = items
+                  ReclassifiedCount =
+                    countStatus
+                        (function Reclassified _ -> true | _ -> false)
+                        items
+                  FailedCount =
+                    countStatus
+                        (function Failed _ -> true | _ -> false)
+                        items
+                  Remaining = remaining }
         }

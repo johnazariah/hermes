@@ -190,6 +190,12 @@ let private pipelineStubDb : Algebra.Database =
       execReader = fun _ _ -> Task.FromResult([] : Map<string, obj> list)
       initSchema = fun () -> Task.FromResult(Ok ())
       tableExists = fun _ -> Task.FromResult(false)
+      tryRepairSavedPath =
+          fun _ ->
+              Task.FromException<
+                  Result<Algebra.SavedPathRepairDecision, string>>(
+                      InvalidOperationException(
+                          "Unexpected saved-path repair in stats fake"))
       schemaVersion = fun () -> Task.FromResult(0)
       dispose = ignore }
 

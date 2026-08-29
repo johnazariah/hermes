@@ -26,6 +26,12 @@ let private fakeDb () : Algebra.Database =
       execReader = fun _ _ -> task { return [] }
       initSchema = fun () -> task { return Ok () }
       tableExists = fun _ -> task { return true }
+      tryRepairSavedPath =
+          fun _ ->
+              Task.FromException<
+                  Result<Algebra.SavedPathRepairDecision, string>>(
+                      InvalidOperationException(
+                          "Unexpected saved-path repair in workflow fake"))
       schemaVersion = fun () -> task { return 1 }
       dispose = fun () -> () }
 
