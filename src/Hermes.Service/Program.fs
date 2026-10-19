@@ -13,8 +13,7 @@ open Microsoft.Extensions.DependencyInjection
 open Hermes.Core
 open Serilog.Events
 
-[<EntryPoint>]
-let main args =
+let private runService args =
     let fs = Interpreters.realFileSystem
     let env = Interpreters.systemEnvironment
     let clock = Interpreters.systemClock
@@ -355,3 +354,7 @@ let main args =
         db.dispose ()
         0
     | Lifetime.Abandoned _ -> Lifetime.AbandonedExitCode
+
+[<EntryPoint>]
+let main args =
+    ServiceEntry.run args runService

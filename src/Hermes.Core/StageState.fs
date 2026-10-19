@@ -61,7 +61,10 @@ module StageState =
 
     let private ownedSql (stageName: string) : string list =
         match stageName with
-        | "extract" -> [ extractionResetSql ]
+        | "extract" ->
+            [ extractionResetSql
+              """DELETE FROM document_content_fts
+                 WHERE rowid = @doc AND kind = 'extraction'""" ]
         | "triage"
         | "deep-comprehend" -> comprehensionOwnedSql
         | "embed" ->

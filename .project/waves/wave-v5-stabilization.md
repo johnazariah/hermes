@@ -98,6 +98,39 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-19 - Published search Windows fixtures corrected without relaxing production
+
+- **Changed:** The first published search head passed macOS and all builds, but Windows had 20 failures: 19 cascaded from drive-qualified canonical paths not matching fake `/archive` keys, and one asserted a hardcoded Unix separator. The actual Windows CLI-process tests using real files passed. Applied the eligible author's test-only fake-path alias/home-expectation correction; no production file changed.
+- **Evidence:** The fake normaliser aliases only current-DOS-drive absolute paths to existing rooted keys, retaining other volumes, UNC, relative, doubled and unrelated roots. Denied/oversized read injections compare the same normalised identity. Three portable regressions exercise text/bytes/size/hash, directory/list/move/delete and distinct keys.
+- **Validation:** Release build has 0 warnings/errors; all 38 focused fixture/failure/authority cases pass locally. Full local execution is 1,274 total, 1,267 passed, 7 retained skips, 0 failed; exact root coverage remains 9,712/12,166 line and 8,868/19,432 branch, with source/gates/instrumentation unchanged.
+- **Blockers:** Narrow independent fixture re-review and actual replacement-head Windows/macOS CI remain required. A local pass is not Windows proof, and the red published gate is not bypassed.
+- **Next:** Commit the reviewed test-only delta, push normally, run current-head CI and integrate the search/operator feature only on passing checks.
+
+### 2026-10-19 - File-first keyword search and local operator approved for publication
+
+- **Changed:** Independent review now approves the final #11 source. The last separate-author revision resolves preferred content snippets for selected identities independently of ranking prefixes; ordinary, unified, email and paged keyword searches share the corrected query. Earlier operator-authority, pagination and source-identity race findings remain closed.
+- **Evidence:** Actual intake/V5 publication, HTTP search, existing document-query routes, HTTP MCP and actual CLI-process tests exercise the full thread. Source identities/snippets stay stable across page sizes and legal source reassignment cannot certify stale output. Schema 16 is additive across fresh/partial and v8/v12/v14/v15 startup; strict operator configuration never substitutes a default archive.
+- **Validation:** Release full graph has 0 warnings/errors. Final full execution is 1,271 total, 1,264 passed, 7 retained skips, 0 failed; 130 new cases replace only the three obsolete body-text skips. Exact root coverage is 9,712/12,166 = 79.8290% line and 8,861/19,432 branch, including Core/Service/UI and improving the prior baseline without exclusions or weaker gates.
+- **Performance:** Synthetic Core/in-memory SQLite + MemFs only: 1,000 immutable sources, batches at most 100, 40 queries after one warmup; indexing 2,327.237 ms, query p50/p95 0.141/0.167 ms. Hashes, claims, IDs and snippets are asserted; no production threshold, private corpus or live-provider claim is made.
+- **Blockers:** The source remains uncommitted/unpublished; exact-head Windows/macOS CI must still pass before merge. Semantic/hybrid/persisted read-only Osprey and the wider trust-boundary work remain separate #6 scope; the full wave gate remains #18.
+- **Next:** Commit the approved search/operator tree, preserve the merged main ancestry, open its PR with the repository template, verify the actual head and merge only after passing gates. Prune the integration's unneeded artifacts at the checkpoint.
+
+### 2026-10-19 - Search safety findings closed; source-snippet stability still gated
+
+- **Changed:** The separate revision author corrected explicit operator archive authority, SQL pagination after ranking/deduplication, and generation/completion invalidation for legal source-identity reassignment. Independent re-review closes those three findings, including deterministic V5 interruption points before index, output and completion publication.
+- **Evidence:** Forty-two new revision/benchmark cases pass; the revised full run executes 1,270 cases with 1,263 passed, 7 retained skips and 0 failed. Root coverage is 9,706/12,162 lines and 8,854/19,466 branches with assembly scope/gates unchanged. A synthetic 1,000-source Core/MemFs benchmark records bounded rebuild 2,852.734 ms and 40-query p50/p95 0.078/0.094 ms, with hashes/claims/identity assertions.
+- **Blockers:** Re-review found a remaining P2: a metadata-strong document's preferred source snippet can depend on the content prefix selected by page size. Locked out that revision author and assigned a third F# author the minimal shared-query/snippet correction and real SQLite/HTTP/MCP skew regression. No search code is published.
+- **Validation:** Coverage main `d830c610` has now passed all seven jobs after an infrastructure-only Windows retry; pruned its four retained artifacts (186,158,183 bytes). Zero artifacts remain and the two useful main caches remain at 114,212,113 bytes. The stalled restore/cancellation race was resolved without source or gate changes.
+- **Next:** Close the final snippet-stability finding, rerun focused/full gates and independent review, then publish the file-first search/operator slice with accurate synthetic scope and no personal-corpus access.
+
+### 2026-10-19 - Coverage integrated; search candidate quarantined after independent review
+
+- **Changed:** PR #21 merged into `main` as `d830c610`, adopting the reviewed test-only recovery. PR #22 is incorporated through retained ancestry; closed #23 as superseded with all four watcher cases adopted. The functional #11 candidate now wires content FTS, real HTTP/MCP queries, currentness invalidation and a bounded local dry-run/apply CLI, but remains unpublished.
+- **Evidence:** Published coverage head `b46cc3a` passed all five Windows/macOS build/test jobs; both OS suites executed 1,144 cases with 1,134 passed, 10 existing skips and 0 failed. Windows root line coverage is 9,155/11,604. Main's hosted Windows restore stalled; a transport timeout was distinguished from CI failure, then only the unchanged Windows job and dependants were retried after cancellation recovery. Main publish/storage verification remains pending.
+- **Validation:** Initial search full-graph build has 0 warnings/errors; 87 new focused cases pass, and the full 1,228-case run has 1,221 passed, 7 skipped and 0 failed. Root line coverage is 9,632/12,095 with Core/Service/UI scope retained. These are diagnostic results, not acceptance.
+- **Blockers:** Independent review rejected operator YAML fallback selecting an unintended default archive, pagination losing results beyond the first 100, and in-flight source-A extraction republishing under source-B identity. Locked out the first author, including benchmark work; a fresh F# author owns all three corrections, their regressions and bounded synthetic performance measurement.
+- **Next:** Resolve the independent findings without weakening source/metadata safety, re-review and run the real HTTP/CLI/full-suite gates before publishing #11. Do not use personal financial data or claim tax-document readiness while this candidate is quarantined.
+
 ### 2026-10-19 - Test-only coverage consolidation approved for publication
 
 - **Changed:** Independent F# re-review approves the combined #21-#23 salvage, including the separate author's bounded producer-progress correction. Keep one coherent test-only integration, preserve all three historical draft heads as ancestry, and conclude duplicates after the accepted result is merged.

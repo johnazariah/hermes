@@ -14,7 +14,7 @@ type MemFs =
       Files: ConcurrentDictionary<string, string>
       Bytes: ConcurrentDictionary<string, byte array>
       Dirs: ConcurrentDictionary<string, bool>
-      /// Normalize a path to forward slashes (matches internal storage).
+      /// Normalize separators and current-drive absolute aliases to fake rooted keys.
       Norm: string -> string
       /// Store a file using normalized path (forward slashes).
       Put: string -> string -> unit
@@ -25,7 +25,15 @@ let memFs () : MemFs =
     let files = ConcurrentDictionary<string, string>()
     let bytes = ConcurrentDictionary<string, byte array>()
     let dirs = ConcurrentDictionary<string, bool>()
-    let norm (path: string) = path.Replace('\\', '/')
+    let driveRoot = IO.Path.GetFullPath("/").Replace('\\', '/')
+    let norm (path: string) =
+        let key = path.Replace('\\', '/')
+        // Only alias the current DOS drive; retain other drives, UNC and relative keys.
+        if driveRoot.Length = 3 && driveRoot.[1] = ':'
+           && key.StartsWith(driveRoot, StringComparison.OrdinalIgnoreCase)
+           && (key.Length = driveRoot.Length || key.[driveRoot.Length] <> '/') then
+            key.Substring(2)
+        else key
 
     let fs : Algebra.FileSystem =
         { readAllText = fun path ->

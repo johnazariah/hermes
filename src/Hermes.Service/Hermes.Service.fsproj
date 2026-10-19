@@ -8,6 +8,11 @@
 
   <ItemGroup>
     <Compile Include="Lifetime.fs" />
+    <Compile Include="KeywordApi.fs" />
+    <Compile Include="ReindexCommand.fs" />
+    <Compile Include="ReindexOutput.fs" />
+    <Compile Include="ReindexOperator.fs" />
+    <Compile Include="ServiceEntry.fs" />
     <Compile Include="ApiServer.fs" />
     <Compile Include="SleepGuard.fs" />
     <Compile Include="Program.fs" />

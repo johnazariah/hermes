@@ -1,4 +1,4 @@
-namespace Hermes.Core
+﻿namespace Hermes.Core
 
 open System
 open System.IO
@@ -362,33 +362,52 @@ module Config =
 
     // ─── Public API (parameterised over FileSystem algebra) ──────────
 
-    /// Parse a HermesConfig from a YAML string. Pure — no I/O.
-    let parseYaml (env: Algebra.Environment) (yaml: string) : Result<Domain.HermesConfig, string> =
+    let private parseDto (yaml: string) : Result<HermesConfigDto option, string> =
         try
-            if System.String.IsNullOrWhiteSpace(yaml) then
-                Ok(defaultConfig env)
+            if String.IsNullOrWhiteSpace yaml then
+                Ok None
             else
                 let dto = deserializer.Deserialize<HermesConfigDto>(yaml)
-
-                if isNull (box dto) then
-                    Ok(defaultConfig env)
-                else
-                    Ok(toConfig env dto)
+                Ok(if isNull (box dto) then None else Some dto)
         with ex ->
             Error $"Failed to parse config: {ex.Message}"
 
-    /// Load config from a file, using the FileSystem algebra.
-    let load (fs: Algebra.FileSystem) (env: Algebra.Environment) (path: string) =
+    /// Ordinary service configuration retains its existing defaults.
+    let parseYaml (env: Algebra.Environment) (yaml: string) : Result<Domain.HermesConfig, string> =
+        parseDto yaml
+        |> Result.map (
+            Option.map (toConfig env)
+            >> Option.defaultWith (fun () -> defaultConfig env))
+
+    /// Operators must receive archive authority from configuration, not defaults.
+    let parseOperatorYaml (env: Algebra.Environment) (yaml: string) : Result<Domain.HermesConfig, string> =
+        parseDto yaml
+        |> Result.bind (fun parsed ->
+            parsed
+            |> Option.filter (fun dto -> not (String.IsNullOrWhiteSpace dto.ArchiveDir))
+            |> Option.map (toConfig env >> Ok)
+            |> Option.defaultValue (
+                Error "Operator configuration requires an explicit nonblank archive_dir"))
+
+    let private loadUsing parse (fs: Algebra.FileSystem) (path: string) =
         task {
             if not (fs.fileExists path) then
                 return Error $"Configuration file not found: {path}"
             else
                 try
                     let! yaml = fs.readAllText path
-                    return parseYaml env yaml
+                    return parse yaml
                 with ex ->
                     return Error $"Failed to load config: {ex.Message}"
         }
+
+    /// Load ordinary service configuration through the FileSystem algebra.
+    let load (fs: Algebra.FileSystem) (env: Algebra.Environment) (path: string) =
+        loadUsing (parseYaml env) fs path
+
+    /// Validate explicit operator archive authority before opening any archive.
+    let loadForOperator (fs: Algebra.FileSystem) (env: Algebra.Environment) (path: string) =
+        loadUsing (parseOperatorYaml env) fs path
 
     // ─── Default YAML templates ──────────────────────────────────────
 

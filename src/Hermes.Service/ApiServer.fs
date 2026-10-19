@@ -167,13 +167,19 @@ module ApiServer =
             })) |> ignore
 
         // ── Documents ───────────────────────────────────────────────
+        app.MapGet("/api/search", Func<HttpContext, Task<IResult>>(fun ctx ->
+            KeywordApi.search db ctx)) |> ignore
+
         app.MapGet("/api/documents", Func<HttpContext, Task<IResult>>(fun ctx ->
             task {
                 let category = ctx.Request.Query["category"].ToString()
                 let stage = ctx.Request.Query["stage"].ToString()
-                let offset = ctx.Request.Query["offset"].ToString() |> fun s -> if String.IsNullOrEmpty s then 0 else int s
-                let limit = ctx.Request.Query["limit"].ToString() |> fun s -> if String.IsNullOrEmpty s then 50 else int s
-                if not (String.IsNullOrEmpty stage) then
+                let offset = ctx.Request.Query["offset"].ToString() |> fun s -> if String.IsNullOrEmpty s then "0" else s
+                let limit = ctx.Request.Query["limit"].ToString() |> fun s -> if String.IsNullOrEmpty s then "50" else s
+                let query = ctx.Request.Query["q"].ToString()
+                if not (String.IsNullOrWhiteSpace query) then
+                    return! KeywordApi.documents db category query offset limit
+                elif not (String.IsNullOrEmpty stage) then
                     // Filter by pipeline stage
                     let! rows =
                         db.execReader
@@ -201,7 +207,7 @@ module ApiServer =
                                extractionMethod = r.OptString "extraction_method" |})
                     return json docs
                 else
-                    let! docs = DocumentBrowser.listDocuments db category offset limit
+                    let! docs = DocumentBrowser.listDocuments db category (int offset) (int limit)
                     return json docs
             })) |> ignore
 
@@ -331,7 +337,7 @@ module ApiServer =
                 | None ->
                     // No chat provider — just do keyword search
                     let filter = Search.defaultFilter query
-                    let! results = Search.execute db filter
+                    let! results = Search.executeUnified db filter
                     let resultsData = JsonSerializer.Serialize({| results = results |}, opts)
                     do! ctx.Response.WriteAsync($"event: results\ndata: {resultsData}\n\n")
                     do! ctx.Response.Body.FlushAsync()

@@ -11,6 +11,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="TestHelpers.fs" />
+    <Compile Include="MemFsTests.fs" />
     <Compile Include="ConfigTests.fs" />
     <Compile Include="ConfigSalvageTests.fs" />
     <Compile Include="DatabaseTests.fs" />
@@ -91,6 +92,27 @@
     <Compile Include="ArchiveWriterTests.fs" />
     <Compile Include="ApiReflowTests.fs" />
     <Compile Include="HttpRegressionFixture.fs" />
+    <Compile Include="FileKeywordFixtures.fs" />
+    <Compile Include="SyntheticKeywordCorpus.fs" />
+    <Compile Include="FileKeywordHttpTests.fs" />
+    <Compile Include="FileKeywordPaginationTests.fs" />
+    <Compile Include="FileKeywordSnippetTests.fs" />
+    <Compile Include="SyntheticKeywordPerformanceTests.fs" />
+    <Compile Include="SourceIdentityRaceFixtures.fs" />
+    <Compile Include="SourceIdentityRaceTests.fs" />
+    <Compile Include="FileKeywordReindexTests.fs" />
+    <Compile Include="FileKeywordFailureTests.fs" />
+    <Compile Include="FileKeywordSchemaTests.fs" />
+    <Compile Include="FileContentStartupFixtures.fs" />
+    <Compile Include="FileContentStartupSchemaTests.fs" />
+    <Compile Include="SourceIdentitySchemaTests.fs" />
+    <Compile Include="LocalReindexFixtures.fs" />
+    <Compile Include="LocalReindexProcess.fs" />
+    <Compile Include="LocalReindexCommandTests.fs" />
+    <Compile Include="LocalReindexHandlerTests.fs" />
+    <Compile Include="LocalReindexAuthorityTests.fs" />
+    <Compile Include="LocalReindexProcessTests.fs" />
+    <Compile Include="LocalReindexCoreTests.fs" />
     <Compile Include="CorrectedExtractionHttpTests.fs" />
     <Compile Include="DeepExtractionHttpTests.fs" />
     <Compile Include="ServiceLifetimeTests.fs" />

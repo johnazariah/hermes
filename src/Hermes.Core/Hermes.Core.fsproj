@@ -19,12 +19,18 @@
     <Compile Include="TransactionExecution.fs" />
     <Compile Include="DatabaseExecution.fs" />
     <Compile Include="SavedPathSchema.fs" />
+    <Compile Include="StageCompletionSchema.fs" />
+    <Compile Include="FileContentSchema.fs" />
     <Compile Include="Database.fs" />
     <Compile Include="SourceFileAccess.fs" />
     <Compile Include="SourceFiles.fs" />
+    <Compile Include="FileContentIndex.fs" />
+    <Compile Include="ArchiveContent.fs" />
     <Compile Include="Reclassification.fs" />
     <Compile Include="PublicationFence.fs" />
     <Compile Include="Generation.fs" />
+    <Compile Include="FileContentReindexSource.fs" />
+    <Compile Include="FileContentReindex.fs" />
     <Compile Include="StageState.fs" />
     <Compile Include="Document.fs" />
     <Compile Include="Rules.fs" />
@@ -50,6 +56,7 @@
     <Compile Include="Threads.fs" />
     <Compile Include="ActivityLog.fs" />
     <Compile Include="ContactExtraction.fs" />
+    <Compile Include="KeywordSql.fs" />
     <Compile Include="Search.fs" />
     <Compile Include="Stats.fs" />
     <Compile Include="Reminders.fs" />

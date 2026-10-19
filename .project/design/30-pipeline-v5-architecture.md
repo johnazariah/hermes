@@ -76,6 +76,12 @@ archive/
 
 SQLite stores document identity, workflow state, per-stage metadata, learned patterns, suggestions, contacts, FTS5 data, and vector indexes. Content columns removed by the file-first migration are not pipeline inputs.
 
+The rebuildable file-content FTS projection is populated from immutable body
+files and generation-fenced extraction artifacts. Search reads only metadata
+and current index rows; it does not invoke providers or mutate the archive.
+Metadata/content matches share stable document identity, with ranking and
+deduplication before pagination.
+
 See [28-file-first-archive.md](28-file-first-archive.md) for archive details.
 
 ## Compatibility Boundary
@@ -121,6 +127,13 @@ The latest correction for each date, amount or vendor field overrides generated
 metadata without freezing unrelated extraction fields. Source identity,
 correction history and user annotations are preserved. Legacy saved-path
 recovery remains separate from ordinary reclassification.
+
+Changing a document's source path, hash or source type advances its existing
+generation and invalidates current completion/index markers in the same SQL
+transaction. Historical publications, user corrections, source claims and
+source bytes remain intact; stale stage work cannot certify the old source
+under the new identity. Metadata-only category changes do not trigger this
+source-identity transition.
 
 ## Comprehension
 

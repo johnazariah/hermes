@@ -1486,16 +1486,7 @@ LIMIT {limit}"""
     // ── Schema ───────────────────────────────────────────────────────
 
     /// Core tables required by the framework.
-    let coreSchema = [|
-        """
-        CREATE TABLE IF NOT EXISTS stage_completions (
-            document_id     INTEGER NOT NULL REFERENCES documents(id),
-            stage_name      TEXT NOT NULL,
-            completed_at    TEXT NOT NULL DEFAULT (datetime('now')),
-            PRIMARY KEY (document_id, stage_name)
-        );
-        """
-        "CREATE INDEX IF NOT EXISTS idx_stage_completions_stage ON stage_completions(stage_name);"
+    let coreSchema = Array.append StageCompletionSchema.statements [|
         """
         CREATE TABLE IF NOT EXISTS pipeline_stage_attempts (
             document_id     INTEGER PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
