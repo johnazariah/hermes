@@ -7,6 +7,7 @@ import {
     fetchRecentDocuments,
 } from "../api/hermes";
 import type { Suggestion, DocumentSummary } from "../types/hermes";
+import { Link } from "react-router-dom";
 
 // ── Date grouping ────────────────────────────────────────────
 
@@ -144,7 +145,7 @@ function TriagePanel() {
     const queryClient = useQueryClient();
     const [skippedIds, setSkippedIds] = useState<Set<number>>(new Set());
 
-    const { data: suggestions = [], isLoading } = useQuery({
+    const { data: suggestions = [], isLoading, error } = useQuery({
         queryKey: ["suggestions"],
         queryFn: fetchSuggestions,
         refetchInterval: 10_000,
@@ -196,9 +197,12 @@ function TriagePanel() {
     );
 
     if (isLoading) return null;
+    if (error) return <p role="alert">Unable to load review suggestions: {error.message}</p>;
 
     return (
         <section className="mb-8">
+            {(approveMutation.error || rejectMutation.error) &&
+              <p role="alert">Review failed: {(approveMutation.error || rejectMutation.error)?.message}</p>}
             <h2 className="mb-3 text-lg font-semibold text-neutral-900 dark:text-neutral-100">
                 Review{" "}
                 {pending.length > 0 && (
@@ -258,9 +262,9 @@ function DocumentRow({ doc }: { doc: DocumentSummary }) {
     return (
         <div className="flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-neutral-100 dark:hover:bg-neutral-800/60">
             <span className="text-base">📄</span>
-            <span className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
+            <Link to={`/documents?id=${doc.id}`} className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-900 dark:text-neutral-100 hover:underline">
                 {doc.originalName}
-            </span>
+            </Link>
             <CategoryTag category={doc.category} />
             {formatted && (
                 <span className="text-sm tabular-nums text-neutral-600 dark:text-neutral-400">
@@ -277,13 +281,14 @@ function DocumentRow({ doc }: { doc: DocumentSummary }) {
 // ── Document feed ────────────────────────────────────────────
 
 function DocumentFeed() {
-    const { data: docs = [], isLoading } = useQuery({
+    const { data: docs = [], isLoading, error } = useQuery({
         queryKey: ["recent-documents"],
         queryFn: () => fetchRecentDocuments(20),
         refetchInterval: 10_000,
     });
 
     const groups = groupDocumentsByDate(docs);
+    if (error) return <p role="alert">Unable to load recent documents: {error.message}</p>;
 
     return (
         <section>
@@ -330,6 +335,7 @@ function DocumentFeed() {
 export function HomePage() {
     return (
         <div className="mx-auto max-w-4xl">
+            <h1 className="text-xl font-bold mb-4">Home</h1>
             <TriagePanel />
             <DocumentFeed />
         </div>

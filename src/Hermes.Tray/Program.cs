@@ -1,31 +1,25 @@
-using System;
-using System.Threading;
-using System.Windows.Forms;
-
-namespace Hermes.Tray;
+﻿namespace Hermes.Tray;
 
 internal static class Program
 {
-    private static Mutex? _mutex;
-
     [STAThread]
-    static void Main()
+    private static int Main(string[] arguments)
     {
-        const string mutexName = @"Global\HermesTrayApp";
-        _mutex = new Mutex(true, mutexName, out bool createdNew);
-        if (!createdNew)
+        try
         {
-            MessageBox.Show(
-                "Hermes is already running in the system tray.",
-                "Hermes",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Information);
-            return;
+            var options = TrayOptions.Parse(arguments, Environment.GetEnvironmentVariable, AppContext.BaseDirectory);
+            using var lease = InstanceLease.Acquire(options);
+            ApplicationConfiguration.Initialize();
+            using var context = new TrayApplicationContext(options);
+            Application.Run(context);
+            return Environment.ExitCode;
         }
-
-        Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
-        Application.EnableVisualStyles();
-        Application.SetCompatibleTextRenderingDefault(false);
-        Application.Run(new TrayApplicationContext());
+        catch (Exception error)
+        {
+            var detail = error is ArgumentException or InvalidOperationException
+                ? error.Message : SafeFailure.Describe(error);
+            MessageBox.Show(detail, "Hermes could not start", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return 1;
+        }
     }
 }

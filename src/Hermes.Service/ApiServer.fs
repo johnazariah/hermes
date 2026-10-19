@@ -15,6 +15,24 @@ module ApiServer =
 
     let private json v = Results.Json(v, JsonSerializerOptions(PropertyNamingPolicy = JsonNamingPolicy.CamelCase))
 
+    let private manualSyncResponse (manual: ManualSync.Capability) =
+        match manual.Request () with
+        | Ok acknowledgement ->
+            let status =
+                match acknowledgement with
+                | ManualSync.Queued -> "queued"
+                | ManualSync.Coalesced -> "coalesced"
+            Results.Json({| status = status |}, statusCode = 202)
+        | Error rejection ->
+            let reason =
+                match rejection with
+                | ManualSync.Starting -> "starting"
+                | ManualSync.Stopping -> "stopping"
+                | ManualSync.UnsupportedHost -> "unsupported_host"
+            Results.Json(
+                {| status = "unavailable"; error = "manual_sync_unavailable"; reason = reason |},
+                statusCode = 503)
+
     type private ReflowRequest =
         { Kind: Reflow.OperationKind
           Mode: Reflow.RequestMode }
@@ -141,7 +159,8 @@ module ApiServer =
         }
 
     /// Map all API routes onto the endpoint builder.
-    let mapRoutesWithSearch
+    let mapRoutesWithCapabilities
+        (manualSync: ManualSync.Capability)
         (queryEncoder: Algebra.EmbeddingClient option)
         (app: IEndpointRouteBuilder)
         (db: Algebra.Database)
@@ -304,8 +323,7 @@ module ApiServer =
 
         // ── Sync trigger ────────────────────────────────────────────
         app.MapPost("/api/sync", Func<IResult>(fun () ->
-            // Sync runs automatically; this endpoint is a no-op acknowledgement
-            json {| triggered = true |}
+            manualSyncResponse manualSync
             )) |> ignore
 
         // ── Chat ────────────────────────────────────────────────────
@@ -755,6 +773,11 @@ module ApiServer =
                 | Ok () -> return json {| rejected = true; id = id |}
                 | Error e -> return json {| error = e |}
             })) |> ignore
+
+    /// Existing hosts do not silently acquire a pretend producer capability.
+    let mapRoutesWithSearch queryEncoder app db reflowDb fs logger clock dag chatProvider archiveDir configDir =
+        mapRoutesWithCapabilities ManualSync.unavailable queryEncoder
+            app db reflowDb fs logger clock dag chatProvider archiveDir configDir
 
     let mapRoutesWithReflowDb app db reflowDb fs logger clock dag chatProvider archiveDir configDir =
         mapRoutesWithSearch None

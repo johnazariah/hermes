@@ -1,119 +1,98 @@
-using System;
-using System.Diagnostics;
-using System.IO;
-using System.Threading.Tasks;
-using System.Windows.Forms;
-using Microsoft.Web.WebView2.Core;
+﻿using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
 namespace Hermes.Tray;
 
-/// <summary>
-/// Native window hosting the Hermes UI via WebView2.
-/// Closing hides to tray; actual disposal is driven by the tray app quit flow.
-/// </summary>
 internal sealed class MainWindow : Form
 {
-    private readonly WebView2 _webView;
-    private Task? _initTask;
-    private string? _pendingUrl;
-    private bool _isShuttingDown;
+    private readonly TrayOptions _options;
+    private readonly BrowserNavigation _navigation;
+    private readonly WebView2 _web = new() { Dock = DockStyle.Fill };
+    private bool _initialized;
+    private bool _shuttingDown;
 
-    public MainWindow()
+    public MainWindow(TrayOptions options, IExternalOpener external)
     {
+        _options = options;
+        _navigation = new(options, external);
         Text = "Hermes";
-        Size = new System.Drawing.Size(1280, 800);
+        Size = new(1280, 800);
+        MinimumSize = new(800, 600);
         StartPosition = FormStartPosition.CenterScreen;
-        MinimumSize = new System.Drawing.Size(800, 600);
-
-        _webView = new WebView2 { Dock = DockStyle.Fill };
-        Controls.Add(_webView);
+        Controls.Add(_web);
     }
 
-    /// <summary>
-    /// Initialise WebView2 with an explicit user-data folder under LOCALAPPDATA.
-    /// Returns the cached init task so callers can await readiness.
-    /// </summary>
-    public Task EnsureInitializedAsync()
+    public string RuntimeVersion => _web.CoreWebView2.Environment.BrowserVersionString;
+
+    public async Task OpenAsync(CancellationToken cancellationToken)
     {
-        _initTask ??= InitCoreAsync();
-        return _initTask;
+        Show();
+        await InitializeAsync(cancellationToken);
+        await NavigateAsync("/", cancellationToken);
+        if (WindowState == FormWindowState.Minimized)
+            WindowState = FormWindowState.Normal;
+        BringToFront();
     }
 
-    private async Task InitCoreAsync()
+    private async Task InitializeAsync(CancellationToken cancellationToken)
     {
-        var userDataFolder = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Hermes", "webview2");
-        Directory.CreateDirectory(userDataFolder);
+        if (_initialized)
+            return;
+        Directory.CreateDirectory(_options.WebViewDirectory);
+        var environment = await CoreWebView2Environment.CreateAsync(
+            userDataFolder: _options.WebViewDirectory).WaitAsync(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        await _web.EnsureCoreWebView2Async(environment).WaitAsync(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        _web.CoreWebView2.NavigationStarting += OnNavigationStarting;
+        _web.CoreWebView2.NewWindowRequested += OnNewWindow;
+        _web.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
+        _web.CoreWebView2.Settings.IsStatusBarEnabled = false;
+        _initialized = true;
+    }
 
-        var env = await CoreWebView2Environment.CreateAsync(
-            browserExecutableFolder: null,
-            userDataFolder: userDataFolder);
-
-        await _webView.EnsureCoreWebView2Async(env);
-
-        // Open external links in the default browser
-        _webView.CoreWebView2.NewWindowRequested += (_, args) =>
+    public async Task NavigateAsync(string path, CancellationToken cancellationToken)
+    {
+        var target = new Uri(_options.BaseAddress, path);
+        if (!_navigation.IsCanonical(target))
+            throw new ArgumentException("Native navigation must stay on the canonical loopback origin.");
+        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        void Completed(object? sender, CoreWebView2NavigationCompletedEventArgs args) =>
+            completion.TrySetResult(args.IsSuccess && _web.Source == target);
+        _web.CoreWebView2.NavigationCompleted += Completed;
+        try
         {
-            args.Handled = true;
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = args.Uri,
-                UseShellExecute = true,
-            });
-        };
-
-        _webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
-        _webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
-
-        if (_pendingUrl is not null)
-        {
-            _webView.CoreWebView2.Navigate(_pendingUrl);
-            _pendingUrl = null;
+            _web.CoreWebView2.Navigate(target.AbsoluteUri);
+            if (!await completion.Task.WaitAsync(cancellationToken))
+                throw new InvalidOperationException("Canonical WebView2 navigation failed.");
         }
+        finally { _web.CoreWebView2.NavigationCompleted -= Completed; }
     }
 
-    /// <summary>
-    /// Navigate to the given URL. If WebView2 is not yet initialised,
-    /// the URL is queued and navigated once init completes.
-    /// </summary>
-    public void NavigateTo(string url)
+    public Task<string> ExecuteScriptAsync(string script, CancellationToken cancellationToken) =>
+        _web.CoreWebView2.ExecuteScriptAsync(script).WaitAsync(cancellationToken);
+
+    private void OnNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs args) =>
+        _navigation.NavigationStarting(args.Uri, () => args.Cancel = true);
+
+    private void OnNewWindow(object? sender, CoreWebView2NewWindowRequestedEventArgs args) =>
+        _navigation.NewWindowRequested(args.Uri, () => args.Handled = true);
+
+    public void Shutdown()
     {
-        if (_webView.CoreWebView2 is not null)
-        {
-            _webView.CoreWebView2.Navigate(url);
-        }
-        else
-        {
-            _pendingUrl = url;
-        }
+        _shuttingDown = true;
+        Close();
+        Dispose();
     }
 
-    /// <summary>
-    /// Call before disposing to allow the form to actually close.
-    /// </summary>
-    public void PrepareForShutdown() => _isShuttingDown = true;
-
-    protected override void OnFormClosing(FormClosingEventArgs e)
+    protected override void OnFormClosing(FormClosingEventArgs args)
     {
-        if (!_isShuttingDown && e.CloseReason == CloseReason.UserClosing)
+        if (!_shuttingDown && args.CloseReason == CloseReason.UserClosing)
         {
-            e.Cancel = true;
+            args.Cancel = true;
             Hide();
             return;
         }
-
-        base.OnFormClosing(e);
-    }
-
-    protected override void Dispose(bool disposing)
-    {
-        if (disposing)
-        {
-            _webView.Dispose();
-        }
-
-        base.Dispose(disposing);
+        base.OnFormClosing(args);
     }
 }

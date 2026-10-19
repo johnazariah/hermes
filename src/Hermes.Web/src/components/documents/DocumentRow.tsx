@@ -1,4 +1,5 @@
 import type { DocumentSummary } from '../../types/hermes';
+import { Link } from 'react-router-dom';
 
 const CATEGORY_COLORS = [
   'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300',
@@ -63,9 +64,9 @@ export function DocumentRow({
       />
 
       <div className="flex-1 min-w-0">
-        <div className="text-sm text-neutral-900 dark:text-neutral-200 truncate">
+        <Link to={`/documents?id=${doc.id}`} className="block text-sm text-neutral-900 dark:text-neutral-200 truncate hover:underline">
           {doc.originalName}
-        </div>
+        </Link>
         <div className="flex items-center gap-2 mt-0.5 text-xs text-neutral-500">
           {doc.sender && <span className="truncate max-w-40">{doc.sender}</span>}
           {doc.extractedDate && <span>{formatDate(doc.extractedDate)}</span>}

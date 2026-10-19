@@ -43,9 +43,9 @@ follow-on work.
 | 0 | Capture redacted current-main baseline | Hockney / Fenster / McManus / Verbal / Rai | ✅ Done | Evidence below; personal archive not accessed |
 | 0 | Reconcile testing register and support matrix | Hockney / Keaton | ✅ Done | Baseline below and testing register |
 | 1A | Stabilize V5 reflow and reclassification | McManus / Hockney | ✅ Done | #17 closed after merged #19/#20 and independent acceptance mapping |
-| 1B | Restore file-first FTS, semantic/hybrid, and Osprey reachability | McManus / Hockney | ⏳ Active | #11 integrated in #25; #6 source independently approved, publication/CI pending |
-| 1C | Enforce local HTTP/MCP trust boundary | McManus / Keaton / Rai | ⏳ Active | #6 MCP/Host/origin candidate under review; broader REST/browser/Tray authentication remains unwired |
-| 1D | Stabilize canonical React/Tray assets and SSE | Verbal / Fenster / Hockney | ⬜ Blocked | #9 and #8; depends on trust-boundary browser policy |
+| 1B | Restore file-first FTS, semantic/hybrid, and Osprey reachability | McManus / Hockney | ✅ Done | #11/#6 integrated in #25/#26 with published-head and main proof |
+| 1C | Enforce local HTTP/MCP trust boundary | McManus / Keaton / Rai | ⏳ Active | #26 delivers MCP/Host/origin boundary; broader REST/browser/Tray session authentication remains separate |
+| 1D | Stabilize canonical React/Tray assets and SSE | Verbal / Fenster / Hockney | ⏳ Active | #9/#8 implementation; canonical assets, real browser and owned native lifecycle gates |
 | 1E | Reach 85% line / 60% branch coverage and close wave | Hockney / Fenster | ⬜ Blocked | #18; depends on Phase 1A-1D |
 
 ## Phase 0 Baseline
@@ -97,6 +97,23 @@ or live document was opened. Results record behavior and counts, not content.
 8. PR #15 is reviewed and merged before Phase 1A implementation starts.
 
 ## Log
+
+### 2026-10-20 - Canonical React and owned lifecycle source approved for publication
+
+- **Changed:** Fresh independent revisions close browser source-identity collisions, failed-journey state and palette sync feedback; strict module preflight and pipe-only admission; native terminal ownership proof and guarded external-link callbacks. A separate inventory author marks the four Unix-only cases and excludes them from Windows selection without adding skips or weakening gates.
+- **Evidence:** Browser, F# and C# reviewers approve their final scopes. Real Settings and palette requests each wake the single producer, register a new synthetic document, retain exact archived bytes and display its detail. Native smoke now binds every proof and final graceful stop to the same owned attempt/PID, rejecting foreign replacements and stale stop results.
+- **Validation:** Final Mac Release graph has 0 warnings/errors; all 1,568 cases run with 1,561 passed, seven retained skips and zero failures. Exact root coverage is 10,624/13,116 lines and 9,967/20,728 branches across Core/Service/UI, restoring line non-regression. Windows discovery selects 1,564 cases; its runtime proof remains pending. All native projects cross-build cleanly; clean npm install, 21 unit cases, lint, build, reproducibility/discovery and all 45 actual browser cases pass.
+- **Artifact proof:** The exact locally published Service/bundle passes all 45 browser cases. Republish removes a stale synthetic asset; missing `dist` fails both build and `publish --no-build` with actionable diagnostics. The bounded synthetic browser preview was inspected and stopped. Legacy screenshot files are preserved without viewing them or including them in new upload paths.
+- **Blockers:** Actual current-head Windows unit/desktop/WebView2 smoke, Mac CI, integration, main bundles and storage cleanup remain. No source is merged or product surface promoted solely from cross-build/local evidence; broader session authentication and the #18 wave-close gate stay separate.
+- **Next:** Commit and publish the approved tree, run the actual cross-platform/native gates, and integrate only the exact passing head.
+
+### 2026-10-20 - Canonical React delivery started from verified retrieval main
+
+- **Changed:** #26 merged as `5aa929be`; all five replacement-head and seven main build/test/publish jobs passed. Closed #6 against its real transport criteria. Pruned five checkpoint artifacts (186,750,531 bytes); zero artifacts and two warm main caches (114,212,113 bytes) remain. Phase 1B is complete.
+- **Evidence:** The next #9/#8 candidate repairs the npm lockfile, emits a deterministic React manifest into `Hermes.Web/dist`, replaces Blazor root mapping with deployed-bundle-only hosting, wires Pipeline/Chat navigation, shares a tested SSE consumer and removes the dead pipeline-status hook. Separate language authors supplied Service lifecycle/manual-sync and native owned-process/Tray smoke proposals.
+- **Validation:** Clean `npm ci`, lint, TypeScript/Vite build and 11 SSE unit cases pass. Repeated builds produce identical asset digests. Browser discovery is 33 supported cases, with 12 historical Blazor definitions explicitly excluded. The initial real browser run passed 21/30; its nine navigation/fixture failures are corrected but await rerun. The first host full run was 1,491 total, 1,483 passed, 1 failed and 7 retained skips; the isolated deployment metadata correction now passes its targeted actual-process case.
+- **Blockers:** Native/lifecycle patches, complete browser/.NET coverage reruns, independent reviews and actual Windows desktop proof remain. The candidate is not published. Broader session authentication, old parity fixtures and the 85%/60% wave-close gate are not claimed complete.
+- **Next:** Finish the full browser-to-Service and Tray-to-owned-Service thread, then publish and merge only after current-head cross-platform gates pass.
 
 ### 2026-10-19 - Windows live-file hash fixture corrected without weakening assertions
 

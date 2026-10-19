@@ -1,19 +1,40 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-
-interface SearchResult {
-  documentId: number;
-  originalName: string;
-  category: string;
-  sender: string | null;
-  extractedAmount: number | null;
-  snippet: string | null;
-}
+import { chat, type ChatSource } from '../../api/chat';
 
 interface ChatMessage {
   role: 'user' | 'hermes';
   text: string;
-  results?: SearchResult[];
+  results?: ChatSource[];
   aiAnswer?: string;
+  error?: boolean;
+}
+
+function SourceCard({ source, onSelectDocument }: {
+  source: ChatSource;
+  onSelectDocument: (id: number) => void;
+}) {
+  const documentBacked = source.savedPath.trim().length > 0;
+  const content = <>
+    <span className="text-neutral-500 text-xs">{source.category}</span>
+    <span className="flex-1 min-w-0">
+      <span className="block truncate">
+        {source.originalName ?? source.subject ?? `${source.resultType === 'email' ? 'Email' : 'Document'} ${source.documentId}`}
+      </span>
+      {!documentBacked && <span className="block text-xs text-neutral-500">
+        {source.resultType === 'email' ? 'Email metadata only — no archived document' : 'Document file unavailable'}
+      </span>}
+      {source.sender && <span className="block text-xs text-neutral-500">{source.sender}</span>}
+      {source.snippet && <span className="block text-xs text-neutral-400">{source.snippet}</span>}
+    </span>
+    {source.extractedAmount != null && (
+      <span className="text-neutral-400 text-xs">${source.extractedAmount.toFixed(2)}</span>
+    )}
+  </>;
+  const className = 'w-full text-left px-3 py-2 rounded bg-neutral-900/50 flex items-center gap-3 text-sm';
+  return documentBacked
+    ? <button onClick={() => onSelectDocument(source.documentId)}
+        className={`${className} hover:bg-neutral-800 transition-colors`}>{content}</button>
+    : <div className={className}>{content}</div>;
 }
 
 export function ChatPane({ onSelectDocument }: { onSelectDocument: (id: number) => void }) {
@@ -21,6 +42,9 @@ export function ChatPane({ onSelectDocument }: { onSelectDocument: (id: number) 
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const requestRef = useRef<AbortController | null>(null);
+
+  useEffect(() => () => requestRef.current?.abort(), []);
 
   useEffect(() => {
     scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
@@ -28,76 +52,35 @@ export function ChatPane({ onSelectDocument }: { onSelectDocument: (id: number) 
 
   const handleSend = useCallback(async () => {
     const query = input.trim();
-    if (!query || loading) return;
+    if (!query || loading || requestRef.current) return;
 
+    const controller = new AbortController();
+    requestRef.current = controller;
     setInput('');
-    setMessages(prev => [...prev, { role: 'user', text: query }]);
+    setMessages(prev => [...prev, { role: 'user', text: query }, { role: 'hermes', text: 'Searching...' }]);
     setLoading(true);
 
     try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, aiEnabled: true }),
-      });
-
-      const reader = response.body?.getReader();
-      if (!reader) return;
-
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let results: SearchResult[] = [];
-      let aiAnswer = '';
-
-      // Add placeholder Hermes message
-      setMessages(prev => [...prev, { role: 'hermes', text: 'Searching...' }]);
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-
-        // Parse SSE events from buffer
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        let eventType = '';
-        for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            eventType = line.slice(7).trim();
-          } else if (line.startsWith('data: ')) {
-            const data = line.slice(6);
-            try {
-              const parsed = JSON.parse(data);
-              if (eventType === 'results' && parsed.results) {
-                results = parsed.results;
-                setMessages(prev => {
-                  const updated = [...prev];
-                  const last = updated[updated.length - 1];
-                  if (last.role === 'hermes') {
-                    updated[updated.length - 1] = { ...last, text: `Found ${results.length} document(s)`, results };
-                  }
-                  return updated;
-                });
-              } else if (eventType === 'answer' && parsed.answer) {
-                aiAnswer = parsed.answer;
-                setMessages(prev => {
-                  const updated = [...prev];
-                  const last = updated[updated.length - 1];
-                  if (last.role === 'hermes') {
-                    updated[updated.length - 1] = { ...last, aiAnswer };
-                  }
-                  return updated;
-                });
-              }
-            } catch { /* skip unparseable */ }
-          }
-        }
+      await chat(query, event => {
+        if (event.type === 'done') return;
+        setMessages(previous => previous.map((message, index) => {
+          if (index !== previous.length - 1) return message;
+          return event.type === 'results'
+            ? { ...message, text: `Found ${event.results.length} source(s)`, results: event.results }
+            : { ...message, aiAnswer: event.answer };
+        }));
+      }, controller.signal);
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setMessages(previous => previous.map((message, index) =>
+          index === previous.length - 1
+            ? { ...message, error: true, text: error instanceof Error ? error.message : 'Chat request failed.' }
+            : message,
+        ));
       }
-    } catch {
-      setMessages(prev => [...prev, { role: 'hermes', text: 'Error connecting to service.' }]);
     } finally {
-      setLoading(false);
+      requestRef.current = null;
+      if (!controller.signal.aborted) setLoading(false);
     }
   }, [input, loading]);
 
@@ -129,7 +112,8 @@ export function ChatPane({ onSelectDocument }: { onSelectDocument: (id: number) 
                 {msg.text}
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-3" role={msg.error ? 'alert' : undefined}>
+                {msg.error && <div className="text-red-500">{msg.text}</div>}
                 {/* AI answer */}
                 {msg.aiAnswer && (
                   <div className="bg-neutral-900 border border-neutral-800 rounded-lg px-4 py-3 text-sm leading-relaxed">
@@ -139,25 +123,17 @@ export function ChatPane({ onSelectDocument }: { onSelectDocument: (id: number) 
 
                 {/* Document cards */}
                 {msg.results && msg.results.length > 0 && (
-                  <div className="space-y-1">
+                  <ul className="space-y-1">
                     {msg.results.slice(0, 10).map(r => (
-                      <button
-                        key={r.documentId}
-                        onClick={() => onSelectDocument(r.documentId)}
-                        className="w-full text-left px-3 py-2 rounded bg-neutral-900/50 hover:bg-neutral-800 flex items-center gap-3 text-sm transition-colors"
-                      >
-                        <span className="text-neutral-500 text-xs">{r.category}</span>
-                        <span className="flex-1 truncate">{r.originalName}</span>
-                        {r.extractedAmount != null && (
-                          <span className="text-neutral-400 text-xs">${r.extractedAmount.toFixed(2)}</span>
-                        )}
-                      </button>
+                      <li key={`${r.resultType}:${r.documentId}:${r.savedPath}`}>
+                        <SourceCard source={r} onSelectDocument={onSelectDocument} />
+                      </li>
                     ))}
-                  </div>
+                  </ul>
                 )}
 
                 {/* Fallback text if no results and no answer */}
-                {!msg.aiAnswer && (!msg.results || msg.results.length === 0) && (
+                {!msg.error && !msg.aiAnswer && (!msg.results || msg.results.length === 0) && (
                   <div className="text-sm text-neutral-500">{msg.text}</div>
                 )}
               </div>

@@ -2,13 +2,100 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
-## Typed retrieval and MCP policy — approved for publication
+## Canonical React and owned lifecycle — approved for publication
 
-The issue #6 candidate adds shared keyword/semantic/hybrid HTTP and MCP
+The #9/#8 candidate replaces the conflicting Blazor root with a validated
+deployed React bundle, makes build/publish provenance explicit, wires the
+existing Chat and Pipeline routes, and restores real browser execution.
+Owned Service control and real manual sync are integrated. Separate-author
+browser, F# and C# revisions are independently approved; actual published-head
+Windows/native and Mac gates remain required.
+
+| Measure | Executed result |
+|---------|-----------------|
+| Clean `npm ci` after lockfile repair | Passed; 308 packages |
+| React lint and TypeScript/Vite build | Passed |
+| JavaScript unit cases after independent revision | 21 passed; protocol/source-identity and asset-provenance cases |
+| Repeated React build | Byte-identical manifest and asset digests |
+| Browser discovery after independent revision | 45 cases across six suites; existing nine reclassification cases retained |
+| Historical Blazor promotion definitions | 12 explicitly excluded; not counted as executed |
+| First real isolated-Service browser execution | 30 total; 21 passed, 9 failed |
+| Corrected real isolated-Service browser execution | 33 passed; 0 failed/skipped |
+| Independently revised browser execution | 43 passed; 0 failed/skipped, against the fresh copied bundle |
+| Real UI-to-producer sync execution | 45 passed; 0 failed/skipped, including Settings and palette admission-to-archive-to-document proof |
+| Canonical Service host full graph | 0 warnings/errors |
+| Initial full .NET execution with host cases | 1,491 total; 1,483 passed, 1 failed, 7 retained skips |
+| Combined host/lifecycle full execution | 1,519 total; 1,512 passed, 0 failed, 7 retained skips |
+| Initial combined root coverage | 10,523/13,082 lines; 9,920/20,720 branches; rejected line regression |
+| Fresh Service safety/producer execution | 1,568 total; 1,561 passed, 0 failed, 7 retained skips |
+| Fresh exact root coverage | 10,624/13,116 lines; 10,026/20,728 branches; line non-regression restored against 10,284/12,753 |
+| Windows native projects | Cross-compiled with 0 warnings/errors; actual Windows execution pending |
+| Independent browser revision | Approved; three findings corrected by a separate author |
+| Independent native source review | Approved after a separate author corrected ownership-oracle and external-link callback findings |
+| Independent F# source review | Approved after fresh production and platform-inventory revisions |
+| Final Mac full execution | 1,568 total; 1,561 passed, 7 retained skips, 0 failed |
+| Final post-normalisation root | 10,624/13,116 lines; 9,967/20,728 branches; Core/Service/UI retained |
+| Explicit platform discovery | All 1,568; Unix-only 4; Windows selection 1,564 |
+| Final frontend gates | Clean npm install, 21 unit cases, lint, build, identical repeated bundle and all 45 browser cases passed |
+
+The first browser run exposed decorative icons in accessible navigation names,
+a missing synthetic extraction artifact and an incorrect fake Ollama endpoint.
+Corrections preserve the real Service/UI assertions; the replacement 33-case
+run passes against the isolated Service. Discovery fails unless every supported suite
+matches its expected nonzero count.
+
+The deployment test established that referencing the original test deps file
+anchors the child application's base at the original test output. Its fixture
+now copies runtime metadata alongside the owned deployed assemblies. A fresh
+physical-identity probe verifies the reported deployed directory, while decoy
+bundles and the archive-must-not-be-created assertions remain intact.
+No owner archive, live provider or external account is used.
+
+Independent browser review closed mixed document/email identity collisions,
+failed-journey state and command-palette sync feedback through separate-author
+regressions. The successful 43-case run used the revised manifest copied to
+Service output; an earlier run had exercised the older output bundle and is
+not counted as revised-source proof.
+
+Two additional cases stage owned synthetic intake files only after the initial
+producer cycle. Both Settings and command-palette actions make a real HTTP
+request, observe exactly one completed producer cycle, verify the new database
+row and original archived bytes, and open the visible document. The automatic
+interval is 60 minutes; neither sync nor its response is mocked.
+
+Separate-author revisions close mixed valid/undeclared module acceptance,
+non-pipe Unix admission, stale native ownership proof and escaping browser
+callbacks. Direct `ProducerCycle` assertions exercise copied-folder registration,
+canonical paths, claims, duplicates, history, providers, watermarks and
+cancellation; the exact root line regression is closed without changing
+assembly scope, skips or thresholds.
+
+The final F# inventory revision marks all four descriptor cases `Platform=Unix`
+and selects Windows tests with `Platform!=Unix`; accidental unfiltered Windows
+execution fails explicitly. Expected Windows selection is 1,564 cases, including
+seven existing skips; its runtime result must come from actual Windows CI.
+The final Mac run executes all 1,568 cases. These selections retain the Windows
+owned-pipe/process tests and do not alter production coverage scope or gates.
+Actual Windows native tests/desktop proof and published-head cross-platform
+CI remain required.
+
+The exact locally published Service and bundle also pass all 45 browser cases.
+Publication removes a deliberately inserted stale asset. Both build and
+`publish --no-build` fail with an actionable prerequisite when `dist` is absent;
+the generated bundle is restored after the controlled check.
+Playwright output is confined to `test-results/canonical`; the runner-deleted
+tracked legacy screenshots were restored without viewing them, and the final
+45-case run leaves their bytes unchanged. They are not browser artefacts for
+upload.
+
+## Integrated typed retrieval and MCP policy — PR #26
+
+The issue #6 feature adds shared keyword/semantic/hybrid HTTP and MCP
 contracts, a non-generative persisted-comprehension accessor, explicit MCP
 capabilities and a local Host/origin boundary. The separate author's revision
-passes the full preserved suite and independent re-review. Published-head
-Windows/macOS CI remains required before integration.
+passes the full preserved suite and independent re-review. PR #26 merged as
+`5aa929be`; replacement-head Windows/macOS checks and all seven main
+build/test/publish jobs passed.
 
 | Measure | Executed result |
 |---------|-----------------|
@@ -23,7 +110,9 @@ Windows/macOS CI remains required before integration.
 | Instrumented assemblies | Core, Service, UI; unchanged |
 | Independent F# review | Approved after a separate author corrected all three findings |
 | First published head `ec3fc784` | macOS and three desktop builds passed; Windows failed two live-file hash fixture cases |
-| Replacement Windows/macOS CI | Required after the test-only shared-file correction |
+| Replacement Windows/macOS CI | Passed at `b6bc5b46`; both OS suites 1,389 total, 1,382 passed, 7 skipped |
+| Published Windows root lines / branches | 10,283/12,753 lines; 9,506/20,265 branches |
+| Main Windows root lines / branches | 10,284/12,753 lines; 9,455/20,265 branches |
 
 The revision restores legal large-limit keyword calls and distinguishes unknown
 tools from recognised unauthorised mutations. Schema 17 records explicit origin
@@ -62,8 +151,9 @@ filenames/digests and detect changed database/WAL bytes. The original physical
 HTTP/MCP assertions are unchanged; no checkpoint, close, retry or skip hides
 mutation. Fixture writers are quiescent during each hash pass.
 
-Production and narrow fixture reviews are approved; replacement current-head
-Windows/macOS CI remains required.
+Production and narrow fixture reviews are approved; actual replacement-head
+and main CI evidence is retained. The five checkpoint artifacts were pruned
+after verification; the two useful main dependency caches remain.
 Broader REST/browser/Tray session authentication and the 85%/60% wave-close
 target remain separate.
 

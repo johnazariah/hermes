@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+// Historical Blazor promotion checks; explicitly excluded from the canonical React runner.
 
 const BASE = 'http://localhost:21742';
 

@@ -2,9 +2,10 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { fetchStats } from "../../api/hermes";
-import { useTheme } from "../../hooks/useTheme";
+import { useTheme } from "../../hooks/theme-context";
 import { CommandPalette } from "../CommandPalette";
 import type { IndexStats } from "../../types/hermes";
+import { request } from "../../api/http";
 
 interface NavItemProps {
     to: string;
@@ -26,7 +27,7 @@ function NavItem({ to, icon, label, badge }: NavItemProps) {
                 }`
             }
         >
-            <span className="text-base">{icon}</span>
+            <span className="text-base" aria-hidden="true">{icon}</span>
             <span>{label}</span>
             {badge != null && badge > 0 && (
                 <span className="ml-auto inline-flex items-center justify-center min-w-5 h-5 px-1.5 text-[10px] font-bold bg-amber-500 text-white rounded-full">
@@ -41,38 +42,35 @@ export function AppShell() {
     const { theme, toggleTheme } = useTheme();
     const navigate = useNavigate();
 
-    const { data: stats } = useQuery<IndexStats>({
+    const { data: stats, error: statsError } = useQuery<IndexStats>({
         queryKey: ["stats"],
         queryFn: fetchStats,
         refetchInterval: 5000,
     });
 
-    const { data: suggestions } = useQuery<unknown[]>({
+    const { data: suggestions, error: suggestionsError } = useQuery<unknown[]>({
         queryKey: ["suggestion-count"],
         queryFn: async () => {
-            const res = await fetch("/api/suggestions");
-            if (!res.ok) return [];
+            const res = await request("/api/suggestions");
             return res.json();
         },
         refetchInterval: 30000,
     });
 
     // First-run redirect: if no accounts and no preferences, send to onboarding
-    const { data: accounts } = useQuery<{ account: string }[]>({
+    const { data: accounts, error: accountsError } = useQuery<{ account: string }[]>({
         queryKey: ["sync-accounts-onboard"],
         queryFn: async () => {
-            const res = await fetch("/api/sync/accounts");
-            if (!res.ok) return [];
+            const res = await request("/api/sync/accounts");
             return res.json();
         },
         staleTime: Infinity,
     });
 
-    const { data: preferences } = useQuery<string>({
+    const { data: preferences, error: preferencesError } = useQuery<string>({
         queryKey: ["preferences-onboard"],
         queryFn: async () => {
-            const res = await fetch("/api/preferences");
-            if (!res.ok) return "";
+            const res = await request("/api/preferences");
             return res.text();
         },
         staleTime: Infinity,
@@ -116,6 +114,8 @@ export function AppShell() {
                     />
                     <NavItem to="/documents" icon="📄" label="Documents" />
                     <NavItem to="/search" icon="🔍" label="Search" />
+                    <NavItem to="/pipeline" icon="📊" label="Pipeline" />
+                    <NavItem to="/chat" icon="💬" label="Chat" />
                     <NavItem to="/settings" icon="⚙️" label="Settings" />
 
                     {/* Cmd+K hint */}
@@ -168,6 +168,8 @@ export function AppShell() {
             {/* Main content */}
             <main className="ml-56 flex-1 min-h-screen">
                 <div className="max-w-[1400px] mx-auto px-6 py-6">
+                    {(statsError || suggestionsError || accountsError || preferencesError) &&
+                      <p role="alert">Service data unavailable: {(statsError || suggestionsError || accountsError || preferencesError)?.message}</p>}
                     <Outlet />
                 </div>
             </main>

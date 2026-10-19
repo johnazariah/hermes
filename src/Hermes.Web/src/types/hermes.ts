@@ -1,14 +1,3 @@
-export interface PipelineState {
-  ingestQueueDepth: number;
-  extractQueueDepth: number;
-  deadLetterCount: number;
-  totalDocuments: number;
-  totalExtracted: number;
-  totalEmbedded: number;
-  currentDoc: string | null;
-  lastUpdated: string;
-}
-
 export interface CategoryCount {
   category: string;
   count: number;
@@ -27,6 +16,9 @@ export interface DocumentSummary {
   sourcePath: string | null;
   classificationTier: string | null;
   classificationConfidence: number | null;
+  stage?: string | null;
+  extractionMethod?: string | null;
+  error?: string | null;
 }
 
 export interface DocumentDetail {
@@ -38,6 +30,7 @@ export interface DocumentDetail {
   ingestedAt: string;
   extractedAt: string | null;
   embeddedAt: string | null;
+  chunkCount?: number;
   pipelineStatus: {
     understood: boolean;
     extracted: boolean;

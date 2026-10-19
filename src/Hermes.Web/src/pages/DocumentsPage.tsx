@@ -17,6 +17,7 @@ import type {
 } from "../types/hermes";
 import { DocumentRow } from "../components/documents/DocumentRow";
 import { BatchBar } from "../components/documents/BatchBar";
+import { DocumentDetail } from "../components/documents/DocumentDetail";
 
 type ReclassificationResult =
     | {
@@ -101,15 +102,15 @@ export function DocumentsPage() {
     const [reclassificationResult, setReclassificationResult] =
         useState<ReclassificationResult | null>(null);
     const activeFilterRef = useRef(selectedTag);
-    const previousFilterRef = useRef(selectedTag);
+    const [previousFilter, setPreviousFilter] = useState(selectedTag);
     const queryClient = useQueryClient();
 
+    if (previousFilter !== selectedTag) {
+        setPreviousFilter(selectedTag);
+        setSelectedIds(new Set());
+    }
     useEffect(() => {
         activeFilterRef.current = selectedTag;
-        if (previousFilterRef.current !== selectedTag) {
-            previousFilterRef.current = selectedTag;
-            setSelectedIds(new Set());
-        }
     }, [selectedTag]);
 
     const { data: tags } = useQuery<TagCount[]>({
@@ -124,7 +125,7 @@ export function DocumentsPage() {
         refetchInterval: 30000,
     });
 
-    const { data: docs, isLoading: docsLoading } = useQuery<DocumentSummary[]>(
+    const { data: docs, isLoading: docsLoading, error: docsError } = useQuery<DocumentSummary[]>(
         {
             queryKey: ["docs", selectedTag],
             queryFn: () => fetchDocuments(selectedTag ?? "", 0, 200),
@@ -255,6 +256,19 @@ export function DocumentsPage() {
                 : "text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800/50 hover:text-neutral-900 dark:hover:text-neutral-200"
         }`;
 
+    const requestedId = searchParams.get("id");
+    if (requestedId !== null) {
+        const id = Number(requestedId);
+        const back = () => {
+            const params = new URLSearchParams(searchParams);
+            params.delete("id");
+            setSearchParams(params);
+        };
+        return /^[1-9]\d*$/.test(requestedId) && Number.isSafeInteger(id)
+            ? <DocumentDetail documentId={id} onBack={back} />
+            : <div role="alert">Invalid document ID. <button onClick={back}>Back to documents</button></div>;
+    }
+
     return (
         <div className="flex gap-6 h-[calc(100vh-7rem)]">
             {/* Desktop: Tag panel */}
@@ -321,11 +335,11 @@ export function DocumentsPage() {
 
                 {/* Header */}
                 <div className="px-4 py-3 border-b border-neutral-200 dark:border-neutral-800">
-                    <span className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
+                    <h1 className="inline text-sm font-semibold text-neutral-700 dark:text-neutral-300">
                         {selectedTag
                             ? `🏷️ ${selectedTag}`
-                            : "📄 All documents"}
-                    </span>
+                            : "Documents"}
+                    </h1>
                     {docs && (
                         <span className="text-xs text-neutral-500 ml-2">
                             ({docs.length})
@@ -335,6 +349,7 @@ export function DocumentsPage() {
 
                 {/* Document rows */}
                 <div className="flex-1 overflow-y-auto">
+                    {docsError && <p role="alert">Unable to load documents: {docsError.message}</p>}
                     {docsLoading && (
                         <div className="flex items-center justify-center h-32 text-sm text-neutral-500 animate-pulse">
                             Loading…

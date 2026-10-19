@@ -40,11 +40,17 @@ jobs:
 
       - name: Install npm dependencies
         working-directory: src/Hermes.Web
-        run: npm install
+        run: npm ci
 
-      - name: Build Blazor CSS
+      - name: Check canonical React source and build provenance
         working-directory: src/Hermes.Web
-        run: npm run build:blazor
+        shell: bash
+        run: |
+          npm run lint
+          npm run test:unit
+          npm run build
+          npm run test:reproducible
+          npm run test:discovery
 
       - name: Restore (core + service + tests only)
         run: |
@@ -58,8 +64,21 @@ jobs:
           dotnet build src/Hermes.Service/Hermes.Service.fsproj --no-restore -c Release -v q
           dotnet build tests/Hermes.Tests/Hermes.Tests.fsproj --no-restore -c Release -v q
 
-      - name: Test
+      - name: Test (Windows; excluding Unix-only cases)
+        if: matrix.os == 'windows-latest'
+        run: dotnet test tests/Hermes.Tests/Hermes.Tests.fsproj --no-build -c Release -v q --logger "console;verbosity=normal" --collect:"XPlat Code Coverage" --filter "Platform!=Unix"
+
+      - name: Test (macOS; all cases)
+        if: matrix.os == 'macos-latest'
         run: dotnet test tests/Hermes.Tests/Hermes.Tests.fsproj --no-build -c Release -v q --logger "console;verbosity=normal" --collect:"XPlat Code Coverage"
+
+      - name: Install browser
+        working-directory: src/Hermes.Web
+        run: npx playwright install chromium
+
+      - name: Browser smoke against isolated real Service
+        working-directory: src/Hermes.Web
+        run: npm test
 
       - name: Check coverage threshold
         if: matrix.os == 'windows-latest'
@@ -91,8 +110,45 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: src/Hermes.Web/package-lock.json
+
+      - name: Build canonical React
+        working-directory: src/Hermes.Web
+        shell: bash
+        run: |
+          npm ci
+          npm run build
+
       - name: Build Tray app
         run: dotnet build src/Hermes.Tray/Hermes.Tray.csproj -c Release -v q
+
+      - name: Test owned native lifecycle
+        run: dotnet test tests/Hermes.Tray.Tests/Hermes.Tray.Tests.csproj -c Release -v q
+
+      - name: Publish isolated native smoke Service
+        shell: pwsh
+        run: |
+          dotnet publish src/Hermes.Service/Hermes.Service.fsproj -c Release -r win-x64 --self-contained true -o "$env:RUNNER_TEMP/hermes-native-smoke/service" -v q
+          node src/Hermes.Web/scripts/assets.mjs verify "$env:RUNNER_TEMP/hermes-native-smoke/service/wwwroot"
+
+      - name: Real Windows Tray and WebView2 smoke
+        shell: pwsh
+        run: |
+          dotnet run --project tests/Hermes.Tray.Smoke/Hermes.Tray.Smoke.csproj -c Release -- --service-path "$env:RUNNER_TEMP/hermes-native-smoke/service/Hermes.Service.exe" --port 31873 --report "$env:RUNNER_TEMP/hermes-native-smoke.json" --timeout-seconds 150
+
+      - name: Preserve failed native smoke evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-smoke-failure
+          path: ${{ runner.temp }}/hermes-native-smoke.json
+          if-no-files-found: warn
+          retention-days: 3
 
   # ── MAUI Shell (Windows) ─────────────────────────────────────────
   build-shell-windows:
@@ -163,14 +219,31 @@ jobs:
 
       - name: Install npm dependencies
         working-directory: src/Hermes.Web
-        run: npm install
+        run: npm ci
 
-      - name: Build Blazor CSS
+      - name: Build canonical React
         working-directory: src/Hermes.Web
-        run: npm run build:blazor
+        shell: bash
+        run: |
+          npm run build
+          npm run test:discovery
 
       - name: Publish service
         run: dotnet publish src/Hermes.Service/Hermes.Service.fsproj -c Release -r ${{ matrix.rid }} --self-contained -o publish/service
+
+      - name: Verify published React provenance
+        run: node src/Hermes.Web/scripts/assets.mjs verify publish/service/wwwroot
+
+      - name: Install browser
+        working-directory: src/Hermes.Web
+        run: npx playwright install chromium
+
+      - name: Smoke the exact published Service and React bundle
+        working-directory: src/Hermes.Web
+        shell: pwsh
+        run: |
+          $env:HERMES_TEST_SERVICE_DLL = (Resolve-Path "../../publish/service/Hermes.Service.dll").Path
+          npm test
 
       - name: Publish tray (Windows only)
         if: matrix.rid == 'win-x64'

@@ -5,8 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
-    "build:blazor": "npx --yes @tailwindcss/cli -i blazor.css -o ../Hermes.Service/wwwroot/css/app.min.css --content \"../Hermes.UI/**/*.razor\" --minify",
+    "build": "tsc -b && vite build && node scripts/assets.mjs create dist",
+    "verify:assets": "node scripts/assets.mjs verify",
+    "test": "playwright test",
+    "test:unit": "node --experimental-strip-types --test tests/unit/*.test.ts",
+    "test:discovery": "node tests/assert-discovery.mjs",
+    "test:reproducible": "node scripts/reproduce.mjs",
     "lint": "eslint .",
     "preview": "vite preview"
   },

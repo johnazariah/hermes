@@ -10,6 +10,7 @@
     <Compile Include="Lifetime.fs" />
     <Compile Include="LocalBoundary.fs" />
     <Compile Include="ServicePolicy.fs" />
+    <Compile Include="CanonicalUi.fs" />
     <Compile Include="PersistedApi.fs" />
     <Compile Include="KeywordApi.fs" />
     <Compile Include="ReindexCommand.fs" />
@@ -23,7 +24,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Hermes.Core\Hermes.Core.fsproj" />
-    <ProjectReference Include="..\Hermes.UI\Hermes.UI.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -34,4 +34,51 @@
     </None>
   </ItemGroup>
 
+  <PropertyGroup>
+    <CanonicalUiDist>$(MSBuildProjectDirectory)/../Hermes.Web/dist</CanonicalUiDist>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The checked legacy bundle is never a build or publish input. -->
+    <Content Remove="wwwroot/**" />
+    <None Remove="wwwroot/**" />
+  </ItemGroup>
+
+  <Target Name="PrepareCanonicalUi"
+          BeforeTargets="PrepareForBuild;ComputeFilesToPublish"
+          Condition="'$(DesignTimeBuild)' != 'true'">
+    <Error Condition="!Exists('$(CanonicalUiDist)/index.html') Or !Exists('$(CanonicalUiDist)/asset-manifest.json')"
+           Text="Canonical React bundle is missing. Run npm ci --prefix src/Hermes.Web and npm run build --prefix src/Hermes.Web before dotnet build/publish. Expected Hermes.Web/dist/index.html and asset-manifest.json; legacy Service/wwwroot is not used." />
+    <ItemGroup>
+      <_CanonicalUiFile Remove="@(_CanonicalUiFile)" />
+      <_CanonicalUiFile Include="$(CanonicalUiDist)/**/*"
+                        Exclude="$(CanonicalUiDist)/node_modules/**;$(CanonicalUiDist)/**/node_modules/**" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="CopyCanonicalUiToOutput"
+          AfterTargets="Build"
+          DependsOnTargets="PrepareCanonicalUi"
+          Condition="'$(DesignTimeBuild)' != 'true'">
+    <RemoveDir Directories="$(TargetDir)wwwroot" />
+    <Copy SourceFiles="@(_CanonicalUiFile)"
+          DestinationFiles="@(_CanonicalUiFile->'$(TargetDir)wwwroot/%(RecursiveDir)%(Filename)%(Extension)')" />
+    <ItemGroup>
+      <FileWrites Include="@(_CanonicalUiFile->'$(TargetDir)wwwroot/%(RecursiveDir)%(Filename)%(Extension)')" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="IncludeCanonicalUiInPublish"
+          AfterTargets="ComputeFilesToPublish"
+          DependsOnTargets="PrepareCanonicalUi"
+          Condition="'$(DesignTimeBuild)' != 'true'">
+    <RemoveDir Directories="$(PublishDir)/wwwroot" />
+    <ItemGroup>
+      <ResolvedFileToPublish Include="@(_CanonicalUiFile)">
+        <RelativePath>wwwroot/%(RecursiveDir)%(Filename)%(Extension)</RelativePath>
+        <CopyToPublishDirectory>Always</CopyToPublishDirectory>
+        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
 </Project>

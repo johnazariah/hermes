@@ -26,9 +26,9 @@ providers require explicit configuration and may receive prompt content.
   comprehension; unattributed shared-thread enrichment is explicitly unavailable
 - **MCP server** — read-only tools by default, authenticated mutations by explicit
   opt-in, with loopback Host/origin checks
-- **Preview web UI** — registered React routes for Home, Documents, Search,
-  Settings, and onboarding; Pipeline and Chat route wiring remains in
-  [#9](https://github.com/johnazariah/hermes/issues/9)
+- **Canonical React UI** — Home, Documents, Search, Settings, onboarding,
+  Pipeline and Chat use the Service API; consumed chat SSE retains document
+  identity and visible errors
 
 ## Architecture
 
@@ -61,6 +61,8 @@ See [Pipeline V5 Architecture](.project/design/30-pipeline-v5-architecture.md) f
 ## Development
 
 ```bash
+npm ci --prefix src/Hermes.Web
+npm run build --prefix src/Hermes.Web            # required before Service build/publish
 dotnet build                                    # build all
 dotnet test                                     # run all tests (867 currently discovered)
 dotnet run --project src/Hermes.Service         # run service (prod)
@@ -70,6 +72,52 @@ $env:HERMES_CONFIG_DIR = "$env:APPDATA\hermes-dev"
 $env:HERMES_PORT = "21742"
 dotnet run --project src/Hermes.Service -- --initial-sync-days 90
 ```
+
+### Canonical assets and browser checks
+
+React builds into `Hermes.Web/dist`, with a deterministic manifest containing
+asset names and SHA-256 digests. Service build/publish copies that complete
+bundle into its output `wwwroot`. Startup validates only the deployed bundle;
+it never substitutes a checked-in bundle, source directory or Blazor route.
+Missing assets fail with an explicit npm build prerequisite. Unknown API and
+asset paths remain errors rather than returning the SPA shell.
+
+```bash
+npm run test:unit --prefix src/Hermes.Web
+npm run lint --prefix src/Hermes.Web
+npm run test:reproducible --prefix src/Hermes.Web
+npm run test:discovery --prefix src/Hermes.Web
+cd src/Hermes.Web
+npx playwright install chromium
+npm test
+```
+
+The browser runner starts its own Service, synthetic archive and fake model
+endpoint on separate test ports. It refuses the production/development ports
+and never reuses an existing server. The discovery guard rejects missing or
+unexpected suites. Historical Blazor promotion tests are explicitly excluded
+from the canonical React inventory.
+
+Four Unix descriptor-admission cases carry `Platform=Unix`. Run the .NET suite
+on Windows with `--filter "Platform!=Unix"`; Mac runs include those cases.
+The Windows selection still executes its owned pipe/process tests and the
+separate native Tray suite. Native desktop/WebView2 smoke requires real Windows
+execution; cross-compilation is not that proof.
+
+### Service and Windows Tray ownership
+
+Foreground Service operation uses normal host shutdown. When Tray launches a
+Service child, `--control-stdin` opts into an owner-only pipe: `shutdown` or
+owner EOF requests graceful shutdown. This is not a network administration
+endpoint. Health includes the actual Service process ID so Tray can verify
+the child it owns. Tray respects explicit `HERMES_CONFIG_DIR`/`HERMES_PORT` and
+the published sibling `service/` and `tray/` layout.
+
+Manual sync returns HTTP 202 for queued/coalesced work, not completed
+synchronisation. An unsupported, starting or stopping producer returns an
+explicit unavailable response. The existing single producer owns both
+periodic and requested cycles. Saved configuration requires a Service restart
+to take effect.
 
 ### Rebuild selected file-content search indexes
 
