@@ -24,14 +24,15 @@ type Server =
 
 let timeout = TimeSpan.FromSeconds 10.0
 
-let private createApp db (files: TestHelpers.MemFs) deepDeps =
+let private createApp encoder policy origins db (files: TestHelpers.MemFs) deepDeps =
     let builder = WebApplication.CreateBuilder()
     builder.WebHost.UseUrls("http://127.0.0.1:0") |> ignore
     let app = builder.Build()
+    LocalBoundary.attach app origins
     let dag = TestHelpers.standardV5Dag ()
-    ApiServer.mapRoutes app db files.Fs TestHelpers.silentLogger
+    ApiServer.mapRoutesWithSearch encoder app db db files.Fs TestHelpers.silentLogger
         TestHelpers.defaultClock dag None "/archive" "/config"
-    ApiServer.mapMcpRoute app db db files.Fs TestHelpers.silentLogger
+    ApiServer.mapMcpRouteWithPolicy encoder policy app db db files.Fs TestHelpers.silentLogger
         TestHelpers.defaultClock dag "/archive" deepDeps
     app
 
@@ -42,21 +43,21 @@ let private address (app: WebApplication) =
     |> Option.defaultWith (fun () -> failwith "No HTTP server addresses")
     |> fun feature -> feature.Addresses |> Seq.head
 
-let private start deepDeps =
+let private start createDb encoder policy origins deepDeps =
     task {
-        let db = TestHelpers.createDb ()
+        let db = createDb ()
         do! TestHelpers.initV5 db
         let files = TestHelpers.memFs ()
-        let app = createApp db files deepDeps
+        let app = createApp encoder policy origins db files deepDeps
         do! app.StartAsync()
         return
             { App = app; Db = db; Files = files
               Client = new HttpClient(BaseAddress = Uri(address app), Timeout = timeout) }
     }
 
-let withServer deepDeps verify =
+let withServerUsing createDb encoder policy origins deepDeps verify =
     task {
-        let! server = start deepDeps
+        let! server = start createDb encoder policy origins deepDeps
         try do! verify server
         finally
             server.Client.Dispose()
@@ -64,6 +65,18 @@ let withServer deepDeps verify =
             server.App.DisposeAsync().AsTask().GetAwaiter().GetResult()
             server.Db.dispose ()
     }
+
+let withConfiguredServer encoder policy origins deepDeps verify =
+    withServerUsing TestHelpers.createDb encoder policy origins deepDeps verify
+
+let withServer deepDeps verify =
+    withConfiguredServer None McpAccess.readOnly [] deepDeps verify
+
+let withAuthenticatedServer deepDeps verify =
+    withConfiguredServer None McpTestPolicy.policy [] deepDeps (fun server ->
+        server.Client.DefaultRequestHeaders.Authorization <-
+            Headers.AuthenticationHeaderValue("Bearer", McpTestPolicy.token)
+        verify server)
 
 let json (text: string) =
     use document = JsonDocument.Parse(text)

@@ -8,6 +8,9 @@
 
   <ItemGroup>
     <Compile Include="Lifetime.fs" />
+    <Compile Include="LocalBoundary.fs" />
+    <Compile Include="ServicePolicy.fs" />
+    <Compile Include="PersistedApi.fs" />
     <Compile Include="KeywordApi.fs" />
     <Compile Include="ReindexCommand.fs" />
     <Compile Include="ReindexOutput.fs" />

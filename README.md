@@ -14,16 +14,18 @@ providers require explicit configuration and may receive prompt content.
 
 ## What It Does
 
-- **Syncs email** from Gmail and Outlook into the file-first archive; metadata is
-  searchable today, while file-backed body/content indexing is tracked in #11
+- **Syncs email** from Gmail and Outlook into the file-first archive, with
+  keyword search over metadata, immutable bodies and current extracted content
 - **Watches folders** (Downloads, Desktop) for new files
 - **Extracts text** from PDFs, Excel, Word, CSV → structured markdown
 - **Comprehends documents** — LLM reads each document and produces structured JSON with document type, key fields, and summary
-- **Indexes document metadata** — FTS5 and vector internals exist; file-backed content
-  indexing and production semantic/hybrid reachability remain tracked in
-  [#11](https://github.com/johnazariah/hermes/issues/11) and
-  [#6](https://github.com/johnazariah/hermes/issues/6)
-- **MCP server** — AI agents query documents, search, and get structured data
+- **Searches through HTTP and MCP** — keyword, semantic and hybrid modes share
+  a typed contract with explicit missing-index/model outcomes and vector coverage
+- **Reads persisted structured data** — document-scoped fields, source
+  provenance and effective corrections are available without regenerating
+  comprehension; unattributed shared-thread enrichment is explicitly unavailable
+- **MCP server** — read-only tools by default, authenticated mutations by explicit
+  opt-in, with loopback Host/origin checks
 - **Preview web UI** — registered React routes for Home, Documents, Search,
   Settings, and onboarding; Pipeline and Chat route wiring remains in
   [#9](https://github.com/johnazariah/hermes/issues/9)
@@ -88,6 +90,31 @@ user metadata, and refuses documents with persisted processing attempts.
 Missing/empty operator configuration never falls back to a default archive.
 Exit codes: `0` success, `1` operational/document failure, `2` invalid arguments.
 This rebuilds derived search content, not a lost SQLite database.
+
+### Local MCP access
+
+The Service exposes streamable HTTP at `/mcp` on port 21741 by default, or the
+explicit `HERMES_PORT`. `hermes_search` defaults to keyword mode and also accepts
+`semantic` and `hybrid`; vector modes require a configured query encoder and
+current indexed vectors. Missing or failed dependencies are reported rather
+than silently substituting keyword results. `hermes_get_comprehension` reads
+already-persisted document fields without invoking a generative model.
+The corresponding HTTP accessor is `GET /api/documents/{id}/comprehension`.
+Its source and canonical-publication digests identify the evidence; separate
+document/publication generations retain original provenance through reembedding.
+
+Mutating tools are hidden and disabled by default. To enable them, explicitly
+set `HERMES_MCP_MUTATIONS=true` and provide `HERMES_MCP_TOKEN` as a 32–4,096
+character non-whitespace secret. Send `Authorization: Bearer <token>` with each
+mutation request. Keep the token out of source, URLs and logs.
+
+Browser origins must be explicit loopback HTTP(S) origins. Production 21741,
+development 21742 and the configured Service port are allowed; additional
+preview origins use the semicolon-separated `HERMES_ALLOWED_ORIGINS` variable.
+Foreign Host/origin requests are rejected. Local reads without an Origin
+remain available, but an absent Origin never authorises a mutation. This is
+MCP capability authentication; broader REST/browser/Tray session integration
+remains separate work.
 
 ## Solution Structure
 

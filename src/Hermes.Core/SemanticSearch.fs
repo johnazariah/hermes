@@ -1,4 +1,4 @@
-namespace Hermes.Core
+﻿namespace Hermes.Core
 
 open System
 open System.Threading.Tasks
@@ -26,24 +26,22 @@ module SemanticSearch =
 
     // ─── Cosine similarity ──────────────────────────────────────────
 
+    type private Moments = { Dot: float; Left: float; Right: float }
+
     /// Compute cosine similarity between two vectors.
     let cosineSimilarity (a: float32[]) (b: float32[]) : float =
-        if a.Length <> b.Length || a.Length = 0 then
-            0.0
+        if a.Length <> b.Length || a.Length = 0 then 0.0
         else
-            let mutable dot = 0.0f
-            let mutable normA = 0.0f
-            let mutable normB = 0.0f
-
-            for i in 0 .. a.Length - 1 do
-                dot <- dot + a.[i] * b.[i]
-                normA <- normA + a.[i] * a.[i]
-                normB <- normB + b.[i] * b.[i]
-
-            let denom = sqrt (float normA) * sqrt (float normB)
-
-            if denom < 1e-10 then 0.0
-            else float dot / denom
+            let moments =
+                Array.zip a b
+                |> Array.fold (fun state (left, right) ->
+                    let x, y = float left, float right
+                    { Dot = state.Dot + x * y
+                      Left = state.Left + x * x
+                      Right = state.Right + y * y })
+                    { Dot = 0.0; Left = 0.0; Right = 0.0 }
+            let denominator = sqrt moments.Left * sqrt moments.Right
+            if denominator < 1e-10 then 0.0 else moments.Dot / denominator
 
     // ─── FTS5 keyword search ────────────────────────────────────────
 
@@ -97,77 +95,67 @@ module SemanticSearch =
 
     // ─── Semantic search (in-memory cosine) ─────────────────────────
 
-    /// Search using embedding similarity. Returns (docId, similarity) pairs.
-    let semanticSearch
-        (db: Algebra.Database)
-        (client: Algebra.EmbeddingClient)
-        (query: string)
-        (limit: int)
-        =
+    type VectorEvidence =
+        { DocumentId: int64
+          ChunkId: int64
+          Vector: float32 array }
+
+    type RankedDocument =
+        { DocumentId: int64
+          ChunkId: int64
+          Score: float }
+
+    type RankedEvidence<'snapshot> =
+        { Snapshot: 'snapshot
+          Hits: RankedDocument list }
+
+    let private rankEvidence queryVector limit (evidence: VectorEvidence list) =
+        evidence
+        |> List.map (fun chunk ->
+            { DocumentId = chunk.DocumentId; ChunkId = chunk.ChunkId
+              Score = cosineSimilarity queryVector chunk.Vector })
+        |> List.groupBy (fun hit -> hit.DocumentId)
+        |> List.map (snd >> List.minBy (fun hit -> -hit.Score, hit.ChunkId))
+        |> List.sortBy (fun hit -> -hit.Score, hit.DocumentId)
+        |> List.truncate (max 0 limit)
+
+    let private rankLoaded load evidenceOf limit queryVector =
+        load ()
+        |> Prelude.TaskResult.map (fun snapshot ->
+            { Snapshot = snapshot
+              Hits = rankEvidence queryVector limit (evidenceOf snapshot) })
+
+    /// Shared low-level semantic engine. Evidence is loaded AFTER encoding, so
+    /// slow query encoding cannot retain chunks invalidated while it was running.
+    let semanticSearchWithEvidence embed load evidenceOf query limit =
+        embed query
+        |> Prelude.TaskResult.bind (rankLoaded load evidenceOf limit)
+
+    let private legacyEvidence (row: Map<string, obj>) : VectorEvidence =
+        let reader = Prelude.RowReader row
+        { DocumentId = reader.Int64 "document_id" 0L
+          ChunkId = reader.Int64 "id" 0L
+          Vector =
+            reader.String "vector_hex" ""
+            |> Convert.FromHexString |> Embeddings.blobToEmbedding }
+
+    let private loadLegacyEvidence (db: Algebra.Database) () =
         task {
-            let! queryEmbedding = client.embed query
+            let! rows =
+                db.execReader
+                    """SELECT id, document_id, hex(embedding) AS vector_hex
+                       FROM document_chunks WHERE embedding IS NOT NULL ORDER BY id""" []
+            return Ok(rows |> List.map legacyEvidence)
+        }
 
-            match queryEmbedding with
-            | Error e -> return Error $"Failed to embed query: {e}"
-            | Ok qEmb ->
-                // Load all chunks that have embeddings
-                let! chunkData =
-                    db.execScalar
-                        """SELECT GROUP_CONCAT(document_id || ':' || id, '|')
-                           FROM document_chunks
-                           WHERE embedding IS NOT NULL"""
-                        []
-
-                match chunkData with
-                | null -> return Ok []
-                | v ->
-                    let s = string v
-
-                    if String.IsNullOrEmpty(s) then
-                        return Ok []
-                    else
-                        let chunkRefs =
-                            s.Split('|')
-                            |> Array.choose (fun pair ->
-                                let parts = pair.Split(':')
-
-                                if parts.Length >= 2 then
-                                    match Int64.TryParse(parts.[0]), Int64.TryParse(parts.[1]) with
-                                    | (true, docId), (true, chunkId) -> Some(docId, chunkId)
-                                    | _ -> None
-                                else
-                                    None)
-
-                        // Score each chunk
-                        let scores = ResizeArray<int64 * float>()
-
-                        for (docId, chunkId) in chunkRefs do
-                            let! embResult =
-                                db.execScalar
-                                    "SELECT embedding FROM document_chunks WHERE id = @id"
-                                    [ ("@id", Database.boxVal chunkId) ]
-
-                            match embResult with
-                            | null -> ()
-                            | v ->
-                                let blob = v :?> byte[]
-                                let embedding = Embeddings.blobToEmbedding blob
-                                let sim = cosineSimilarity qEmb embedding
-                                scores.Add(docId, sim)
-
-                        let scores = scores |> Seq.toList
-
-                        // Deduplicate: keep best score per document
-                        let deduped =
-                            scores
-                            |> List.groupBy fst
-                            |> List.map (fun (docId, hits) ->
-                                let bestScore = hits |> List.map snd |> List.max
-                                (docId, bestScore))
-                            |> List.sortByDescending snd
-                            |> List.truncate limit
-
-                        return Ok deduped
+    /// Compatibility API; production retrieval supplies current, filtered evidence.
+    let semanticSearch db (client: Algebra.EmbeddingClient) query limit =
+        task {
+            let! result =
+                semanticSearchWithEvidence client.embed (loadLegacyEvidence db) id query limit
+            return result
+                   |> Result.map (fun ranked -> ranked.Hits |> List.map (fun hit -> hit.DocumentId, hit.Score))
+                   |> Result.mapError (fun error -> $"Failed to embed query: {error}")
         }
 
     // ─── Reciprocal rank fusion ─────────────────────────────────────

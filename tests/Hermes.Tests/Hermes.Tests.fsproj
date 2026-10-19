@@ -11,6 +11,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="TestHelpers.fs" />
+    <Compile Include="McpTestPolicy.fs" />
     <Compile Include="MemFsTests.fs" />
     <Compile Include="ConfigTests.fs" />
     <Compile Include="ConfigSalvageTests.fs" />
@@ -93,6 +94,22 @@
     <Compile Include="ApiReflowTests.fs" />
     <Compile Include="HttpRegressionFixture.fs" />
     <Compile Include="FileKeywordFixtures.fs" />
+    <Compile Include="RetrievalHttpFixtures.fs" />
+    <Compile Include="RetrievalPhysicalHashTests.fs" />
+    <Compile Include="TypedSearchHttpTests.fs" />
+    <Compile Include="PersistedComprehensionHttpTests.fs" />
+    <Compile Include="LocalMcpBoundaryHttpTests.fs" />
+    <Compile Include="RetrievalPolicyTests.fs" />
+    <Compile Include="RetrievalRaceFixtures.fs" />
+    <Compile Include="QueryEncodingRaceHttpTests.fs" />
+    <Compile Include="PersistedReadRaceFixtures.fs" />
+    <Compile Include="PersistedReadRaceHttpTests.fs" />
+    <Compile Include="ReembedReadFixtures.fs" />
+    <Compile Include="ReembedReadHttpTests.fs" />
+    <Compile Include="ComprehensionProvenanceTests.fs" />
+    <Compile Include="ComprehensionProvenanceSchemaTests.fs" />
+    <Compile Include="KeywordLimitHttpTests.fs" />
+    <Compile Include="UnknownToolHttpTests.fs" />
     <Compile Include="SyntheticKeywordCorpus.fs" />
     <Compile Include="FileKeywordHttpTests.fs" />
     <Compile Include="FileKeywordPaginationTests.fs" />

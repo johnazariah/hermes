@@ -3,6 +3,7 @@
 open System
 open System.Text.Json
 open Microsoft.AspNetCore.Http
+open Microsoft.Extensions.Primitives
 open Hermes.Core
 
 /// Read-only keyword transport adapters; no providers or archive reads.
@@ -15,14 +16,16 @@ module internal KeywordApi =
     let private optional (value: string) =
         if String.IsNullOrWhiteSpace value then None else Some value
 
-    let private limit (value: string) =
-        value
-        |> Int32.TryParse
-        |> function
-            | true, number -> Math.Clamp(number, 1, 100)
-            | _ -> 50
+    let private limit (context: HttpContext) =
+        let values = context.Request.Query["limit"]
+        if not (context.Request.Query.ContainsKey("limit")) then Ok 50
+        elif values.Count <> 1 then Error "limit must occur at most once"
+        else
+            match Int32.TryParse(values.ToString()) with
+            | true, count when count > 0 -> Ok count
+            | _ -> Error "limit must be a positive 32-bit integer"
 
-    let private filter (context: HttpContext) =
+    let private filter (context: HttpContext) count =
         { Search.defaultFilter (context.Request.Query["q"].ToString()) with
             Category = context.Request.Query["category"].ToString() |> optional
             Sender = context.Request.Query["sender"].ToString() |> optional
@@ -30,27 +33,49 @@ module internal KeywordApi =
             DateTo = context.Request.Query["dateTo"].ToString() |> optional
             Account = context.Request.Query["account"].ToString() |> optional
             SourceType = context.Request.Query["sourceType"].ToString() |> optional
-            Limit = context.Request.Query["limit"].ToString() |> limit }
+            Limit = count }
 
-    let private resultDto (hit: Search.SearchResult) =
-        {| id = hit.DocumentId
-           path = hit.SavedPath
-           originalName = hit.OriginalName |> Option.defaultValue ""
-           category = hit.Category
-           sender = hit.Sender |> Option.toObj
-           subject = hit.Subject |> Option.toObj
-           emailDate = hit.EmailDate |> Option.toObj
-           vendor = hit.ExtractedVendor |> Option.toObj
-           amount = hit.ExtractedAmount |> Option.toNullable
-           score = hit.RelevanceScore
-           snippet = hit.Snippet |> Option.toObj
-           resultType = hit.ResultType |}
+    let private requested (context: HttpContext) =
+        let values = context.Request.Query["mode"]
+        let selected =
+            if values.Count > 1 then Error "mode must occur at most once"
+            else SearchContract.parseMode (
+                if context.Request.Query.ContainsKey("mode") then Some(values.ToString()) else None)
+        selected
+        |> Result.bind (fun mode ->
+            limit context |> Result.map (fun count ->
+                let request: SearchContract.Request =
+                    { Mode = mode; Filter = filter context count }
+                request))
+        |> Result.mapError SearchContract.InvalidRequest
 
-    let search db context =
+    let private reject failure =
+        Results.Json(SearchWire.failureDto failure, statusCode = SearchContract.httpStatus failure)
+
+    let private searchHeaders (context: HttpContext) (request: SearchContract.Request) coverage =
+        context.Response.Headers["X-Hermes-Search-Mode"] <-
+            StringValues(SearchContract.modeName request.Mode)
+        let value =
+            coverage |> Option.map (fun (value: SearchContract.Coverage) ->
+                $"{value.IndexedDocuments}/{value.EligibleDocuments}")
+            |> Option.defaultValue "not_applicable"
+        context.Response.Headers["X-Hermes-Vector-Coverage"] <- StringValues(value)
+
+    let private execute db encoder context (request: SearchContract.Request) =
         task {
-            let! hits = Search.executeUnified db (filter context)
-            return hits |> List.map resultDto |> json
+            searchHeaders context request None
+            let! result = SearchQuery.execute db encoder request
+            return result |> Result.map (fun success ->
+                searchHeaders context request success.Coverage
+                success.Results |> List.map SearchWire.resultDto |> json)
+                |> Result.defaultWith reject
         }
+
+    let searchWithEncoder db encoder context =
+        requested context |> Result.map (execute db encoder context)
+        |> Result.defaultWith (reject >> System.Threading.Tasks.Task.FromResult)
+
+    let search db context = searchWithEncoder db None context
 
     let private documentDto (hit: Search.SearchResult) (detail: DocumentBrowser.DocumentDetail) =
         let summary = detail.Summary

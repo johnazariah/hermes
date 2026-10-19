@@ -531,6 +531,13 @@ module Reflow =
             scope.execReader plan.DocumentId plan.Kind mode
             plan.DagSignature [ "pending"; "running" ]
 
+    let private advanceGeneration scope (plan: Plan) opId =
+        task {
+            let! generation = Generation.bump scope plan.DocumentId
+            if plan.Kind = Reembed then
+                do! ComprehensionProvenance.carryForwardIn scope generation opId
+        }
+
     let private acceptNewRequest
         (dag: PipelineV5.Dag)
         (plan: Plan)
@@ -542,7 +549,7 @@ module Reflow =
             let! opId = obtainOperation scope plan mode
             do! upsertStageRows scope dag plan opId
             do! markRunning scope opId
-            let! _ = Generation.bump scope plan.DocumentId
+            do! advanceGeneration scope plan opId
             do! invalidate dag plan scope
             do! recordRunningActivity scope opId plan
             captured.TrySetResult(Accepted opId) |> ignore

@@ -70,6 +70,33 @@ module internal KeywordSql =
         """d.id, d.saved_path, d.original_name, d.category, d.sender, d.subject,
            d.email_date, d.extracted_vendor, d.extracted_amount, d.source_type"""
 
+    /// Chunks are not query evidence until both output and completion exist.
+    let currentVector =
+        """EXISTS(SELECT 1 FROM embedding e WHERE e.document_id = d.id)
+           AND EXISTS(SELECT 1 FROM extraction e WHERE e.document_id = d.id)
+           AND EXISTS(SELECT 1 FROM stage_completions s
+                      WHERE s.document_id = d.id AND s.stage_name = 'embed')
+           AND EXISTS(SELECT 1 FROM stage_completions s
+                      WHERE s.document_id = d.id AND s.stage_name = 'extract')"""
+
+    /// Includes unembedded eligible identities so partial coverage is observable.
+    let vectorRows filter : Query =
+        let filters = documentPredicates filter
+        let where =
+            filters |> List.map (fun predicate -> predicate.Sql)
+            |> function [] -> "1" | values -> String.concat " AND " values
+        { Sql =
+            $"""SELECT {documentProjection}, 0.0 AS rank,
+                       c.id AS chunk_id, hex(c.embedding) AS vector_hex,
+                       substr(c.chunk_text, 1, 240) AS snippet
+                FROM documents d
+                LEFT JOIN document_chunks c
+                  ON c.document_id = d.id AND c.embedding IS NOT NULL
+                 AND {currentVector}
+                WHERE {where}
+                ORDER BY d.id, c.id"""
+          Parameters = filters |> List.map (fun predicate -> predicate.Parameter) }
+
     let metadata filter =
         assemble
             (documentProjection

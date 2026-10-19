@@ -10,6 +10,8 @@ open System.Threading.Tasks
 open Xunit
 open Hermes.Core
 
+module McpServer = Hermes.Tests.McpTestPolicy.Server
+
 // ─── Test helpers ────────────────────────────────────────────────────
 
 let insertTestDocument (db: Algebra.Database) (category: string) (name: string) : Task<unit> =
@@ -549,7 +551,7 @@ let ``McpServer_Dispatch_ToolsList_ReturnsAllTools`` () =
             let doc = JsonDocument.Parse(response)
             let result = doc.RootElement.GetProperty("result")
             let tools = result.GetProperty("tools")
-            Assert.Equal(20, tools.GetArrayLength())
+            Assert.Equal(21, tools.GetArrayLength())
 
             let toolNames =
                 [ for i in 0 .. tools.GetArrayLength() - 1 ->

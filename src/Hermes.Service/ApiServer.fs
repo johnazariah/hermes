@@ -141,7 +141,8 @@ module ApiServer =
         }
 
     /// Map all API routes onto the endpoint builder.
-    let mapRoutesWithReflowDb
+    let mapRoutesWithSearch
+        (queryEncoder: Algebra.EmbeddingClient option)
         (app: IEndpointRouteBuilder)
         (db: Algebra.Database)
         (reflowDb: Algebra.Database)
@@ -168,7 +169,11 @@ module ApiServer =
 
         // ── Documents ───────────────────────────────────────────────
         app.MapGet("/api/search", Func<HttpContext, Task<IResult>>(fun ctx ->
-            KeywordApi.search db ctx)) |> ignore
+            KeywordApi.searchWithEncoder db queryEncoder ctx)) |> ignore
+
+        app.MapGet("/api/documents/{id:long}/comprehension",
+            Func<int64, Task<IResult>>(fun id ->
+                PersistedApi.get db fs archiveDir id)) |> ignore
 
         app.MapGet("/api/documents", Func<HttpContext, Task<IResult>>(fun ctx ->
             task {
@@ -751,6 +756,10 @@ module ApiServer =
                 | Error e -> return json {| error = e |}
             })) |> ignore
 
+    let mapRoutesWithReflowDb app db reflowDb fs logger clock dag chatProvider archiveDir configDir =
+        mapRoutesWithSearch None
+            app db reflowDb fs logger clock dag chatProvider archiveDir configDir
+
     /// Backward-compatible route mapping for tests and single-connection hosts.
     let mapRoutes
         (app: IEndpointRouteBuilder)
@@ -765,15 +774,26 @@ module ApiServer =
         mapRoutesWithReflowDb
             app db db fs logger clock dag chatProvider archiveDir configDir
 
-    /// Shared by the service composition root and HTTP integration fixtures.
-    let mapMcpRoute
+    let private authorization (context: HttpContext) =
+        let values = context.Request.Headers["Authorization"]
+        if values.Count = 1 then Some(values.ToString()) else None
+
+    /// Shared by production and actual HTTP regression fixtures.
+    let mapMcpRouteWithPolicy queryEncoder policy
         (app: IEndpointRouteBuilder) db reflowDb fs logger clock dag archiveDir deepDeps =
         app.MapPost("/mcp", Func<HttpContext, Task<IResult>>(fun ctx ->
             task {
                 use reader = new StreamReader(ctx.Request.Body)
                 let! body = reader.ReadToEndAsync()
+                let capabilities: McpServer.Capabilities =
+                    { Access = McpAccess.authenticate policy (authorization ctx)
+                      QueryEncoder = queryEncoder }
                 let! response =
-                    McpServer.processMessageWithReflowDb
+                    McpServer.processMessageWithCapabilitiesAndReflowDb capabilities
                         db reflowDb fs logger clock dag archiveDir deepDeps body
                 return Results.Text(response, "application/json")
             })) |> ignore
+
+    let mapMcpRoute app db reflowDb fs logger clock dag archiveDir deepDeps =
+        mapMcpRouteWithPolicy None McpAccess.readOnly
+            app db reflowDb fs logger clock dag archiveDir deepDeps

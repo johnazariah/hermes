@@ -86,7 +86,7 @@ let private rejectPausedCall server barrier operation documentId =
 [<Trait("Category", "Integration")>]
 let ``HTTP MCP marks superseded deep extraction as a tool error without changing bytes`` operation =
     let barrier = pause ()
-    withServer (Some(dependencies (gatedProvider barrier))) (fun server ->
+    withAuthenticatedServer (Some(dependencies (gatedProvider barrier))) (fun server ->
         task {
             let! documentId = seedCurrent server
             do! rejectPausedCall server barrier operation documentId
@@ -109,7 +109,7 @@ let private assertSuccessfulDeepResult server documentId =
 [<Fact>]
 [<Trait("Category", "Integration")>]
 let ``HTTP MCP configured fake deep provider retains the successful payload contract`` () =
-    withServer (Some(dependencies (TestHelpers.fakeChatProvider providerResponse))) (fun server ->
+    withAuthenticatedServer (Some(dependencies (TestHelpers.fakeChatProvider providerResponse))) (fun server ->
         task {
             let! documentId = seedCurrent server
             do! assertSuccessfulDeepResult server documentId

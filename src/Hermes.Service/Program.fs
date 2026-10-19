@@ -14,6 +14,9 @@ open Hermes.Core
 open Serilog.Events
 
 let private runService args =
+    let servicePolicy =
+        ServicePolicy.load System.Environment.GetEnvironmentVariable
+        |> Result.defaultWith invalidOp
     let fs = Interpreters.realFileSystem
     let env = Interpreters.systemEnvironment
     let clock = Interpreters.systemClock
@@ -284,17 +287,13 @@ let private runService args =
 
     // Build HTTP API
     let builder = WebApplication.CreateBuilder()
-    builder.Services.AddCors() |> ignore
 
     // Blazor Server services
     builder.Services.AddRazorComponents()
         .AddInteractiveServerComponents() |> ignore
     builder.Services.AddScoped<Hermes.UI.Services.IHermesClient>(fun sp ->
         let http = new System.Net.Http.HttpClient()
-        let blazorPort =
-            match System.Environment.GetEnvironmentVariable("HERMES_PORT") with
-            | null | "" -> "21741"
-            | p -> p
+        let blazorPort = servicePolicy.Port
         http.BaseAddress <- System.Uri($"http://localhost:{blazorPort}")
         Hermes.UI.Services.HttpHermesClient(http) :> Hermes.UI.Services.IHermesClient) |> ignore
 
@@ -304,14 +303,13 @@ let private runService args =
     elif Directory.Exists(wwwrootPath) then builder.Environment.WebRootPath <- wwwrootPath
     let app = builder.Build()
 
-    app.UseCors(fun policy ->
-        policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader() |> ignore) |> ignore
+    LocalBoundary.attach app servicePolicy.ExtraOrigins
     app.UseDefaultFiles() |> ignore
     app.UseStaticFiles() |> ignore
     app.UseAntiforgery() |> ignore
 
     // Map API routes
-    ApiServer.mapRoutesWithReflowDb
+    ApiServer.mapRoutesWithSearch embedder
         app db reflowDb fs logger clock dag chatProvider archiveDir configDir
 
     // Health endpoint for tray app / orchestrator polling
@@ -326,17 +324,14 @@ let private runService args =
         })) |> ignore
 
     // MCP endpoint — Streamable HTTP (JSON-RPC over POST)
-    ApiServer.mapMcpRoute
+    ApiServer.mapMcpRouteWithPolicy embedder servicePolicy.Mcp
         app db reflowDb fs logger clock dag archiveDir deepDeps
 
     // Blazor Server — serves the UI at /
     app.MapRazorComponents<Hermes.UI.App>()
         .AddInteractiveServerRenderMode() |> ignore
 
-    let port =
-        match System.Environment.GetEnvironmentVariable("HERMES_PORT") with
-        | null | "" -> "21741"
-        | p -> p
+    let port = servicePolicy.Port
     logger.info $"Hermes service starting on http://localhost:{port}"
     app.Run($"http://localhost:{port}")
     cts.Cancel()
