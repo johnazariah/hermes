@@ -73,11 +73,12 @@ jobs:
           if ($line -lt 75) { Write-Host "::error::Line coverage $line% is below 75% threshold"; exit 1 }
 
       - name: Upload coverage
-        if: matrix.os == 'windows-latest'
+        if: always() && matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
           path: tests/Hermes.Tests/TestResults/**/coverage.cobertura.xml
+          retention-days: 7
 
   # ── Windows Tray app ─────────────────────────────────────────────
   build-tray:
@@ -180,4 +181,4 @@ jobs:
         with:
           name: ${{ matrix.artifact }}
           path: publish/
-          retention-days: 14
+          retention-days: 3
