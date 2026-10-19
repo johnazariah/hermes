@@ -7,6 +7,25 @@ open Hermes.Core
 open Hermes.Tests.EmailChannelFixtures
 open Hermes.Tests.EmailChannelTestSupport
 
+let private forbidReplayFetch (provider: Algebra.EmailProvider) : Algebra.EmailProvider =
+    { provider with
+        getFullMessage = fun _ ->
+            Task.FromException<Domain.EmailMessage>(
+                InvalidOperationException("Acknowledged message was fetched again"))
+        getAttachments = fun _ ->
+            Task.FromException<Domain.EmailAttachment list>(
+                InvalidOperationException("Acknowledged attachments were fetched again")) }
+
+let private assertMessageAttachment (fixture: Fixture)
+    (files: Map<string, Domain.EmailAttachment list>) (document: Document.T) : Task<unit> =
+    task {
+        do! assertRegistered fixture document
+        let expected = files[required "gmail_id" document] |> List.exactlyOne
+        let! actual =
+            fixture.Files.Fs.readAllBytes (fullPath fixture (required "saved_path" document))
+        Assert.Equal<byte>(expected.Content, actual)
+    }
+
 [<Fact>]
 [<Trait("Category", "Integration")>]
 let ``Paged channel ingestion registers body and attachment with immutable source claims`` () =
@@ -36,7 +55,7 @@ let ``Re-enumerating an acknowledged message leaves registered sources unchanged
             let! first = run fixture feed 1
             assertSuccess 1 2 first
             let before = snapshot fixture
-            let! second = run fixture feed 1
+            let! second = run fixture (forbidReplayFetch feed) 1
             assertSuccess 0 0 second
             Assert.Equal(1, second.Summary.DuplicatesSkipped)
             Assert.Equal<Map<string, string>>(before, snapshot fixture)
@@ -77,5 +96,5 @@ let ``Overlapping channel consumers emit the correct independently owned rows`` 
             assertSuccess 2 2 result
             let actual = result.Documents |> List.map (required "gmail_id") |> Set.ofList
             Assert.Equal<Set<string>>(set [ first.ProviderId; second.ProviderId ], actual)
-            for document in result.Documents do do! assertRegistered fixture document
+            for document in result.Documents do do! assertMessageAttachment fixture files document
         })

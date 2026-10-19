@@ -42,8 +42,8 @@ follow-on work.
 | 0 | Reconcile stale phase issues with proof | Kobayashi / Hockney | ✅ Done | Closed #1-#5, #7, #10, #12; rewrote #6, #8, #9, #11; created #16, #17 |
 | 0 | Capture redacted current-main baseline | Hockney / Fenster / McManus / Verbal / Rai | ✅ Done | Evidence below; personal archive not accessed |
 | 0 | Reconcile testing register and support matrix | Hockney / Keaton | ✅ Done | Baseline below and testing register |
-| 1A | Stabilize V5 reflow and reclassification | McManus / Hockney | ⬜ Blocked | #17; requires PR #15 review/merge |
-| 1B | Restore file-first FTS, semantic/hybrid, and Osprey reachability | McManus / Hockney | ⬜ Blocked | #11 and #6; depends on Phase 1A contracts |
+| 1A | Stabilize V5 reflow and reclassification | McManus / Hockney | ✅ Done | #17 closed after merged #19/#20 and independent acceptance mapping |
+| 1B | Restore file-first FTS, semantic/hybrid, and Osprey reachability | McManus / Hockney | ⏳ Active | #11 implementation in progress after #17 closure; #6 follows the indexed-content contract |
 | 1C | Enforce local HTTP/MCP trust boundary | McManus / Keaton / Rai | ⬜ Blocked | #6; depends on final MCP contract |
 | 1D | Stabilize canonical React/Tray assets and SSE | Verbal / Fenster / Hockney | ⬜ Blocked | #9 and #8; depends on trust-boundary browser policy |
 | 1E | Reach 85% line / 60% branch coverage and close wave | Hockney / Fenster | ⬜ Blocked | #18; depends on Phase 1A-1D |
@@ -97,6 +97,38 @@ or live document was opened. Results record behavior and counts, not content.
 8. PR #15 is reviewed and merged before Phase 1A implementation starts.
 
 ## Log
+
+### 2026-10-19 - Test-only coverage consolidation approved for publication
+
+- **Changed:** Independent F# re-review approves the combined #21-#23 salvage, including the separate author's bounded producer-progress correction. Keep one coherent test-only integration, preserve all three historical draft heads as ancestry, and conclude duplicates after the accepted result is merged.
+- **Evidence:** Production source is unchanged; all nine touched test modules satisfy UTF-8 BOM/LF. Old provider intentions are represented by current contracts plus missing-case assertions, with no reinstatement of obsolete provider/ingestion code. Sixteen provider, eight Config, four watcher and one controlled cleanup case add 29 cases.
+- **Validation:** Final Release build has 0 warnings/errors; full execution is 1,144 total, 1,134 passed, 10 existing skips, 0 failed. Exact root line coverage is 9,154/11,604 = 78.8866%, with Core/Service/UI scope unchanged and all original gates retained.
+- **Blockers:** Exact published-head Windows/macOS CI remains required before merge; the stronger #18 wave-close gate and functional search/read-only Osprey work remain open.
+- **Next:** Push the reviewed tree normally to existing PR #21 with retained ancestry, mark it ready, verify current-head CI and merge; then conclude the incorporated #22/#23 drafts and prune integration artifacts.
+
+### 2026-10-19 - Coverage progress guard corrected and complete recovery passes
+
+- **Changed:** Independent review found the recovered enumeration failure tests could hang if historical swallow-and-retry behaviour returned. Locked out that author and applied a different author's test-only revision: deadline the producer operation before inspecting its expected exception, cancel/observe owned work and bound cleanup explicitly.
+- **Evidence:** The new controlled zero-deadline case proves cancellation joins the fixture-owned producer; exact failure type/message, one request, unchanged progress and normal input completion checks remain. The other recovered provider, Config and FolderWatcher contracts were accepted in substance.
+- **Validation:** Release build has 0 warnings/errors; all four bounded enumeration cases pass. Final full execution is 1,144 total, 1,134 passed, 10 existing skips and 0 failed. Exact root line coverage is 9,154/11,604 = 78.8866%; conservative final branches are 7,907/18,295. Production source, assembly scope, skips and gates are unchanged.
+- **Blockers:** Final independent re-review and exact published-head CI remain before the coverage consolidation can merge. File-first search/CLI source is separately authored and not yet applied.
+- **Next:** Publish the reviewed test-only recovery with all original draft histories retained, conclude duplicate drafts after accepted integration, and continue the financial-document content-search slice.
+
+### 2026-10-19 - Main publication verified; useful coverage drafts consolidated
+
+- **Changed:** Main `55ec588` passed all seven build/test/publish jobs. Pruned its and PR #20's four retained artifacts (186,158,382 bytes); zero artifacts remain and the two warm `main` dependency caches remain at 114,212,113 bytes. No paid capacity or cache expansion was enabled.
+- **Evidence:** Old #21's 32 intended contracts are mapped to current coverage and genuinely missing assertions; obsolete ingestion/provider production patches are not restored. Consolidate the useful test-only recovery into existing PR #21, retaining the old #21-#23 histories and explicitly concluding duplicate drafts after integration, rather than repeating three full artifact-producing CI cycles.
+- **Validation:** Sixteen provider, eight Config and four FolderWatcher cases add 28 cases. The combined Release build has 0 warnings/errors; all 1,143 cases execute with 1,133 passed, 10 existing skips and 0 failed. Combined root coverage is 9,154/11,604 = 78.8866% line and 7,918/18,295 branch, with Core/Service/UI scope unchanged. The provider-only run's one-line variance is not presented as a line-rate gain.
+- **Blockers:** Independent review and published-head CI for the coverage consolidation are pending. File-first content-search implementation is separately authored and not yet applied; historical-index rebuild needs the chosen bounded, local, explicit dry-run/apply CLI wire before acceptance.
+- **Next:** Complete independent review, publish the test-only consolidation, verify its exact head and conclude #21-#23; then apply and prove the source-grounded financial-document search/CLI slice without introducing an unauthenticated mutation endpoint.
+
+### 2026-10-19 - Reflow merged and Phase 1A acceptance concluded
+
+- **Changed:** PR #20 merged into `main` as `55ec588`, completing the reviewed reflow/reclassification scope with PR #19. Closed #17 as completed after independently mapping all five acceptance criteria to registered synthetic tests. Updated the obsolete move wording to the approved metadata-only contract; #24 retains separate legacy repair.
+- **Evidence:** Published head `b65f4b3` passed all five build/test jobs, including Windows/macOS and both MAUI shells. The main merge tree equals the reviewed published tree. Both original histories and eleven historical reflow journal entries are retained without rewriting published commits.
+- **Validation:** Windows and macOS each executed 1,115 cases: 1,105 passed, 10 existing skips, 0 failed. Downloaded Windows root coverage passes the exact unchanged line gate at 9,122/11,604 = 78.6108%, including Core, Service and UI. Dry-run acceptance is the shipped single-document, explicitly bounded synthetic HTTP/MCP contract, not a claim of bulk or personal-corpus replay.
+- **Blockers:** Post-merge main publication/storage verification is still running. The broader #18 wave gate, coverage salvage and file-first search/read-only Osprey work remain unfinished; Phase 1A completion does not close the wave.
+- **Next:** Verify main publication and prune unneeded artifacts, salvage genuinely additional tests from #21-#23, and implement the source-grounded financial-document search slice in #11. Separate F# authors are preparing coverage-only and search patches without changing the verified published source.
 
 ### 2026-10-19 - Reflow publication resumed through the remaining integration gates
 
