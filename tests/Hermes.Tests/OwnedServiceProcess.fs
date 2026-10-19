@@ -139,33 +139,42 @@ let startWithFileInput paths inputFile owned =
     |> List.iter info.ArgumentList.Add
     launch paths info
 
-let private checkHealth (child: Child) (token: CancellationToken) =
+let private assertHealth processId (health: JsonElement) =
+    Assert.Equal("healthy", health.GetProperty("status").GetString())
+    Assert.Equal("hermes", health.GetProperty("service").GetString())
+    Assert.Equal(processId, health.GetProperty("processId").GetInt32())
+
+let internal checkHealth (client: HttpClient) processId (token: CancellationToken) =
     task {
         try
-            use! response = child.Client.GetAsync("/health", token)
+            use! response = client.GetAsync("/health", token)
             if int response.StatusCode <> 200 then return false
             else
                 let! text = response.Content.ReadAsStringAsync(token)
                 use document = JsonDocument.Parse(text)
-                let health = document.RootElement
-                Assert.Equal("healthy", health.GetProperty("status").GetString())
-                Assert.Equal("hermes", health.GetProperty("service").GetString())
-                Assert.Equal(child.Process.Id, health.GetProperty("processId").GetInt32())
+                assertHealth processId document.RootElement
                 return true
-        with :? HttpRequestException -> return false
+        with
+        | :? HttpRequestException when not token.IsCancellationRequested -> return false
+        | :? TaskCanceledException when not token.IsCancellationRequested -> return false
     }
 
-let healthy child =
+let rec internal waitForHealth client processId hasExited (token: CancellationToken) =
+    task {
+        token.ThrowIfCancellationRequested()
+        if hasExited () then
+            invalidOp "Owned service exited before its identity health check"
+        let! ready = checkHealth client processId token
+        token.ThrowIfCancellationRequested()
+        if not ready then
+            do! Task.Delay(25, token)
+            return! waitForHealth client processId hasExited token
+    }
+
+let healthy (child: Child) =
     task {
         use deadline = new CancellationTokenSource(TimeSpan.FromSeconds 20.0)
-        let mutable ready = false
-        while not ready do
-            deadline.Token.ThrowIfCancellationRequested()
-            if child.Process.HasExited then
-                invalidOp "Owned service exited before its identity health check"
-            let! found = checkHealth child deadline.Token
-            ready <- found
-            if not ready then do! Task.Delay(25, deadline.Token)
+        return! waitForHealth child.Client child.Process.Id (fun () -> child.Process.HasExited) deadline.Token
     }
 
 let exited child =

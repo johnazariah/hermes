@@ -36,52 +36,116 @@ internal sealed class JsonServiceLog : IServiceLog
     }
 }
 
-internal sealed class HttpHealthProbe : IHealthProbe, IDisposable
+internal sealed class HttpHealthProbe : IHealthProbe, IHealthDiagnostics, IDisposable
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private readonly HttpClient _http;
+    private readonly HealthProbePolicy _policy;
+    private HealthProbeDiagnostic? _first;
+    private HealthProbeDiagnostic? _last;
 
-    public HttpHealthProbe(HttpClient? http = null)
+    public HttpHealthProbe(HttpClient? http = null, HealthProbePolicy? policy = null)
     {
+        _policy = policy ?? HealthProbePolicy.Default;
+        _policy.Validate();
         _http = http ?? new HttpClient(new SocketsHttpHandler
         {
-            AllowAutoRedirect = false, UseProxy = false, ConnectTimeout = TimeSpan.FromSeconds(2)
+            AllowAutoRedirect = false, UseProxy = false, ConnectTimeout = _policy.ConnectTimeout
         });
         _http.Timeout = Timeout.InfiniteTimeSpan;
         _http.MaxResponseContentBufferSize = 4096;
     }
 
+    public HealthProbeDiagnostic? FirstDiagnostic => Volatile.Read(ref _first);
+    public HealthProbeDiagnostic? LastDiagnostic => Volatile.Read(ref _last);
+
     public async Task<HealthObservation> ProbeAsync(Uri origin, CancellationToken cancellationToken)
     {
+        var started = Stopwatch.GetTimestamp();
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(2));
-        try { return await ReadAsync(origin, timeout.Token); }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        timeout.CancelAfter(_policy.RequestTimeout);
+        try
         {
-            return new(true, false, null);
+            var read = await ReadClassifiedAsync(timeout.Token, cancellationToken, origin);
+            cancellationToken.ThrowIfCancellationRequested();
+            return Publish(origin.Port, started, read);
         }
-        catch (HttpRequestException error)
+        catch (OperationCanceledException error) when (cancellationToken.IsCancellationRequested)
         {
-            var refused = error.InnerException is SocketException { SocketErrorCode: SocketError.ConnectionRefused };
-            return new(!refused, false, null);
+            Publish(origin.Port, started, new(new(true, false, null),
+                HealthProbeOutcome.Cancelled, Failure: SafeFailure.Describe(error)));
+            throw;
         }
-        catch (JsonException) { return new(true, false, null); }
     }
 
-    private async Task<HealthObservation> ReadAsync(Uri origin, CancellationToken cancellationToken)
+    private async Task<HealthRead> ReadClassifiedAsync(
+        CancellationToken timeoutToken, CancellationToken callerToken, Uri origin)
+    {
+        try { return await ReadAsync(origin, timeoutToken); }
+        catch (OperationCanceledException error) when (!callerToken.IsCancellationRequested)
+        {
+            return new(new(true, false, null), HealthProbeOutcome.Timeout,
+                Failure: SafeFailure.Describe(error));
+        }
+        catch (HttpRequestException error) { return ClassifyTransportFailure(error); }
+        catch (JsonException error)
+        {
+            return new(new(true, false, null), HealthProbeOutcome.InvalidJson,
+                StatusCode: 200, Failure: SafeFailure.Describe(error));
+        }
+    }
+
+    private static HealthRead ClassifyTransportFailure(HttpRequestException error)
+    {
+        var socketError = FindSocketError(error);
+        var refused = error.HttpRequestError == HttpRequestError.ConnectionError &&
+            socketError == SocketError.ConnectionRefused;
+        return new(new(!refused, false, null),
+            refused ? HealthProbeOutcome.ConnectionRefused : HealthProbeOutcome.TransportFailure,
+            SocketError: socketError, HttpError: error.HttpRequestError,
+            Failure: SafeFailure.Describe(error));
+    }
+
+    private static SocketError? FindSocketError(Exception? error) => error switch
+    {
+        SocketException socket => socket.SocketErrorCode,
+        { InnerException: { } inner } => FindSocketError(inner),
+        _ => null
+    };
+
+    private HealthObservation Publish(int port, long started, HealthRead read)
+    {
+        var diagnostic = new HealthProbeDiagnostic(port, read.Outcome, read.Observation,
+            Stopwatch.GetElapsedTime(started).Ticks / TimeSpan.TicksPerMillisecond,
+            _policy.ConnectTimeout.Ticks / TimeSpan.TicksPerMillisecond,
+            _policy.RequestTimeout.Ticks / TimeSpan.TicksPerMillisecond,
+            read.SocketError, read.HttpError, read.StatusCode, read.Failure);
+        Interlocked.CompareExchange(ref _first, diagnostic, null);
+        Volatile.Write(ref _last, diagnostic);
+        return read.Observation;
+    }
+
+    private async Task<HealthRead> ReadAsync(Uri origin, CancellationToken cancellationToken)
     {
         using var response = await _http.GetAsync(new Uri(origin, "health"), cancellationToken);
         if (response.StatusCode != HttpStatusCode.OK)
-            return new(true, false, null);
+            return new(new(true, false, null), HealthProbeOutcome.HttpStatus,
+                StatusCode: (int)response.StatusCode);
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
         var body = JsonSerializer.Deserialize<HealthPayload>(content, Json);
-        return new(true,
-            body is { Status: "healthy", Service: "hermes", ProcessId: > 0 },
+        var healthy = body is { Status: "healthy", Service: "hermes", ProcessId: > 0 };
+        var observation = new HealthObservation(true, healthy,
             body is { ProcessId: > 0 } ? body.ProcessId : null);
+        return new(observation,
+            healthy ? HealthProbeOutcome.Healthy : HealthProbeOutcome.InvalidIdentity, StatusCode: 200);
     }
 
     public void Dispose() => _http.Dispose();
     private sealed record HealthPayload(string Status, string Service, int ProcessId);
+    private sealed record HealthRead(
+        HealthObservation Observation, HealthProbeOutcome Outcome,
+        SocketError? SocketError = null, HttpRequestError? HttpError = null,
+        int? StatusCode = null, string? Failure = null);
 }
 
 internal sealed class NativeProcessLauncher(IServiceLog log) : IProcessLauncher

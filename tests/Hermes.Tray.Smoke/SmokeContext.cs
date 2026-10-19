@@ -9,6 +9,8 @@ internal sealed record SmokeReport(
     bool Cleaned = false, string? RetainedSyntheticDirectory = null)
 {
     public SupervisionResult? Supervision { get; init; }
+    public HealthProbeDiagnostic? FirstHealthProbe { get; init; }
+    public HealthProbeDiagnostic? LastHealthProbe { get; init; }
     public ImmutableArray<OwnershipProof> OwnershipChecks { get; init; } = [];
     public static SmokeReport Empty { get; } = new(false, "Native smoke did not complete.", null, null, null, [], []);
 }
@@ -95,7 +97,8 @@ internal sealed class SmokeContext : ApplicationContext, IServiceObserver, IBrow
         {
             Passed = verdict.Passed, Failure = Report.Failure ?? verdict.Failure,
             ProcessId = verdict.Identity?.ProcessId, Stop = verdict.Stop?.Outcome,
-            Supervision = final, OwnershipChecks = verdict.Checks
+            Supervision = final, OwnershipChecks = verdict.Checks,
+            FirstHealthProbe = _health.FirstDiagnostic, LastHealthProbe = _health.LastDiagnostic
         };
         ReleaseNativeResources();
     }

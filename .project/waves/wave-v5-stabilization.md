@@ -98,6 +98,21 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-20 - Bounded Windows transport corrections approved for replacement CI
+
+- **Changed:** A fresh F# fixture revision distinguishes individual probe timeouts from its unchanged 20-second startup deadline; cancellation and PID/status failures still propagate. The eligible native revision author adds bounded five/eight-second connection/request policy, explicit connection-refusal-only free classification, and safe first/last transport diagnostics. Uncertain endpoints and real listeners remain occupied.
+- **Evidence:** Independent F# and C# reviewers approve their narrow deltas. The native tests add real exclusive non-listening socket, active/silent listener, wrong identity and cancellation controls; neither source review nor budget adjustment is claimed to establish the first Windows failure's root cause.
+- **Validation:** Eight focused readiness/process cases pass locally, as does the full 1,571-case Mac suite: 1,564 passed, seven retained skips, zero failures. Exact root coverage is 10,623/13,116 lines and 10,018/20,728 branches, preserving scope and non-regression. Native projects cross-build cleanly; actual replacement Windows unit/desktop/runtime proof remains pending.
+- **Blockers:** Draft #27 is not merged. The original 84 Windows native passes do not prove the revised transport or desktop thread; the failed gate remains red until the corrective head passes.
+- **Next:** Publish the approved bounded delta, collect actual current-head Windows/Mac evidence and integrate only on passing ownership, UI and lifecycle checks.
+
+### 2026-10-20 - Published canonical slice passes Mac; Windows runtime findings remain gated
+
+- **Changed:** The independently approved canonical UI/lifecycle tree was pushed normally at `83f627874` and opened in draft #27, targeting main with only #8/#9 closing references. Main remains `5aa929be`; no failed head is integrated.
+- **Evidence:** Actual Mac CI passes the full 1,568-case .NET suite and all 45 browser cases. Windows executes the truthful 1,564-case selection: 1,555 pass, seven retained skips and two readiness-helper failures. The separate actual Windows native suite passes all 84 cases with no skips; both compatibility shell builds also pass.
+- **Blockers:** Two owned-process tests abort when the two-second HTTP probe times out before their overall startup deadline. Native desktop smoke reports `ForeignListener` before child launch, so WebView/root/native shutdown proof is not established. This is not treated as flaky or bypassed. A fresh F# fixture author owns bounded readiness semantics; the eligible native revision author owns safe preflight diagnosis without assuming an uncertain port is free.
+- **Next:** Resolve the Windows findings with meaningful regression controls, publish the reviewed delta and rerun actual replacement-head gates before merge and artifact pruning.
+
 ### 2026-10-20 - Canonical React and owned lifecycle source approved for publication
 
 - **Changed:** Fresh independent revisions close browser source-identity collisions, failed-journey state and palette sync feedback; strict module preflight and pipe-only admission; native terminal ownership proof and guarded external-link callbacks. A separate inventory author marks the four Unix-only cases and excludes them from Windows selection without adding skips or weakening gates.

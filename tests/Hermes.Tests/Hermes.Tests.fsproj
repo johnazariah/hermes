@@ -150,6 +150,7 @@
     <Compile Include="ServiceControlTests.fs" />
     <Compile Include="ServiceSyncHttpTests.fs" />
     <Compile Include="OwnedServiceProcess.fs" />
+    <Compile Include="OwnedServiceHealthTests.fs" />
     <Compile Include="OwnedServiceProcessTests.fs" />
     <Compile Include="OwnedPipeAdmissionTests.fs" />
     <Compile Include="Program.fs" />

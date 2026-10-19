@@ -1,6 +1,7 @@
 ﻿using System.Collections.Immutable;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Text.Json;
 
 namespace Hermes.Tray;
 
@@ -11,7 +12,7 @@ internal enum EventCode
     Configuration, Starting, Healthy, Retrying, Cancelled, ForeignListener,
     IdentityMismatch, StartupTimeout, HealthLost, ChildExited, LaunchFailed,
     RetryExhausted, ShutdownRequested, ShutdownTimedOut, StopFailed, Stopped,
-    OutputDrained, PipeFailed, UnexpectedFailure, WindowFailed, BrowserFailed
+    OutputDrained, PipeFailed, UnexpectedFailure, WindowFailed, BrowserFailed, HealthProbe
 }
 
 internal sealed record ServiceSnapshot(
@@ -249,8 +250,18 @@ internal sealed class OwnedService(
     private async Task<HealthObservation> ProbeSerializedAsync(CancellationToken cancellationToken)
     {
         await _healthGate.WaitAsync(cancellationToken);
-        try { return await health.ProbeAsync(options.BaseAddress, cancellationToken); }
+        try { return await ProbeAndLogAsync(cancellationToken); }
         finally { _healthGate.Release(); }
+    }
+
+    private async Task<HealthObservation> ProbeAndLogAsync(CancellationToken cancellationToken)
+    {
+        try { return await health.ProbeAsync(options.BaseAddress, cancellationToken); }
+        finally
+        {
+            if (health is IHealthDiagnostics { LastDiagnostic: { } diagnostic })
+                log.Write(new(EventCode.HealthProbe, Detail: JsonSerializer.Serialize(diagnostic)));
+        }
     }
 
     public async Task<OwnedIdentity> VerifyOwnershipAsync(
@@ -261,7 +272,7 @@ internal sealed class OwnedService(
         {
             var process = RequireOwned(expected);
             EnsureAlive(process);
-            var observation = await health.ProbeAsync(options.BaseAddress, cancellationToken);
+            var observation = await ProbeAndLogAsync(cancellationToken);
             EnsureIdentity(process, observation);
             EnsureAlive(process);
             if (!observation.Healthy || observation.ProcessId != expected.ProcessId)

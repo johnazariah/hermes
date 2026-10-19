@@ -37,6 +37,13 @@ Windows/native and Mac gates remain required.
 | Final post-normalisation root | 10,624/13,116 lines; 9,967/20,728 branches; Core/Service/UI retained |
 | Explicit platform discovery | All 1,568; Unix-only 4; Windows selection 1,564 |
 | Final frontend gates | Clean npm install, 21 unit cases, lint, build, identical repeated bundle and all 45 browser cases passed |
+| First published-head Mac CI | Passed full 1,568-case suite and all 45 browser cases |
+| First published-head Windows selection | 1,564 total; 1,555 passed, two readiness-probe failures, seven retained skips |
+| First actual Windows native suite | 84 passed; zero failed/skipped |
+| First native desktop smoke | Failed before child launch with `ForeignListener`; no WebView/runtime proof claimed |
+| Approved readiness correction | Eight focused cases passed; full Mac 1,571 total, 1,564 passed, seven retained skips, zero failed |
+| Readiness correction exact root | 10,623/13,116 lines; 10,018/20,728 branches; non-regressing Core/Service/UI scope |
+| Approved native transport correction | Cross-build clean; five-second connect/eight-second request budgets, explicit refusal-only free classification and safe probe diagnostics |
 
 The first browser run exposed decorative icons in accessible navigation names,
 a missing synthetic extraction artifact and an incorrect fake Ollama endpoint.
@@ -87,6 +94,13 @@ Playwright output is confined to `test-results/canonical`; the runner-deleted
 tracked legacy screenshots were restored without viewing them, and the final
 45-case run leaves their bytes unchanged. They are not browser artefacts for
 upload.
+
+The first published Windows gate exposed per-probe HTTP cancellation escaping
+the bounded Service-startup poll. Separately, the native preflight reported
+`ForeignListener` before it owned a child. Both failures remain blocking;
+the successful native unit suite does not substitute for desktop/WebView
+execution. Fresh platform corrections require safe transport diagnostics and
+replacement-head proof, not an unchanged retry or weaker ownership oracle.
 
 ## Integrated typed retrieval and MCP policy — PR #26
 
