@@ -18,9 +18,12 @@ Windows/macOS CI remains required before integration.
 | Diagnostic root lines / branches | 10,167/12,677 lines; 9,470/20,207 branches |
 | Revised and final formatted full execution | 1,387 total; 1,380 passed, 0 failed, 7 retained skips |
 | Final root lines / branches | 10,283/12,753 lines; 9,558/20,265 branches |
+| Final portable-fixture full execution | 1,389 total; 1,382 passed, 0 failed, 7 retained skips |
+| Portable-fixture root lines / branches | 10,283/12,753 lines; 9,557/20,265 branches |
 | Instrumented assemblies | Core, Service, UI; unchanged |
 | Independent F# review | Approved after a separate author corrected all three findings |
-| Publication | Not committed, pushed or merged |
+| First published head `ec3fc784` | macOS and three desktop builds passed; Windows failed two live-file hash fixture cases |
+| Replacement Windows/macOS CI | Required after the test-only shared-file correction |
 
 The revision restores legal large-limit keyword calls and distinguishes unknown
 tools from recognised unauthorised mutations. Schema 17 records explicit origin
@@ -42,15 +45,25 @@ generations preserve the read fence and original provenance.
 | `ComprehensionProvenanceSchemaTests` | 2 |
 | `KeywordLimitHttpTests` | 23 |
 | `UnknownToolHttpTests` | 8 |
+| `RetrievalPhysicalHashTests` | 2 |
 
-These 113 cases supplement the integrated 1,274-case baseline. Physical SQLite/
+These 115 cases supplement the integrated 1,274-case baseline. Physical SQLite/
 WAL and archive hashes remain unchanged during reads; migration, repeated
 reembed, sibling isolation, invalidation, corrupt/missing origins, source
 changes, interrupted reads and transactional carry failure are covered.
 Historical gaps without provenance remain unavailable rather than guessed.
 The seven existing skips, instrumentation and coverage gates are unchanged;
 exact root line coverage improves from 9,712/12,166 to 10,283/12,753.
-Independent approval is recorded; current-head Windows/macOS CI remains required.
+The first Windows run exposed `File.ReadAllBytesAsync` sharing incompatibility
+with an open SQLite writer. The test-only helper now opens read access with
+`FileShare.ReadWrite`, hashes the same complete database/WAL bytes and disposes
+its streams. Two controlled cases retain live writer handles, verify exact
+filenames/digests and detect changed database/WAL bytes. The original physical
+HTTP/MCP assertions are unchanged; no checkpoint, close, retry or skip hides
+mutation. Fixture writers are quiescent during each hash pass.
+
+Production and narrow fixture reviews are approved; replacement current-head
+Windows/macOS CI remains required.
 Broader REST/browser/Tray session authentication and the 85%/60% wave-close
 target remain separate.
 

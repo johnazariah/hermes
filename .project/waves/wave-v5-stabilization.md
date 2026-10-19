@@ -98,6 +98,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-19 - Windows live-file hash fixture corrected without weakening assertions
+
+- **Changed:** The first published #6 head `ec3fc784` passed macOS and all three desktop builds, but Windows failed two physical read-immutability cases because `File.ReadAllBytesAsync` conflicts with the open SQLite writer's sharing mode. The eligible revision author supplied a test-only asynchronous read stream with explicit `FileShare.ReadWrite`; production/schema remain unchanged.
+- **Evidence:** The same existing database/WAL filenames and every byte remain hashed. Two controlled tests hold live writer handles, assert exact filename-to-digest maps, and detect same-length database changes and empty-to-nonempty WAL changes. Existing actual HTTP/MCP physical-hash assertions are untouched; there is no checkpoint, shutdown, retry or skip.
+- **Validation:** Local Release graph has 0 warnings/errors. Full execution is 1,389 total, 1,382 passed, 7 retained skips, 0 failed; exact root coverage remains 10,283/12,753 line, with 9,557/20,265 branches. This local result does not substitute for Windows proof.
+- **Blockers:** Narrow independent fixture re-review and replacement-head actual Windows/macOS CI remain. The failed gate is not bypassed or treated as flaky.
+- **Next:** Publish the approved test-only delta and merge only after the replacement head passes all required checks.
+
 ### 2026-10-19 - Typed retrieval source independently approved for publication
 
 - **Changed:** Independent F# re-review approves the separate-author revision and closes all three initial findings. The source preserves stage-specific provenance, legal keyword callers, explicit vector dependency failures, unknown-tool compatibility and authenticated opt-in mutation permissions.

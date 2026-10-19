@@ -117,10 +117,18 @@ let fileDatabase path () =
     db.initSchema().GetAwaiter().GetResult() |> Result.defaultWith failwith
     db
 
+let private physicalHash hashes (file: string) =
+    task {
+        use stream =
+            new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite,
+                           bufferSize = 4096, useAsync = true)
+        use bytes = new MemoryStream()
+        do! stream.CopyToAsync(bytes)
+        return hashes |> Map.add file (bytes.ToArray() |> SourceFiles.hash)
+    }
+
+/// Call after fixture writers have completed, while SQLite remains open.
+/// Shared access permits live handles; it is not a concurrent-write snapshot.
 let physicalHashes path =
     [ path; path + "-wal" ] |> List.filter File.Exists
-    |> Prelude.foldTask (fun hashes file ->
-        task {
-            let! bytes = File.ReadAllBytesAsync(file)
-            return hashes |> Map.add file (SourceFiles.hash bytes)
-        }) Map.empty
+    |> Prelude.foldTask physicalHash Map.empty

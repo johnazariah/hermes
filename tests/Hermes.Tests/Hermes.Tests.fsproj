@@ -95,6 +95,7 @@
     <Compile Include="HttpRegressionFixture.fs" />
     <Compile Include="FileKeywordFixtures.fs" />
     <Compile Include="RetrievalHttpFixtures.fs" />
+    <Compile Include="RetrievalPhysicalHashTests.fs" />
     <Compile Include="TypedSearchHttpTests.fs" />
     <Compile Include="PersistedComprehensionHttpTests.fs" />
     <Compile Include="LocalMcpBoundaryHttpTests.fs" />
