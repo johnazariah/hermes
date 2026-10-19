@@ -8,6 +8,8 @@ module ReclassificationApi =
     type ItemResponse =
         { documentId: int64
           status: string
+          moved: bool
+          reclassified: bool
           previousCategory: string option
           category: string option
           changed: bool
@@ -17,6 +19,7 @@ module ReclassificationApi =
 
     type BatchResponse =
         { action: string
+          count: int
           succeeded: int
           unchanged: int
           failed: int
@@ -37,6 +40,8 @@ module ReclassificationApi =
             if outcome.Changed then Reclassified else Unchanged
         { documentId = outcome.DocumentId
           status = statusText status
+          moved = false
+          reclassified = true
           previousCategory = Some outcome.PreviousCategory
           category = Some outcome.Category
           changed = outcome.Changed
@@ -47,6 +52,8 @@ module ReclassificationApi =
     let private failure documentId error =
         { documentId = documentId
           status = statusText Failed
+          moved = false
+          reclassified = false
           previousCategory = None
           category = None
           changed = false
@@ -57,7 +64,7 @@ module ReclassificationApi =
     let single db fs archiveDir documentId category : Task<ItemResponse> =
         task {
             let! result =
-                DocumentManagement.reclassify
+                DocumentManagement.reclassifyDetailed
                     db fs archiveDir documentId category
             return
                 result
@@ -93,8 +100,16 @@ module ReclassificationApi =
             let failed = outcomes |> count (fun outcome -> outcome.error.IsSome)
             return
                 { action = "reclassify"
+                  count = succeeded + unchanged
                   succeeded = succeeded
                   unchanged = unchanged
                   failed = failed
                   outcomes = outcomes }
+        }
+
+    /// The legacy move action now requests metadata reclassification, never a move.
+    let legacyBatch db fs archiveDir documentIds category =
+        task {
+            let! response = batch db fs archiveDir documentIds category
+            return { response with action = "move" }
         }

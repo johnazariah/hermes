@@ -221,9 +221,9 @@ let main args =
                                 let isDup = match dupResult with :? int64 as i -> i > 0L | _ -> false
                                 if isDup then
                                     logger.info $"Duplicate detected (sha256={sha256.[..7]}), removing: {fileName}"
-                                    fs.deleteFile filePath
+                                    do! SourceFiles.delete db fs filePath
                                     let metaPath = filePath + ".meta.json"
-                                    if fs.fileExists metaPath then fs.deleteFile metaPath
+                                    do! SourceFiles.delete db fs metaPath
                                 else
                                     let relativePath = Path.Combine("unclassified", fileName)
                                     let fileSize = fs.getFileSize filePath
@@ -240,7 +240,7 @@ let main args =
                                               ("@src", Database.boxVal filePath)
                                               ("@now", Database.boxVal now) ]
                                     let metaPath = filePath + ".meta.json"
-                                    if fs.fileExists metaPath then fs.deleteFile metaPath
+                                    do! SourceFiles.delete db fs metaPath
                                     logger.info $"Folder watcher: ingested '{fileName}'"
                             with ex ->
                                 logger.warn $"Folder intake failed for {Path.GetFileName(filePath)}: {ex.Message}"

@@ -64,7 +64,9 @@ module Stages =
 
                 // Write extraction to file alongside source (file-first archive)
                 let markdownContent = extraction.Markdown |> Option.defaultValue extraction.Text
-                try do! ArchiveWriter.writeExtraction deps.Fs fullPath markdownContent
+                try
+                    do! ArchiveWriter.writeExtraction
+                            (SourceFiles.metadataFileSystem deps.Db deps.Fs) fullPath markdownContent
                 with ex -> deps.Logger.debug $"Extract file write failed for doc {docId}: {ex.Message}"
 
                 return
@@ -415,7 +417,8 @@ module Stages =
             try
                 match archiveFolderPath deps doc with
                 | Some folder ->
-                    do! ArchiveWriter.writeComprehension deps.Fs folder parsed.RawJson
+                    do! ArchiveWriter.writeComprehension
+                            (SourceFiles.metadataFileSystem deps.Db deps.Fs) folder parsed.RawJson
                 | None -> ()
             with ex ->
                 deps.Logger.debug

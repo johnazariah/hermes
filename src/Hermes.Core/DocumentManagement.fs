@@ -21,12 +21,26 @@ module DocumentManagement =
     // ─── Reclassify ──────────────────────────────────────────────────
 
     /// Reclassify metadata without changing source identity or location.
-    let reclassify
+    let reclassifyDetailed
         (db: Algebra.Database) (fs: Algebra.FileSystem)
         (archiveDir: string) (documentId: int64) (newCategory: string)
         : Task<Result<Reclassification.Outcome, Reclassification.Error>> =
         Reclassification.reclassify
             db fs archiveDir documentId newCategory
+
+    /// Preserve the original public contract; detailed callers opt in explicitly.
+    let reclassify
+        (db: Algebra.Database) (fs: Algebra.FileSystem)
+        (archiveDir: string) (documentId: int64) (newCategory: string)
+        : Task<Result<unit, string>> =
+        task {
+            let! result =
+                reclassifyDetailed db fs archiveDir documentId newCategory
+            return
+                result
+                |> Result.map ignore
+                |> Result.mapError Reclassification.describeError
+        }
 
     // ─── Re-extract ──────────────────────────────────────────────────
 

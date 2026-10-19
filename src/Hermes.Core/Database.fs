@@ -11,7 +11,7 @@ open Microsoft.Data.Sqlite
 [<RequireQualifiedAccess>]
 module Database =
 
-    let [<Literal>] CurrentSchemaVersion = 11
+    let [<Literal>] CurrentSchemaVersion = 14
 
     // ─── Schema DDL ──────────────────────────────────────────────────
 
@@ -91,47 +91,11 @@ module Database =
            "CREATE INDEX IF NOT EXISTS idx_doc_embedded   ON documents(embedded_at);"
            "CREATE INDEX IF NOT EXISTS idx_doc_stage     ON documents(stage);"
 
-           """
-        CREATE TABLE IF NOT EXISTS documents_change_epoch (
-            singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-            epoch     INTEGER NOT NULL CHECK (epoch >= 0)
-        );
-        """
-
-           """
-        INSERT OR IGNORE INTO documents_change_epoch (singleton, epoch)
-        VALUES (1, 0);
-        """
-
-           """
-        CREATE TRIGGER IF NOT EXISTS documents_epoch_insert
-        AFTER INSERT ON documents
-        BEGIN
-            UPDATE documents_change_epoch
-            SET epoch = epoch + 1
-            WHERE singleton = 1;
-        END;
-        """
-
-           """
-        CREATE TRIGGER IF NOT EXISTS documents_epoch_update
-        AFTER UPDATE ON documents
-        BEGIN
-            UPDATE documents_change_epoch
-            SET epoch = epoch + 1
-            WHERE singleton = 1;
-        END;
-        """
-
-           """
-        CREATE TRIGGER IF NOT EXISTS documents_epoch_delete
-        AFTER DELETE ON documents
-        BEGIN
-            UPDATE documents_change_epoch
-            SET epoch = epoch + 1
-            WHERE singleton = 1;
-        END;
-        """
+           // Remove bookkeeping belonging only to the deferred repair operator.
+           "DROP TRIGGER IF EXISTS documents_epoch_insert;"
+           "DROP TRIGGER IF EXISTS documents_epoch_update;"
+           "DROP TRIGGER IF EXISTS documents_epoch_delete;"
+           "DROP TABLE IF EXISTS documents_change_epoch;"
 
            """
         CREATE TABLE IF NOT EXISTS sync_state (
@@ -403,17 +367,19 @@ module Database =
     /// root itself, or a descendant of it.
     let private isWithinArchive (rootKey: string) (candidateKey: string) : bool =
         let separator = string Path.DirectorySeparatorChar
+        let prefix =
+            if rootKey.EndsWith(separator, StringComparison.Ordinal) then rootKey
+            else rootKey + separator
 
         candidateKey = rootKey
-        || candidateKey.StartsWith(rootKey + separator, StringComparison.Ordinal)
+        || candidateKey.StartsWith(prefix, StringComparison.Ordinal)
 
     /// Resolve an archive path using the conservative ownership contract used
     /// by both filesystem validation and transactional database ownership.
     /// Invariant case folding intentionally rejects case-distinct paths rather
     /// than risking aliases on supported Windows/macOS filesystems. Rooted
     /// paths and `..` segments are both resolved and then required to stay
-    /// inside the archive directory — callers (repair candidates, replayed
-    /// cursors) must never be able to address a path outside it.
+    /// inside the archive directory.
     let canonicalArchivePath
         (archiveDirectory: string)
         (savedPath: string)
@@ -496,150 +462,6 @@ module Database =
             return results |> Seq.toList
         }
 
-    type private PathOwner =
-        { DocumentId: int64
-          SavedPath: string }
-
-    let private canonicalOwner
-        archiveDirectory
-        candidateKey
-        documentId
-        savedPath =
-        canonicalArchivePath archiveDirectory savedPath
-        |> Result.mapError (fun error ->
-            $"Document {documentId} has an invalid saved_path: {error}")
-        |> Result.map (fun canonical ->
-            if canonical.OwnershipKey = candidateKey then
-                Some
-                    { DocumentId = documentId
-                      SavedPath = savedPath }
-            else
-                None)
-
-    let private readCanonicalOwners
-        (conn: SqliteConnection)
-        (transaction: SqliteTransaction)
-        archiveDirectory
-        candidateKey =
-        task {
-            use command = conn.CreateCommand()
-            command.Transaction <- transaction
-            command.CommandText <- "SELECT id, saved_path FROM documents ORDER BY id"
-            use! reader = command.ExecuteReaderAsync()
-
-            let rec loop owners =
-                task {
-                    let! hasRow = reader.ReadAsync()
-
-                    if not hasRow then
-                        return Ok(List.rev owners)
-                    else
-                        let documentId = reader.GetInt64(0)
-                        let savedPath = reader.GetString(1)
-
-                        match
-                            canonicalOwner
-                                archiveDirectory
-                                candidateKey
-                                documentId
-                                savedPath
-                        with
-                        | Error error -> return Error error
-                        | Ok None -> return! loop owners
-                        | Ok(Some owner) -> return! loop (owner :: owners)
-                }
-
-            return! loop []
-        }
-
-    let private ownershipDecision documentId owners =
-        let otherOwnerIds =
-            owners
-            |> List.choose (fun owner ->
-                if owner.DocumentId = documentId then None
-                else Some owner.DocumentId)
-            |> List.distinct
-            |> List.sort
-
-        if not otherOwnerIds.IsEmpty then
-            Some(Algebra.SavedPathOwnedByOtherDocuments otherOwnerIds)
-        else
-            owners
-            |> List.tryFind (fun owner -> owner.DocumentId = documentId)
-            |> Option.map (fun owner ->
-                Algebra.SavedPathAlreadyOwnedByDocument owner.SavedPath)
-
-    let private updateUnownedSavedPath
-        (conn: SqliteConnection)
-        (transaction: SqliteTransaction)
-        (request: Algebra.SavedPathRepairRequest) =
-        task {
-            use command = conn.CreateCommand()
-            command.Transaction <- transaction
-            command.CommandText <-
-                """UPDATE documents
-                   SET saved_path = @candidate
-                   WHERE id = @id
-                     AND saved_path = @current
-                     AND lower(sha256) = lower(@sha256)"""
-
-            addParams command
-                [ "@candidate", boxVal request.CandidateSavedPath
-                  "@id", boxVal request.DocumentId
-                  "@current", boxVal request.CurrentSavedPath
-                  "@sha256", boxVal request.ExpectedSha256 ]
-
-            let! affected = command.ExecuteNonQueryAsync()
-
-            return
-                if affected = 1 then Algebra.SavedPathUpdated
-                else Algebra.SavedPathDocumentChanged
-        }
-
-    let private executeSavedPathRepair
-        (conn: SqliteConnection)
-        (request: Algebra.SavedPathRepairRequest) =
-        task {
-            use transaction =
-                conn.BeginTransaction(deferred = false)
-
-            match
-                canonicalArchivePath
-                    request.ArchiveDirectory
-                    request.CandidateSavedPath
-            with
-            | Error error ->
-                return Error $"Invalid candidate saved_path: {error}"
-            | Ok candidate ->
-                let! owners =
-                    readCanonicalOwners
-                        conn
-                        transaction
-                        request.ArchiveDirectory
-                        candidate.OwnershipKey
-
-                match owners with
-                | Error error ->
-                    return Error error
-                | Ok values ->
-                    let! decision =
-                        match ownershipDecision request.DocumentId values with
-                        | Some value -> Task.FromResult value
-                        | None ->
-                            updateUnownedSavedPath conn transaction request
-
-                    transaction.Commit()
-                    return Ok decision
-        }
-
-    let private tryRepairSavedPath conn request =
-        task {
-            try
-                return! executeSavedPathRepair conn request
-            with
-            | :? SqliteException as ex -> return Error ex.Message
-        }
-
     let private toInt64 (value: obj | null) : int64 =
         match value with
         | null -> 0L
@@ -682,6 +504,10 @@ module Database =
                     let! _ = execNonQuery conn sql []
                     ()
 
+                for sql in SavedPathSchema.statements do
+                    let! _ = execNonQuery conn sql []
+                    ()
+
                 // Run migrations for existing databases
                 do! runMigrations conn
 
@@ -721,16 +547,29 @@ module Database =
 
     // ─── Build the Database algebra from a connection ────────────────
 
-    /// Create a Database algebra record backed by the given SqliteConnection.
+    /// Explicit archive authority for isolated databases and embedded callers.
+    let fromConnectionForArchive archiveDirectory (conn: SqliteConnection) =
+        let key savedPath =
+            canonicalArchivePath archiveDirectory savedPath
+            |> Result.bind (fun canonical ->
+                let physicalPath =
+                    resolveUnresolved archiveDirectory savedPath |> Path.GetFullPath
+                SavedPathSchema.validateFile archiveDirectory physicalPath
+                |> Result.map (fun () -> canonical.OwnershipKey))
+        SavedPathSchema.register conn key
+        DatabaseExecution.create conn (fun () -> initSchemaImpl conn)
+
+    /// File databases derive archive authority from the database's directory.
     let fromConnection (conn: SqliteConnection) : Algebra.Database =
-        { execNonQuery = fun sql ps -> execNonQuery conn sql ps
-          execScalar = fun sql ps -> execScalar conn sql ps
-          execReader = fun sql ps -> execReader conn sql ps
-          initSchema = fun () -> initSchemaImpl conn
-          tableExists = fun name -> tableExistsImpl conn name
-          tryRepairSavedPath = tryRepairSavedPath conn
-          schemaVersion = fun () -> schemaVersionImpl conn
-          dispose = fun () -> conn.Dispose() }
+        let archiveDirectory =
+            if String.IsNullOrWhiteSpace conn.DataSource || conn.DataSource = ":memory:" then
+                Environment.CurrentDirectory
+            else
+                conn.DataSource |> Path.GetFullPath |> Path.GetDirectoryName
+                |> Option.ofObj
+                |> Option.defaultWith (fun () ->
+                    invalidOp "The database path has no parent directory")
+        fromConnectionForArchive archiveDirectory conn
 
     /// Create a Database algebra from a file path. Opens connection + enables WAL.
     let fromPath (dbPath: string) : Algebra.Database =

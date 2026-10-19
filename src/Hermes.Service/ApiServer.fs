@@ -15,6 +15,28 @@ module ApiServer =
 
     let private json v = Results.Json(v, JsonSerializerOptions(PropertyNamingPolicy = JsonNamingPolicy.CamelCase))
 
+    let private readCategory bodyText =
+        try
+            use document = JsonDocument.Parse(bodyText: string)
+            document.RootElement.GetProperty("category").GetString()
+            |> Option.ofObj
+            |> Option.defaultValue ""
+        with _ ->
+            ""
+
+    let private reclassifyRequest db fs archiveDir id (ctx: HttpContext) =
+        task {
+            use reader = new StreamReader(ctx.Request.Body)
+            let! bodyText = reader.ReadToEndAsync()
+            let category = readCategory bodyText
+            if String.IsNullOrWhiteSpace category then
+                return json {| error = "category required" |}
+            else
+                let! response =
+                    ReclassificationApi.single db fs archiveDir id category
+                return json response
+        }
+
     /// Map all API routes onto the endpoint builder.
     let mapRoutes
         (app: IEndpointRouteBuilder)
@@ -264,22 +286,18 @@ module ApiServer =
             })) |> ignore
 
         // ── Reclassify document metadata ───────────────────────────
-        app.MapPut("/api/documents/{id:long}/category", Func<int64, HttpContext, Task<IResult>>(fun id ctx ->
-            task {
-                use sr = new StreamReader(ctx.Request.Body)
-                let! bodyText = sr.ReadToEndAsync()
-                let category =
-                    try
-                        let doc = JsonDocument.Parse(bodyText)
-                        doc.RootElement.GetProperty("category").GetString() |> Option.ofObj |> Option.defaultValue ""
-                    with _ -> ""
-                if category = "" then return json {| error = "category required" |}
-                else
-                    let! response =
-                        Hermes.Core.ReclassificationApi.single
-                            db fs archiveDir id category
-                    return json response
-            })) |> ignore
+        let reclassifyHandler =
+            Func<int64, HttpContext, Task<IResult>>(fun id ctx ->
+                task {
+                    return! reclassifyRequest db fs archiveDir id ctx
+                })
+        app.MapPut("/api/documents/{id:long}/category", reclassifyHandler) |> ignore
+        app.MapPost("/api/documents/{id:long}/move",
+            Func<int64, HttpContext, Task<IResult>>(fun id ctx ->
+                ctx.Response.Headers["Deprecation"] <- "true"
+                ctx.Response.Headers["Warning"] <-
+                    "299 Hermes \"Deprecated move endpoint performs metadata-only reclassification; inspect reclassified and changed, not moved\""
+                reclassifyRequest db fs archiveDir id ctx)) |> ignore
 
         // ── Correct document fields ──────────────────────────────────
         app.MapPost("/api/documents/{id:long}/correct", Func<int64, HttpContext, Task<IResult>>(fun id ctx ->
@@ -407,7 +425,11 @@ module ApiServer =
                     let value = try doc.RootElement.GetProperty("value").GetString() |> Option.ofObj |> Option.defaultValue "" with _ -> ""
 
                     match action with
-                    | "move"
+                    | "move" ->
+                        let! response =
+                            ReclassificationApi.legacyBatch
+                                db fs archiveDir docIds value
+                        return json response
                     | "reclassify" ->
                         let! response =
                             Hermes.Core.ReclassificationApi.batch

@@ -273,7 +273,8 @@ module Markdown =
                             (get "subject")
                             (get "email_date")
                             (get "extraction_method" |> Option.defaultValue "unknown")
-                    let! writeResult = writeSidecar fs archiveDir savedPath conversion
+                    let! writeResult =
+                        writeSidecar (SourceFiles.metadataFileSystem db fs) archiveDir savedPath conversion
                     match writeResult with
                     | Error e -> return Error e
                     | Ok path ->

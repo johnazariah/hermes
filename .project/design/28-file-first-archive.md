@@ -63,7 +63,11 @@ cursors are not fully recoverable from current sidecars.
 - **Path segments** are lowercase filesystem-safe slugs.
 - **Account folders** use the configured account label.
 - **Thread folders** combine subject and a short thread ID to avoid recurring-subject collisions.
-- **Messages** include a short provider message ID.
+- **Messages** include a SHA-256 digest of the full, case-sensitive provider
+  message ID. The digest prevents collisions between shared prefixes or
+  slug-equivalent IDs without renaming historical paths.
+- **Undated messages** use a deterministic epoch filename prefix so retry dates
+  cannot change their source path; this does not invent a received date.
 - **Attachments** retain their extension and include a short content hash.
 - **Stage outputs** use the convention `{original}.{stage}.{ext}`:
   - `.extracted.md` — text extraction output
@@ -113,6 +117,7 @@ Replaces the current `.meta.json`. One per folder, covers all files in that fold
 | `suggestions` | review queue | Operational |
 | `sync_state` | per-account sync cursors | Operational |
 | `contacts` | address book | Derived |
+| `archive_source_claims` | Canonical source ownership and staged-source hashes | Prevent conflicting writers before document registration |
 
 ### What leaves SQLite
 
@@ -299,7 +304,26 @@ The `ChatProvider` algebra supports multiple backends. Escalation must remain an
 
 New ingestion writes the structured layout. Existing `unclassified/` files remain readable through `saved_path` compatibility. A migration tool can incrementally read legacy `.meta.json` sidecars, reconstruct the structured destination, verify hashes, and then retire the old paths.
 
-Legacy `DocumentManagement.reclassify` still moves files by category and `reextract` still resets V4 projection fields. File-first behavior requires those operations to become metadata/tag updates and V5 stage-completion invalidation.
+`DocumentManagement.reclassify` updates metadata, provenance, generated category
+tags and FTS projections without moving files or invalidating V5 outputs.
+Canonical ownership is enforced at the database boundary, including direct
+writers; conflicting existing rows remain intact and fail visibly on mutation.
+Source-file operations also respect staged claims before a document row exists.
+
+Each distinct email message contributes immutable body history. A later message
+does not delete or repurpose an earlier body document, its source bytes, V5
+outputs or user annotations. New source filenames need stable collision-resistant
+identity derived from the full provider message ID; historical `saved_path`
+values are not rewritten.
+
+Acknowledgement and all new body/attachment registrations share a write
+transaction. Failed new attempts preserve prior history and remain unprocessed
+for the next sync; they do not reset historical acknowledgements. Provider calls
+precede the transaction and downstream callbacks follow its actual commit.
+
+Recovering an already-broken legacy `saved_path` is a separate operation, not a
+side effect of changing category. Reextract still requires explicit V5
+stage-completion invalidation rather than only resetting V4 projection fields.
 
 ## Encryption (future door)
 

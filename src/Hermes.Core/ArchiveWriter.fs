@@ -4,6 +4,8 @@ namespace Hermes.Core
 
 open System
 open System.IO
+open System.Security.Cryptography
+open System.Text
 open System.Text.Json
 open System.Text.RegularExpressions
 open System.Threading.Tasks
@@ -106,15 +108,16 @@ module ArchiveWriter =
     let datePrefix (date: DateTimeOffset) : string =
         date.ToString("yyyy-MM-dd")
 
-    /// Build file name for an email body markdown file, with message ID suffix for uniqueness.
+    /// Name new message sources using SHA-256 of the full, case-sensitive raw provider ID.
+    /// Existing saved paths are authoritative and are never renamed by this function.
     let messageFileName (date: DateTimeOffset) (description: string) (messageId: string) : string =
         let idSuffix =
-            if String.IsNullOrWhiteSpace(messageId) then ""
-            else
-                let short = slugify messageId
-                let trunc = if short.Length > 6 then short.[..5] else short
-                $"-{trunc}"
-        $"{datePrefix date}-{slugify description}{idSuffix}.md"
+            messageId
+            |> Encoding.UTF8.GetBytes
+            |> SHA256.HashData
+            |> Convert.ToHexString
+            |> fun value -> value.ToLowerInvariant()
+        $"{datePrefix date}-{slugify description}-{idSuffix}.md"
 
     /// Build file name for an attachment, preserving the original extension. Content hash suffix prevents collisions.
     let attachmentFileName (date: DateTimeOffset) (originalName: string) (contentHash: string) : string =

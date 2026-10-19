@@ -65,7 +65,7 @@ let private loadTagOwnership
 let private reclassifyAndLoadTags db fs documentId category =
     task {
         let! result =
-            DocumentManagement.reclassify
+            DocumentManagement.reclassifyDetailed
                 db fs "/archive" documentId category
         result |> expectSuccess |> ignore
         return! loadTagOwnership db documentId
@@ -95,13 +95,7 @@ let private withCompetingClassification
                         db.execNonQuery competingClassificationSql
                             [ "@id", Database.boxVal documentId ]
                     return! db.execNonQuery sql parameters
-                }
-        tryRepairSavedPath =
-            fun _ ->
-                System.Threading.Tasks.Task.FromException<
-                    Result<Algebra.SavedPathRepairDecision, string>>(
-                        InvalidOperationException(
-                            "Unexpected saved-path repair in classification fake")) }
+                } }
 
 [<Fact>]
 [<Trait("Category", "Integration")>]
@@ -142,7 +136,7 @@ let ``Reclassification rejects concurrent category and provenance changes`` () =
                     db "invoices/source.pdf" "invoices" "stored-sha"
             let interleavedDb = withCompetingClassification db id
             let! result =
-                DocumentManagement.reclassify
+                DocumentManagement.reclassifyDetailed
                     interleavedDb fs.Fs "/archive" id "receipts"
 
             match result with
@@ -183,7 +177,7 @@ let ``Reclassification preserves source identity and does not create category di
                     db "original/source.pdf" "original" "stored-sha"
             let before = fs.Get "/archive/original/source.pdf"
             let! result =
-                DocumentManagement.reclassify
+                DocumentManagement.reclassifyDetailed
                     db fs.Fs "/archive" id "receipts"
             let outcome = expectSuccess result
 
@@ -218,7 +212,7 @@ let ``Reclassification missing source fails before metadata mutation`` () =
                 insertDocument
                     db "missing/source.pdf" "invoices" "stored-sha"
             let! result =
-                DocumentManagement.reclassify
+                DocumentManagement.reclassifyDetailed
                     db fs.Fs "/archive" id "receipts"
 
             match result with
@@ -253,10 +247,10 @@ let ``Reclassification is idempotent and updates provenance tag and FTS`` () =
                 insertDocument
                     db "invoices/source.pdf" "invoices" "stored-sha"
             let! first =
-                DocumentManagement.reclassify
+                DocumentManagement.reclassifyDetailed
                     db fs.Fs "/archive" id "receipts"
             let! second =
-                DocumentManagement.reclassify
+                DocumentManagement.reclassifyDetailed
                     db fs.Fs "/archive" id "receipts"
             Assert.True((expectSuccess first).Changed)
             Assert.False((expectSuccess second).Changed)
@@ -309,10 +303,10 @@ let ``Reclassification replaces generated category tag and preserves user tags``
                        VALUES (@id, 'important', 'user')"""
                     [ "@id", Database.boxVal id ]
             let! receipts =
-                DocumentManagement.reclassify
+                DocumentManagement.reclassifyDetailed
                     db fs.Fs "/archive" id "receipts"
             let! tax =
-                DocumentManagement.reclassify
+                DocumentManagement.reclassifyDetailed
                     db fs.Fs "/archive" id "tax"
             receipts |> expectSuccess |> ignore
             tax |> expectSuccess |> ignore
@@ -387,7 +381,7 @@ let ``Reclassification rolls back category tag and FTS when trigger write fails`
                        END"""
                     []
             let! result =
-                DocumentManagement.reclassify
+                DocumentManagement.reclassifyDetailed
                     db fs.Fs "/archive" id "receipts"
 
             match result with
@@ -447,7 +441,7 @@ let ``Reclassification preserves every V5 completion and output`` () =
                 do! PipelineV5.markCompleted db id stage
 
             let! result =
-                DocumentManagement.reclassify
+                DocumentManagement.reclassifyDetailed
                     db fs.Fs "/archive" id "receipts"
             Assert.True(Result.isOk result)
 

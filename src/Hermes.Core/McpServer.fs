@@ -193,17 +193,7 @@ module McpServer =
             Description =
                 "Backfill contacts from already-comprehended documents that haven't been linked yet. Run once after enabling the address book."
             InputSchema =
-                mkSchema [] [] }
-          { Name = "hermes_legacy_reclassify_page"
-            Description =
-                "Run one bounded page of the legacy saved-path reclassification scan (never a full scan). Dry-run by default; pass apply=true to repair only paths proven by a unique SHA-256 match. Always pass max_documents and max_files, and check the 'stability' field: in_progress means resubmit the returned cursor to continue, stable_pass_completed means the pass is done, and snapshot_changed means the archive changed underneath the scan — resubmit the returned restart cursor to try again."
-            InputSchema =
-                mkSchema
-                    [ "max_documents", intProp "Maximum documents to scan on this page (1-1000, required every call)"
-                      "max_files", intProp "Maximum archive files to hash on this page (1-10000, required every call)"
-                      "apply", boolProp "true to repair paths proven by a unique SHA-256 match; false (default) to dry-run only"
-                      "cursor", stringProp "Opaque continuation cursor from a previous page's response; omit to start a new pass" ]
-                    [ "max_documents"; "max_files" ] } ]
+                mkSchema [] [] } ]
 
     // ─── Request parsing ─────────────────────────────────────────────
 
@@ -373,9 +363,6 @@ module McpServer =
             | "hermes_contacts_backfill" ->
                 let! result = McpTools.contactsBackfill db fs archiveDir logger toolArgs
                 return Ok result
-            | "hermes_legacy_reclassify_page" ->
-                let! result = McpLegacyReclassification.run db fs archiveDir toolArgs
-                return Ok result
             | unknown ->
                 logger.warn $"Unknown tool: {unknown}"
                 return Error $"Unknown tool: {unknown}"
@@ -422,7 +409,7 @@ module McpServer =
                     let tool = JsonObject()
                     tool["name"] <- JsonValue.Create(toolDef.Name)
                     tool["description"] <- JsonValue.Create(toolDef.Description)
-                    tool["inputSchema"] <- toolDef.InputSchema
+                    tool["inputSchema"] <- toolDef.InputSchema.DeepClone()
                     tools.Add(tool)
 
                 let result = JsonObject()
@@ -460,6 +447,9 @@ module McpServer =
 
                         let result = JsonObject()
                         result["content"] <- content
+                        if name = "hermes_reclassify"
+                           && (tryGetNode resultNode "error").IsSome then
+                            result["isError"] <- JsonValue.Create(true)
                         return makeResult request.Id (result :> JsonNode)
                     | Error msg -> return makeError request.Id -32602 msg
 

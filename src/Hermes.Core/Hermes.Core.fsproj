@@ -16,9 +16,12 @@
     <Compile Include="ArchiveWriter.fs" />
     <Compile Include="Config.fs" />
     <Compile Include="Logging.fs" />
+    <Compile Include="DatabaseExecution.fs" />
+    <Compile Include="SavedPathSchema.fs" />
     <Compile Include="Database.fs" />
+    <Compile Include="SourceFileAccess.fs" />
+    <Compile Include="SourceFiles.fs" />
     <Compile Include="Reclassification.fs" />
-    <Compile Include="LegacyReclassification.fs" />
     <Compile Include="Document.fs" />
     <Compile Include="Rules.fs" />
     <Compile Include="SenderClassification.fs" />
@@ -47,6 +50,13 @@
     <Compile Include="Stats.fs" />
     <Compile Include="Reminders.fs" />
     <Compile Include="Chat.fs" />
+    <Compile Include="ThreadBodySource.fs" />
+    <Compile Include="ThreadBodyIngestion.fs" />
+    <Compile Include="EmailAttachmentIngestion.fs" />
+    <Compile Include="EmailChannelPersistence.fs" />
+    <Compile Include="EmailRateLimit.fs" />
+    <Compile Include="EmailChannelEnumeration.fs" />
+    <Compile Include="EmailChannelConsumer.fs" />
     <Compile Include="EmailSync.fs" />
     <Compile Include="GmailProvider.fs" />
     <Compile Include="OutlookProvider.fs" />
@@ -55,7 +65,6 @@
     <Compile Include="Stages.fs" />
     <Compile Include="StagesV5.fs" />
     <Compile Include="Pipeline.fs" />
-    <Compile Include="McpLegacyReclassification.fs" />
     <Compile Include="McpTools.fs" />
     <Compile Include="McpServer.fs" />
     <Compile Include="ServiceInstaller.fs" />

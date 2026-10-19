@@ -571,7 +571,7 @@ let ``Classifier_ReclassifyUnsortedBatch_ContentRuleMatch`` () =
 
         try
             let! batch =
-                Classifier.reclassifyUnsortedBatch db m.Fs contentRules archiveDir 10
+                Classifier.reclassifyUnsortedBatchDetailed db m.Fs contentRules archiveDir 10
 
             Assert.Equal(1, batch.ReclassifiedCount)
             Assert.Equal(0, batch.FailedCount)

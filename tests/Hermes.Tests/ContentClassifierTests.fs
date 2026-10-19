@@ -269,7 +269,7 @@ let ``Classifier_ReclassifyUnsortedBatch_NoCandidates_ReturnsZeros`` () =
                     Conditions = [ Domain.ContentAny [ "gross pay" ] ]
                     Category = "payslips"; Confidence = 0.85 } ]
             let! batch =
-                Classifier.reclassifyUnsortedBatch db m.Fs contentRules "/archive" 50
+                Classifier.reclassifyUnsortedBatchDetailed db m.Fs contentRules "/archive" 50
             Assert.Equal(0, batch.ReclassifiedCount)
             Assert.Equal(0, batch.FailedCount)
             Assert.Equal(0, batch.Remaining)

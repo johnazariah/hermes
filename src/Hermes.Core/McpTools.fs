@@ -446,6 +446,7 @@ module McpTools =
         obj["previous_category"] <-
             JsonValue.Create(outcome.PreviousCategory)
         obj["category"] <- JsonValue.Create(outcome.Category)
+        obj["new_category"] <- JsonValue.Create(outcome.Category)
         obj["changed"] <- JsonValue.Create(outcome.Changed)
         obj["saved_path"] <- JsonValue.Create(outcome.SavedPath)
         obj["sha256"] <- JsonValue.Create(outcome.Sha256)
@@ -475,7 +476,7 @@ module McpTools =
                 err["error"] <- JsonValue.Create("new_category is required")
                 return err :> JsonNode
             | Some docId, Some category ->
-                let! result = DocumentManagement.reclassify db fs archiveDir docId category
+                let! result = DocumentManagement.reclassifyDetailed db fs archiveDir docId category
                 return
                     result
                     |> Result.map reclassificationSuccess
@@ -628,7 +629,8 @@ module McpTools =
                             return err :> JsonNode
                         | Ok merged ->
                             // Write merged comprehension to file
-                            do! ArchiveWriter.writeComprehension fs absFolder merged
+                            do! ArchiveWriter.writeComprehension
+                                    (SourceFiles.metadataFileSystem db fs) absFolder merged
 
                             let obj = JsonObject()
                             obj["status"] <- JsonValue.Create("extracted")
