@@ -1,56 +1,58 @@
 import type { BatchReclassificationResponse, CategoryCount, DocumentSummary, DocumentDetail, IndexStats, ReclassificationOutcome, ReminderItem, Suggestion, TagCount } from '../types/hermes';
+import { request } from './http';
 
 const BASE = '';
 
 export async function fetchCategories(): Promise<CategoryCount[]> {
-  const res = await fetch(`${BASE}/api/categories`);
+  const res = await request(`${BASE}/api/categories`);
   return res.json();
 }
 
 export async function fetchDocuments(category: string, offset = 0, limit = 50): Promise<DocumentSummary[]> {
-  const res = await fetch(`${BASE}/api/documents?category=${encodeURIComponent(category)}&offset=${offset}&limit=${limit}`);
+  const res = await request(`${BASE}/api/documents?category=${encodeURIComponent(category)}&offset=${offset}&limit=${limit}`);
   return res.json();
 }
 
 export async function fetchDocumentDetail(id: number): Promise<DocumentDetail> {
-  const res = await fetch(`${BASE}/api/documents/${id}`);
+  const res = await request(`${BASE}/api/documents/${id}`);
   return res.json();
 }
 
 export async function fetchDocumentContent(id: number): Promise<{ markdown: string }> {
-  const res = await fetch(`${BASE}/api/documents/${id}/content`);
+  const res = await request(`${BASE}/api/documents/${id}/content`);
   return res.json();
 }
 
 export async function fetchStats(): Promise<IndexStats> {
-  const res = await fetch(`${BASE}/api/stats`);
+  const res = await request(`${BASE}/api/stats`);
   return res.json();
 }
 
 export async function fetchReminders(): Promise<ReminderItem[]> {
-  const res = await fetch(`${BASE}/api/reminders`);
+  const res = await request(`${BASE}/api/reminders`);
   return res.json();
 }
 
 export async function triggerSync(): Promise<void> {
-  await fetch(`${BASE}/api/sync`, { method: 'POST' });
+  const response = await request(`${BASE}/api/sync`, { method: 'POST' });
+  if (response.status !== 202) throw new Error('The service did not accept a sync request.');
 }
 
 export async function fetchSuggestions(): Promise<Suggestion[]> {
-  const res = await fetch(`${BASE}/api/suggestions`);
+  const res = await request(`${BASE}/api/suggestions`);
   return res.json();
 }
 
 export async function approveSuggestion(id: number): Promise<void> {
-  await fetch(`${BASE}/api/suggestions/${id}/approve`, { method: 'POST' });
+  await request(`${BASE}/api/suggestions/${id}/approve`, { method: 'POST' });
 }
 
 export async function rejectSuggestion(id: number): Promise<void> {
-  await fetch(`${BASE}/api/suggestions/${id}/reject`, { method: 'POST' });
+  await request(`${BASE}/api/suggestions/${id}/reject`, { method: 'POST' });
 }
 
 export async function fetchRecentDocuments(limit = 20): Promise<DocumentSummary[]> {
-  const res = await fetch(`${BASE}/api/documents?limit=${limit}`);
+  const res = await request(`${BASE}/api/documents?limit=${limit}`);
   return res.json();
 }
 
@@ -72,12 +74,12 @@ export async function searchDocuments(params: {
   if (params.q) qs.set('q', params.q);
   if (params.category) qs.set('category', params.category);
   qs.set('limit', String(params.limit ?? 50));
-  const res = await fetch(`${BASE}/api/documents?${qs}`);
+  const res = await request(`${BASE}/api/documents?${qs}`);
   return res.json();
 }
 
 export async function addDocumentTag(docId: number, tag: string): Promise<void> {
-  await fetch(`${BASE}/api/documents/${docId}/tags`, {
+  await request(`${BASE}/api/documents/${docId}/tags`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ tag }),
@@ -85,7 +87,7 @@ export async function addDocumentTag(docId: number, tag: string): Promise<void> 
 }
 
 export async function removeDocumentTag(docId: number, tag: string): Promise<void> {
-  await fetch(`${BASE}/api/documents/${docId}/tags/${encodeURIComponent(tag)}`, {
+  await request(`${BASE}/api/documents/${docId}/tags/${encodeURIComponent(tag)}`, {
     method: 'DELETE',
   });
 }

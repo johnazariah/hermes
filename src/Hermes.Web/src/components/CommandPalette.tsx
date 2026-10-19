@@ -1,10 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Command } from "cmdk";
 import { useNavigate } from "react-router-dom";
 import { triggerSync } from "../api/hermes";
 
+type SyncFeedback =
+    | { status: "idle" }
+    | { status: "pending" | "accepted" | "failed"; message: string };
+
 export function CommandPalette() {
     const [open, setOpen] = useState(false);
+    const [sync, setSync] = useState<SyncFeedback>({ status: "idle" });
+    const syncPending = useRef(false);
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -23,9 +29,21 @@ export function CommandPalette() {
         setOpen(false);
     };
 
-    const handleSync = () => {
-        void triggerSync();
-        setOpen(false);
+    const handleSync = async () => {
+        if (syncPending.current) return;
+        syncPending.current = true;
+        setSync({ status: "pending", message: "Queuing email sync…" });
+        try {
+            await triggerSync();
+            setSync({ status: "accepted", message: "Email sync queued. This does not mean it has completed." });
+        } catch (error) {
+            setSync({
+                status: "failed",
+                message: `Email sync was not queued: ${error instanceof Error ? error.message : "Request failed."}`,
+            });
+        } finally {
+            syncPending.current = false;
+        }
     };
 
     if (!open) return null;
@@ -94,6 +112,8 @@ export function CommandPalette() {
                         >
                             <Command.Item
                                 onSelect={handleSync}
+                                disabled={sync.status === "pending"}
+                                aria-busy={sync.status === "pending"}
                                 className="px-3 py-2 text-sm rounded-lg cursor-pointer text-neutral-200 dark:text-neutral-200 text-neutral-800 data-[selected=true]:bg-neutral-800 dark:data-[selected=true]:bg-neutral-800 data-[selected=true]:bg-neutral-100"
                             >
                                 📨 Sync email now
@@ -106,6 +126,13 @@ export function CommandPalette() {
                             </Command.Item>
                         </Command.Group>
                     </Command.List>
+
+                    {sync.status !== "idle" && (
+                        <div role={sync.status === "failed" ? "alert" : "status"}
+                            className="px-4 py-2 text-sm">
+                            {sync.message}
+                        </div>
+                    )}
 
                     <div className="border-t border-neutral-700 dark:border-neutral-700 border-neutral-200 px-4 py-2 text-[11px] text-neutral-500 flex gap-4">
                         <span>↑↓ Navigate</span>

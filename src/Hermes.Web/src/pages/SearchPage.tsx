@@ -23,12 +23,10 @@ export function SearchPage() {
     const [searchParams, setSearchParams] = useSearchParams();
     const queryFromUrl = searchParams.get("q") ?? "";
     const tagFromUrl = searchParams.get("tag") ?? "";
-    const dateRangeFromUrl = searchParams.get("days") ?? "";
 
     const [query, setQuery] = useState(queryFromUrl);
     const [debouncedQuery, setDebouncedQuery] = useState(queryFromUrl);
     const [selectedTag, setSelectedTag] = useState(tagFromUrl);
-    const [dateRange, setDateRange] = useState(dateRangeFromUrl);
     const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
     const queryClient = useQueryClient();
 
@@ -43,9 +41,8 @@ export function SearchPage() {
         const params: Record<string, string> = {};
         if (debouncedQuery) params.q = debouncedQuery;
         if (selectedTag) params.tag = selectedTag;
-        if (dateRange) params.days = dateRange;
         setSearchParams(params, { replace: true });
-    }, [debouncedQuery, selectedTag, dateRange, setSearchParams]);
+    }, [debouncedQuery, selectedTag, setSearchParams]);
 
     const { data: tags } = useQuery<TagCount[]>({
         queryKey: ["tags"],
@@ -56,8 +53,8 @@ export function SearchPage() {
     const hasFilters =
         debouncedQuery.length > 0 || selectedTag.length > 0;
 
-    const { data: results, isLoading } = useQuery<DocumentSummary[]>({
-        queryKey: ["search", debouncedQuery, selectedTag, dateRange],
+    const { data: results, isLoading, error } = useQuery<DocumentSummary[]>({
+        queryKey: ["search", debouncedQuery, selectedTag],
         queryFn: () =>
             searchDocuments({
                 q: debouncedQuery || undefined,
@@ -107,7 +104,7 @@ export function SearchPage() {
             <div>
                 <h1 className="text-xl font-bold mb-1">Search</h1>
                 <p className="text-sm text-neutral-500">
-                    Find documents by keyword or semantic similarity
+                    Find documents by keyword
                 </p>
             </div>
 
@@ -158,8 +155,9 @@ export function SearchPage() {
                 </select>
 
                 <select
-                    value={dateRange}
-                    onChange={(e) => setDateRange(e.target.value)}
+                    value=""
+                    disabled
+                    aria-label="Date filtering is unavailable in this view"
                     className="px-3 py-1.5 text-sm rounded-lg bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 text-neutral-900 dark:text-neutral-200"
                 >
                     {DATE_RANGES.map((d) => (
@@ -168,9 +166,11 @@ export function SearchPage() {
                         </option>
                     ))}
                 </select>
+                <span className="text-xs text-neutral-500">Date filtering is unavailable in this view.</span>
             </div>
 
             {/* Results */}
+            {error && <p role="alert">Unable to search: {error.message}</p>}
             {isLoading && (
                 <div className="text-sm text-neutral-500 animate-pulse">
                     Searching…

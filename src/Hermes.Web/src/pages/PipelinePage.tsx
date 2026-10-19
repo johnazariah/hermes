@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchStats } from "../api/hermes";
-import type { IndexStats, DocumentSummary } from "../types/hermes";
+import type { IndexStats, DocumentSummary, DocumentDetail } from "../types/hermes";
+import { request } from "../api/http";
 
 type Stage =
     | "received"
@@ -31,24 +32,24 @@ interface ActivityEntry {
 // ── API helpers ──────────────────────────────────────────────
 
 async function fetchPipelineCounts(): Promise<StageCounts> {
-    return (await fetch("/api/pipeline")).json();
+    return (await request("/api/pipeline")).json();
 }
 
 async function fetchDocsByStage(
     stage: string,
     limit = 50,
 ): Promise<DocumentSummary[]> {
-    const res = await fetch(`/api/documents?stage=${stage}&limit=${limit}`);
+    const res = await request(`/api/documents?stage=${stage}&limit=${limit}`);
     return res.json();
 }
 
 async function fetchActivity(limit = 30): Promise<ActivityEntry[]> {
-    const res = await fetch(`/api/activity?limit=${limit}`);
+    const res = await request(`/api/activity?limit=${limit}`);
     return res.json();
 }
 
-async function fetchDocDetail(id: number) {
-    const res = await fetch(`/api/documents/${id}`);
+async function fetchDocDetail(id: number): Promise<DocumentDetail> {
+    const res = await request(`/api/documents/${id}`);
     return res.json();
 }
 
@@ -132,10 +133,11 @@ function JourneyStep({
     );
 }
 
-function DocumentJourney({ doc }: { doc: any }) {
-    if (!doc) return null;
-    const s = doc.summary || doc;
-    const stage = s.stage || "received";
+function DocumentJourney({ doc, row }: { doc: DocumentDetail; row: DocumentSummary }) {
+    const s = doc.summary;
+    const stage = row.stage ?? (doc.pipelineStatus.embedded ? "embedded"
+        : doc.pipelineStatus.understood ? "understood"
+        : doc.pipelineStatus.extracted ? "extracted" : "received");
     const stageOrder = ["received", "extracted", "understood", "embedded"];
     const stageIdx = stageOrder.indexOf(stage);
 
@@ -144,25 +146,25 @@ function DocumentJourney({ doc }: { doc: any }) {
             <JourneyStep
                 label="Received"
                 icon="📨"
-                done={stageIdx >= 0}
+                done={true}
                 active={stage === "received"}
                 detail={`source: ${s.sourceType || "unknown"}${s.sender ? `, from: ${s.sender}` : ""}`}
             />
             <JourneyStep
                 label="Read"
                 icon="📖"
-                done={stageIdx >= 1}
+                done={stageIdx >= 1 || doc.pipelineStatus.extracted}
                 active={stage === "extracted" && stageIdx === 1}
                 detail={
                     doc.extractedAt
-                        ? `method: ${s.extractionMethod || "auto"}`
+                        ? `method: ${row.extractionMethod || "auto"}`
                         : ""
                 }
             />
             <JourneyStep
                 label="Understood"
                 icon="💡"
-                done={stageIdx >= 2}
+                done={stageIdx >= 2 || doc.pipelineStatus.understood}
                 active={stage === "understood" && stageIdx === 2}
                 detail={
                     s.classificationTier
@@ -173,18 +175,12 @@ function DocumentJourney({ doc }: { doc: any }) {
             <JourneyStep
                 label="Memorised"
                 icon="🧠"
-                done={stageIdx >= 3}
+                done={stageIdx >= 3 || doc.pipelineStatus.embedded}
                 active={stage === "embedded" && stageIdx === 3}
                 detail={doc.embeddedAt ? `${doc.chunkCount || 0} chunks` : ""}
             />
             {stage === "failed" && (
-                <JourneyStep
-                    label="Failed"
-                    icon="❌"
-                    done={true}
-                    active={false}
-                    detail={s.error || "Unknown error"}
-                />
+                <p role="status" className="py-2 text-sm font-medium text-red-400">❌ Failed</p>
             )}
         </div>
     );
@@ -256,8 +252,12 @@ function MiniProgress({
 export function PipelinePage() {
     const [selectedStage, setSelectedStage] = useState<Stage>(null);
     const [selectedDocId, setSelectedDocId] = useState<number | null>(null);
+    const selectStage = (stage: Stage) => {
+        setSelectedStage(selectedStage === stage ? null : stage);
+        setSelectedDocId(null);
+    };
 
-    const { data: counts } = useQuery({
+    const { data: counts, error: countsError } = useQuery({
         queryKey: ["pipeline-counts"],
         queryFn: fetchPipelineCounts,
         refetchInterval: 5000,
@@ -276,11 +276,13 @@ export function PipelinePage() {
         refetchInterval: 10000,
     });
 
-    const { data: docDetail } = useQuery({
+    const { data: detail } = useQuery({
         queryKey: ["doc-detail", selectedDocId],
         queryFn: () => fetchDocDetail(selectedDocId!),
         enabled: selectedDocId != null,
     });
+    const selectedRow = stageDocs?.find(doc => doc.id === selectedDocId);
+    const docDetail = selectedRow && detail?.summary.id === selectedRow.id ? detail : undefined;
 
     const { data: activity } = useQuery({
         queryKey: ["activity"],
@@ -300,14 +302,15 @@ export function PipelinePage() {
 
     return (
         <div className="flex gap-6 h-[calc(100vh-7rem)]">
+            {countsError && <p role="alert">Pipeline status unavailable: {countsError.message}</p>}
             {/* Left: Stages + Feed */}
             <div className="w-64 shrink-0 flex flex-col gap-4">
                 {/* Pipeline progress */}
                 <div className="rounded-xl border border-neutral-800 bg-neutral-900/50 p-4 space-y-1">
                     <div className="flex items-center gap-2 mb-3">
-                        <span className="text-sm font-semibold text-neutral-300">
-                            PIPELINE
-                        </span>
+                        <h1 className="text-sm font-semibold text-neutral-300">
+                            Pipeline
+                        </h1>
                         {total > 0 && read < total && (
                             <span className="ml-auto text-[10px] text-green-400 animate-pulse">
                                 ● ACTIVE
@@ -334,13 +337,7 @@ export function PipelinePage() {
                         color="text-green-400"
                         active={c.received > 0}
                         selected={selectedStage === "received"}
-                        onClick={() =>
-                            setSelectedStage(
-                                selectedStage === "received"
-                                    ? null
-                                    : "received",
-                            )
-                        }
+                        onClick={() => selectStage("received")}
                     />
                     <StageBadge
                         label="Read"
@@ -349,13 +346,7 @@ export function PipelinePage() {
                         color="text-blue-400"
                         active={c.extracted > 0}
                         selected={selectedStage === "extracted"}
-                        onClick={() =>
-                            setSelectedStage(
-                                selectedStage === "extracted"
-                                    ? null
-                                    : "extracted",
-                            )
-                        }
+                        onClick={() => selectStage("extracted")}
                     />
                     <StageBadge
                         label="Understood"
@@ -364,13 +355,7 @@ export function PipelinePage() {
                         color="text-amber-400"
                         active={c.understood > 0}
                         selected={selectedStage === "understood"}
-                        onClick={() =>
-                            setSelectedStage(
-                                selectedStage === "understood"
-                                    ? null
-                                    : "understood",
-                            )
-                        }
+                        onClick={() => selectStage("understood")}
                     />
                     <StageBadge
                         label="Memorised"
@@ -379,13 +364,7 @@ export function PipelinePage() {
                         color="text-purple-400"
                         active={false}
                         selected={selectedStage === "embedded"}
-                        onClick={() =>
-                            setSelectedStage(
-                                selectedStage === "embedded"
-                                    ? null
-                                    : "embedded",
-                            )
-                        }
+                        onClick={() => selectStage("embedded")}
                     />
                     {c.failed > 0 && (
                         <StageBadge
@@ -395,13 +374,7 @@ export function PipelinePage() {
                             color="text-red-400"
                             active={false}
                             selected={selectedStage === "failed"}
-                            onClick={() =>
-                                setSelectedStage(
-                                    selectedStage === "failed"
-                                        ? null
-                                        : "failed",
-                                )
-                            }
+                            onClick={() => selectStage("failed")}
                         />
                     )}
                 </div>
@@ -479,14 +452,15 @@ export function PipelinePage() {
 
             {/* Right: Document detail + Journey */}
             <div className="w-80 shrink-0 flex flex-col gap-4">
-                {selectedDocId && docDetail ? (
+                {selectedRow && docDetail ? (
                     <>
                         {/* Journey */}
-                        <div className="rounded-xl border border-neutral-800 bg-neutral-900/50 p-4">
+                        <div role="region" aria-label="Document journey"
+                            className="rounded-xl border border-neutral-800 bg-neutral-900/50 p-4">
                             <div className="text-[10px] font-semibold tracking-widest text-neutral-500 mb-3">
                                 JOURNEY
                             </div>
-                            <DocumentJourney doc={docDetail} />
+                            <DocumentJourney doc={docDetail} row={selectedRow} />
                         </div>
 
                         {/* Metadata */}
@@ -517,10 +491,7 @@ export function PipelinePage() {
                                 />
                                 <DetailRow
                                     label="Vendor"
-                                    value={
-                                        docDetail.summary?.vendor ||
-                                        docDetail.summary?.extractedVendor
-                                    }
+                                    value={docDetail.summary.vendor}
                                 />
                                 <DetailRow
                                     label="Amount"

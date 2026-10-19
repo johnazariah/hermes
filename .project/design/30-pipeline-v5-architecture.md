@@ -166,11 +166,40 @@ See [24-comprehension-stage.md](24-comprehension-stage.md).
 
 - **REST:** document browsing, file/content retrieval, pipeline status, corrections, recomprehension, tags, suggestions, preferences, sync, chat, and activity.
 - **MCP:** streamable HTTP at `/mcp` for downstream consumers such as Osprey.
-- **Web:** React 19/Vite application with registered Home, Documents, Search,
-  Settings, and onboarding routes. Pipeline and Chat components are not routed;
-  issue [#9](https://github.com/johnazariah/hermes/issues/9) owns canonical
-  route and asset stabilization.
-- **Desktop:** Windows tray plus MAUI shell builds for Windows and macOS.
+- **Web:** React 19/Vite application with Home, Documents, Search, Settings,
+  onboarding, Pipeline and Chat routes. Named chat consumers share one SSE
+  decoder for `results`, optional `answer` and `done`. Document-backed and
+  metadata-only email identities remain distinct.
+- **Desktop:** Windows Tray hosts the canonical React app. MAUI Windows/macOS
+  remain excluded experimental builds.
+
+### Canonical UI delivery
+
+`Hermes.Web/dist` is the only Service UI build input. A deterministic manifest
+identifies every public asset, module entrypoints and byte digests. Build and
+publish replace their owned output `wwwroot`; checked legacy bundles and
+Blazor assets are excluded. A missing or malformed deployed bundle fails
+startup before archive/provider/worker initialization.
+
+The local Host/origin boundary precedes UI delivery. Only exact canonical
+browser routes and manifest-listed files are served. API/MCP/health misses,
+undeclared assets and `_framework` requests are never converted into SPA HTML.
+The deployed bundle is independent of working directory and source checkout.
+
+### Owned lifecycle and manual sync
+
+Normal foreground mode uses host shutdown. Explicit `--control-stdin` enables
+a redirected owner pipe: an exact `shutdown` line or EOF requests application
+stop. The reader is cancellable and joined with the pipeline and producer
+before their databases are disposed. No HTTP shutdown endpoint is added.
+Health reports actual process identity; native ownership must not be inferred
+from an arbitrary successful HTTP response.
+
+Manual sync uses an injected capability bound to the existing single producer.
+Its bounded inbox coalesces pending requests and serializes cycles with
+periodic work. HTTP 202 reports queued/coalesced admission; HTTP 503 reports
+unsupported, starting or stopping ownership. Completion/failure remains an
+observed processing outcome, not a property of request acceptance.
 
 ### Typed search
 

@@ -9,14 +9,54 @@ open System.Threading
 open System.Threading.Tasks
 open Microsoft.AspNetCore.Builder
 open Microsoft.AspNetCore.Http
-open Microsoft.Extensions.DependencyInjection
 open Hermes.Core
 open Serilog.Events
 
-let private runService args =
+type private RunningService =
+    { App: WebApplication
+      Logger: Algebra.Logger
+      Cancellation: CancellationTokenSource
+      Producers: ProducerLoop.Handle
+      Workers: Task list
+      Db: Algebra.Database
+      ReflowDb: Algebra.Database }
+
+let private releaseService service =
+    service.Producers.Stop ()
+    service.Cancellation.Cancel()
+    match Lifetime.shutdown service.Logger (TimeSpan.FromSeconds 60.0) service.Workers with
+    | Lifetime.Quiesced ->
+        service.ReflowDb.dispose ()
+        service.Db.dispose ()
+        0
+    | Lifetime.Abandoned _ -> Lifetime.AbandonedExitCode
+
+let private serve service address =
+    let stopping = service.App.Lifetime.ApplicationStopping
+    let outcome =
+        try
+            service.App.Run(address: string)
+            Ok ()
+        with
+        | :? OperationCanceledException when stopping.IsCancellationRequested -> Ok ()
+        | error -> Error error
+    let exitCode = releaseService service
+    outcome
+    |> Result.map (fun () -> exitCode)
+    |> Result.defaultWith (fun error ->
+        service.Logger.error $"HTTP host failed: {error}"
+        if exitCode = Lifetime.AbandonedExitCode then exitCode else 1)
+
+let private runService owned args =
     let servicePolicy =
         ServicePolicy.load System.Environment.GetEnvironmentVariable
         |> Result.defaultWith invalidOp
+    let ui =
+        CanonicalUi.preflight AppContext.BaseDirectory
+        |> Result.defaultWith invalidOp
+    let control =
+        if owned then Some(StdinControl.create ())
+        else None
     let fs = Interpreters.realFileSystem
     let env = Interpreters.systemEnvironment
     let clock = Interpreters.systemClock
@@ -207,114 +247,38 @@ let private runService args =
         logger.warn
             $"Recovered {recovered} stale pipeline stage attempt lease(s)"
 
-    // Start v5 pipeline in background
-    use cts = new CancellationTokenSource()
-    let pipelineTask =
-        System.Threading.Tasks.Task.Run(fun () ->
-            PipelineV5.run
-                dag db logger gpu 200
-                (TimeSpan.FromMinutes 5.0)
-                (TimeSpan.FromSeconds 10.0)
-                cts.Token
-            :> System.Threading.Tasks.Task)
-        |> Lifetime.observeBackground logger "pipeline-v5" cts.Token
-
-    // Start producers (email sync, folder watcher) — they INSERT into documents table
-    // v5 pipeline picks up new docs via readyQuery (no stage_completions = ready for extract)
-    let producersTask =
-        System.Threading.Tasks.Task.Run(fun () ->
-        task {
-            // Initial delay for schema setup
-            do! Task.Delay(TimeSpan.FromSeconds(5.0))
-            while not cts.Token.IsCancellationRequested do
-                // Folder watcher
-                try
-                    let! _ = FolderWatcher.scanAll fs db logger clock config
-                    let unclDir = Path.Combine(archiveDir, "unclassified")
-                    if fs.directoryExists unclDir then
-                        let files =
-                            fs.getFiles unclDir "*"
-                            |> Array.filter (fun f -> not (f.EndsWith(".meta.json", StringComparison.OrdinalIgnoreCase)))
-                        for filePath in files do
-                            try
-                                let fileName = Path.GetFileName(filePath)
-                                let! sha256 = FolderWatcher.computeSha256 fs filePath
-                                let! dupResult = db.execScalar "SELECT COUNT(*) FROM documents WHERE sha256 = @sha" [ ("@sha", Database.boxVal sha256) ]
-                                let isDup = match dupResult with :? int64 as i -> i > 0L | _ -> false
-                                if isDup then
-                                    logger.info $"Duplicate detected (sha256={sha256.[..7]}), removing: {fileName}"
-                                    do! SourceFiles.delete db fs filePath
-                                    let metaPath = filePath + ".meta.json"
-                                    do! SourceFiles.delete db fs metaPath
-                                else
-                                    let relativePath = Path.Combine("unclassified", fileName)
-                                    let fileSize = fs.getFileSize filePath
-                                    let now = clock.utcNow().ToString("o")
-                                    let! _ =
-                                        db.execNonQuery
-                                            """INSERT INTO documents
-                                               (source_type, original_name, saved_path, category, size_bytes, sha256, source_path, ingested_at, stage)
-                                               VALUES ('watched_folder', @name, @path, 'unclassified', @size, @sha, @src, @now, 'received')"""
-                                            [ ("@name", Database.boxVal fileName)
-                                              ("@path", Database.boxVal relativePath)
-                                              ("@size", Database.boxVal fileSize)
-                                              ("@sha", Database.boxVal sha256)
-                                              ("@src", Database.boxVal filePath)
-                                              ("@now", Database.boxVal now) ]
-                                    let metaPath = filePath + ".meta.json"
-                                    do! SourceFiles.delete db fs metaPath
-                                    logger.info $"Folder watcher: ingested '{fileName}'"
-                            with ex ->
-                                logger.warn $"Folder intake failed for {Path.GetFileName(filePath)}: {ex.Message}"
-                with ex ->
-                    logger.warn $"Folder scan error: {ex.Message}"
-
-                // Email sync
-                for account in config.Accounts do
-                    try
-                        let! provider = createEmailProvider configDir account
-                        let emailConcurrency = max 1 config.Pipeline.EmailConcurrency
-                        let dummyWriter = System.Threading.Channels.Channel.CreateUnbounded<Document.T>().Writer
-                        let! _ = EmailSync.syncAccountWithChannel fs db logger clock provider config account.Label dummyWriter emailConcurrency cts.Token
-                        ()
-                    with ex ->
-                        logger.warn $"Email sync failed for {account.Label}: {ex.Message}"
-
-                try do! Task.Delay(TimeSpan.FromMinutes(float config.SyncIntervalMinutes), cts.Token)
-                with :? OperationCanceledException -> ()
-        } :> System.Threading.Tasks.Task)
-        |> Lifetime.observeBackground logger "producers" cts.Token
-
     // Build HTTP API
     let builder = WebApplication.CreateBuilder()
-
-    // Blazor Server services
-    builder.Services.AddRazorComponents()
-        .AddInteractiveServerComponents() |> ignore
-    builder.Services.AddScoped<Hermes.UI.Services.IHermesClient>(fun sp ->
-        let http = new System.Net.Http.HttpClient()
-        let blazorPort = servicePolicy.Port
-        http.BaseAddress <- System.Uri($"http://localhost:{blazorPort}")
-        Hermes.UI.Services.HttpHermesClient(http) :> Hermes.UI.Services.IHermesClient) |> ignore
-
-    let wwwrootPath = Path.Combine(AppContext.BaseDirectory, "wwwroot")
-    let srcWwwroot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "wwwroot"))
-    if Directory.Exists(srcWwwroot) then builder.Environment.WebRootPath <- srcWwwroot
-    elif Directory.Exists(wwwrootPath) then builder.Environment.WebRootPath <- wwwrootPath
     let app = builder.Build()
 
     LocalBoundary.attach app servicePolicy.ExtraOrigins
-    app.UseDefaultFiles() |> ignore
-    app.UseStaticFiles() |> ignore
-    app.UseAntiforgery() |> ignore
+    CanonicalUi.attach app ui
+
+    use cts = new CancellationTokenSource()
+    let producerContext : ProducerCycle.Context =
+        { Fs = fs; Db = db; Logger = logger; Clock = clock; Config = config
+          CreateEmailProvider = createEmailProvider configDir }
+    let producers =
+        ProducerLoop.create
+            { InitialDelay = TimeSpan.FromSeconds 5.0
+              Interval = TimeSpan.FromMinutes(float config.SyncIntervalMinutes)
+              Logger = logger
+              Cycle = ProducerCycle.run producerContext }
+            cts.Token
+    use stopping =
+        app.Lifetime.ApplicationStopping.Register(fun () ->
+            producers.Stop ()
+            cts.Cancel())
 
     // Map API routes
-    ApiServer.mapRoutesWithSearch embedder
+    ApiServer.mapRoutesWithCapabilities producers.Manual embedder
         app db reflowDb fs logger clock dag chatProvider archiveDir configDir
 
     // Health endpoint for tray app / orchestrator polling
     app.MapGet("/health", Func<IResult>(fun () ->
-        Results.Json({| status = "healthy"; service = "hermes" |}))) |> ignore
+        Results.Json(
+            {| status = "healthy"; service = "hermes"
+               processId = System.Environment.ProcessId |}))) |> ignore
 
     // Pipeline DAG visualization (Mermaid)
     app.MapGet("/api/pipeline/dag", Func<Task<IResult>>(fun () ->
@@ -327,29 +291,42 @@ let private runService args =
     ApiServer.mapMcpRouteWithPolicy embedder servicePolicy.Mcp
         app db reflowDb fs logger clock dag archiveDir deepDeps
 
-    // Blazor Server — serves the UI at /
-    app.MapRazorComponents<Hermes.UI.App>()
-        .AddInteractiveServerRenderMode() |> ignore
-
+    let pipelineTask =
+        Task.Run(fun () ->
+            PipelineV5.run dag db logger gpu 200
+                (TimeSpan.FromMinutes 5.0) (TimeSpan.FromSeconds 10.0) cts.Token
+            :> Task)
+        |> Lifetime.observeBackground logger "pipeline-v5" cts.Token
+    let producersTask =
+        Task.Run(fun () -> producers.Run ())
+        |> Lifetime.observeBackground logger "producers" cts.Token
+    let controlTask =
+        control
+        |> Option.map (fun input ->
+            OwnedControl.run logger input app.Lifetime.StopApplication cts.Token
+            |> Lifetime.observeBackground logger "owned-stdin" cts.Token)
+        |> Option.defaultValue Task.CompletedTask
     let port = servicePolicy.Port
-    logger.info $"Hermes service starting on http://localhost:{port}"
-    app.Run($"http://localhost:{port}")
-    cts.Cancel()
+    logger.info $"Hermes service starting on http://127.0.0.1:{port}"
+    serve
+        { App = app; Logger = logger; Cancellation = cts; Producers = producers
+          Workers = [ pipelineTask; producersTask; controlTask ]
+          Db = db; ReflowDb = reflowDb }
+        $"http://127.0.0.1:{port}"
 
-    // The connections are released only once every owned worker has provably
-    // stopped. Task.Run work runs on background threads, so returning here ends
-    // the process either way; leaving the connections to teardown is safer than
-    // disposing them beneath a live worker.
-    match
-        Lifetime.shutdown
-            logger (TimeSpan.FromSeconds 60.0) [ pipelineTask; producersTask ]
-        with
-    | Lifetime.Quiesced ->
-        reflowDb.dispose ()
-        db.dispose ()
-        0
-    | Lifetime.Abandoned _ -> Lifetime.AbandonedExitCode
+let private validateInvocation (invocation: OwnedControl.Invocation) =
+    match ReindexCommand.route invocation.Arguments with
+    | ReindexCommand.Service -> Ok invocation
+    | _ when invocation.Owned ->
+        Error "--control-stdin is valid only for an owned service child"
+    | _ -> Ok invocation
 
 [<EntryPoint>]
 let main args =
-    ServiceEntry.run args runService
+    OwnedControl.parse args
+    |> Result.bind validateInvocation
+    |> Result.map (fun invocation ->
+        ServiceEntry.run invocation.Arguments (runService invocation.Owned))
+    |> Result.defaultWith (fun error ->
+        Console.Error.WriteLine(error: string)
+        2)

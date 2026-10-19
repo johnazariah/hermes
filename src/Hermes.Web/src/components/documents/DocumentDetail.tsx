@@ -16,17 +16,21 @@ export function DocumentDetail({
     documentId: number;
     onBack: () => void;
 }) {
-    const { data: detail } = useQuery<DocumentDetailType>({
+    const { data: detail, error, isPending } = useQuery<DocumentDetailType>({
         queryKey: ["document", documentId],
         queryFn: () => fetchDocumentDetail(documentId),
     });
-    const { data: content } = useQuery<{ markdown: string }>({
+    const { data: content, error: contentError, isPending: contentPending } = useQuery<{ markdown: string }>({
         queryKey: ["document-content", documentId],
         queryFn: () => fetchDocumentContent(documentId),
         enabled: detail?.pipelineStatus.extracted === true,
     });
 
-    if (!detail)
+    if (error) return <div role="alert">
+        <button onClick={onBack}>Back to documents</button>
+        <p>Unable to load document: {error.message}</p>
+    </div>;
+    if (isPending || !detail)
         return <div className="text-neutral-500 text-sm">Loading…</div>;
 
     const doc = detail.summary;
@@ -79,7 +83,9 @@ export function DocumentDetail({
                     <div className="text-[10px] font-semibold tracking-widest text-neutral-500 mb-2">
                         EXTRACTED
                     </div>
-                    {content?.markdown ? (
+                    {contentError ? <p role="alert">Unable to load content: {contentError.message}</p>
+                    : detail.pipelineStatus.extracted && contentPending ? <p>Loading content...</p>
+                    : content?.markdown ? (
                         <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-4 text-sm whitespace-pre-wrap font-mono leading-relaxed overflow-y-auto flex-1">
                             {content.markdown}
                         </div>

@@ -24,11 +24,12 @@ type Server =
 
 let timeout = TimeSpan.FromSeconds 10.0
 
-let private createApp encoder policy origins db (files: TestHelpers.MemFs) deepDeps =
+let private createApp encoder policy origins ui db (files: TestHelpers.MemFs) deepDeps =
     let builder = WebApplication.CreateBuilder()
     builder.WebHost.UseUrls("http://127.0.0.1:0") |> ignore
     let app = builder.Build()
     LocalBoundary.attach app origins
+    ui |> Option.iter (CanonicalUi.attach app)
     let dag = TestHelpers.standardV5Dag ()
     ApiServer.mapRoutesWithSearch encoder app db db files.Fs TestHelpers.silentLogger
         TestHelpers.defaultClock dag None "/archive" "/config"
@@ -43,21 +44,21 @@ let private address (app: WebApplication) =
     |> Option.defaultWith (fun () -> failwith "No HTTP server addresses")
     |> fun feature -> feature.Addresses |> Seq.head
 
-let private start createDb encoder policy origins deepDeps =
+let private start createDb encoder policy origins deepDeps ui =
     task {
         let db = createDb ()
         do! TestHelpers.initV5 db
         let files = TestHelpers.memFs ()
-        let app = createApp encoder policy origins db files deepDeps
+        let app = createApp encoder policy origins ui db files deepDeps
         do! app.StartAsync()
         return
             { App = app; Db = db; Files = files
               Client = new HttpClient(BaseAddress = Uri(address app), Timeout = timeout) }
     }
 
-let withServerUsing createDb encoder policy origins deepDeps verify =
+let private withHostingServer createDb encoder policy origins deepDeps ui verify =
     task {
-        let! server = start createDb encoder policy origins deepDeps
+        let! server = start createDb encoder policy origins deepDeps ui
         try do! verify server
         finally
             server.Client.Dispose()
@@ -65,6 +66,12 @@ let withServerUsing createDb encoder policy origins deepDeps verify =
             server.App.DisposeAsync().AsTask().GetAwaiter().GetResult()
             server.Db.dispose ()
     }
+
+let withServerUsing createDb encoder policy origins deepDeps verify =
+    withHostingServer createDb encoder policy origins deepDeps None verify
+
+let withUiServer bundle origins verify =
+    withHostingServer TestHelpers.createDb None McpAccess.readOnly origins None (Some bundle) verify
 
 let withConfiguredServer encoder policy origins deepDeps verify =
     withServerUsing TestHelpers.createDb encoder policy origins deepDeps verify

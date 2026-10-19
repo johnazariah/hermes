@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { request } from "../api/http";
+import { triggerSync } from "../api/hermes";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -20,12 +22,12 @@ interface LearnedPattern {
 // ── API helpers ──────────────────────────────────────────────
 
 async function fetchConfig(): Promise<string> {
-    const res = await fetch("/api/settings");
+    const res = await request("/api/settings");
     return res.text();
 }
 
 async function saveConfig(yaml: string): Promise<void> {
-    await fetch("/api/settings", {
+    await request("/api/settings", {
         method: "PUT",
         headers: { "Content-Type": "text/yaml" },
         body: yaml,
@@ -33,17 +35,17 @@ async function saveConfig(yaml: string): Promise<void> {
 }
 
 async function fetchSyncAccounts(): Promise<SyncAccount[]> {
-    const res = await fetch("/api/sync/accounts");
+    const res = await request("/api/sync/accounts");
     return res.json();
 }
 
 async function fetchPreferences(): Promise<string> {
-    const res = await fetch("/api/preferences");
+    const res = await request("/api/preferences");
     return res.text();
 }
 
 async function savePreferences(text: string): Promise<void> {
-    await fetch("/api/preferences", {
+    await request("/api/preferences", {
         method: "PUT",
         headers: { "Content-Type": "text/plain" },
         body: text,
@@ -51,7 +53,7 @@ async function savePreferences(text: string): Promise<void> {
 }
 
 async function fetchLearnedPatterns(): Promise<LearnedPattern[]> {
-    const res = await fetch("/api/learned-patterns");
+    const res = await request("/api/learned-patterns");
     return res.json();
 }
 
@@ -109,25 +111,27 @@ export function SettingsPage() {
     const [saving, setSaving] = useState(false);
     const [saved, setSaved] = useState(false);
     const [prefsSaved, setPrefsSaved] = useState(false);
+    const [feedback, setFeedback] = useState<{ error: boolean; message: string } | null>(null);
+    const [syncPending, setSyncPending] = useState(false);
     const queryClient = useQueryClient();
 
-    const { data: config } = useQuery({
+    const { data: config, error: configError } = useQuery({
         queryKey: ["config"],
         queryFn: fetchConfig,
     });
 
-    const { data: accounts } = useQuery({
+    const { data: accounts, error: accountsError } = useQuery({
         queryKey: ["sync-accounts"],
         queryFn: fetchSyncAccounts,
         refetchInterval: 10000,
     });
 
-    const { data: prefs } = useQuery({
+    const { data: prefs, error: prefsError } = useQuery({
         queryKey: ["preferences"],
         queryFn: fetchPreferences,
     });
 
-    const { data: patterns } = useQuery({
+    const { data: patterns, error: patternsError } = useQuery({
         queryKey: ["learned-patterns"],
         queryFn: fetchLearnedPatterns,
         refetchInterval: 30000,
@@ -141,6 +145,9 @@ export function SettingsPage() {
             setSaved(true);
             setTimeout(() => setSaved(false), 2000);
             queryClient.invalidateQueries({ queryKey: ["config"] });
+            setFeedback({ error: false, message: "Configuration saved. Restart the Service to apply it." });
+        } catch (error) {
+            setFeedback({ error: true, message: error instanceof Error ? error.message : "Save failed." });
         } finally {
             setSaving(false);
         }
@@ -148,20 +155,35 @@ export function SettingsPage() {
 
     const handleSavePrefs = async () => {
         if (prefsText === null) return;
-        await savePreferences(prefsText);
-        setPrefsSaved(true);
-        setTimeout(() => setPrefsSaved(false), 2000);
-        queryClient.invalidateQueries({ queryKey: ["preferences"] });
+        try {
+            await savePreferences(prefsText);
+            setPrefsSaved(true);
+            setTimeout(() => setPrefsSaved(false), 2000);
+            queryClient.invalidateQueries({ queryKey: ["preferences"] });
+            setFeedback({ error: false, message: "Preferences saved." });
+        } catch (error) {
+            setFeedback({ error: true, message: error instanceof Error ? error.message : "Save failed." });
+        }
     };
 
     const handleSync = async () => {
-        await fetch("/api/sync", { method: "POST" });
+        if (syncPending) return;
+        setSyncPending(true);
+        try {
+            await triggerSync();
+            setFeedback({ error: false, message: "Sync request accepted. Progress appears in Pipeline." });
+        } catch (error) {
+            setFeedback({ error: true, message: error instanceof Error ? error.message : "Sync request failed." });
+        } finally { setSyncPending(false); }
     };
 
     const patternCount = patterns?.length ?? 0;
 
     return (
         <div className="mx-auto max-w-4xl space-y-6">
+            {(configError || accountsError || prefsError || patternsError) &&
+              <p role="alert">Unable to load settings: {(configError || accountsError || prefsError || patternsError)?.message}</p>}
+            {feedback && <p role={feedback.error ? "alert" : "status"}>{feedback.message}</p>}
             <div>
                 <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">
                     Settings
@@ -260,9 +282,10 @@ export function SettingsPage() {
                 actions={
                     <button
                         onClick={handleSync}
+                        disabled={syncPending}
                         className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-600"
                     >
-                        Sync Now
+                        {syncPending ? "Requesting sync..." : "Sync Now"}
                     </button>
                 }
             >

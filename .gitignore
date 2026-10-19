@@ -59,6 +59,9 @@ logs/
 dist/
 
 TestResults/
+src/Hermes.Web/test-results/
+src/Hermes.Web/playwright-report/
+src/Hermes.Service/wwwroot/
 
 tests/test-documents/*
 !tests/test-documents/sample-simple.pptx

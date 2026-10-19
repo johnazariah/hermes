@@ -93,6 +93,12 @@
     <Compile Include="ArchiveWriterTests.fs" />
     <Compile Include="ApiReflowTests.fs" />
     <Compile Include="HttpRegressionFixture.fs" />
+    <Compile Include="CanonicalUiTestSupport.fs" />
+    <Compile Include="CanonicalUiPreflightTests.fs" />
+    <Compile Include="CanonicalUiModuleTests.fs" />
+    <Compile Include="CanonicalUiHttpTests.fs" />
+    <Compile Include="CanonicalUiBoundaryTests.fs" />
+    <Compile Include="CanonicalUiStartupTests.fs" />
     <Compile Include="FileKeywordFixtures.fs" />
     <Compile Include="RetrievalHttpFixtures.fs" />
     <Compile Include="RetrievalPhysicalHashTests.fs" />
@@ -133,6 +139,20 @@
     <Compile Include="CorrectedExtractionHttpTests.fs" />
     <Compile Include="DeepExtractionHttpTests.fs" />
     <Compile Include="ServiceLifetimeTests.fs" />
+    <Compile Include="ServiceSyncTestSupport.fs" />
+    <Compile Include="ProducerCycleTestSupport.fs" />
+    <Compile Include="ProducerCycleFolderTests.fs" />
+    <Compile Include="ProducerCycleIntakeTests.fs" />
+    <Compile Include="ProducerCycleEmailTests.fs" />
+    <Compile Include="ProducerCycleFailureTests.fs" />
+    <Compile Include="ProducerCycleCancellationTests.fs" />
+    <Compile Include="ServiceSyncTests.fs" />
+    <Compile Include="ServiceControlTests.fs" />
+    <Compile Include="ServiceSyncHttpTests.fs" />
+    <Compile Include="OwnedServiceProcess.fs" />
+    <Compile Include="OwnedServiceHealthTests.fs" />
+    <Compile Include="OwnedServiceProcessTests.fs" />
+    <Compile Include="OwnedPipeAdmissionTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
@@ -146,5 +166,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Hermes.Core\Hermes.Core.fsproj" />
     <ProjectReference Include="..\..\src\Hermes.Service\Hermes.Service.fsproj" />
+    <ProjectReference Include="..\..\src\Hermes.UI\Hermes.UI.csproj" />
   </ItemGroup>
 </Project>
