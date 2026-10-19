@@ -58,6 +58,7 @@ let ``Valid sparse SDK metadata preserves missing values and documented body fal
 [<Theory>]
 [<InlineData("""{}""", "")>]
 [<InlineData("""{"emailAddress":{}}""", "")>]
+[<InlineData("""{"emailAddress":{"name":"","address":""}}""", "")>]
 [<InlineData("""{"emailAddress":{"address":"address@example.test"}}""", "address@example.test")>]
 [<InlineData("""{"emailAddress":{"name":"Name only"}}""", "Name only")>]
 [<Trait("Category", "Integration")>]
@@ -104,7 +105,9 @@ let private inlineFiles: Domain.EmailAttachment list =
       binaryFile fileName mimeType binaryContent ]
 
 let private inlinePart (file: Domain.EmailAttachment) : obj | null =
-    let disposition = if file.FileName = fileName then "attachment" else "inline"
+    let disposition =
+        if file.FileName = fileName then "attachment"
+        else "InLiNe; filename=inline.png"
     box
         {| filename = file.FileName
            mimeType = file.MimeType

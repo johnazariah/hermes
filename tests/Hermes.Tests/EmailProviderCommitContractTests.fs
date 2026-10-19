@@ -146,6 +146,14 @@ let private unreadableWatermark (fixture: Fixture) : Fixture =
                 Task.FromException<obj | null>(InvalidOperationException(watermarkFailure)) }
     { fixture with Database = database }
 
+let private assertReadFailureSummary (fixture: Fixture) (result: RunResult) : unit =
+    assertStorageFailure result
+    Assert.Equal<string>(watermarkFailure, Assert.Single<string>(result.Summary.Errors))
+    Assert.Equal<string>(fixture.Account, result.Summary.Account)
+    Assert.Contains<string>(
+        fixture.Logs,
+        Predicate<string>(fun text -> text.Contains(watermarkFailure, StringComparison.Ordinal)))
+
 let private verifyReadFailure (fixture: Fixture) (provider: Algebra.EmailProvider)
     (requests: ConcurrentQueue<HttpMethod>) (legacy: bool) : Task<unit> =
     task {
@@ -153,9 +161,7 @@ let private verifyReadFailure (fixture: Fixture) (provider: Algebra.EmailProvide
         do! seedWatermark fixture initial
         let broken = unreadableWatermark fixture
         let! result = if legacy then legacyRun broken provider else run broken provider 1
-        assertStorageFailure result
-        Assert.Equal<string>(watermarkFailure, Assert.Single<string>(result.Summary.Errors))
-        Assert.Equal<string>(fixture.Account, result.Summary.Account)
+        assertReadFailureSummary fixture result
         Assert.Empty(requests)
         Assert.Empty(fixture.Files.Files)
         let! count = documentCount fixture

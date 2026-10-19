@@ -2,11 +2,54 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
-## Current local integration — PR #20, unpublished
+## Coverage salvage — PR #21 local candidate
 
-The local source integrates deterministic V5 reflow with merged `main` `367feb4`.
-It is independently approved and validated locally, but remains uncommitted;
-the published PR #20 head and its historical checks have not changed.
+The useful test contracts from old drafts #21-#23 are reconciled onto merged
+reflow without restoring their superseded production changes. Sixteen provider
+cases, eight Config cases and four FolderWatcher cases add 28 executed cases;
+one controlled deadline/cleanup regression adds a twenty-ninth case.
+Existing replay, concurrent identity and failure-logging assertions are stronger.
+
+| Measure | Result |
+|---------|--------|
+| Release build | Passed; 0 warnings/errors |
+| Provider-focused selection | 32 passed, 0 failed/skipped |
+| Config/FolderWatcher selection | 12 passed, 0 failed/skipped |
+| Provider-only full execution | 1,131 total; 1,121 passed, 10 existing skips, 0 failed |
+| Final bounded-enumeration selection | 4 passed, 0 failed/skipped |
+| Final combined full execution | 1,144 total; 1,134 passed, 10 existing skips, 0 failed |
+| Combined root line coverage | 9,154 / 11,604 = 78.8866% |
+| Final root branch coverage | 7,907 / 18,295 |
+| Assembly scope | Core, Service, UI; unchanged |
+| Production source changes | None |
+| Independent F# review | Approved after a different author corrected bounded producer progress |
+| Current published-head CI | Pending |
+
+Provider-only line coverage was 9,122/11,604, within the known one-line
+adjacent-run variance; no provider-only line-rate improvement is claimed.
+The combined recovered coverage exceeds both conservative local and published
+reflow baselines without exclusions or lower thresholds. All ten existing skips
+remain; broader fixture quality and 85%/60% wave closure remain #18 work.
+
+New modules: `EmailEnumerationContractTests` (4), `EmailChannelFailureContractTests`
+(4), `GmailPayloadContractTests` (5), `OutlookSparseMappingTests` (3),
+`ConfigSalvageTests` (8), `FolderWatcherScanContractTests` (4). One new empty-sender
+row extends `EmailProviderOptionalContractTests`; existing producer/optional/
+commit-contract modules retain their registered cases.
+
+Independent review rejected an unbounded producer wait in the first candidate.
+A different author added an operation deadline outside the expected-exception
+assertion, owned cancellation and a bounded join that reports cleanup failure.
+The controlled timeout case proves the fixture-owned producer stops before the
+test returns. No claim is made that cancellation can forcibly stop arbitrary
+noncooperative code.
+
+## Integrated reflow baseline — PR #20
+
+PR #20 merged into `main` as `55ec588`, following metadata-only reclassification
+in PR #19. Its published head `b65f4b3` passed all five build/test jobs; Windows
+and macOS each executed 1,115 cases (1,105 passed, 10 existing skips, 0 failed).
+The merge tree is identical to the independently approved published tree.
 
 | Measure | Executed result, 2026-10-19 |
 |---------|----------------------------|
@@ -20,7 +63,8 @@ the published PR #20 head and its historical checks have not changed.
 | Final package covered/valid lines | Core 8,811/10,252; Service 312/921; UI 0/431 |
 | Exact unchanged 75% root gate | Passed without rounding, exclusions or threshold changes |
 | Independent F# review | Approved after a different author corrected three substantive findings |
-| Current Windows/published-head CI | Not run for this uncommitted integration |
+| Published Windows/macOS CI | Passed at `b65f4b3`; both OS suites 1,105 passed, 10 skipped, 0 failed |
+| Published Windows exact root line coverage | 9,122 / 11,604 = 78.6108%; Core, Service and UI included |
 
 These broader root rates must not be described as Core-only coverage or as
 meeting the 85% line / 60% branch wave-close target. The ten existing skips and
