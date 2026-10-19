@@ -16,7 +16,12 @@
     <Compile Include="ArchiveWriter.fs" />
     <Compile Include="Config.fs" />
     <Compile Include="Logging.fs" />
+    <Compile Include="DatabaseExecution.fs" />
+    <Compile Include="SavedPathSchema.fs" />
     <Compile Include="Database.fs" />
+    <Compile Include="SourceFileAccess.fs" />
+    <Compile Include="SourceFiles.fs" />
+    <Compile Include="Reclassification.fs" />
     <Compile Include="Document.fs" />
     <Compile Include="Rules.fs" />
     <Compile Include="SenderClassification.fs" />
@@ -35,6 +40,7 @@
     <Compile Include="DeepExtraction.fs" />
     <Compile Include="DocumentFeed.fs" />
     <Compile Include="DocumentManagement.fs" />
+    <Compile Include="ReclassificationApi.fs" />
     <Compile Include="Classifier.fs" />
     <Compile Include="DocumentBrowser.fs" />
     <Compile Include="Threads.fs" />
@@ -44,6 +50,13 @@
     <Compile Include="Stats.fs" />
     <Compile Include="Reminders.fs" />
     <Compile Include="Chat.fs" />
+    <Compile Include="ThreadBodySource.fs" />
+    <Compile Include="ThreadBodyIngestion.fs" />
+    <Compile Include="EmailAttachmentIngestion.fs" />
+    <Compile Include="EmailChannelPersistence.fs" />
+    <Compile Include="EmailRateLimit.fs" />
+    <Compile Include="EmailChannelEnumeration.fs" />
+    <Compile Include="EmailChannelConsumer.fs" />
     <Compile Include="EmailSync.fs" />
     <Compile Include="GmailProvider.fs" />
     <Compile Include="OutlookProvider.fs" />

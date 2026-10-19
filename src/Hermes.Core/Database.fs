@@ -1,6 +1,8 @@
 namespace Hermes.Core
 
+open System
 open System.IO
+open System.Text
 open System.Threading.Tasks
 open Microsoft.Data.Sqlite
 
@@ -9,7 +11,7 @@ open Microsoft.Data.Sqlite
 [<RequireQualifiedAccess>]
 module Database =
 
-    let [<Literal>] CurrentSchemaVersion = 8
+    let [<Literal>] CurrentSchemaVersion = 14
 
     // ─── Schema DDL ──────────────────────────────────────────────────
 
@@ -88,6 +90,12 @@ module Database =
            "CREATE INDEX IF NOT EXISTS idx_doc_extracted  ON documents(extracted_at);"
            "CREATE INDEX IF NOT EXISTS idx_doc_embedded   ON documents(embedded_at);"
            "CREATE INDEX IF NOT EXISTS idx_doc_stage     ON documents(stage);"
+
+           // Remove bookkeeping belonging only to the deferred repair operator.
+           "DROP TRIGGER IF EXISTS documents_epoch_insert;"
+           "DROP TRIGGER IF EXISTS documents_epoch_update;"
+           "DROP TRIGGER IF EXISTS documents_epoch_delete;"
+           "DROP TABLE IF EXISTS documents_change_epoch;"
 
            """
         CREATE TABLE IF NOT EXISTS sync_state (
@@ -168,7 +176,35 @@ module Database =
         """
            "CREATE INDEX IF NOT EXISTS idx_tags_doc ON tags(document_id);"
            "CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag);"
-           "CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_unique ON tags(document_id, tag);"
+           "DROP INDEX IF EXISTS idx_tags_unique;"
+           "CREATE UNIQUE INDEX idx_tags_unique ON tags(document_id, tag, COALESCE(created_by, ''));"
+
+           // Keep the compatibility category and its provenance tag in the
+           // same SQLite statement as a documents metadata update.
+           "DROP TRIGGER IF EXISTS doc_reclassification_tag;"
+           """
+        CREATE TRIGGER doc_reclassification_tag
+        AFTER UPDATE OF category, classification_tier, classification_confidence ON documents
+        WHEN new.classification_tier IN ('manual', 'content')
+        BEGIN
+            DELETE FROM tags
+            WHERE document_id = new.id
+              AND created_by = 'reclassification'
+              AND tag <> new.category;
+
+            INSERT INTO tags (document_id, tag, source, confidence, created_by)
+            VALUES (
+                new.id,
+                new.category,
+                CASE new.classification_tier WHEN 'manual' THEN 'user' ELSE 'classifier' END,
+                new.classification_confidence,
+                'reclassification')
+            ON CONFLICT(document_id, tag, COALESCE(created_by, '')) DO UPDATE SET
+                source = excluded.source,
+                confidence = excluded.confidence,
+                created_by = excluded.created_by;
+        END;
+        """
 
            // ── Contacts (address book) ──────────────────────────────────
            """
@@ -303,6 +339,72 @@ module Database =
 
     // ─── Low-level helpers ───────────────────────────────────────────
 
+    type CanonicalArchivePath =
+        { FullPath: string
+          OwnershipKey: string }
+
+    let private canonicalize (path: string) : string =
+        path
+        |> Path.GetFullPath
+        |> Path.TrimEndingDirectorySeparator
+        |> fun value -> value.Normalize(NormalizationForm.FormC)
+
+    let private resolveUnresolved
+        (archiveDirectory: string)
+        (savedPath: string)
+        : string =
+        let separator = Path.DirectorySeparatorChar
+        let normalizedSeparators =
+            savedPath.Replace('\\', separator).Replace('/', separator)
+
+        if Path.IsPathRooted normalizedSeparators then
+            normalizedSeparators
+        else
+            Path.Combine(archiveDirectory, normalizedSeparators)
+
+    /// True when `candidateKey` (already canonicalized: full path, trailing
+    /// separator trimmed, FormC-normalized, upper-invariant) is the archive
+    /// root itself, or a descendant of it.
+    let private isWithinArchive (rootKey: string) (candidateKey: string) : bool =
+        let separator = string Path.DirectorySeparatorChar
+        let prefix =
+            if rootKey.EndsWith(separator, StringComparison.Ordinal) then rootKey
+            else rootKey + separator
+
+        candidateKey = rootKey
+        || candidateKey.StartsWith(prefix, StringComparison.Ordinal)
+
+    /// Resolve an archive path using the conservative ownership contract used
+    /// by both filesystem validation and transactional database ownership.
+    /// Invariant case folding intentionally rejects case-distinct paths rather
+    /// than risking aliases on supported Windows/macOS filesystems. Rooted
+    /// paths and `..` segments are both resolved and then required to stay
+    /// inside the archive directory.
+    let canonicalArchivePath
+        (archiveDirectory: string)
+        (savedPath: string)
+        : Result<CanonicalArchivePath, string> =
+        if String.IsNullOrWhiteSpace archiveDirectory then
+            Error "Archive directory must not be empty"
+        elif String.IsNullOrWhiteSpace savedPath then
+            Error "Saved path must not be empty"
+        else
+            try
+                let rootKey =
+                    archiveDirectory |> canonicalize |> fun value -> value.ToUpperInvariant()
+
+                let fullPath = resolveUnresolved archiveDirectory savedPath |> canonicalize
+                let ownershipKey = fullPath.ToUpperInvariant()
+
+                if isWithinArchive rootKey ownershipKey then
+                    Ok { FullPath = fullPath; OwnershipKey = ownershipKey }
+                else
+                    Error "Saved path escapes the archive directory"
+            with
+            | :? ArgumentException as ex -> Error ex.Message
+            | :? NotSupportedException as ex -> Error ex.Message
+            | :? PathTooLongException as ex -> Error ex.Message
+
     let boxVal (x: 'a) : obj = x :> obj
 
     let private addParams (cmd: SqliteCommand) (ps: (string * obj) list) =
@@ -402,6 +504,10 @@ module Database =
                     let! _ = execNonQuery conn sql []
                     ()
 
+                for sql in SavedPathSchema.statements do
+                    let! _ = execNonQuery conn sql []
+                    ()
+
                 // Run migrations for existing databases
                 do! runMigrations conn
 
@@ -441,15 +547,29 @@ module Database =
 
     // ─── Build the Database algebra from a connection ────────────────
 
-    /// Create a Database algebra record backed by the given SqliteConnection.
+    /// Explicit archive authority for isolated databases and embedded callers.
+    let fromConnectionForArchive archiveDirectory (conn: SqliteConnection) =
+        let key savedPath =
+            canonicalArchivePath archiveDirectory savedPath
+            |> Result.bind (fun canonical ->
+                let physicalPath =
+                    resolveUnresolved archiveDirectory savedPath |> Path.GetFullPath
+                SavedPathSchema.validateFile archiveDirectory physicalPath
+                |> Result.map (fun () -> canonical.OwnershipKey))
+        SavedPathSchema.register conn key
+        DatabaseExecution.create conn (fun () -> initSchemaImpl conn)
+
+    /// File databases derive archive authority from the database's directory.
     let fromConnection (conn: SqliteConnection) : Algebra.Database =
-        { execNonQuery = fun sql ps -> execNonQuery conn sql ps
-          execScalar = fun sql ps -> execScalar conn sql ps
-          execReader = fun sql ps -> execReader conn sql ps
-          initSchema = fun () -> initSchemaImpl conn
-          tableExists = fun name -> tableExistsImpl conn name
-          schemaVersion = fun () -> schemaVersionImpl conn
-          dispose = fun () -> conn.Dispose() }
+        let archiveDirectory =
+            if String.IsNullOrWhiteSpace conn.DataSource || conn.DataSource = ":memory:" then
+                Environment.CurrentDirectory
+            else
+                conn.DataSource |> Path.GetFullPath |> Path.GetDirectoryName
+                |> Option.ofObj
+                |> Option.defaultWith (fun () ->
+                    invalidOp "The database path has no parent directory")
+        fromConnectionForArchive archiveDirectory conn
 
     /// Create a Database algebra from a file path. Opens connection + enables WAL.
     let fromPath (dbPath: string) : Algebra.Database =

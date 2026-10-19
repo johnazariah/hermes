@@ -111,9 +111,9 @@ module Pipeline =
                                 let isDup = match dupResult with :? int64 as i -> i > 0L | _ -> false
                                 if isDup then
                                     logger.info $"Duplicate detected (sha256={sha256.[..7]}), removing: {fileName}"
-                                    fs.deleteFile filePath
+                                    do! SourceFiles.delete db fs filePath
                                     let metaPath = filePath + ".meta.json"
-                                    if fs.fileExists metaPath then fs.deleteFile metaPath
+                                    do! SourceFiles.delete db fs metaPath
                                 else
                                     // Compute relative path from archive root
                                     let relativePath =
@@ -138,7 +138,7 @@ module Pipeline =
                                     if docId > 0L then
                                         // Clean up old sidecar if present
                                         let metaPath = filePath + ".meta.json"
-                                        if fs.fileExists metaPath then fs.deleteFile metaPath
+                                        do! SourceFiles.delete db fs metaPath
                                         // Ingest into pipeline
                                         let! _ = ingest db logger extractWriter (Map.ofList [ "id", box docId ])
                                         logger.info $"Folder watcher: ingested '{fileName}' as doc {docId}"

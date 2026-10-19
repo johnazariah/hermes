@@ -98,6 +98,129 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-19 - Publication and merge explicitly authorised
+
+- **Changed:** John requested pushing the completed revision, creating a PR and merging it. PR #19 is already open on the approved branch with base `main`, so publication will update that PR rather than create a duplicate or retarget the established integration path.
+- **Evidence:** The checkout remains on `johnazariah-17-file-first-reclassification`; its 242 reviewed source/build/test files match the hash-verified cross-platform snapshot. The published head is still `c9e5d4f` before this publication step.
+- **Validation:** Fresh Release builds of Core, Service and Tests passed without warnings/errors; the full test run passed 982 with 10 existing skips (992 total). Fresh Core line coverage is 6088/8107 (75.0956%), above the unchanged exact 75% gate. Staged diff, credential/token/private-key checks and prior independent source/test approval passed; the PR body will follow the repository template.
+- **Blockers:** Published-head GitHub checks have not run yet. No branch-protection rule was returned for `main`, but the project quality/review gates will still be enforced without bypass.
+- **Next:** Commit the approved source/tests/docs and bounded CI-retention concern, push normally, verify checks for the exact resulting head and merge only after the blocking jobs pass. Do not close the stabilization wave or parent #17 prematurely.
+
+### 2026-10-19 - Narrowed local revision approved and validated on macOS and Windows
+
+- **Changed:** Option 1 is implemented locally: ordinary reclassification is metadata-only, legacy repair is separate, email bodies and annotations remain immutable history, failed email storage stays retryable, and real provider/pagination faults remain visible. Independent source and test-slice reviews approve the revision. Coverage-report retention is 7 days and build-bundle retention is 3 days; thresholds and dependency-only caching remain unchanged.
+- **Evidence:** The complete suite passes twice on macOS and once on an existing idle Windows CI host: 992 cases, 982 passed, 10 existing skips, 0 failed. Release Core/Service/Tests builds pass on both platforms; Windows Tray also builds with 0 warnings/errors. Windows used a hash-verified source snapshot, temporary SHA-512-verified SDK 9.0.313 and isolated public-package cache. The runner service/workspace were untouched, all Windows temporary files were removed after evidence retrieval, and the runner remains online/idle.
+- **Validation:** Exact root/Core-only line coverage is conservatively 6,086/8,107 (75.0709%) on macOS and 6,087/8,107 (75.0833%) on Windows; both clear the unchanged 75% gate. Branch coverage is 40.8685% / 40.9317%. Final isolated HTTP/MCP/schema-v14 smoke passes with the documented content-root/polling accommodation; helper services and the session-only diagnostic tool were stopped/removed. Evidence is in session artifacts, including the Windows source manifest, TRX/coverage archive and adjacent-run gate report.
+- **Blockers:** Changes remain uncommitted/unpushed; the published PR head and its GitHub Actions results have not changed. This is manual cross-platform proof, not a remote CI result or merge approval. PRs #20-#23 remain integration-blocked until #19 is published and merged. The 85% line / 60% branch wave-close target and pre-existing skip-quality issues remain owned by later stabilization work.
+- **Next:** Publish the approved local revision only with explicit Git publication authority, then verify GitHub checks and integration before unfreezing dependent PRs. No paid compute/storage, live-corpus replay, credential disclosure or shared-runner reconfiguration occurred.
+
+### 2026-10-18 - Revision 2 approved; targeted contracts narrow the coverage gap
+
+- **Changed:** The fresh revision preserves immutable processed body history, uses full-provider-ID SHA-256 filenames, and propagates actual Gmail/Outlook transport and enumeration failures. Independent source-correctness approval stands. Ten additional real-SDK positive contracts cover non-empty lists/pages, full bodies, exact binary attachment mapping, committed source identity and idempotent retry without production changes.
+- **Evidence:** Source review approved revision 2; final HTTP/MCP/schema-v14 smoke passed using an isolated content root and polling. The original native macOS watcher stall was recorded on issue [#8](https://github.com/johnazariah/hermes/issues/8#issuecomment-6250445807) as an environmental lifecycle investigation, not a production fix. All helper services were stopped.
+- **Validation:** The positive contract suite passes 10 cases. Full execution is 980 total, 970 passed, 10 existing skips, 0 failed. Root/Core-only coverage is 6,054/8,107 lines (74.6762%) and 5,121/12,665 branches (40.43%); the exact unchanged 75% line gate still fails.
+- **Blockers:** Twelve further bounded optional-metadata/commit-error cases need a compiler-only JsonElement interop correction before execution. Their results and the remaining line-coverage gap are not waived. Windows/CI/publication and the 85% / 60% wave-close target remain separate gates.
+- **Next:** Validate the final targeted cases, measure the exact gate again, then obtain scoped independent review of the test-only additions. No source publication, merge, paid usage or live-corpus replay occurred.
+
+### 2026-10-18 - Autopilot authorised; storage retention bounded
+
+- **Changed:** John granted the bridge, enabled autopilot and approved the recommended path without routine questions. CI coverage artifacts now retain for 7 days and build bundles for 3 days; Windows coverage upload runs even when the threshold step fails. Dependency-only npm caching and existing coverage thresholds are unchanged; no paid cache expansion was enabled.
+- **Evidence:** `.squad/decisions/inbox/copilot-autopilot-and-storage-retention.md`; `.github/workflows/ci.yml` parsed successfully and its retention values/upload condition were checked locally. No Actions workflow was triggered and no retained artifact was deleted.
+- **Blockers:** Revision 2's independently authored immutable-history and provider-error corrections are applied but still being validated. Core and Service Release builds pass; the new test fixture currently fails F# parsing of a generated `@odata.nextLink` field. This is not a readiness claim.
+- **Next:** Complete the fresh author's bounded correction/validation cycles, rerun independent review, and retain the no-paid-usage, immutable-history and non-destructive-data constraints.
+
+### 2026-10-18 - Owner chose immutable email-body history
+
+- **Changed:** John selected retaining earlier email-body documents, extracted data, tags and notes as immutable archive history, rather than replacing a previous document and transferring annotations. This supersedes latest-body retirement for new ingestion.
+- **Evidence:** `.squad/decisions/inbox/copilot-immutable-email-body-history.md`; the decision follows independent review finding that deleting a processed previous body violates dependent foreign keys and risks losing document annotations.
+- **Blockers:** Revision 1 remains rejected; its author is locked out of the next correction. Provider error propagation, collision-resistant new-message filenames, historical-state preservation and renewed independent proof remain required. No historical reconstruction, path rewrite or corpus replay is approved.
+- **Next:** Assign a fresh author the three bounded review corrections under the immutable-history and whole-email retry decisions; remove obsolete replacement assumptions rather than adding destructive cascades.
+
+### 2026-10-18 - Whole-email correction passes locally; independent review rejected
+
+- **Changed:** The owner-approved whole-email correction, preserved cancellable rate-limit handling and legacy/backfill retry regressions now compile. The final revision remains uncommitted and is not approved for integration.
+- **Evidence:** Release Core/Service/Tests builds have 0 warnings/errors; the focused atomic/rate/legacy/body/retirement run passes 29 cases. Full execution is 943 total, 933 passed, 10 existing skips, 0 failed. Comparable Core-only coverage is 70.16% line (5,762/8,212) and 36.75% branch (4,754/12,935), above original-head 68.50% / 33.58%. Final-head isolated HTTP/MCP and synthetic schema-v13 upgrade probes passed; helper services were stopped.
+- **Validation:** A fresh independent F# reviewer rejected the revision on three P1 gaps: processed-body retirement violates non-cascading foreign keys, shortened provider IDs can cause deterministic same-day filename collisions, and production providers can hide transport errors as empty successful results. Passing current tests does not prove those scenarios.
+- **Blockers:** The current author is locked out of the next revision. Corrections need a different independent author and regression proof; retirement handling needs an explicit non-destructive policy for existing user annotations. The 75% merge gate and 85% / 60% wave-close target remain unmet/unproven; PRs #20-#23 stay frozen.
+- **Next:** Resolve whether prior email-body documents are retained as immutable history or replaced with deliberate annotation transfer, then assign the three bounded corrections to a fresh author. No commit, push, merge or live-corpus access is authorised.
+
+### 2026-10-18 - Public CI billing clarified; storage limits proposed
+
+- **Changed:** Corrected Copilot's overly restrictive interpretation of the budget directive. Hermes is public, and standard GitHub-hosted compute is free without consuming the private-repository minutes allowance; self-hosting is not required to save Hermes compute minutes. No paid compute/storage remains the constraint.
+- **Evidence:** GitHub repository visibility and [official billing documentation](https://docs.github.com/en/billing/concepts/product-billing/github-actions). Read-only storage inventory found no retained Hermes Actions artifacts and zero cache bytes. Published bundles currently retain for 14 days; coverage uploads inherit repository retention.
+- **Blockers:** Proposed 7-day coverage retention, 3-day bundle retention and dependency-only caching without paid cache expansion have not been approved or implemented. Existing CI/review/coverage gates and the prohibition on unapproved commit/push/merge remain.
+- **Next:** Preserve the billing distinction in CI planning and obtain approval before changing retention or shared-runner registrations; continue local correction of the owner-approved whole-email ingestion policy.
+
+### 2026-10-18 - Owner chose whole-email retry after ingestion failure
+
+- **Changed:** John selected keeping the whole email unprocessed and retrying it next sync when its body or an attachment cannot be saved, rather than adding separate per-part retry tracking. This applies to new attempts; no historical-message reset or corpus replay is approved.
+- **Evidence:** `.squad/decisions/inbox/copilot-email-ingestion-acknowledgement.md`; the independent author's producer trace found that a swallowed failure could retain a processed-message marker while advancing the watermark. A regression test has been authored and must not be skipped or weakened.
+- **Validation:** The canonical named-lambda route correction now passes actual isolated HTTP/MCP probes: category PUT/idempotence, legacy and canonical batches, deprecated single POST, repeated tool discovery, MCP success/error, and removed repair rejection. Source bytes/path/hash, extraction/embedding timestamps and stage-completion rows remained unchanged. The helper Service was stopped.
+- **Blockers:** Whole-email commit/acknowledgement, staged-source protection against deletion/movement, baseline coverage recovery and renewed independent review remain incomplete. No hosted CI or push occurred.
+- **Next:** Implement and prove atomic new-attempt registration, truthful failures, post-commit callbacks/retirement and next-sync retry without a new per-attachment retry subsystem.
+
+### 2026-10-18 - Narrowed revision builds; validation gates remain
+
+- **Changed:** Applied a fresh independent F# author's revision removing the repair modules/operator and restoring callable compatibility adapters. The retained ownership work adds transaction-scoped database execution, canonical-path guards and guarded ingestion/artifact writes. Changes remain uncommitted on the approved PR #19 branch.
+- **Evidence:** Core, Service and Tests Release builds pass with 0 warnings/errors; 152 focused cases pass. The full local suite executes 917 cases (907 passed, 10 existing skips). An isolated Service using only a synthetic session archive is responsive and ingests the fixture.
+- **Validation:** Revised Core-only Cobertura is 67.54% line (5,366/7,944) and 32.33% branch (4,023/12,442), below original-head 68.50% / 33.58%; this is a blocking regression, not a completed coverage gate. Real HTTP testing also found a valid canonical category PUT returning 400 before handler execution. The isolated helper Service was stopped after the probe.
+- **Blockers:** Producer ownership/interleaving evidence, canonical HTTP route binding, restored baseline coverage, renewed independent review and existing CI gates remain. No hosted workflow, commit, push, merge or live-corpus replay occurred.
+- **Next:** Have the independent author correct the route binding and add targeted producer/staged-source tests, then rerun local transport and same-scope coverage evidence before readiness review.
+
+### 2026-10-18 - Existing runner hosts inventoried over SSH
+
+- **Changed:** The owner completed the one-time SSH login; the existing agent-held public key was installed and passwordless, strict-host-key-checked access to Proxmox was verified. No VM or runner service was created, stopped or reconfigured.
+- **Evidence:** Proxmox `p43-proxmox` has running Ubuntu CI VMs 200 (`pelican-ci-1`, `192.168.1.220`) and 201 (`pelican-ci-2`, `192.168.1.221`), plus running Windows CI VM 202 (`pelican-win-ci`). GitHub reports `proxmox-linux-ci-1`, `proxmox-linux-ci-2` and `macbook-arm64-pelican` online and idle in `johnazariah/pelican`. Hermes still has zero registered runners.
+- **Blockers:** Pelican repository-scoped runner registrations are not automatically available to Hermes. Windows VM inventory is incomplete because its QEMU guest agent is not running. Online/idle is an observation, not permission to stop or reassign a shared runner.
+- **Next:** Confirm reuse through additional Hermes registrations on existing hosts while preserving Pelican service availability and real Windows/macOS validation. No hosted workflow is to be triggered.
+
+### 2026-10-18 - Self-hosted CI budget constraint recorded
+
+- **Changed:** John directed that no GitHub-hosted Actions minutes be used, with existing runners on Proxmox `192.168.1.222` preferred over provisioning more. Local validation continues; no workflow dispatch, rerun or push is authorised while workflows still target hosted runners.
+- **Evidence:** `.squad/decisions/inbox/copilot-self-hosted-ci-budget.md`; read-only repository runner inventory returned zero registered Hermes runners. Current CI and Squad workflows still target GitHub-hosted runners, so changing labels or closing issues can also trigger hosted work.
+- **Blockers:** Existing SSH-key access for the configured `johnaz` login and standard Proxmox `root` login was rejected. Runner host inventory, usable operating systems, labels and repository access remain unverified. Existing CI/review/coverage gates are not waived.
+- **Next:** Obtain the correct existing SSH login or host alias, inventory reusable runners without modifying them, and propose routing that preserves real platform evidence before any push.
+
+### 2026-10-18 - Metadata-only reclassification scope approved
+
+- **Changed:** John approved Option 1 for PR #19: finish metadata-only reclassification with compatible public outcomes and global canonical-path ownership safeguards, and remove legacy repair from this PR. Recovery is deferred to issue #24 for separate design and review; existing broken paths are not declared repaired.
+- **Evidence:** Owner decision on [#17](https://github.com/johnazariah/hermes/issues/17#issuecomment-6248839165), scope note on [PR #19](https://github.com/johnazariah/hermes/pull/19#issuecomment-6248839662), and `.squad/decisions/inbox/copilot-pr19-metadata-only-scope.md`. The obsolete `status:needs-decision` label was removed. The owner explicitly approved switching this checkout to the existing PR #19 branch.
+- **Validation:** Before implementation, original head `c9e5d4f` passed Release Core/Tests and Service builds with 0 warnings/errors; the full suite ran 951 cases (941 passed, 10 skipped). Comparable Core-only Cobertura measured 68.50% line (5,888/8,595) and 33.58% branch (4,215/12,549).
+- **Blockers:** The scope decision does not approve the implementation or waive review/CI. A fresh independent F# revision is required under the existing reviewer lockout. PRs #20-#23 remain frozen pending the narrowed change and required rebases/revalidation.
+- **Next:** Remove the repair operator and scan/cursor machinery while proving retained reclassification, compatibility and ownership requirements. No commit, push, merge or live-corpus replay is authorised.
+
+### 2026-08-29 - File-first repair correction approved
+
+- **Changed:** Legacy path repair now uses atomic canonical ownership, archive containment, bounded resumable pages, snapshot restarts, and truthful apply outcomes; React reclassification clears hidden selections across direct and browser-history filter changes and surfaces malformed success responses as errors.
+- **Evidence:** PR #19 correction; `Database.fs`, `LegacyReclassification.fs`, `McpLegacyReclassification.fs`, `DocumentsPage.tsx`, and focused database, MCP, legacy-repair, and Playwright tests.
+- **Validation:** Release solution build passed with 0 warnings/errors; 951 .NET cases ran (941 passed, 10 skipped); Core coverage reached 68.50% line / 33.58% branch; changed-file ESLint passed; all 9 React reclassification Playwright cases passed; independent F# and React reviews approved the scoped correction.
+- **Blockers:** The pre-existing repository-wide 75% CI line gate remains owned by issue #18; Service-hosted React routing remains Phase 1D scope.
+- **Next:** Commit the independently approved correction for mechanical integration into PR #19 and branch-level CI review.
+
+### 2026-08-29 - Reclassification filter race prevented
+
+- **Changed:** Desktop and mobile document filters are disabled while reclassification is pending, preventing completion from restoring failed IDs into a different, invisible result view.
+- **Evidence:** `DocumentsPage.tsx`, `reclassification.spec.ts`, and the rebuilt React Service assets.
+- **Validation:** React TypeScript/Vite build and changed-file ESLint passed; all 6 reclassification Playwright cases passed against Vite preview, including delayed-mutation filter lockout.
+- **Blockers:** None.
+- **Next:** Return the correction for independent reviewer approval without committing or pushing.
+
+### 2026-08-27 - Reclassification batch counts corrected
+
+- **Changed:** Batch reclassification now reports changed, unchanged, and failed outcomes separately so idempotent no-ops do not inflate the successful-change count.
+- **Evidence:** PR #19 follow-up; `ReclassificationApi.fs`, `ReclassificationApiTests.fs`, and the additive React response type.
+- **Validation:** Full solution build passed; 898 .NET tests ran (888 passed, 10 skipped); Core coverage reached 66.88% line / 31.27% branch; React build and focused ESLint passed; independent F# review approved.
+- **Blockers:** The pre-existing 75% CI line-coverage gate remains tracked by issue #18.
+- **Next:** Re-run PR #19 checks and continue review without merging.
+
+### 2026-08-27 - Metadata-only reclassification completed
+
+- **Changed:** Reclassification now updates compatibility category, provenance, generated category tags, and FTS metadata atomically without moving source bytes; REST, MCP, Classifier, and React expose explicit outcomes, and bounded legacy repair changes only SHA-proven path metadata.
+- **Evidence:** Issue #17; `Reclassification.fs`, `LegacyReclassification.fs`, `ReclassificationApi.fs`, `ApiServer.fs`, `McpTools.fs`, and the three new reclassification test modules.
+- **Validation:** Full solution build passed with 0 warnings/errors; 898 .NET tests ran (888 passed, 10 skipped); Core coverage reached 66.84% line / 31.22% branch; React build and changed-file ESLint passed.
+- **Blockers:** The pre-existing out-of-sync React lockfile and four unrelated full-lint errors remain assigned to later stabilization work.
+- **Next:** Review and merge PR B, then rebase dependent Phase 1A work without expanding into replay or Phase 1B search.
+
 ### 2026-08-27 - Phase 0 review correction
 
 - **Changed:** Preserved the original completion entry and appended the PR review gate, issue #18, documentation truth corrections, and final privacy scrub.

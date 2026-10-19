@@ -179,10 +179,11 @@ module EmailSync =
         (now: DateTimeOffset)
         : Task<int64> =
         task {
-            let! _ =
-                db.execNonQuery
+            let! idObj =
+                db.execScalar
                     """INSERT INTO documents (source_type, gmail_id, thread_id, account, sender, subject, email_date, original_name, saved_path, category, mime_type, size_bytes, sha256)
-                       VALUES (@src, @gid, @tid, @acc, @sender, @subject, @date, @orig, @path, @cat, @mime, @size, @sha)"""
+                       VALUES (@src, @gid, @tid, @acc, @sender, @subject, @date, @orig, @path, @cat, @mime, @size, @sha)
+                       RETURNING id"""
                     [ ("@src", boxVal sourceType)
                       ("@gid", boxVal msg.ProviderId)
                       ("@tid", boxVal msg.ThreadId)
@@ -200,10 +201,20 @@ module EmailSync =
                       ("@size", boxVal att.SizeBytes)
                       ("@sha", boxVal sha256) ]
 
-            let! idObj = db.execScalar "SELECT last_insert_rowid()" []
             let docId = match idObj with :? int64 as i -> i | _ -> 0L
             return docId
         }
+
+    let private recordBody account message now db (source: ThreadBodyIngestion.Source) =
+        let attachment: Domain.EmailAttachment =
+            { FileName = source.FileName
+              MimeType = "text/markdown"
+              SizeBytes = int64 source.Bytes.Length
+              Content = source.Bytes }
+        recordDocument db ThreadBodySource.sourceType account message attachment source.SavedPath source.Sha256 now
+
+    let private recordChannelAttachment account message now db attachment path sha256 =
+        recordDocument db EmailAttachmentIngestion.sourceType account message attachment path sha256 now
 
     // ─── Sync state ──────────────────────────────────────────────────
 
@@ -251,6 +262,8 @@ module EmailSync =
           DuplicatesSkipped: int
           Errors: string list }
 
+    exception ChannelConsumerFailed of errors: string list
+
     type DryRunItem =
         { Account: string
           GmailId: string
@@ -267,9 +280,7 @@ module EmailSync =
     let private syncAccumZero =
         { Downloaded = 0; Duplicates = 0; Processed = 0; Errors = [] }
 
-    let private tryFetchBody (_db: Algebra.Database) (_provider: Algebra.EmailProvider) (_logger: Algebra.Logger) (_account: string) (_msg: Domain.EmailMessage) =
-        Task.CompletedTask
-
+    // Storage failures must escape; processMessage catches only after rollback.
     let private processAttachment
         (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
         (account: string) (msg: Domain.EmailMessage) (unclassifiedDir: string) (now: DateTimeOffset)
@@ -280,15 +291,14 @@ module EmailSync =
             let! isDup = hashExists db sha
             if isDup then
                 // Self-healing: check if file exists on disk, re-save if missing
-                let! rows = db.execReader "SELECT saved_path FROM documents WHERE sha256 = @sha" [ ("@sha", boxVal sha) ]
-                match rows |> List.tryHead |> Option.bind (fun r -> Prelude.RowReader(r).OptString "saved_path") with
-                | Some savedPath ->
+                let! rows = db.execReader "SELECT id, saved_path FROM documents WHERE sha256 = @sha ORDER BY id" [ ("@sha", boxVal sha) ]
+                match rows |> List.tryHead with
+                | Some row ->
+                    let identity = Prelude.RowReader(row)
+                    let savedPath = identity.String "saved_path" ""
                     let archiveDir = Path.GetDirectoryName(unclassifiedDir) |> Option.ofObj |> Option.defaultValue ""
                     let fullPath = Path.Combine(archiveDir, savedPath)
-                    if not (fs.fileExists fullPath) then
-                        fs.createDirectory (Path.GetDirectoryName(fullPath) |> Option.ofObj |> Option.defaultValue unclassifiedDir)
-                        do! fs.writeAllBytes fullPath att.Content
-                        logger.info $"[{account}] Re-downloaded missing file: {savedPath}"
+                    do! SourceFiles.restore db fs (identity.Int64 "id" 0L) fullPath sha att.Content
                 | None -> ()
                 return { accum with Duplicates = accum.Duplicates + 1 }
             else
@@ -297,7 +307,9 @@ module EmailSync =
                 let relFolder = ArchiveWriter.threadFolderPath account senderDomain subject msg.ThreadId
                 let archiveDir = Path.GetDirectoryName(unclassifiedDir) |> Option.ofObj |> Option.defaultValue ""
                 let absFolder = ArchiveWriter.ensureFolder fs archiveDir relFolder
-                let! attFileName = ArchiveWriter.writeAttachment fs absFolder (msg.Date |> Option.defaultValue now) att.FileName sha att.Content
+                let! attFileName =
+                    ArchiveWriter.writeAttachment (SourceFiles.newFileSystem db fs)
+                        absFolder (msg.Date |> Option.defaultValue now) att.FileName sha att.Content
                 let relPath = Path.Combine(relFolder, attFileName)
 
                 let sidecarFile : ArchiveWriter.SidecarFile =
@@ -307,11 +319,38 @@ module EmailSync =
                       ProviderId = msg.ProviderId; ThreadId = msg.ThreadId
                       Sender = msg.Sender; Subject = msg.Subject
                       ReceivedAt = now.ToString("o"); Files = [ sidecarFile ] }
-                do! ArchiveWriter.writeSidecar fs absFolder sidecarData
+                do! ArchiveWriter.writeSidecar (SourceFiles.metadataFileSystem db fs) absFolder sidecarData
 
                 let! _ = recordDocument db "email_attachment" account msg att relPath sha now
                 logger.info $"[{account}] Downloaded: {attFileName}"
                 return { accum with Downloaded = accum.Downloaded + 1 }
+        }
+
+    let private persistLegacyMessage (fs: Algebra.FileSystem) (db: Algebra.Database)
+        (logger: Algebra.Logger) (account: string) (unclassifiedDir: string)
+        (now: DateTimeOffset) (accum: SyncAccum)
+        (msg: Domain.EmailMessage) (valid: Domain.EmailAttachment list) : Task<SyncAccum> =
+        task {
+            let! exists = messageExists db account msg.ProviderId
+            if exists then return accum
+            else
+                do! recordMessage db account msg now
+                let! updated =
+                    Prelude.foldTask
+                        (processAttachment fs db logger account msg unclassifiedDir now) accum valid
+                return { updated with Processed = updated.Processed + 1 }
+        }
+
+    let private processLegacyNew (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
+        (provider: Algebra.EmailProvider) (clock: Algebra.Clock) (config: Domain.HermesConfig)
+        (account: string) (unclassifiedDir: string) (accum: SyncAccum)
+        (msg: Domain.EmailMessage) : Task<SyncAccum> =
+        task {
+            let! attachments = provider.getAttachments msg.ProviderId
+            let valid = attachments |> List.filter (fun file -> file.SizeBytes >= int64 config.MinAttachmentSize)
+            let now = clock.utcNow ()
+            return! db.transaction.Run(fun transaction ->
+                persistLegacyMessage fs transaction logger account unclassifiedDir now accum msg valid)
         }
 
     let private processMessage
@@ -325,13 +364,7 @@ module EmailSync =
                 let! exists = messageExists db account msg.ProviderId
                 if exists then return accum
                 else
-                let now = clock.utcNow ()
-                do! recordMessage db account msg now
-                do! tryFetchBody db provider logger account msg
-                let! atts = provider.getAttachments msg.ProviderId
-                let valid = atts |> List.filter (fun a -> a.SizeBytes >= int64 config.MinAttachmentSize)
-                let! attAccum = Prelude.foldTask (processAttachment fs db logger account msg unclassifiedDir now) accum valid
-                return { attAccum with Processed = attAccum.Processed + 1 }
+                    return! processLegacyNew fs db logger provider clock config account unclassifiedDir accum msg
             with ex ->
                 let err = $"[{account}] Error processing {msg.ProviderId}: {ex.Message}"
                 logger.error err
@@ -372,7 +405,7 @@ module EmailSync =
 
                 // Only advance highWaterMark if we actually processed messages
                 // Set it to the date of the latest message we saw, not "now"
-                if messages.Length > 0 then
+                if messages.Length > 0 && accum.Errors.IsEmpty then
                     let latestMessageDate =
                         messages
                         |> List.choose (fun m -> m.Date)
@@ -518,32 +551,51 @@ module EmailSync =
         bf.Since |> Option.iter (fun since -> parts.Add($"after:{since.ToUnixTimeSeconds()}"))
         if parts.Count = 0 then None else Some (parts |> String.concat " ")
 
-    /// Process a single backfill attachment — returns 1 if new, 0 if skipped/error.
+    let private writeBackfillSource (fs: Algebra.FileSystem) (db: Algebra.Database)
+        (clock: Algebra.Clock) (config: Domain.HermesConfig) (account: string)
+        (msg: Domain.EmailMessage) (att: Domain.EmailAttachment) (sha: string) : Task<unit> =
+        let name = buildStandardName msg.Date msg.Sender att.FileName
+        let directory = Path.Combine(config.ArchiveDir, "unclassified")
+        let destination = Path.Combine(directory, name)
+        task {
+            fs.createDirectory directory
+            do! SourceFiles.writeNew db fs destination att.Content
+            let sidecar = buildSidecar account msg att name sha (clock.utcNow ())
+            do! (SourceFiles.metadataFileSystem db fs).writeAllText
+                    (destination + ".meta.json") (serialiseSidecar sidecar)
+            let! _ = recordDocument db "email_attachment" account msg att
+                        (Path.Combine("unclassified", name)) sha (clock.utcNow ())
+            return ()
+        }
+
+    /// Attachment failures propagate to the enclosing message transaction.
     let private processBackfillAttachment
         (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger) (clock: Algebra.Clock)
         (config: Domain.HermesConfig) (account: string) (msg: Domain.EmailMessage)
         (count: int) (att: Domain.EmailAttachment)
         : Task<int> =
         task {
-            try
-                if int64 att.SizeBytes < int64 config.MinAttachmentSize then return count
-                else
+            if int64 att.SizeBytes < int64 config.MinAttachmentSize then return count
+            else
                 let sha = computeSha256 att.Content
                 let! isDup = hashExists db sha
                 if isDup then return count
                 else
-                let name = buildStandardName msg.Date msg.Sender att.FileName
-                let unclDir = IO.Path.Combine(config.ArchiveDir, "unclassified")
-                let destPath = IO.Path.Combine(unclDir, name)
-                fs.createDirectory unclDir
-                do! fs.writeAllBytes destPath att.Content
-                let sidecar = buildSidecar account msg att name sha (clock.utcNow ())
-                do! fs.writeAllText (destPath + ".meta.json") (serialiseSidecar sidecar)
-                let! _ = recordDocument db "email_attachment" account msg att name sha (clock.utcNow ())
-                return count + 1
-            with ex ->
-                logger.warn $"[{account}] Backfill attachment error ({att.FileName}): {ex.Message}"
-                return count
+                    do! writeBackfillSource fs db clock config account msg att sha
+                    return count + 1
+        }
+
+    let private persistBackfillMessage (fs: Algebra.FileSystem) (db: Algebra.Database)
+        (logger: Algebra.Logger) (clock: Algebra.Clock) (config: Domain.HermesConfig)
+        (account: string) (count: int) (msg: Domain.EmailMessage)
+        (attachments: Domain.EmailAttachment list) : Task<int> =
+        task {
+            let! exists = messageExists db account msg.ProviderId
+            if exists then return count
+            else
+                do! recordMessage db account msg (clock.utcNow ())
+                return! Prelude.foldTask
+                    (processBackfillAttachment fs db logger clock config account msg) count attachments
         }
 
     /// Process a single backfill message — returns count of new attachments.
@@ -556,9 +608,9 @@ module EmailSync =
             let! exists = messageExists db account msg.ProviderId
             if exists then return count
             else
-            do! recordMessage db account msg (clock.utcNow ())
-            let! atts = provider.getAttachments msg.ProviderId
-            return! Prelude.foldTask (processBackfillAttachment fs db logger clock config account msg) count atts
+                let! atts = provider.getAttachments msg.ProviderId
+                return! db.transaction.Run(fun transaction ->
+                    persistBackfillMessage fs transaction logger clock config account count msg atts)
         }
 
     /// Run one batch of backfill for an account. Returns (newMessages, completed).
@@ -604,8 +656,7 @@ module EmailSync =
     // Channel-based sync: enumerate IDs → channel → N concurrent consumers
     // ═══════════════════════════════════════════════════════════════════
 
-    /// Producer: page through all Gmail stubs for an account, push IDs to a channel.
-    /// Completes the channel writer when all pages are exhausted.
+    /// Producer compatibility API. Failures fault the task and always close input.
     let enumerateIds
         (provider: Algebra.EmailProvider)
         (logger: Algebra.Logger)
@@ -615,38 +666,26 @@ module EmailSync =
         (enumeratedCount: int ref)
         (ct: CancellationToken)
         : Task<int> =
-        task {
-            let mutable pageToken : string option = None
-            let mutable total = 0
-            let mutable hasMore = true
+        EmailChannelEnumeration.runWithDelay EmailRateLimit.systemDelay
+            provider logger account query output enumeratedCount ct
 
-            while hasMore && not ct.IsCancellationRequested do
-                try
-                    let! page = provider.listStubPage pageToken (Some query) 500
-                    for id in page.Ids do
-                        do! output.WriteAsync(id, ct)
-                    total <- total + page.Ids.Length
-                    enumeratedCount.Value <- total
+    let internal channelContext (fs: Algebra.FileSystem) (db: Algebra.Database)
+        (logger: Algebra.Logger) (clock: Algebra.Clock) (config: Domain.HermesConfig)
+        (account: string) : EmailChannelPersistence.Context =
+        { Database = db
+          Files = fs
+          Logger = logger
+          Clock = clock
+          Config = config
+          Account = account
+          CleanBody = stripHtml
+          Store =
+              { Exists = messageExists
+                Acknowledge = recordMessage
+                Body = recordBody
+                Attachment = recordChannelAttachment } }
 
-                    match page.NextPageToken with
-                    | Some t -> pageToken <- Some t
-                    | None -> hasMore <- false
-
-                    if page.Ids.Length > 0 then
-                        logger.debug $"[{account}] Enumerated {total} message IDs so far"
-                with
-                | :? OperationCanceledException -> hasMore <- false
-                | ex ->
-                    logger.warn $"[{account}] Enumerate page failed: {ex.Message}, retrying in 30s"
-                    try do! Task.Delay(TimeSpan.FromSeconds(30.0), ct) with :? OperationCanceledException -> hasMore <- false
-
-            output.Complete()
-            logger.info $"[{account}] Enumeration complete: {total} message IDs"
-            return total
-        }
-
-    /// Consumer: pull message IDs from channel, check DB, fetch + save if new.
-    /// Calls onIngest callback for each new document (docId, relativePath).
+    /// Compatibility adapter: callbacks run after commit; failures are explicit.
     let processMessageConsumer
         (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
         (clock: Algebra.Clock) (provider: Algebra.EmailProvider)
@@ -657,138 +696,104 @@ module EmailSync =
         (consumerId: int)
         (ct: CancellationToken)
         : Task<int * int> =
+        let context = channelContext fs db logger clock config account
         task {
-            let mutable processed = 0
-            let mutable downloaded = 0
-            let unclassifiedDir = Path.Combine(config.ArchiveDir, "unclassified")
+            let! result = EmailChannelConsumer.run context provider input onIngest processedCount ct
+            logger.debug $"[{account}/{consumerId}] Consumer committed {result.Processed} messages"
+            if not result.Errors.IsEmpty then
+                return raise (ChannelConsumerFailed result.Errors)
+            else
+                return result.Processed, result.Downloaded
+        }
 
+    type private ChannelRun =
+        { Enumerated: int
+          Summary: EmailChannelConsumer.Summary }
+
+    let private notifyChannel (db: Algebra.Database) (writer: ChannelWriter<Document.T>)
+        (id: int64) (_path: string) : Task<unit> =
+        task {
+            let! rows = db.execReader "SELECT * FROM documents WHERE id = @id" [ "@id", boxVal id ]
+            let row =
+                rows |> List.tryHead
+                |> Option.defaultWith (fun () -> invalidOp $"Committed document {id} not found")
+            do! writer.WriteAsync(Document.fromRow row).AsTask()
+        }
+
+    let private observeEnumeration (enumeration: Task<int>) : Task<Result<int, string>> =
+        task {
             try
-                while not ct.IsCancellationRequested do
-                    let! messageId = input.ReadAsync(ct)
-                    try
-                        let! exists = messageExists db account messageId
-                        if not exists then
-                            let! msg = provider.getFullMessage messageId
-                            let now = clock.utcNow ()
-                            do! recordMessage db account msg now
+                let! count = enumeration
+                return Ok count
+            with error ->
+                return Error $"Channel enumeration failed: {error.Message}"
+        }
 
-                            // Save email body as a document — one per thread (latest wins)
-                            if msg.BodyText.IsSome then
-                                let clean = stripHtml msg.BodyText.Value
-                                if not (System.String.IsNullOrWhiteSpace(clean)) then
-                                    let subject = msg.Subject |> Option.defaultValue "(no subject)"
-                                    let sender = msg.Sender |> Option.defaultValue "unknown"
-                                    let dateStr = msg.Date |> Option.map (fun d -> d.ToString("yyyy-MM-dd")) |> Option.defaultValue "undated"
-                                    let bodyMd = $"# {subject}\n\n**From:** {sender}  \n**Date:** {dateStr}\n\n---\n\n{clean}"
-                                    let bodyBytes = System.Text.Encoding.UTF8.GetBytes(bodyMd)
-                                    let bodySha = computeSha256 bodyBytes
-                                    let! bodyDup = hashExists db bodySha
-                                    if not bodyDup then
-                                        // Check if thread already has a body document
-                                        let! existingRows =
-                                            db.execReader
-                                                "SELECT id, saved_path, email_date FROM documents WHERE thread_id = @tid AND account = @acc AND source_type = 'email_body' LIMIT 1"
-                                                [ ("@tid", boxVal msg.ThreadId); ("@acc", boxVal account) ]
-                                        let shouldSave =
-                                            match existingRows |> List.tryHead with
-                                            | None -> true
-                                            | Some row ->
-                                                let r = Prelude.RowReader(row)
-                                                let existingDate = r.OptString "email_date" |> Option.bind (fun s -> match DateTimeOffset.TryParse(s) with true, d -> Some d | _ -> None)
-                                                let msgDate = msg.Date
-                                                // Save if we're newer or existing has no date
-                                                match msgDate, existingDate with
-                                                | Some md, Some ed -> md > ed
-                                                | Some _, None -> true
-                                                | _ -> false
+    let private channelRun count outcome results : ChannelRun =
+        let summary =
+            results
+            |> Array.fold EmailChannelConsumer.combine EmailChannelConsumer.empty
+        let errors =
+            outcome
+            |> Result.map (fun _ -> summary.Errors)
+            |> Result.defaultWith (fun error -> summary.Errors @ [ error ])
+        { Enumerated = count
+          Summary = { summary with Errors = errors } }
 
-                                        if shouldSave then
-                                            // Delete old body document for this thread if it exists
-                                            for row in existingRows do
-                                                let r = Prelude.RowReader(row)
-                                                match r.OptInt64 "id" with
-                                                | Some oldId ->
-                                                    let! _ = db.execNonQuery "DELETE FROM documents WHERE id = @id" [ ("@id", boxVal oldId) ]
-                                                    match r.OptString "saved_path" with
-                                                    | Some oldPath ->
-                                                        let fullOld = Path.Combine(config.ArchiveDir, oldPath)
-                                                        if fs.fileExists fullOld then try fs.deleteFile fullOld with _ -> ()
-                                                        let metaOld = fullOld + ".meta.json"
-                                                        if fs.fileExists metaOld then try fs.deleteFile metaOld with _ -> ()
-                                                    | None -> ()
-                                                | None -> ()
+    let private collectChannel (delay: EmailRateLimit.Delay)
+        (context: EmailChannelPersistence.Context)
+        (provider: Algebra.EmailProvider) (writer: ChannelWriter<Document.T>)
+        (concurrency: int) (ct: CancellationToken) (query: string) : Task<ChannelRun> =
+        let options = BoundedChannelOptions(10000, FullMode = BoundedChannelFullMode.Wait)
+        let input = Channel.CreateBounded<string>(options)
+        let enumerated = ref 0
+        let processed = ref 0
+        let enumeration =
+            EmailChannelEnumeration.runWithDelay delay provider context.Logger
+                context.Account query input.Writer enumerated ct
+            |> observeEnumeration
+        let workers =
+            Array.init (max 1 concurrency) (fun _ ->
+                EmailChannelConsumer.runWithDelay delay context provider input.Reader
+                    (notifyChannel context.Database writer) processed ct)
+        task {
+            let! outcome = enumeration
+            let! results = Task.WhenAll(workers)
+            return channelRun enumerated.Value outcome results
+        }
 
-                                            let senderDomain = ArchiveWriter.extractSenderDomain (msg.Sender |> Option.defaultValue "")
-                                            let subjectSlug = msg.Subject |> Option.defaultValue "(no subject)"
-                                            let relFolder = ArchiveWriter.threadFolderPath account senderDomain subjectSlug msg.ThreadId
-                                            let absFolder = ArchiveWriter.ensureFolder fs config.ArchiveDir relFolder
-                                            let! bodyFileName = ArchiveWriter.writeMessage fs absFolder (msg.Date |> Option.defaultValue now) "message" msg.ProviderId bodyMd
-                                            let bodyRelPath = Path.Combine(relFolder, bodyFileName)
+    let private channelResponse (account: string) (ct: CancellationToken) (run: ChannelRun) : SyncResult =
+        let summary = run.Summary
+        let errors =
+            if ct.IsCancellationRequested then summary.Errors @ [ "Channel sync cancelled before completion" ]
+            elif run.Enumerated <> summary.Processed + summary.Duplicates + summary.Failed then
+                summary.Errors @ [ "Channel enumeration was not fully accounted for" ]
+            else summary.Errors
+        { Account = account
+          MessagesProcessed = summary.Processed
+          AttachmentsDownloaded = summary.Downloaded
+          DuplicatesSkipped = summary.Duplicates
+          Errors = errors }
 
-                                            let bodySidecarFile : ArchiveWriter.SidecarFile =
-                                                { Name = bodyFileName; MimeType = "text/markdown"; SizeBytes = int64 bodyBytes.Length; Sha256 = bodySha }
-                                            let bodySidecarData : ArchiveWriter.SidecarData =
-                                                { Version = 2; SourceType = "email_body"; Account = account
-                                                  ProviderId = msg.ProviderId; ThreadId = msg.ThreadId
-                                                  Sender = msg.Sender; Subject = msg.Subject
-                                                  ReceivedAt = now.ToString("o"); Files = [ bodySidecarFile ] }
-                                            do! ArchiveWriter.writeSidecar fs absFolder bodySidecarData
-
-                                            let bodyAtt : Domain.EmailAttachment = { FileName = bodyFileName; MimeType = "text/markdown"; SizeBytes = int64 bodyBytes.Length; Content = bodyBytes }
-                                            let! bodyDocId = recordDocument db "email_body" account msg bodyAtt bodyRelPath bodySha now
-                                            do! onIngest bodyDocId bodyRelPath
-                                            downloaded <- downloaded + 1
-                                            logger.info $"[{account}/{consumerId}] Saved email body: {bodyFileName}"
-
-                            // Fetch attachments
-                            let! atts = provider.getAttachments messageId
-                            let valid = atts |> List.filter (fun a -> a.SizeBytes >= int64 config.MinAttachmentSize)
-
-                            for att in valid do
-                                let sha = computeSha256 att.Content
-                                let! isDup = hashExists db sha
-                                if not isDup then
-                                    let senderDomain = ArchiveWriter.extractSenderDomain (msg.Sender |> Option.defaultValue "")
-                                    let attSubject = msg.Subject |> Option.defaultValue "(no subject)"
-                                    let relFolder = ArchiveWriter.threadFolderPath account senderDomain attSubject msg.ThreadId
-                                    let absFolder = ArchiveWriter.ensureFolder fs config.ArchiveDir relFolder
-                                    let! attFileName = ArchiveWriter.writeAttachment fs absFolder (msg.Date |> Option.defaultValue now) att.FileName sha att.Content
-                                    let relPath = Path.Combine(relFolder, attFileName)
-
-                                    let sidecarFile : ArchiveWriter.SidecarFile =
-                                        { Name = attFileName; MimeType = att.MimeType; SizeBytes = att.SizeBytes; Sha256 = sha }
-                                    let sidecarData : ArchiveWriter.SidecarData =
-                                        { Version = 2; SourceType = "email_attachment"; Account = account
-                                          ProviderId = msg.ProviderId; ThreadId = msg.ThreadId
-                                          Sender = msg.Sender; Subject = msg.Subject
-                                          ReceivedAt = now.ToString("o"); Files = [ sidecarFile ] }
-                                    do! ArchiveWriter.writeSidecar fs absFolder sidecarData
-
-                                    let! attDocId = recordDocument db "email_attachment" account msg att relPath sha now
-                                    do! onIngest attDocId relPath
-                                    downloaded <- downloaded + 1
-                                    logger.info $"[{account}/{consumerId}] Downloaded: {attFileName}"
-
-                            processed <- processed + 1
-                            System.Threading.Interlocked.Increment(processedCount) |> ignore
-                    with
-                    | :? Google.GoogleApiException as ex when ex.HttpStatusCode = System.Net.HttpStatusCode.TooManyRequests ->
-                        logger.warn $"[{account}/{consumerId}] Rate limited, backing off 60s"
-                        try do! Task.Delay(TimeSpan.FromSeconds(60.0), ct) with :? OperationCanceledException -> ()
-                    | ex ->
-                        logger.warn $"[{account}/{consumerId}] Error processing {messageId}: {ex.Message}"
-            with
-            | :? OperationCanceledException -> ()
-            | :? ChannelClosedException -> ()
-
-            logger.debug $"[{account}/{consumerId}] Consumer done: {processed} processed, {downloaded} downloaded"
-            return (processed, downloaded)
+    let private finishChannel (db: Algebra.Database) (logger: Algebra.Logger)
+        (account: string) (timestamp: DateTimeOffset) (ct: CancellationToken)
+        (run: ChannelRun) : Task<SyncResult> =
+        task {
+            let response = channelResponse account ct run
+            try
+                if run.Enumerated > 0 && response.Errors.IsEmpty then
+                    do! saveSyncState db account response.MessagesProcessed timestamp
+                return response
+            with error ->
+                logger.error $"[{account}] Watermark was not advanced: {error.Message}"
+                return { response with Errors = response.Errors @ [ error.Message ] }
         }
 
     /// Run a full channel-based sync for one account.
     /// Enumerates all message IDs, processes concurrently, advances watermark when done.
     /// Writes new documents to the pipeline's extract channel via onIngest callback.
-    let syncAccountWithChannel
+    let internal syncAccountWithChannelAndDelay
+        (delay: EmailRateLimit.Delay)
         (fs: Algebra.FileSystem) (db: Algebra.Database) (logger: Algebra.Logger)
         (clock: Algebra.Clock) (provider: Algebra.EmailProvider)
         (config: Domain.HermesConfig) (account: string)
@@ -800,58 +805,20 @@ module EmailSync =
             try
                 let! lastSync = loadSyncState db account
                 let syncSince = lastSync |> Option.defaultWith (fun () -> defaultHighWaterMark clock)
-                let sinceStr = syncSince.ToString("yyyy-MM-dd")
                 let queryTimestamp = clock.utcNow ()
-                let epoch = syncSince.ToUnixTimeSeconds()
-                let query = $"after:{epoch}"
-                logger.info $"[{account}] Channel sync since {sinceStr} with {concurrency} consumers"
-
-                // Callback to ingest into pipeline channel
-                let onIngest (docId: int64) (_relPath: string) =
-                    task {
-                        let! rows = db.execReader "SELECT * FROM documents WHERE id = @id" [ ("@id", Database.boxVal docId) ]
-                        match rows |> List.tryHead with
-                        | Some row -> do! extractWriter.WriteAsync(Document.fromRow row)
-                        | None -> ()
-                    }
-
-                let enumeratedCounter = ref 0
-                let processedCounter = ref 0
-
-                // Create the message ID channel
-                let idChannel = Channel.CreateBounded<string>(BoundedChannelOptions(10000, FullMode = BoundedChannelFullMode.Wait))
-
-                // Start enumeration producer
-                let enumTask = enumerateIds provider logger account query idChannel.Writer enumeratedCounter ct
-
-                // Start N consumers
-                let consumerTasks =
-                    [| for i in 1..concurrency ->
-                        processMessageConsumer fs db logger clock provider config account idChannel.Reader onIngest processedCounter i ct |]
-
-                // Wait for enumeration to finish (completes the channel)
-                let! totalEnumerated = enumTask
-
-                // Wait for all consumers to drain the channel
-                let! results = Task.WhenAll(consumerTasks)
-
-                let totalProcessed = results |> Array.sumBy fst
-                let totalDownloaded = results |> Array.sumBy snd
-
-                // Advance watermark: enumeration is complete and channel is drained
-                if totalEnumerated > 0 then
-                    do! saveSyncState db account totalProcessed queryTimestamp
-                    logger.info $"[{account}] Sync complete: {totalEnumerated} enumerated, {totalProcessed} new, {totalDownloaded} attachments"
-
-                return
-                    { Account = account
-                      MessagesProcessed = totalProcessed
-                      AttachmentsDownloaded = totalDownloaded
-                      DuplicatesSkipped = totalEnumerated - totalProcessed
-                      Errors = [] }
+                let query = $"after:{syncSince.ToUnixTimeSeconds()}"
+                let context = channelContext fs db logger clock config account
+                let! run = collectChannel delay context provider extractWriter concurrency ct query
+                return! finishChannel db logger account queryTimestamp ct run
             with ex ->
                 logger.error $"[{account}] Channel sync failed: {ex.Message}"
                 return
                     { Account = account; MessagesProcessed = 0; AttachmentsDownloaded = 0
                       DuplicatesSkipped = 0; Errors = [ ex.Message ] }
         }
+
+    /// Production adapter retains the existing public channel-sync API.
+    let syncAccountWithChannel fs db logger clock provider config account
+        extractWriter concurrency ct : Task<SyncResult> =
+        syncAccountWithChannelAndDelay EmailRateLimit.systemDelay
+            fs db logger clock provider config account extractWriter concurrency ct

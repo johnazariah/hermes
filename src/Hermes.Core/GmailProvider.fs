@@ -51,11 +51,19 @@ module GmailProvider =
             else ""
         walk payload
 
-    /// Create an EmailProvider algebra backed by the Gmail API.
-    let create (credentialBytes: byte array) (tokenDir: string) (label: string) (logger: Algebra.Logger) : Task<Algebra.EmailProvider> =
+    let private logged (logger: Algebra.Logger) description work =
         task {
-            let! service = createService credentialBytes tokenDir label
+            try
+                return! work ()
+            with error ->
+                logger.error $"Gmail {description}: {error.Message}"
+                return raise error
+        }
 
+    /// Production interpreter seam; callers retain ownership of the SDK service.
+    let internal fromService (service: GmailService) (label: string)
+        (logger: Algebra.Logger) : Task<Algebra.EmailProvider> =
+        task {
             let fetchMessageFull (stub: Message) : Task<Domain.EmailMessage> =
                 task {
                     let getReq = service.Users.Messages.Get("me", stub.Id)
@@ -120,7 +128,7 @@ module GmailProvider =
                             return messages |> Array.toList
                     with ex ->
                         logger.error $"Gmail list failed for {label}: {ex.Message}"
-                        return []
+                        return raise ex
                 }
 
             let fetchAttachment (messageId: string) (part: MessagePart) : Task<Domain.EmailAttachment> =
@@ -163,7 +171,7 @@ module GmailProvider =
                             return attachments |> Array.toList
                     with ex ->
                         logger.error $"Gmail attachments failed for {messageId}: {ex.Message}"
-                        return []
+                        return raise ex
                 }
 
             let getBody (messageId: string) : Task<string option> =
@@ -174,8 +182,9 @@ module GmailProvider =
                         let! msg = getReq.ExecuteAsync()
                         let body = extractBodyText msg.Payload
                         return if String.IsNullOrWhiteSpace(body) then None else Some body
-                    with _ ->
-                        return None
+                    with ex ->
+                        logger.error $"Gmail body failed for {messageId}: {ex.Message}"
+                        return raise ex
                 }
 
             let fetchMessageMetadata (stub: Message) : Task<Domain.EmailMessage> =
@@ -216,7 +225,10 @@ module GmailProvider =
                         let! response = req.ExecuteAsync()
 
                         if response.Messages = null || response.Messages.Count = 0 then
-                            return ({ Ids = []; NextPageToken = None; ResultSizeEstimate = 0L } : Algebra.StubPage)
+                            return
+                                ({ Ids = []
+                                   NextPageToken = response.NextPageToken |> Option.ofObj
+                                   ResultSizeEstimate = 0L } : Algebra.StubPage)
                         else
                             let ids = response.Messages |> Seq.map (fun m -> m.Id) |> Seq.toList
 
@@ -231,7 +243,7 @@ module GmailProvider =
                                   ResultSizeEstimate = response.ResultSizeEstimate |> Option.ofNullable |> Option.map int64 |> Option.defaultValue 0L }
                     with ex ->
                         logger.error $"Gmail listStubs failed for {label}: {ex.Message}"
-                        return ({ Ids = []; NextPageToken = None; ResultSizeEstimate = 0L } : Algebra.StubPage)
+                        return raise ex
                 }
 
             let listPage (pageToken: string option) (query: string option) (maxResults: int) : Task<Algebra.MessagePage> =
@@ -251,7 +263,10 @@ module GmailProvider =
                         let! response = req.ExecuteAsync()
 
                         if response.Messages = null || response.Messages.Count = 0 then
-                            return ({ Messages = []; NextPageToken = None; ResultSizeEstimate = 0L } : Algebra.MessagePage)
+                            return
+                                ({ Messages = []
+                                   NextPageToken = response.NextPageToken |> Option.ofObj
+                                   ResultSizeEstimate = 0L } : Algebra.MessagePage)
                         else
                             let! messages = response.Messages |> Seq.map fetchMessageMetadata |> Task.WhenAll
 
@@ -267,15 +282,23 @@ module GmailProvider =
                             return result
                     with ex ->
                         logger.error $"Gmail listPage failed for {label}: {ex.Message}"
-                        return ({ Messages = []; NextPageToken = None; ResultSizeEstimate = 0L } : Algebra.MessagePage)
+                        return raise ex
                 }
 
             let provider : Algebra.EmailProvider =
                 { listNewMessages = listMessages
                   getAttachments = getAtts
                   getMessageBody = getBody
-                  getFullMessage = getMessageById
+                  getFullMessage = fun id ->
+                      logged logger $"full message failed for {id}" (fun () -> getMessageById id)
                   listStubPage = listStubs
                   listMessagePage = listPage }
             return provider
+        }
+
+    /// Create an EmailProvider algebra backed by the Gmail API.
+    let create credentialBytes tokenDir label logger : Task<Algebra.EmailProvider> =
+        task {
+            let! service = createService credentialBytes tokenDir label
+            return! fromService service label logger
         }

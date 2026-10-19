@@ -26,6 +26,10 @@ let private fakeDb () : Algebra.Database =
       execReader = fun _ _ -> task { return [] }
       initSchema = fun () -> task { return Ok () }
       tableExists = fun _ -> task { return true }
+      transaction =
+          { new Algebra.Transaction with
+              member _.Run<'T>(_) =
+                  Task.FromException<'T>(InvalidOperationException("Unexpected transaction in workflow fake")) }
       schemaVersion = fun () -> task { return 1 }
       dispose = fun () -> () }
 

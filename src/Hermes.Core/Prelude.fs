@@ -20,6 +20,23 @@ module Prelude =
             return state
         }
 
+    /// Async fold over a list, short-circuiting on the first Error.
+    let foldTaskResult
+        (f: 'State -> 'T -> Task<Result<'State, 'Error>>)
+        (init: 'State)
+        (items: 'T list)
+        : Task<Result<'State, 'Error>> =
+        task {
+            let mutable state = Ok init
+            for item in items do
+                match state with
+                | Ok current ->
+                    let! next = f current item
+                    state <- next
+                | Error _ -> ()
+            return state
+        }
+
     /// Map Result inside a Task.
     module TaskResult =
         let map (f: 'a -> 'b) (t: Task<Result<'a, 'e>>) : Task<Result<'b, 'e>> =

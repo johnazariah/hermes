@@ -282,7 +282,7 @@ let ``Database_InitSchema_V3_SchemaVersionIs3`` () =
         try
             let! _ = db.initSchema ()
             let! v = db.schemaVersion ()
-            Assert.Equal(8, v)
+            Assert.Equal(Database.CurrentSchemaVersion, v)
         finally db.dispose ()
     }
 
@@ -297,7 +297,7 @@ let ``Database_InitSchema_V3_IdempotentRunTwice`` () =
             let! r2 = db.initSchema ()
             Assert.True(Result.isOk r2)
             let! v = db.schemaVersion ()
-            Assert.Equal(8, v)
+            Assert.Equal(Database.CurrentSchemaVersion, v)
         finally db.dispose ()
     }
 
@@ -328,7 +328,7 @@ let ``Database_SchemaVersion_FreshDb_ReturnsLatest`` () =
         try
             let! _ = db.initSchema ()
             let! v = db.schemaVersion ()
-            Assert.Equal(8, v)
+            Assert.Equal(Database.CurrentSchemaVersion, v)
         finally db.dispose ()
     }
 
@@ -357,3 +357,40 @@ let ``Database_FreshSchema_HasAllTables`` () =
                 Assert.True(exists, $"Table {table} should exist")
         finally db.dispose ()
     }
+
+// ─── canonicalArchivePath containment (B1 hardening) ──────────────────
+
+[<Theory>]
+[<InlineData("../escape.pdf")>]
+[<InlineData("../../escape.pdf")>]
+[<InlineData("a/../../escape.pdf")>]
+[<Trait("Category", "Unit")>]
+let ``Database_CanonicalArchivePath_RejectsRelativeEscape`` (savedPath: string) =
+    match Database.canonicalArchivePath "/archive" savedPath with
+    | Error message -> Assert.Contains("escapes the archive directory", message)
+    | Ok canonical -> failwith $"Expected escape to be rejected, got {canonical.FullPath}"
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Database_CanonicalArchivePath_RejectsRootedEscape`` () =
+    let outside = Path.Combine(Path.GetTempPath(), "hermes-canonical-escape", "outside.pdf")
+
+    match Database.canonicalArchivePath "/archive" outside with
+    | Error message -> Assert.Contains("escapes the archive directory", message)
+    | Ok canonical -> failwith $"Expected rooted escape to be rejected, got {canonical.FullPath}"
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Database_CanonicalArchivePath_AllowsContainedDotDotSegments`` () =
+    match Database.canonicalArchivePath "/archive" "owned/../owned/source.pdf" with
+    | Ok canonical ->
+        Assert.EndsWith("owned/source.pdf", canonical.FullPath.Replace('\\', '/'))
+    | Error message -> failwith $"Expected contained path to be accepted, got {message}"
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Database_CanonicalArchivePath_ArchiveRootIsStableAndSelfContained`` () =
+    let first = Database.canonicalArchivePath "/archive" "." |> Result.defaultWith failwith
+    let second = Database.canonicalArchivePath "/archive" "./" |> Result.defaultWith failwith
+
+    Assert.Equal(first.OwnershipKey, second.OwnershipKey)

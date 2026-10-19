@@ -55,8 +55,13 @@ module Algebra =
           execReader: string -> (string * obj) list -> Task<Map<string, obj> list>
           initSchema: unit -> Task<Result<unit, string>>
           tableExists: string -> Task<bool>
+          transaction: Transaction
           schemaVersion: unit -> Task<int>
           dispose: unit -> unit }
+
+    /// Generic transaction capability; callbacks receive the transaction-scoped database.
+    and Transaction =
+        abstract Run<'T>: (Database -> Task<'T>) -> Task<'T>
 
     // ─── Stage queue (pipeline work queues) ──────────────────────────
 

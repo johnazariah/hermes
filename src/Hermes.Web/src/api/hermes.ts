@@ -1,4 +1,4 @@
-import type { CategoryCount, DocumentSummary, DocumentDetail, IndexStats, ReminderItem, Suggestion, TagCount } from '../types/hermes';
+import type { BatchReclassificationResponse, CategoryCount, DocumentSummary, DocumentDetail, IndexStats, ReclassificationOutcome, ReminderItem, Suggestion, TagCount } from '../types/hermes';
 
 const BASE = '';
 
@@ -90,10 +90,89 @@ export async function removeDocumentTag(docId: number, tag: string): Promise<voi
   });
 }
 
-export async function batchDocuments(documentIds: number[], action: string, tag?: string): Promise<void> {
-  await fetch(`${BASE}/api/documents/batch`, {
+export async function batchDocuments(documentIds: number[], action: "tag" | "star", value?: string): Promise<void> {
+  const res = await fetch(`${BASE}/api/documents/batch`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ documentIds, action, tag }),
+    body: JSON.stringify({ docIds: documentIds, action, value }),
   });
+  if (!res.ok) throw new Error(`Batch ${action} failed`);
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === 'string';
+}
+
+function isReclassificationOutcome(value: unknown): value is ReclassificationOutcome {
+  if (typeof value !== 'object' || value === null) return false;
+  const outcome = value as Record<string, unknown>;
+  return (
+    typeof outcome.documentId === 'number'
+    && (outcome.status === 'reclassified' || outcome.status === 'unchanged' || outcome.status === 'failed')
+    && isNullableString(outcome.previousCategory)
+    && isNullableString(outcome.category)
+    && typeof outcome.changed === 'boolean'
+    && isNullableString(outcome.savedPath)
+    && isNullableString(outcome.sha256)
+    && isNullableString(outcome.error)
+  );
+}
+
+export async function reclassifyDocuments(
+  documentIds: number[],
+  category: string,
+): Promise<BatchReclassificationResponse> {
+  const res = await fetch(`${BASE}/api/documents/batch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      docIds: documentIds,
+      action: 'reclassify',
+      value: category,
+    }),
+  });
+  if (!res.ok) {
+    let detail = '';
+    try {
+      const body = await res.json() as {
+        detail?: string;
+        error?: string;
+        message?: string;
+        title?: string;
+      };
+      detail = body.detail ?? body.error ?? body.message ?? body.title ?? '';
+    } catch {
+      // The status code remains available when the response has no JSON error body.
+    }
+    const status = `HTTP ${res.status}`;
+    throw new Error(detail ? `${detail} (${status})` : `Reclassification request failed (${status})`);
+  }
+
+  const body: unknown = await res.json();
+  if (
+    typeof body === 'object'
+    && body !== null
+    && 'error' in body
+    && typeof body.error === 'string'
+  ) {
+    throw new Error(body.error);
+  }
+  if (
+    typeof body !== 'object'
+    || body === null
+    || !('action' in body)
+    || body.action !== 'reclassify'
+    || !('succeeded' in body)
+    || typeof body.succeeded !== 'number'
+    || !('unchanged' in body)
+    || typeof body.unchanged !== 'number'
+    || !('failed' in body)
+    || typeof body.failed !== 'number'
+    || !('outcomes' in body)
+    || !Array.isArray(body.outcomes)
+    || !body.outcomes.every(isReclassificationOutcome)
+  ) {
+    throw new Error('The service returned an invalid reclassification response.');
+  }
+  return body as BatchReclassificationResponse;
 }

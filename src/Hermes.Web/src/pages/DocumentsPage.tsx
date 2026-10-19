@@ -1,25 +1,126 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+    fetchCategories,
     fetchTags,
     fetchDocuments,
     addDocumentTag,
     batchDocuments,
+    reclassifyDocuments,
 } from "../api/hermes";
-import type { TagCount, DocumentSummary } from "../types/hermes";
+import type {
+    BatchReclassificationResponse,
+    CategoryCount,
+    TagCount,
+    DocumentSummary,
+} from "../types/hermes";
 import { DocumentRow } from "../components/documents/DocumentRow";
 import { BatchBar } from "../components/documents/BatchBar";
+
+type ReclassificationResult =
+    | {
+          category: string;
+          response: BatchReclassificationResponse;
+          error?: never;
+      }
+    | { category: string; error: string; response?: never };
+
+function ReclassificationFeedback({
+    result,
+}: {
+    result: ReclassificationResult;
+}) {
+    if ("error" in result) {
+        return (
+            <div
+                role="alert"
+                className="border-b border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+            >
+                Reclassification failed: {result.error}
+            </div>
+        );
+    }
+
+    const response = result.response;
+    const changed = response.outcomes.filter(
+        (outcome) => outcome.changed,
+    );
+    const unchanged = response.outcomes.filter(
+        (outcome) => outcome.status === "unchanged",
+    );
+    const failed = response.outcomes.filter(
+        (outcome) => outcome.status === "failed",
+    );
+    const completed = changed.length + unchanged.length;
+    const isPartial = failed.length > 0 && completed > 0;
+
+    let summary: string;
+    if (failed.length === response.outcomes.length) {
+        summary = `Reclassification failed for ${failed.length} document${failed.length === 1 ? "" : "s"}.`;
+    } else if (isPartial) {
+        summary = `Reclassification partially completed: ${changed.length} changed, ${unchanged.length} unchanged, ${failed.length} failed.`;
+    } else if (changed.length > 0 && unchanged.length > 0) {
+        summary = `Reclassification completed: ${changed.length} changed and ${unchanged.length} unchanged.`;
+    } else if (changed.length > 0) {
+        summary = `Reclassified ${changed.length} document${changed.length === 1 ? "" : "s"} to “${result.category}”.`;
+    } else {
+        summary = `No changes: ${unchanged.length} document${unchanged.length === 1 ? " was" : "s were"} already categorized as “${result.category}”.`;
+    }
+
+    return (
+        <div
+            role={failed.length > 0 ? "alert" : "status"}
+            className={`border-b px-4 py-3 text-sm ${
+                failed.length > 0
+                    ? "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300"
+                    : "border-green-200 bg-green-50 text-green-900 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300"
+            }`}
+        >
+            <div className="font-medium">{summary}</div>
+            <ul className="mt-1 space-y-0.5 text-xs">
+                {response.outcomes.map((outcome) => (
+                    <li key={outcome.documentId}>
+                        Document {outcome.documentId}:{" "}
+                        {outcome.status === "failed"
+                            ? outcome.error ?? "Reclassification failed"
+                            : outcome.changed
+                              ? `reclassified from “${outcome.previousCategory ?? "uncategorized"}” to “${outcome.category ?? result.category}”`
+                              : `already categorized as “${outcome.category ?? result.category}”`}
+                    </li>
+                ))}
+            </ul>
+        </div>
+    );
+}
 
 export function DocumentsPage() {
     const [searchParams, setSearchParams] = useSearchParams();
     const selectedTag = searchParams.get("tag");
     const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+    const [reclassificationResult, setReclassificationResult] =
+        useState<ReclassificationResult | null>(null);
+    const activeFilterRef = useRef(selectedTag);
+    const previousFilterRef = useRef(selectedTag);
     const queryClient = useQueryClient();
+
+    useEffect(() => {
+        activeFilterRef.current = selectedTag;
+        if (previousFilterRef.current !== selectedTag) {
+            previousFilterRef.current = selectedTag;
+            setSelectedIds(new Set());
+        }
+    }, [selectedTag]);
 
     const { data: tags } = useQuery<TagCount[]>({
         queryKey: ["tags"],
         queryFn: fetchTags,
+        refetchInterval: 30000,
+    });
+
+    const { data: categories } = useQuery<CategoryCount[]>({
+        queryKey: ["categories"],
+        queryFn: fetchCategories,
         refetchInterval: 30000,
     });
 
@@ -34,8 +135,62 @@ export function DocumentsPage() {
     const totalCount = tags?.reduce((sum, t) => sum + t.count, 0) ?? 0;
     const sorted = (tags ?? []).slice().sort((a, b) => b.count - a.count);
 
+    const reclassificationMutation = useMutation({
+        mutationFn: (request: {
+            ids: number[];
+            category: string;
+            filter: string | null;
+        }) => reclassifyDocuments(request.ids, request.category),
+        onMutate: () => setReclassificationResult(null),
+        onSuccess: (response, request) => {
+            const filterUnchanged =
+                activeFilterRef.current === request.filter;
+            if (response.outcomes.length === 0) {
+                if (!filterUnchanged) setSelectedIds(new Set());
+                setReclassificationResult({
+                    category: request.category,
+                    error: "The service returned no per-document outcomes.",
+                });
+                return;
+            }
+            setReclassificationResult({
+                category: request.category,
+                response,
+            });
+            const failedIds = response.outcomes
+                .filter((outcome) => outcome.status === "failed")
+                .map((outcome) => outcome.documentId);
+            setSelectedIds(new Set(filterUnchanged ? failedIds : []));
+
+            if (response.outcomes.some((outcome) => outcome.changed)) {
+                queryClient.invalidateQueries({ queryKey: ["docs"] });
+                queryClient.invalidateQueries({ queryKey: ["documents"] });
+                queryClient.invalidateQueries({ queryKey: ["document"] });
+                queryClient.invalidateQueries({ queryKey: ["doc-detail"] });
+                queryClient.invalidateQueries({ queryKey: ["recent-documents"] });
+                queryClient.invalidateQueries({ queryKey: ["search"] });
+                queryClient.invalidateQueries({ queryKey: ["tags"] });
+                queryClient.invalidateQueries({ queryKey: ["categories"] });
+                queryClient.invalidateQueries({ queryKey: ["activity"] });
+            }
+        },
+        onError: (error, request) => {
+            if (activeFilterRef.current !== request.filter) {
+                setSelectedIds(new Set());
+            }
+            setReclassificationResult({
+                category: request.category,
+                error:
+                    error instanceof Error
+                        ? error.message
+                        : "Reclassification request failed",
+            });
+        },
+    });
+
     const selectTag = useCallback(
         (tag: string | null) => {
+            if (reclassificationMutation.isPending) return;
             setSelectedIds(new Set());
             if (tag) {
                 setSearchParams({ tag });
@@ -43,17 +198,18 @@ export function DocumentsPage() {
                 setSearchParams({});
             }
         },
-        [setSearchParams],
+        [reclassificationMutation.isPending, setSearchParams],
     );
 
     const toggleDoc = useCallback((id: number) => {
+        if (reclassificationMutation.isPending) return;
         setSelectedIds((prev) => {
             const next = new Set(prev);
             if (next.has(id)) next.delete(id);
             else next.add(id);
             return next;
         });
-    }, []);
+    }, [reclassificationMutation.isPending]);
 
     const handleBatchTag = useCallback(
         async (tag: string) => {
@@ -73,6 +229,25 @@ export function DocumentsPage() {
         [selectedIds, queryClient],
     );
 
+    const handleReclassify = useCallback(
+        (category: string) => {
+            const ids = Array.from(selectedIds);
+            const requestedCategory = category.trim();
+            if (
+                ids.length === 0 ||
+                !requestedCategory ||
+                reclassificationMutation.isPending
+            )
+                return;
+            reclassificationMutation.mutate({
+                ids,
+                category: requestedCategory,
+                filter: selectedTag,
+            });
+        },
+        [selectedIds, selectedTag, reclassificationMutation],
+    );
+
     const tagButtonClass = (active: boolean) =>
         `w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
             active
@@ -90,6 +265,7 @@ export function DocumentsPage() {
                 <div className="space-y-0.5">
                     <button
                         onClick={() => selectTag(null)}
+                        disabled={reclassificationMutation.isPending}
                         className={tagButtonClass(!selectedTag)}
                     >
                         <div className="flex justify-between items-center">
@@ -104,6 +280,7 @@ export function DocumentsPage() {
                         <button
                             key={t.tag}
                             onClick={() => selectTag(t.tag)}
+                            disabled={reclassificationMutation.isPending}
                             className={tagButtonClass(selectedTag === t.tag)}
                         >
                             <div className="flex justify-between items-center">
@@ -130,6 +307,7 @@ export function DocumentsPage() {
                     <select
                         value={selectedTag ?? ""}
                         onChange={(e) => selectTag(e.target.value || null)}
+                        disabled={reclassificationMutation.isPending}
                         className="w-full px-3 py-2 rounded-lg bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 text-sm text-neutral-900 dark:text-neutral-200"
                     >
                         <option value="">All ({totalCount})</option>
@@ -173,14 +351,26 @@ export function DocumentsPage() {
                             doc={doc}
                             selected={selectedIds.has(doc.id)}
                             onToggle={toggleDoc}
+                            disabled={reclassificationMutation.isPending}
                         />
                     ))}
                 </div>
+
+                {reclassificationResult && (
+                    <ReclassificationFeedback result={reclassificationResult} />
+                )}
 
                 {/* Batch operations */}
                 <BatchBar
                     selectedCount={selectedIds.size}
                     onTag={handleBatchTag}
+                    onReclassify={handleReclassify}
+                    categories={(categories ?? []).map(
+                        (item) => item.category,
+                    )}
+                    reclassificationPending={
+                        reclassificationMutation.isPending
+                    }
                     onClearSelection={() => setSelectedIds(new Set())}
                 />
             </div>

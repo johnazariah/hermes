@@ -140,7 +140,7 @@ module McpServer =
                     [ "document_id" ] }
           { Name = "hermes_reclassify"
             Description =
-                "Move a document to a different category. Moves file on disk and updates DB."
+               "Update category metadata and its provenance tag without moving or rewriting the source file."
             InputSchema =
                 mkSchema
                     [ "document_id", intProp "Document ID (required)"
@@ -409,7 +409,7 @@ module McpServer =
                     let tool = JsonObject()
                     tool["name"] <- JsonValue.Create(toolDef.Name)
                     tool["description"] <- JsonValue.Create(toolDef.Description)
-                    tool["inputSchema"] <- toolDef.InputSchema
+                    tool["inputSchema"] <- toolDef.InputSchema.DeepClone()
                     tools.Add(tool)
 
                 let result = JsonObject()
@@ -447,6 +447,9 @@ module McpServer =
 
                         let result = JsonObject()
                         result["content"] <- content
+                        if name = "hermes_reclassify"
+                           && (tryGetNode resultNode "error").IsSome then
+                            result["isError"] <- JsonValue.Create(true)
                         return makeResult request.Id (result :> JsonNode)
                     | Error msg -> return makeError request.Id -32602 msg
 

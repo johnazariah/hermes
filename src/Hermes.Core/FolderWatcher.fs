@@ -168,7 +168,9 @@ module FolderWatcher =
                 let relFolder = ArchiveWriter.localFolderPath now stem
                 let absFolder = ArchiveWriter.ensureFolder fs archiveDir relFolder
                 let! bytes = fs.readAllBytes filePath
-                let! savedFileName = ArchiveWriter.writeAttachment fs absFolder now fileName sha256 bytes
+                let! savedFileName =
+                    ArchiveWriter.writeAttachment
+                        (SourceFiles.newFileSystem db fs) absFolder now fileName sha256 bytes
                 let savedRelPath = Path.Combine(relFolder, savedFileName)
 
                 let sidecarData : ArchiveWriter.SidecarData =
@@ -178,7 +180,7 @@ module FolderWatcher =
                       ReceivedAt = now.ToString("o")
                       Files = [ { Name = savedFileName; MimeType = "application/octet-stream"
                                   SizeBytes = int64 bytes.Length; Sha256 = sha256 } ] }
-                do! ArchiveWriter.writeSidecar fs absFolder sidecarData
+                do! ArchiveWriter.writeSidecar (SourceFiles.metadataFileSystem db fs) absFolder sidecarData
 
                 let absPath = Path.Combine(absFolder, savedFileName)
                 logger.info $"Copied '{fileName}' -> {savedRelPath}"

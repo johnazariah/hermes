@@ -136,18 +136,13 @@ module OutlookProvider =
 
     // ─── Provider factory ────────────────────────────────────────────
 
-    /// Create an EmailProvider algebra backed by the Microsoft Graph API.
-    let create
-        (clientId: string)
-        (tenantId: string)
-        (redirectPort: int)
-        (_tokenDir: string)
+    /// Production interpreter seam; callers retain ownership of the SDK client.
+    let internal fromClient
+        (client: GraphServiceClient)
         (label: string)
         (logger: Algebra.Logger)
         : Task<Algebra.EmailProvider> =
         task {
-            let client = createClient clientId tenantId redirectPort
-
             // ── listNewMessages ──────────────────────────────────────
 
             let listMessages (sinceOpt: DateTimeOffset option) : Task<Domain.EmailMessage list> =
@@ -169,7 +164,7 @@ module OutlookProvider =
                                 |> Option.iter (fun f -> cfg.QueryParameters.Filter <- f))
 
                         match response with
-                        | null -> return []
+                        | null -> return invalidOp "Outlook returned no message collection"
                         | r ->
                             return
                                 r.Value
@@ -178,7 +173,7 @@ module OutlookProvider =
                                 |> Option.defaultValue []
                     with ex ->
                         logger.error $"Outlook listMessages failed for {label}: {ex.Message}"
-                        return []
+                        return raise ex
                 }
 
             // ── getAttachments ───────────────────────────────────────
@@ -190,7 +185,7 @@ module OutlookProvider =
                             client.Me.Messages.[messageId].Attachments.GetAsync()
 
                         match response with
-                        | null -> return []
+                        | null -> return invalidOp "Outlook returned no attachment collection"
                         | r ->
                             return
                                 r.Value
@@ -216,7 +211,8 @@ module OutlookProvider =
                                                Content =
                                                 fa.ContentBytes
                                                 |> Option.ofObj
-                                                |> Option.defaultValue Array.empty }
+                                                |> Option.defaultWith (fun () ->
+                                                    invalidOp "Outlook file attachment has no content") }
                                               : Domain.EmailAttachment)
                                     | other ->
                                         let typeName =
@@ -228,7 +224,7 @@ module OutlookProvider =
                                 |> Seq.toList
                     with ex ->
                         logger.error $"Outlook attachments failed for {messageId}: {ex.Message}"
-                        return []
+                        return raise ex
                 }
 
             // ── getMessageBody ───────────────────────────────────────
@@ -241,7 +237,7 @@ module OutlookProvider =
                                 cfg.QueryParameters.Select <- [| "body" |])
 
                         match msg with
-                        | null -> return None
+                        | null -> return invalidOp "Outlook returned no body response"
                         | m ->
                             match m.Body with
                             | null -> return None
@@ -257,7 +253,7 @@ module OutlookProvider =
                                         if String.IsNullOrWhiteSpace(s) then None else Some s)
                     with ex ->
                         logger.error $"Outlook getBody failed for {messageId}: {ex.Message}"
-                        return None
+                        return raise ex
                 }
 
             // ── getFullMessage ────────────────────────────────────────
@@ -271,20 +267,11 @@ module OutlookProvider =
 
                         return
                             match msg with
-                            | null -> mapToFull (new Message()) : Domain.EmailMessage
+                            | null -> invalidOp "Outlook returned no full message"
                             | m -> mapToFull m : Domain.EmailMessage
                     with ex ->
                         logger.error $"Outlook getFullMessage failed for {messageId}: {ex.Message}"
-
-                        return
-                            { ProviderId = messageId
-                              ThreadId = messageId
-                              Sender = None
-                              Subject = None
-                              Date = None
-                              Labels = []
-                              HasAttachments = false
-                              BodyText = None }
+                        return raise ex
                 }
 
             // ── listStubPage ─────────────────────────────────────────
@@ -314,7 +301,7 @@ module OutlookProvider =
 
                         match response with
                         | null ->
-                            return ({ Ids = []; NextPageToken = None; ResultSizeEstimate = 0L } : Algebra.StubPage)
+                            return invalidOp "Outlook returned no stub page"
                         | r ->
                             let ids =
                                 r.Value
@@ -330,7 +317,7 @@ module OutlookProvider =
                                    ResultSizeEstimate = ids |> List.length |> int64 } : Algebra.StubPage)
                     with ex ->
                         logger.error $"Outlook listStubs failed for {label}: {ex.Message}"
-                        return ({ Ids = []; NextPageToken = None; ResultSizeEstimate = 0L } : Algebra.StubPage)
+                        return raise ex
                 }
 
             // ── listMessagePage ──────────────────────────────────────
@@ -359,7 +346,7 @@ module OutlookProvider =
 
                         match response with
                         | null ->
-                            return ({ Messages = []; NextPageToken = None; ResultSizeEstimate = 0L } : Algebra.MessagePage)
+                            return invalidOp "Outlook returned no message page"
                         | r ->
                             let messages =
                                 r.Value
@@ -375,7 +362,7 @@ module OutlookProvider =
                                    ResultSizeEstimate = messages |> List.length |> int64 } : Algebra.MessagePage)
                     with ex ->
                         logger.error $"Outlook listPage failed for {label}: {ex.Message}"
-                        return ({ Messages = []; NextPageToken = None; ResultSizeEstimate = 0L } : Algebra.MessagePage)
+                        return raise ex
                 }
 
             // ── Wire up the algebra record ───────────────────────────
@@ -390,3 +377,9 @@ module OutlookProvider =
 
             return provider
         }
+
+    /// Create an EmailProvider algebra backed by the Microsoft Graph API.
+    let create clientId tenantId redirectPort (_tokenDir: string) label logger
+        : Task<Algebra.EmailProvider> =
+        let client = createClient clientId tenantId redirectPort
+        fromClient client label logger

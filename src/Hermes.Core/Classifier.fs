@@ -158,9 +158,9 @@ module Classifier =
            RETURNING id"""
 
     /// Clean up sidecar .meta.json if it exists.
-    let private cleanupSidecar (fs: Algebra.FileSystem) (filePath: string) =
+    let private cleanupSidecar db (fs: Algebra.FileSystem) (filePath: string) =
         let metaPath = filePath + ".meta.json"
-        if fs.fileExists metaPath then fs.deleteFile metaPath
+        SourceFiles.delete db fs metaPath
 
     /// Process a single file: classify, dedup, move, and record.
     /// Returns Ok(Some docId) on insert, Ok(None) on duplicate/skip, Error on failure.
@@ -177,8 +177,8 @@ module Classifier =
                 let! isDup = isDuplicate db sha256
                 if isDup then
                     logger.info $"Duplicate detected (sha256={sha256.[..7]}), skipping: {fileName}"
-                    fs.deleteFile filePath
-                    cleanupSidecar fs filePath
+                    do! SourceFiles.delete db fs filePath
+                    do! cleanupSidecar db fs filePath
                     return Ok None
                 else
 
@@ -190,14 +190,14 @@ module Classifier =
                 fs.createDirectory categoryDir
                 let destPath = Path.Combine(categoryDir, fileName)
                 let finalDest = resolveDestPath fs clock destPath fileName
-                fs.moveFile filePath finalDest
+                do! SourceFiles.move db fs filePath finalDest
 
                 let relativePath = buildRelativePath archiveDir finalDest
                 let now = clock.utcNow().ToString("o")
                 let ps = buildDocParams sidecar fileName relativePath result.Category (fs.getFileSize finalDest) sha256 filePath now
                 let! idObj = db.execScalar insertDocSql ps
                 let docId = match idObj with :? int64 as i -> i | :? int as i -> int64 i | _ -> 0L
-                cleanupSidecar fs filePath
+                do! cleanupSidecar db fs filePath
                 return Ok (Some docId)
             with ex ->
                 logger.error $"Failed to process {fileName}: {ex.Message}"
@@ -318,6 +318,24 @@ module Classifier =
 
     // ─── Bulk reclassification ───────────────────────────────────────
 
+    type ContentReclassificationStatus =
+        | NoRuleMatched
+        | Reclassified of Reclassification.Outcome
+        | Failed of Reclassification.Error
+
+    type ContentReclassificationItem =
+        { DocumentId: int64
+          Status: ContentReclassificationStatus }
+
+    type ContentReclassificationBatch =
+        { Items: ContentReclassificationItem list
+          ReclassifiedCount: int
+          FailedCount: int
+          Remaining: int }
+
+    /// The legacy tuple contract cannot carry per-item failures.
+    exception ContentReclassificationFailed of ContentReclassificationBatch
+
     /// Get unsorted documents that have extracted text (candidates for Tier 2).
     let getUnsortedWithText (db: Algebra.Database) (fs: Algebra.FileSystem) (archiveDir: string) (limit: int) =
         task {
@@ -346,34 +364,84 @@ module Classifier =
             return results |> Seq.toList
         }
 
-    /// Reclassify a batch of unsorted documents using Tier 2 content rules.
-    let reclassifyUnsortedBatch
+    let private classifyCandidate
+        db fs archiveDir contentRules
+        (docId, _savedPath, text, amount) =
+        task {
+            match ContentClassifier.classify text [] amount contentRules with
+            | None ->
+                return
+                    { DocumentId = docId
+                      Status = NoRuleMatched }
+            | Some (category, confidence) ->
+                let! result =
+                    Reclassification.reclassifyFromContent
+                        db fs archiveDir docId category confidence
+                return
+                    { DocumentId = docId
+                      Status =
+                        result
+                        |> Result.map Reclassified
+                        |> Result.defaultWith Failed }
+        }
+
+    let private classifyCandidates db fs archiveDir contentRules candidates =
+        let rec loop outcomes = function
+            | [] -> Threading.Tasks.Task.FromResult(List.rev outcomes)
+            | candidate :: tail ->
+                task {
+                    let! outcome =
+                        classifyCandidate
+                            db fs archiveDir contentRules candidate
+                    return! loop (outcome :: outcomes) tail
+                }
+
+        loop [] candidates
+
+    let private countStatus predicate items =
+        items
+        |> List.filter (fun item -> predicate item.Status)
+        |> List.length
+
+    let private remainingCount (db: Algebra.Database) =
+        task {
+            let! value =
+                db.execScalar
+                    "SELECT COUNT(*) FROM documents WHERE category = 'unsorted' OR category = 'unclassified'" []
+            return unbox<int64> value |> int
+        }
+
+    let private batchOutcome items remaining =
+        { Items = items
+          ReclassifiedCount =
+              countStatus (function Reclassified _ -> true | _ -> false) items
+          FailedCount =
+              countStatus (function Failed _ -> true | _ -> false) items
+          Remaining = remaining }
+
+    /// Detailed API preserves every item failure.
+    let reclassifyUnsortedBatchDetailed
         (db: Algebra.Database) (fs: Algebra.FileSystem)
         (contentRules: Domain.ContentRule list)
         (archiveDir: string) (batchSize: int)
-        : Threading.Tasks.Task<int * int> =
+        : Threading.Tasks.Task<ContentReclassificationBatch> =
         task {
             let! candidates = getUnsortedWithText db fs archiveDir batchSize
-            let mutable reclassified = 0
-            for (docId, _savedPath, text, amount) in candidates do
-                match ContentClassifier.classify text [] amount contentRules with
-                | Some (category, confidence) ->
-                    let! result = DocumentManagement.reclassify db fs archiveDir docId category
-                    match result with
-                    | Ok () ->
-                        let! _ =
-                            db.execNonQuery
-                                """UPDATE documents SET classification_tier = 'content',
-                                   classification_confidence = @conf WHERE id = @id"""
-                                [ ("@conf", Database.boxVal confidence)
-                                  ("@id", Database.boxVal docId) ]
-                        reclassified <- reclassified + 1
-                    | Error _ -> ()
-                | None -> ()
-            let! remainingObj =
-                db.execScalar
-                    "SELECT COUNT(*) FROM documents WHERE category = 'unsorted' OR category = 'unclassified'"
-                    []
-            let remaining = match remainingObj with :? int64 as i -> int i | _ -> 0
-            return (reclassified, remaining)
+            let! items =
+                classifyCandidates
+                    db fs archiveDir contentRules candidates
+            let! remaining = remainingCount db
+            return batchOutcome items remaining
+        }
+
+    /// Compatibility adapter: retain main's tuple, never hide partial failure.
+    let reclassifyUnsortedBatch db fs contentRules archiveDir batchSize
+        : Threading.Tasks.Task<int * int> =
+        task {
+            let! result =
+                reclassifyUnsortedBatchDetailed db fs contentRules archiveDir batchSize
+            if result.FailedCount > 0 then
+                return raise (ContentReclassificationFailed result)
+            else
+                return result.ReclassifiedCount, result.Remaining
         }

@@ -114,6 +114,32 @@ let ``ArchiveWriter_AttachmentFileName_DifferentHashes_DifferentNames`` () =
 
 // ─── I/O functions ───────────────────────────────────────────────────
 
+[<Theory>]
+[<InlineData("abcdef1111111111", "abcdef2222222222")>]
+[<InlineData("Provider-ID", "provider-id")>]
+[<InlineData("provider/id", "provider-id")>]
+[<Trait("Category", "Unit")>]
+let ``Message filenames distinguish full raw provider identities`` (first: string, second: string) =
+    let date = TestHelpers.defaultClock.utcNow ()
+    let name id = ArchiveWriter.messageFileName date "message" id
+    Assert.NotEqual<string>(name first, name second)
+    Assert.Equal(name first, name first)
+    let digest =
+        first
+        |> Text.Encoding.UTF8.GetBytes
+        |> Security.Cryptography.SHA256.HashData
+        |> Convert.ToHexString
+        |> fun value -> value.ToLowerInvariant()
+    Assert.EndsWith($"-{digest}.md", name first)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``Undated source identity is stable across retry dates`` () =
+    let incoming = { EmailSyncTests.sampleMessage with Date = None }
+    let first = TestHelpers.defaultClock.utcNow ()
+    let source now = ThreadBodySource.create "account" incoming now "body"
+    Assert.Equal((source first).SavedPath, (source (first.AddDays(1.0))).SavedPath)
+
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``ArchiveWriter_WriteMessage_CreatesFile`` () =

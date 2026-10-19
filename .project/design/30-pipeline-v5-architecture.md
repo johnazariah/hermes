@@ -84,7 +84,28 @@ Pipeline V5 currently reuses the established `Stages` processors. `StagesV5` hyd
 
 This boundary allows the DAG and per-stage schema to operate without a simultaneous rewrite of every consumer. New code must read content from archive artifacts rather than reintroducing content columns.
 
-`DocumentManagement` is the remaining V4 management boundary: reclassify still moves the source file into a category folder, and reextract clears legacy extraction projections without invalidating V5 completion rows. Those operations must move to metadata/tag updates and explicit DAG reflow before the compatibility layer can be removed.
+`DocumentManagement` exposes metadata-only reclassification through a detailed
+outcome API and a compatibility adapter. Category, provenance, generated category
+tags and FTS projections change atomically; source bytes, `saved_path`, hashes and
+V5 completions remain unchanged. Canonical-path guards apply to every database
+writer, while source claims protect files before document registration.
+
+Email acknowledgement and body/attachment registration share one write
+transaction. Provider calls precede that transaction and callbacks follow its
+commit. Earlier email-body documents, source files, V5 outputs and user
+annotations remain immutable history when another message arrives; new messages
+must not delete or repurpose previous document identities. A failed new ingestion
+remains unprocessed and retryable without advancing its watermark. Existing
+duplicate owners are not reconciled by guessing or deleting rows.
+
+Successful empty provider responses are distinct from transport failures.
+Provider and pagination failures must remain observable through ingestion so an
+incomplete enumeration cannot be mistaken for a completed sync.
+
+Reextract remains a V4 management boundary: clearing legacy extraction
+projections alone does not invalidate V5 completion rows. Explicit DAG reflow is
+required before that compatibility boundary can be removed. Legacy saved-path
+recovery is separate from ordinary reclassification.
 
 ## Comprehension
 

@@ -2,17 +2,21 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
-## Summary
+## Summary — historical original PR head inventory
+
+The inventory below describes original PR head `c9e5d4f`, not the in-progress
+Option 1 revision. Revision discovery and coverage must be recorded from an
+executed test run; source-count changes are not execution evidence.
 
 | Category | Count |
 |----------|-------|
-| Unit | 565 |
+| Unit | 590 |
 | Property | 5 |
-| Integration | 291 |
+| Integration | 350 |
 | ManualTest | 6 |
-| **Total** | **867** |
+| **Total** | **951** |
 
-> 843 unique test methods; 867 total test cases
+> 913 unique test methods; 951 total test cases
 > (Theory/InlineData tests contribute multiple cases per method)
 
 ## Execution Baseline
@@ -32,6 +36,13 @@ documentation-only rebaseline commits:
 | React build after no-lock install | Passed |
 | React lint | Failed: 4 errors |
 
+### PR #17 PR B validation
+
+The metadata-only reclassification branch adds 31 cases without changing the
+current-main skip set: 898 discovered, 888 passed, 10 skipped, and 0 failed.
+Core-only coverage is 66.84% line / 31.22% branch, above the 65.0% / 31.1%
+Phase 0 baseline. The full solution builds with 0 warnings and 0 errors.
+
 Skip-quality findings:
 
 - 3 email-body FTS tests are skipped because file-first content is not indexed.
@@ -43,6 +54,244 @@ Skip-quality findings:
 The active follow-on issues are #6, #8, #9, #11, #16, #17, and #18. The V5
 Stabilization wave closes only at 85% line and 60% branch coverage with truthful
 skip and Playwright execution evidence.
+
+### PR #17 correction validation
+
+The lockout correction adds 53 cases: 8 database/canonical-path cases,
+26 legacy-repair cases, and 19 MCP cursor/operator cases. The full suite
+discovers 951 cases: 941 passed, 10 skipped, and 0 failed. Full-solution
+Release build passes with 0 warnings and 0 errors. Core coverage is 68.50%
+line / 33.58% branch, improving on the Phase 0 baseline without claiming
+ownership of the repository-wide coverage recovery.
+
+The canonical React preview adds 9 Playwright cases covering changed, no-op,
+partial, transport-failure, pending/validation, pending and ordinary browser
+history navigation, stale-selection prevention, and success-shaped API error
+responses. They pass against the Vite preview surface. The Service root still
+serves the excluded Blazor surface; canonical Service-hosted React routing
+remains Phase 1D scope.
+
+---
+
+## PR #19 Option 1 revision — source approved; merge gates pending
+
+Latest fully executed evidence for uncommitted revision 2 and its contract
+additions over 2026-10-18/19:
+
+| Measure | Result |
+|---------|--------|
+| macOS Release Core, Service and Tests builds | Passed; 0 warnings and 0 errors |
+| Windows Release Core, Service, Tests and Tray builds | Passed; 0 warnings and 0 errors |
+| Focused history/provider/ownership/reclassification cases | 123 passed; 0 failed or skipped |
+| macOS full .NET execution, repeated | 992 total; 982 passed, 10 existing skips, 0 failed |
+| Windows full .NET execution | 992 total; 982 passed, 10 existing skips, 0 failed |
+| Conservative macOS root/Core-only line coverage | 6,086 / 8,107 = 75.0709% |
+| Conservative macOS root/Core-only branch coverage | 5,176 / 12,665 = 40.8685% |
+| Windows root/Core-only line coverage | 6,087 / 8,107 = 75.0833% |
+| Windows root/Core-only branch coverage | 5,184 / 12,665 = 40.9317% |
+| Original-head comparable coverage | 68.50% line / 33.58% branch |
+| Final-head HTTP/MCP probes | Passed against an isolated synthetic archive |
+| Synthetic schema upgrade | v14 persisted; source identity, completion rows and foreign-key integrity preserved |
+| Independent review | Source and additive test slices approved; runtime/transport proof satisfied |
+
+The current Cobertura root contains only `Hermes.Core`; root and package rates
+match. The exact unchanged 75% root line gate passes on two adjacent macOS runs
+and the Windows run, without exclusions or threshold changes. This does not
+establish Service-inclusive coverage, a published GitHub Actions result or the
+85% line / 60% branch wave-close target. No commit, push or merge occurred.
+Helper services were stopped.
+
+Windows execution used a SHA-256-verified snapshot of the current source and
+test files in a dedicated temporary directory on the existing idle CI host.
+Microsoft SDK 9.0.313 was installed only there after global `dotnet` was absent,
+with its official SHA-512 checked. Restores used only the public NuGet feed and
+an isolated package cache; build parallelism was bounded. The runner service
+and its workspace were untouched. Verified evidence was retrieved before the
+temporary source, SDK and packages were removed.
+
+The Windows TRX logger produces two byte-identical coverage attachments; both
+were hashed before report selection. Its summary says `notExecuted=0` although
+10 individual results have outcome `NotExecuted`, so skip inventory uses actual
+outcomes plus console results rather than that summary attribute alone.
+
+Final HTTP/MCP smoke used an isolated content root and
+`DOTNET_USE_POLLING_FILE_WATCHER=1`. A managed stack located the earlier local
+startup stall in native macOS configuration-file watching during
+`WebApplication.CreateBuilder`, not the database gate. Polling is a recorded
+smoke accommodation, not a production fix.
+
+Executed commands include `dotnet build` for each supported local project with
+`-c Release --no-restore`, and `dotnet test tests/Hermes.Tests/Hermes.Tests.fsproj
+-c Release --no-build --no-restore --collect:"XPlat Code Coverage"`. Evidence is
+retained in session artifacts under `pr19-final-contracts-full-coverage`,
+`pr19-coverage-stability`, `pr19-revision2-transport.json`,
+`pr19-windows-evidence.zip`, `pr19-windows-validation.json` and the isolated
+`pr19-api` archive. `pr19-coverage-stability.json` records both exact local gates.
+
+The notes below preserve the intermediate failures and corrections; the latest
+executed figures above supersede their pending-validation statements.
+
+Revision-1 independent review identified missing regression proof for replacement after V5
+outputs/completions exist, same-day provider IDs sharing a shortened filename
+prefix, and production provider transport failures becoming successful empty
+responses. Existing green synthetic-producer tests do not cover those cases.
+That author was locked out of revision 2 under reviewer protocol. A distinct
+author implemented immutable history, full-provider-ID filenames and
+production-provider/enumerator fault propagation. The history, naming,
+production transport, pagination and throttling cases now execute successfully.
+
+The 10 non-empty/binary SDK success cases and 12 optional-metadata/commit-boundary
+cases compile, execute and receive scoped independent approval. Their assertions
+cover real interpreter outputs, exact bytes/provenance, idempotent registration,
+legitimate sparse data, explicit post-commit errors and initial cursor failure.
+They introduce no skips, suppressions, coverage exclusions or production changes.
+
+The owner selected metadata-only reclassification and deferred saved-path
+recovery to issue #24. The revision removes the repair modules, exposed MCP
+operator, cursor/scan tests, and repair-only document-change epoch machinery.
+Canonical-path helpers and transactional category/provenance/tag/FTS behavior
+remain in scope.
+
+Original-head validation relayed by the parent on 2026-10-18:
+
+- Release Tests/Core and Service builds: 0 warnings, 0 errors.
+- Full .NET run: 951 total, 941 passed, 10 skipped, 0 failed.
+- Cobertura contains only `Hermes.Core`: 5888/8595 lines (68.50%) and
+  4215/12549 branches (33.58%). These are Core-only, not Service or aggregate.
+
+The first bounded patch removes 44 legacy-reclassification cases, 19 legacy
+MCP cases, and 2 epoch cases. It adds 6 compatibility integration cases.
+Existing reclassification tests now explicitly call the detailed API, while
+the original `Task<Result<unit,string>>` callable contract is restored.
+MCP tool discovery now excludes the repair tool.
+
+Patch A's first Release Tests build failed with FS0597 in the new MCP test's
+chained JsonElement indexer. No Service build or focused run followed that
+failure. Patch B separates the indexer expression; its validation is pending.
+
+Patch B's first Core Release build failed on nullability/type inference,
+ambiguous body-ingestion records, and the Classifier task-expression branch.
+The compiler-correction patch adds explicit types, checked nullable values,
+non-null SQL parameter boxing, and the missing branch. It also corrects the
+same inference patterns in the new tests; no cases or assertions are removed.
+After that correction, Core and Service Release builds each passed with
+0 warnings and 0 errors. The Tests build then found one remaining caller
+asserting detailed fields through the legacy tuple API and ambiguous JSON
+helper overloads. Compiler correction round 2 selects the detailed API in
+that test and explicitly types both JSON helpers; no cases or assertions change.
+After compiler correction round 2, Core, Service, and Tests Release builds
+each passed with 0 warnings and 0 errors. The focused run passed 152/152.
+The full revised suite discovered 917 cases: 907 passed, 10 existing skips,
+and 0 failed.
+
+Comparable Core-only Cobertura then reported 5366/7944 covered lines
+(reported 67.54%) and 4023/12442 covered branches (32.33%), below original
+head's 5888/8595 lines (68.50%) and 4215/12549 branches (33.58%).
+This regression is unresolved; these results do not establish completion.
+
+The parent's isolated Service transport probe found that a valid canonical
+PUT category request returned HTTP 400 with an empty body before handler work,
+while health and document-list requests succeeded. The canonical route now
+uses an explicit named id/ctx lambda instead of a partially applied delegate.
+After the named-lambda correction, the parent's real isolated HTTP/MCP probes
+passed canonical PUT/idempotence, legacy partial batch move, the React batch
+contract, deprecated single POST, repeated 18-tool discovery, MCP success/error,
+and removed-repair rejection. Source bytes/path/hash, extraction/embedding
+timestamps, and completion rows remained identical throughout those probes.
+
+Patch B adds non-destructive database ownership guards, staged-source claims,
+serialized transaction capabilities, guarded source/artifact mutations, and
+post-commit thread-body retirement. Existing duplicate rows are not rewritten
+or deleted. The original Classifier tuple signature is restored as an adapter;
+partial failure raises a structured exception containing the detailed batch.
+
+Added deterministic coverage includes canonical aliases, direct/full-row and
+independent-connection writers, existing duplicates, unregistered connections,
+staged-source collisions and retries, generated-write collisions, protected
+deletion/movement, exact-identity re-download, symlink containment, thread-body
+commit/failure behavior, and Classifier compatibility.
+
+The producer test patch adds 12 synthetic channel-producer integration cases
+covering paginated and overlapping ingestion, source registration/claims,
+acknowledged-message replay, empty enumeration, latest-body replacement,
+date handling, attachment/sidecar collision refusal, and watermark failures.
+The fixtures use memory-only providers, SQLite, and filesystems, without
+external sync, model calls, sleeps, or source-document replay.
+
+Execution confirmed the producer failure-accounting gap: the focused run had
+26 cases, 25 passed and one failed. Full execution had 933 total, 922 passed,
+10 skipped and the same one failure. The failed replacement advanced the
+watermark from 2025-02-28T12:00:00+00:00 to 2025-03-15T10:30:00+00:00.
+
+Comparable Core-only coverage recovered to 5571/8036 lines (69.32%) and
+4457/12614 branches (35.33%), above original head's 68.50%/33.58%.
+This is not aggregate coverage or evidence that the 75% CI or 85%/60% wave
+gates have been met.
+
+The owner explicitly selected whole-email retry for new failed attempts.
+The correction fetches provider data before the write gate, then acknowledges
+the message and registers all documents/claims in one transaction. Storage
+failure rolls back acknowledgement and registration, reports an error rather
+than a duplicate, and retains the watermark. Other committed messages remain
+valid. Legacy sync/backfill storage attempts also use message transactions;
+backfill errors propagate without advancing its page state.
+
+Body registration no longer performs retirement cleanup. Cleanup and channel
+callbacks run after the actual outer commit. Post-commit errors are reported
+with committed counts rather than pretending committed storage rolled back.
+No historical acknowledgement reset, message replay, or per-attachment retry
+subsystem is introduced. Failed-attempt filesystem artifacts are not guessed
+away; ordinary retry checks their bytes through the existing source guards.
+
+New regressions cover late attachment failure after body registration, rollback
+of the old body's retirement, retry of the same email, mixed success/failure,
+provider fetches outside the gate, and public-DB callbacks after full commit.
+The earlier staged-channel phase test is replaced by standalone staged-claim
+protection plus actual whole-message reader/writer blocking and rollback tests.
+The sidecar-collision expectation now requires rollback of the failed email's
+claim, not a partially committed email. These corrections are not yet validated.
+
+The first whole-email Core build stopped on reserved identifier `process`
+(FS0046). The correction renames it, explicitly types the new SQL/filesystem/
+clock helpers, and checks nullable attachment filename results without warning
+suppressions.
+
+HTTP 429 handling retains the existing per-consumer 60-second cancellable
+backoff outside the write gate. An internal fake-delay boundary adds two
+deterministic cases proving the next message is not fetched during backoff,
+the database gate is free, and cancellation stops further fetching without
+acknowledging the rejected email. No real backoff sleep or provider call is used.
+
+Source inspection confirms legacy processAttachment has no storage-error
+catch; processMessage catches outside transaction.Run. Two additional public
+producer cases fail the second attachment INSERT after the first has succeeded,
+then prove legacy acknowledgement/document/claim rollback, unchanged processing
+counts and watermark, backfill error propagation and retained page state, and
+successful whole-email retry with valid foreign keys. These new cases have not
+yet been compiled or executed.
+
+An additional staged-source invariant correction makes ordinary deletion and
+movement reject source claims, not just document owners. Post-commit body
+cleanup uses an internal single-use authorization minted while the old
+document remains its verified exclusive owner, in the deleting transaction.
+A non-destructive retirement reservation blocks source reacquisition and
+document registration until that authorization is consumed. No existing
+paths or duplicate rows are rewritten, and no pending-producer identity,
+cleanup permission, migration replay, or repair behavior is guessed.
+
+Four further deterministic cases cover a real channel producer paused after
+its source transaction commits but before document INSERT (delete and move),
+retirement reservation enforcement, and stale-authorization refusal after
+a new producer stages another source at the same path. Existing body-retirement
+success/failure tests remain required to prove legitimate cleanup and rollback.
+These additions have not yet been compiled or executed.
+
+Validation of the whole-email correction, final inventory reconciliation,
+and a fresh same-scope coverage comparison remain outstanding.
+Main caller evidence identifies only
+the legacy batch move caller; no in-repo single-client migration is needed,
+while unknown external single-client acceptance remains unproven.
+No corpus replay or repair execution is authorised.
 
 ---
 
@@ -66,7 +315,7 @@ skip and Playwright execution evidence.
 | Config_ChatProviderKind_FromString_ParsesVariants | Unit |
 | Config_ParseYaml_NeverThrows | Property |
 
-## DatabaseTests.fs (18 tests)
+## DatabaseTests.fs (24 cases)
 
 | Test | Category |
 |------|----------|
@@ -88,6 +337,10 @@ skip and Playwright execution evidence.
 | Database_SchemaVersion_FreshDb_ReturnsLatest | Integration |
 | Database_InitSchema_Idempotent_CanRunTwice | Integration |
 | Database_FreshSchema_HasAllTables | Integration |
+| Database_CanonicalArchivePath_RejectsRelativeEscape (3 cases) | Unit |
+| Database_CanonicalArchivePath_RejectsRootedEscape | Unit |
+| Database_CanonicalArchivePath_AllowsContainedDotDotSegments | Unit |
+| Database_CanonicalArchivePath_ArchiveRootIsStableAndSelfContained | Unit |
 
 ## RulesTests.fs (32 tests)
 
@@ -792,6 +1045,199 @@ skip and Playwright execution evidence.
 | DocumentManagement_GetProcessingQueue_EmptyDb_AllZeros | Integration |
 | DocumentManagement_GetProcessingQueue_MixedDocs_CorrectCounts | Integration |
 
+## ReclassificationTests.fs (9 tests)
+
+| Test | Category |
+|------|----------|
+| Content_Reclassification_ReportsProvenanceChangesOnly | Integration |
+| Reclassification_RejectsConcurrentCategoryAndProvenanceChanges | Integration |
+| Reclassification_PreservesSourceIdentityAndDoesNotCreateCategoryDirectory | Integration |
+| Reclassification_MissingSourceFailsBeforeMetadataMutation | Integration |
+| Reclassification_IsIdempotentAndUpdatesProvenanceTagAndFts | Integration |
+| Reclassification_ReplacesGeneratedCategoryTagAndPreservesUserTags | Integration |
+| Reclassification_PreservesUserTagMatchingGeneratedCategory | Integration |
+| Reclassification_RollsBackCategoryTagAndFtsWhenTriggerWriteFails | Integration |
+| Reclassification_PreservesEveryV5CompletionAndOutput | Integration |
+
+## ReclassificationApiTests.fs (4 tests)
+
+| Test | Category |
+|------|----------|
+| Rest_SingleReturnsExplicitIdentityPreservingOutcome | Integration |
+| Rest_SingleReportsIdempotentReclassificationAsUnchanged | Integration |
+| Rest_SingleMapsWhitespaceCategoryValidationExplicitly | Integration |
+| Rest_BatchReportsTruthfulCountsForMixedOutcomes | Integration |
+
+## ReclassificationCompatibilityTests.fs (8 tests)
+
+| Test | Category |
+|------|----------|
+| Main single signature remains usable and preserves not-found error | Integration |
+| MCP retains new_category alongside detailed identity fields | Integration |
+| Removed repair tool returns a JSON-RPC error | Integration |
+| Legacy move batch retains action and successful count with explicit failures | Integration |
+| MCP reclassification failure sets the tool error flag | Integration |
+| Single compatibility response reports classification without claiming a move | Integration |
+| Main Classifier tuple signature remains callable | Integration |
+| Legacy Classifier wrapper exposes partial failure instead of returning success | Integration |
+
+## SavedPathOwnershipTests.fs (13 cases)
+
+| Test | Category |
+|------|----------|
+| All insert entry points reject canonical path aliases (6 cases) | Integration |
+| Full-row persistence cannot take another document path | Integration |
+| Existing duplicates remain intact and reject reclassification and deletion | Integration |
+| Production insert guards reject non-file or escaping paths (3 cases) | Integration |
+| Independent connections cannot concurrently acquire one canonical path | Integration |
+| Unregistered SQLite connections fail rather than bypassing ownership guards | Integration |
+
+## SourceFilesTests.fs (7 tests)
+
+| Test | Category |
+|------|----------|
+| Staged source claims prevent another writer from replacing bytes | Integration |
+| Staged source retries are byte-identical and cannot register another hash | Integration |
+| Generated writes cannot overwrite a document or staged source | Integration |
+| Owned source deletion and movement both fail without mutation | Integration |
+| Missing-source redownload requires the exact exclusive identity | Integration |
+| Classifier duplicate intake cannot delete its own archived source | Integration |
+| Source writes reject a child symlink escaping the archive | Integration |
+
+## ThreadBodyIngestionTests.fs (3 tests)
+
+| Test | Category |
+|------|----------|
+| Appending a body preserves the previous document and source | Integration |
+| Appending a body never invokes document deletion | Integration |
+| Appending an independent source does not repair ambiguous historical ownership | Integration |
+
+## EmailChannelProducerTests.fs (4 tests)
+
+| Test | Category |
+|------|----------|
+| Paged channel ingestion registers body and attachment with immutable source claims | Integration |
+| Re-enumerating an acknowledged message leaves registered sources unchanged | Integration |
+| Empty enumeration retains the existing watermark | Integration |
+| Overlapping channel consumers emit the correct independently owned rows | Integration |
+
+## EmailChannelBodyTests.fs (5 tests)
+
+| Test | Category |
+|------|----------|
+| Same-day shared-prefix messages retain processed history and distinct sources | Integration |
+| An undated distinct body is archived without changing processed history | Integration |
+| Malformed historical dates do not prevent an independent body append | Integration |
+| Older distinct messages preserve newer processed history | Integration |
+| Equal body content does not discard distinct message provenance | Integration |
+
+## EmailChannelOwnershipTests.fs (3 cases)
+
+| Test | Category |
+|------|----------|
+| Channel attachment collision preserves owned or unindexed existing bytes (2 cases) | Integration |
+| Channel sidecar collision preserves its owner and rolls back the failed email claim | Integration |
+
+## EmailChannelFailureTests.fs (2 tests)
+
+| Test | Category |
+|------|----------|
+| Watermark persistence failure reports an error without losing registered channel sources | Integration |
+| Failed body registration reports failure and retains history and watermark | Integration |
+
+## EmailChannelStagedSourceTests.fs (4 cases)
+
+| Test | Category |
+|------|----------|
+| A standalone staged claim refuses another writer deletion or movement before INSERT (2 cases) | Integration |
+| A competing writer and public reader wait for the complete email commit | Integration |
+| A public reader observes no partial email after transactional save failure | Integration |
+
+## EmailChannelAtomicTests.fs (2 tests)
+
+| Test | Category |
+|------|----------|
+| Late attachment failure preserves processed prefix-sharing history and retries exactly once | Integration |
+| Other committed emails remain valid and idempotent while a failed email retries | Integration |
+
+## EmailChannelCallbackTests.fs (2 tests)
+
+| Test | Category |
+|------|----------|
+| Both provider fetches finish before the message write gate is held | Integration |
+| Public consumer callbacks read the complete committed email without gate reentrancy | Integration |
+
+## EmailRateLimitTests.fs (2 tests)
+
+| Test | Category |
+|------|----------|
+| HTTP429 waits sixty seconds outside the write gate before taking the next message | Integration |
+| Cancellation interrupts HTTP429 backoff without fetching the next message | Integration |
+
+## LegacyEmailRetryTests.fs (2 tests)
+
+| Test | Category |
+|------|----------|
+| Legacy late attachment failure rolls back acknowledgement and processing count before retry | Integration |
+| Backfill late attachment failure propagates and retains its page for whole-email retry | Integration |
+
+## SavedPathLegacyMetadataTests.fs (2 tests)
+
+| Test | Category |
+|------|----------|
+| Schema14 disables retirement guards without consuming legacy metadata or history | Integration |
+| Legacy retirement metadata does not block a nondestructive document update | Integration |
+
+## EmailProviderSuccessTests.fs (10 cases)
+
+| Test | Category |
+|------|----------|
+| Non-empty legacy SDK lists preserve complete messages without following continuation (2 cases) | Integration |
+| Non-empty SDK pages preserve metadata full IDs and terminal continuation (2 cases) | Integration |
+| Full SDK body reads preserve plain and HTML contracts instead of previews (4 cases) | Integration |
+| Successful SDK binary attachments map exactly and ingest with the full body (2 cases) | Integration |
+
+## EmailProviderOptionalContractTests.fs (8 cases)
+
+| Test | Category |
+|------|----------|
+| Valid sparse SDK metadata preserves missing values and documented body fallback (2 cases) | Integration |
+| Outlook optional sender shapes preserve available identity without invented fields (4 cases) | Integration |
+| Missing Graph collections and body responses are faults rather than empty success | Integration |
+| Gmail skips inline content at the threshold but downloads larger inline and normal files | Integration |
+
+## EmailProviderCommitContractTests.fs (4 cases)
+
+| Test | Category |
+|------|----------|
+| Post-commit notification failure preserves the complete email and remains explicit (2 cases) | Integration |
+| Initial watermark read failure prevents SDK work and preserves stored state (2 cases) | Integration |
+
+## EmailProviderBoundaryTests.fs (12 cases)
+
+| Test | Category |
+|------|----------|
+| Production interpreter transport failures cannot become successful empty results (2 cases) | Integration |
+| Production attachment download failure faults instead of returning no attachments (2 cases) | Integration |
+| Successful empty provider pages remain successful (2 cases) | Integration |
+| Successful empty bodies and attachment collections remain distinguishable from failure (2 cases) | Integration |
+| Missing full-message responses are faults rather than fabricated messages (2 cases) | Integration |
+| Interpreter attachment failure leaves the email unacknowledged and watermark unchanged (2 cases) | Integration |
+
+## EmailProviderPaginationTests.fs (5 cases)
+
+| Test | Category |
+|------|----------|
+| Graph page wire format omits absent continuation and serializes present continuation | Unit |
+| Production later-page failure drains queued work retains watermark and retries idempotently (2 cases) | Integration |
+| Successful empty intermediate pages retain their continuation (2 cases) | Integration |
+
+## EmailProviderRateLimitTests.fs (4 cases)
+
+| Test | Category |
+|------|----------|
+| Production transport HTTP429 preserves sixty-second cancellable backoff outside the database gate (4 cases) | Integration |
+
 ## ThreadsTests.fs (7 tests)
 
 | Test | Category |
@@ -1034,7 +1480,7 @@ skip and Playwright execution evidence.
 | Stages_CompactSchemaHint_EmptyFields_ReturnsEmptyArray | Unit |
 | Stages_CompactSchemaHint_CapsAt300Chars | Unit |
 
-## ArchiveWriterTests.fs (28 tests)
+## ArchiveWriterTests.fs (32 cases)
 
 | Test | Category |
 |------|----------|
@@ -1058,3 +1504,5 @@ skip and Playwright execution evidence.
 | ArchiveWriter_ReadExtraction_ReturnsNone_WhenNotExists | Unit |
 | ArchiveWriter_ReadComprehension_ReturnsNone_WhenNotExists | Unit |
 | ArchiveWriter_ReadExtraction_ReturnsContent_WhenExists | Unit |
+| Message filenames distinguish full raw provider identities (3 cases) | Unit |
+| Undated source identity is stable across retry dates | Unit |

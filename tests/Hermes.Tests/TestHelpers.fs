@@ -126,7 +126,7 @@ let createDb () : Algebra.Database =
     use cmd = conn.CreateCommand()
     cmd.CommandText <- "PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;"
     cmd.ExecuteNonQuery() |> ignore
-    let db = Database.fromConnection conn
+    let db = Database.fromConnectionForArchive "/archive" conn
     db.initSchema () |> Async.AwaitTask |> Async.RunSynchronously |> ignore
     db
 
@@ -137,7 +137,7 @@ let createRawDb () : Algebra.Database =
     use cmd = conn.CreateCommand()
     cmd.CommandText <- "PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;"
     cmd.ExecuteNonQuery() |> ignore
-    Database.fromConnection conn
+    Database.fromConnectionForArchive "/archive" conn
 
 // ─── Mock email provider ─────────────────────────────────────────────
 

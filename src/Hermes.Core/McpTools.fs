@@ -435,6 +435,33 @@ module McpTools =
 
     // ─── Document management tools ───────────────────────────────────
 
+    let private reclassificationSuccess
+        (outcome: Reclassification.Outcome) =
+        let obj = JsonObject()
+        obj["status"] <-
+            JsonValue.Create(
+                if outcome.Changed then "reclassified"
+                else "unchanged")
+        obj["document_id"] <- JsonValue.Create(outcome.DocumentId)
+        obj["previous_category"] <-
+            JsonValue.Create(outcome.PreviousCategory)
+        obj["category"] <- JsonValue.Create(outcome.Category)
+        obj["new_category"] <- JsonValue.Create(outcome.Category)
+        obj["changed"] <- JsonValue.Create(outcome.Changed)
+        obj["saved_path"] <- JsonValue.Create(outcome.SavedPath)
+        obj["sha256"] <- JsonValue.Create(outcome.Sha256)
+        obj :> JsonNode
+
+    let private reclassificationFailure
+        (documentId: int64)
+        (error: Reclassification.Error) =
+        let obj = JsonObject()
+        obj["status"] <- JsonValue.Create("failed")
+        obj["document_id"] <- JsonValue.Create(documentId)
+        obj["error"] <-
+            JsonValue.Create(Reclassification.describeError error)
+        obj :> JsonNode
+
     let reclassifyDocument
         (db: Algebra.Database) (fs: Algebra.FileSystem) (archiveDir: string)
         (args: JsonNode) : Task<JsonNode> =
@@ -449,18 +476,12 @@ module McpTools =
                 err["error"] <- JsonValue.Create("new_category is required")
                 return err :> JsonNode
             | Some docId, Some category ->
-                let! result = DocumentManagement.reclassify db fs archiveDir docId category
-                match result with
-                | Ok () ->
-                    let obj = JsonObject()
-                    obj["status"] <- JsonValue.Create("reclassified")
-                    obj["document_id"] <- JsonValue.Create(docId)
-                    obj["new_category"] <- JsonValue.Create(category)
-                    return obj :> JsonNode
-                | Error e ->
-                    let err = JsonObject()
-                    err["error"] <- JsonValue.Create(e)
-                    return err :> JsonNode
+                let! result = DocumentManagement.reclassifyDetailed db fs archiveDir docId category
+                return
+                    result
+                    |> Result.map reclassificationSuccess
+                    |> Result.defaultWith
+                        (reclassificationFailure docId)
         }
 
     let reextractDocument (db: Algebra.Database) (args: JsonNode) : Task<JsonNode> =
@@ -608,7 +629,8 @@ module McpTools =
                             return err :> JsonNode
                         | Ok merged ->
                             // Write merged comprehension to file
-                            do! ArchiveWriter.writeComprehension fs absFolder merged
+                            do! ArchiveWriter.writeComprehension
+                                    (SourceFiles.metadataFileSystem db fs) absFolder merged
 
                             let obj = JsonObject()
                             obj["status"] <- JsonValue.Create("extracted")
