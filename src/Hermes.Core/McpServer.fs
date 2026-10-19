@@ -29,8 +29,16 @@ module McpServer =
 
     type ToolDef =
         { Name: string
+          Capability: McpAccess.Capability
           Description: string
           InputSchema: JsonObject }
+
+    type Capabilities =
+        { Access: McpAccess.Session
+          QueryEncoder: Algebra.EmbeddingClient option }
+
+    let readOnlyCapabilities =
+        { Access = McpAccess.anonymous; QueryEncoder = None }
 
     let private mkSchema (properties: (string * JsonObject) list) (required: string list) : JsonObject =
         let schema = JsonObject()
@@ -73,15 +81,23 @@ module McpServer =
 
     let toolDefinitions: ToolDef list =
         [ { Name = "hermes_search"
+            Capability = McpAccess.Read
             Description =
-                "Full-text search over indexed documents. Returns matching documents with relevance scores."
+                "Keyword, semantic, or hybrid search. Semantic/hybrid require a configured encoder and current vector index; failures never fall back to keyword. Coverage is explicit."
             InputSchema =
                 mkSchema
                     [ "query", stringProp "Search query string"
+                      "mode", stringProp "keyword (default), semantic, or hybrid"
                       "category", stringProp "Filter by category (optional)"
+                      "sender", stringProp "Sender substring"
+                      "dateFrom", stringProp "Earliest email date"
+                      "dateTo", stringProp "Latest email date"
+                      "account", stringProp "Account identity"
+                      "sourceType", stringProp "Source type"
                       "limit", intProp "Maximum results to return (default 20)" ]
                     [ "query" ] }
           { Name = "hermes_get_document"
+            Capability = McpAccess.Read
             Description =
                 "Get full metadata and extracted text for a document by ID or path."
             InputSchema =
@@ -90,18 +106,22 @@ module McpServer =
                       "path", stringProp "Document saved path" ]
                     [] }
           { Name = "hermes_list_categories"
+            Capability = McpAccess.Read
             Description = "List all document categories with counts."
             InputSchema = mkSchema [] [] }
           { Name = "hermes_stats"
+            Capability = McpAccess.Read
             Description =
                 "Get summary statistics: total documents, emails, categories, extraction and embedding coverage."
             InputSchema = mkSchema [] [] }
           { Name = "hermes_read_file"
+            Capability = McpAccess.Read
             Description =
                 "Read a text file from the archive. Path is relative to the archive directory."
             InputSchema =
                 mkSchema [ "path", stringProp "Relative path within the archive" ] [ "path" ] }
           { Name = "hermes_list_reminders"
+            Capability = McpAccess.Read
             Description =
                 "List active bill reminders and action items with amounts and due dates."
             InputSchema =
@@ -110,6 +130,7 @@ module McpServer =
                       "limit", intProp "Max results (default 20)" ]
                     [] }
           { Name = "hermes_update_reminder"
+            Capability = McpAccess.Mutate
             Description =
                 "Mark a reminder as paid, snoozed, or dismissed."
             InputSchema =
@@ -119,6 +140,7 @@ module McpServer =
                       "snooze_days", intProp "Days to snooze (default 7, only for snooze action)" ]
                     [ "reminder_id"; "action" ] }
           { Name = "hermes_list_documents"
+            Capability = McpAccess.Read
             Description =
                 "List documents with cursor-based pagination. Returns documents with id > since_id."
             InputSchema =
@@ -128,9 +150,11 @@ module McpServer =
                       "limit", intProp "Maximum results (default 100)" ]
                     [] }
           { Name = "hermes_get_feed_stats"
+            Capability = McpAccess.Read
             Description = "Get document feed statistics: total count, max ID, category breakdown."
             InputSchema = mkSchema [] [] }
           { Name = "hermes_get_document_content"
+            Capability = McpAccess.Read
             Description =
                 "Get document content in text, markdown, or raw format."
             InputSchema =
@@ -139,6 +163,7 @@ module McpServer =
                       "format", stringProp "Content format: 'text', 'markdown', or 'raw' (default 'markdown')" ]
                     [ "document_id" ] }
           { Name = "hermes_reclassify"
+            Capability = McpAccess.Mutate
             Description =
                "Update category metadata and its provenance tag without moving or rewriting the source file."
             InputSchema =
@@ -147,6 +172,7 @@ module McpServer =
                       "new_category", stringProp "Target category (required)" ]
                     [ "document_id"; "new_category" ] }
           { Name = "hermes_reflow"
+            Capability = McpAccess.Mutate
             Description =
                 "Request a DAG-safe reflow. Defaults to dry_run; use mode='apply' to invalidate and re-queue."
             InputSchema =
@@ -156,20 +182,24 @@ module McpServer =
                       "mode", stringProp "One of: dry_run (default), apply" ]
                     [ "document_id"; "operation" ] }
           { Name = "hermes_reflow_status"
+            Capability = McpAccess.Read
             Description = "Get reflow operation status and per-stage outcomes."
             InputSchema =
                 mkSchema [ "operation_id", intProp "Reflow operation ID (required)" ] [ "operation_id" ] }
           { Name = "hermes_reextract"
+            Capability = McpAccess.Mutate
             Description =
                 "DAG-safe legacy alias for reextract apply."
             InputSchema =
                 mkSchema [ "document_id", intProp "Document ID (required)" ] [ "document_id" ] }
           { Name = "hermes_get_processing_queue"
+            Capability = McpAccess.Read
             Description =
                 "Get processing queue overview: unclassified, unextracted, and unembedded document counts."
             InputSchema =
                 mkSchema [ "limit", intProp "Sample IDs per stage (default 10)" ] [] }
           { Name = "hermes_deep_extract"
+            Capability = McpAccess.Mutate
             Description =
                 "Run deep field extraction (Pass 2) on a comprehended document. Uses a type-specific prompt to extract detailed structured data (earnings, transactions, expenses). Returns enriched comprehension with deep_fields."
             InputSchema =
@@ -178,6 +208,7 @@ module McpServer =
                       "force", boolProp "Re-extract even if cached (default false)" ]
                     [ "document_id" ] }
           { Name = "hermes_contacts"
+            Capability = McpAccess.Read
             Description =
                 "List or search contacts in the address book. Contacts are automatically harvested from document comprehension."
             InputSchema =
@@ -188,6 +219,7 @@ module McpServer =
                       "limit", intProp "Max results (default 50)" ]
                     [] }
           { Name = "hermes_contact_detail"
+            Capability = McpAccess.Read
             Description =
                 "Get contact details with linked documents."
             InputSchema =
@@ -195,6 +227,7 @@ module McpServer =
                     [ "contact_id", stringProp "Contact ID (required)" ]
                     [ "contact_id" ] }
           { Name = "hermes_contact_set_tax_relevant"
+            Capability = McpAccess.Mutate
             Description =
                 "Mark a contact as tax-relevant or not. Tax-relevant contacts auto-trigger deep extraction for future documents."
             InputSchema =
@@ -203,10 +236,22 @@ module McpServer =
                       "tax_relevant", stringProp "true, false, or null to clear" ]
                     [ "contact_id" ] }
           { Name = "hermes_contacts_backfill"
+            Capability = McpAccess.Mutate
             Description =
                 "Backfill contacts from already-comprehended documents that haven't been linked yet. Run once after enabling the address book."
             InputSchema =
-                mkSchema [] [] } ]
+                mkSchema [] [] }
+          { Name = "hermes_get_comprehension"
+            Capability = McpAccess.Read
+            Description =
+                "Read complete current document/generation canonical comprehension and effective metadata without extraction or writes. Unattributed shared enrichment is explicitly unavailable; this is not a claim of complete financial extraction."
+            InputSchema =
+                mkSchema [ "document_id", intProp "Positive document ID" ] [ "document_id" ] } ]
+
+    let private denied access name =
+        toolDefinitions
+        |> List.tryFind (fun tool -> tool.Name = name)
+        |> Option.exists (fun tool -> not (McpAccess.permits access tool.Capability))
 
     // ─── tools/list projection ───────────────────────────────────────
 
@@ -218,12 +263,16 @@ module McpServer =
         tool["name"] <- JsonValue.Create(toolDef.Name)
         tool["description"] <- JsonValue.Create(toolDef.Description)
         tool["inputSchema"] <- toolDef.InputSchema.DeepClone()
+        let annotations = JsonObject()
+        annotations["readOnlyHint"] <- JsonValue.Create(toolDef.Capability = McpAccess.Read)
+        tool["annotations"] <- annotations
         tool
 
     /// Fresh tool array for a single response, in declaration order.
-    let private toolEntries () : JsonArray =
+    let private toolEntries access : JsonArray =
         let tools = JsonArray()
         toolDefinitions
+        |> List.filter (fun tool -> McpAccess.permits access tool.Capability)
         |> List.iter (fun toolDef -> tools.Add(toolEntry toolDef))
         tools
 
@@ -382,7 +431,9 @@ module McpServer =
             let! result = outcome
             return
                 match result with
-                | Ok payload -> Succeeded payload
+                | Ok payload ->
+                    if tryGetNode payload "error" |> Option.isSome then Failed payload
+                    else Succeeded payload
                 | Error (McpTools.DomainFailure message) ->
                     Failed(McpTools.errorJson message)
                 | Error (McpTools.InvalidArguments message) ->
@@ -438,6 +489,7 @@ module McpServer =
                     Ok { Name = name; Arguments = arguments })
 
     let private handleToolCall
+        (capabilities: Capabilities)
         (db: Algebra.Database)
         (reflowDb: Algebra.Database)
         (fs: Algebra.FileSystem)
@@ -450,7 +502,11 @@ module McpServer =
         (toolArgs: JsonNode)
         : Task<CallOutcome> =
         match toolName with
-        | "hermes_search" -> succeeded (McpTools.search db toolArgs)
+        | name when denied capabilities.Access name ->
+            Task.FromResult(Rejected "Tool is not available under this MCP capability policy")
+        | "hermes_search" -> attempted (McpRetrieval.search db capabilities.QueryEncoder toolArgs)
+        | "hermes_get_comprehension" ->
+            attempted (McpRetrieval.comprehension db fs archiveDir toolArgs)
         | "hermes_get_document" -> succeeded (McpTools.getDocument db toolArgs)
         | "hermes_list_categories" -> succeeded (McpTools.listCategories db toolArgs)
         | "hermes_stats" -> succeeded (McpTools.stats db toolArgs)
@@ -493,6 +549,7 @@ module McpServer =
 
     /// Process a single JSON-RPC request and return a response.
     let private handleRequestWithReflowDb
+        (capabilities: Capabilities)
         (db: Algebra.Database)
         (reflowDb: Algebra.Database)
         (fs: Algebra.FileSystem)
@@ -527,7 +584,7 @@ module McpServer =
 
             | "tools/list" ->
                 let result = JsonObject()
-                result["tools"] <- toolEntries ()
+                result["tools"] <- toolEntries capabilities.Access
                 return makeResult request.Id (result :> JsonNode)
 
             | "tools/call" ->
@@ -536,6 +593,7 @@ module McpServer =
                 | Ok call ->
                     let! callResult =
                         handleToolCall
+                            capabilities
                             db reflowDb fs logger clock dag archiveDir deepDeps
                             call.Name call.Arguments
 
@@ -564,10 +622,12 @@ module McpServer =
         (request: JsonRpcRequest)
         : Task<JsonRpcResponse> =
         handleRequestWithReflowDb
+            readOnlyCapabilities
             db db fs logger clock dag archiveDir deepDeps request
 
     /// Parse and process a message using a dedicated reflow connection.
-    let processMessageWithReflowDb
+    let processMessageWithCapabilitiesAndReflowDb
+        (capabilities: Capabilities)
         (db: Algebra.Database)
         (reflowDb: Algebra.Database)
         (fs: Algebra.FileSystem)
@@ -586,9 +646,19 @@ module McpServer =
             | Ok request ->
                 let! resp =
                     handleRequestWithReflowDb
+                        capabilities
                         db reflowDb fs logger clock dag archiveDir deepDeps request
                 return serialiseResponse resp
         }
+
+    /// Default entry points are read-only, including direct dispatch callers.
+    let processMessageWithReflowDb db reflowDb fs logger clock dag archiveDir deepDeps message =
+        processMessageWithCapabilitiesAndReflowDb readOnlyCapabilities
+            db reflowDb fs logger clock dag archiveDir deepDeps message
+
+    let processMessageWithCapabilities capabilities db fs logger clock dag archiveDir deepDeps message =
+        processMessageWithCapabilitiesAndReflowDb capabilities
+            db db fs logger clock dag archiveDir deepDeps message
 
     /// Backward-compatible message processor for tests and single-connection hosts.
     let processMessage

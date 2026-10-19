@@ -11,8 +11,8 @@ open Microsoft.Data.Sqlite
 [<RequireQualifiedAccess>]
 module Database =
 
-    // v15 converges source/reflow history; v16 adds rebuildable file-content FTS.
-    let [<Literal>] CurrentSchemaVersion = 16
+    // v17 records attributable comprehension carried through unaffected reflow.
+    let [<Literal>] CurrentSchemaVersion = 17
 
     // ─── Schema DDL ──────────────────────────────────────────────────
 
@@ -355,6 +355,23 @@ module Database =
         );
         """
            "CREATE INDEX IF NOT EXISTS idx_reflow_stages_op ON reflow_operation_stages(operation_id);"
+
+           // Append-only provenance, not another generated publication.
+           """
+        CREATE TABLE IF NOT EXISTS comprehension_provenance (
+            document_id           INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            generation            INTEGER NOT NULL CHECK (generation > 0),
+            stage_name            TEXT NOT NULL DEFAULT 'deep-comprehend'
+                                  CHECK (stage_name = 'deep-comprehend'),
+            publication_generation INTEGER NOT NULL
+                                   CHECK (publication_generation >= 0
+                                          AND publication_generation < generation),
+            operation_id          INTEGER NOT NULL REFERENCES reflow_operations(id),
+            PRIMARY KEY (document_id, generation),
+            FOREIGN KEY (document_id, stage_name, publication_generation)
+                REFERENCES stage_publications(document_id, stage_name, generation)
+        );
+        """
 
            // ── Per-document reflow generation (reflow; forward v15) ──
            """

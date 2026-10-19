@@ -56,7 +56,7 @@ module Search =
 
     // ─── SQL query building ──────────────────────────────────────────
 
-    let private criteria (filter: SearchFilter) : KeywordSql.Criteria =
+    let internal criteria (filter: SearchFilter) : KeywordSql.Criteria =
         { Query = filter.Query
           Category = filter.Category; Sender = filter.Sender
           DateFrom = filter.DateFrom; DateTo = filter.DateTo

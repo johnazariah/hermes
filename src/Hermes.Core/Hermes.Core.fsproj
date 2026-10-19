@@ -58,6 +58,14 @@
     <Compile Include="ContactExtraction.fs" />
     <Compile Include="KeywordSql.fs" />
     <Compile Include="Search.fs" />
+    <Compile Include="SearchContract.fs" />
+    <Compile Include="QueryVectors.fs" />
+    <Compile Include="SearchQuery.fs" />
+    <Compile Include="SearchWire.fs" />
+    <Compile Include="ComprehensionContract.fs" />
+    <Compile Include="ComprehensionProvenance.fs" />
+    <Compile Include="ComprehensionSource.fs" />
+    <Compile Include="PersistedComprehension.fs" />
     <Compile Include="Stats.fs" />
     <Compile Include="Reminders.fs" />
     <Compile Include="Chat.fs" />
@@ -78,6 +86,8 @@
     <Compile Include="StagesV5.fs" />
     <Compile Include="Pipeline.fs" />
     <Compile Include="McpTools.fs" />
+    <Compile Include="McpAccess.fs" />
+    <Compile Include="McpRetrieval.fs" />
     <Compile Include="McpServer.fs" />
     <Compile Include="ServiceInstaller.fs" />
   </ItemGroup>

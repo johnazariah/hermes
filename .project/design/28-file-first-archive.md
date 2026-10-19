@@ -193,7 +193,7 @@ Read thread messages + extracted files → LLM → write thread.comprehension.js
 ### Embed (unchanged)
 
 ```
-Read extracted text (from .extracted.md file) → embed → store vector in sqlite-vec
+Read extracted text (from .extracted.md file) → embed → store document_chunks vectors
 ```
 
 Embeddings stay in SQLite — they're only useful as a searchable index.
@@ -213,8 +213,21 @@ Embeddings stay in SQLite — they're only useful as a searchable index.
   recomprehend/reembed retain valid extraction content. A source path/hash/type
   reassignment supersedes the document generation and current completions before
   old in-flight work can publish; it does not rewrite either immutable source.
-- **sqlite-vec**: unchanged
-- **Field search**: `json_extract()` on comprehension JSON — now needs to read the `.comprehension.json` file, OR we keep a thin indexed copy of key fields in the DB
+- **Typed retrieval**: HTTP and MCP share keyword, semantic and reciprocal-rank
+  fusion hybrid modes. Semantic queries encode the query, then load current
+  `document_chunks` evidence; the production path does not depend on a separate
+  `VectorStore`. Missing encoders, missing indexes and failed encoding are
+  explicit outcomes, never an implicit change to keyword mode.
+- **Persisted fields**: read-only access resolves document-scoped canonical
+  stage publications, their source identity and digest, and effective corrected
+  metadata. The current document generation fences the read independently of
+  the retained stage's publication provenance. An embedding-only refresh must
+  preserve valid comprehension; reextract, recomprehend and source changes
+  invalidate the affected stage.
+- **Shared enrichment**: folder-level `thread.comprehension.json` may contain
+  several documents. Fields without document-scoped attribution are reported
+  as unavailable rather than assigned to whichever sibling was requested.
+  Persisted reads never regenerate, repair or rewrite these artifacts.
 
 ### Selected content-index rebuild
 

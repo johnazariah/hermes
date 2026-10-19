@@ -2,12 +2,65 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
-## File-first search/operator — locally approved, publication pending
+## Typed retrieval and MCP policy — approved for publication
 
-The first schema-16 candidate wires body/extracted-content FTS, real HTTP/MCP
+The issue #6 candidate adds shared keyword/semantic/hybrid HTTP and MCP
+contracts, a non-generative persisted-comprehension accessor, explicit MCP
+capabilities and a local Host/origin boundary. The separate author's revision
+passes the full preserved suite and independent re-review. Published-head
+Windows/macOS CI remains required before integration.
+
+| Measure | Executed result |
+|---------|-----------------|
+| Release full graph | 0 warnings/errors |
+| New HTTP/search/persisted/policy/race selection | 59 passed, 0 failed/skipped |
+| Initial preserved full execution | 1,333 total; 1,324 passed, 2 failed, 7 retained skips |
+| Diagnostic root lines / branches | 10,167/12,677 lines; 9,470/20,207 branches |
+| Revised and final formatted full execution | 1,387 total; 1,380 passed, 0 failed, 7 retained skips |
+| Final root lines / branches | 10,283/12,753 lines; 9,558/20,265 branches |
+| Instrumented assemblies | Core, Service, UI; unchanged |
+| Independent F# review | Approved after a separate author corrected all three findings |
+| Publication | Not committed, pushed or merged |
+
+The revision restores legal large-limit keyword calls and distinguishes unknown
+tools from recognised unauthorised mutations. Schema 17 records explicit origin
+links during accepted embedding-only reflow, leaving canonical publications
+unchanged. Real HTTP/MCP reads retain full attributable payslip JSON and manual
+corrections before and after actual embedding; separate document/publication
+generations preserve the read fence and original provenance.
+
+| New module | Executed cases |
+|------------|----------------|
+| `TypedSearchHttpTests` | 21 |
+| `PersistedComprehensionHttpTests` | 8 |
+| `LocalMcpBoundaryHttpTests` | 10 |
+| `RetrievalPolicyTests` | 21 |
+| `QueryEncodingRaceHttpTests` | 4 |
+| `PersistedReadRaceHttpTests` | 2 |
+| `ReembedReadHttpTests` | 3 |
+| `ComprehensionProvenanceTests` | 11 |
+| `ComprehensionProvenanceSchemaTests` | 2 |
+| `KeywordLimitHttpTests` | 23 |
+| `UnknownToolHttpTests` | 8 |
+
+These 113 cases supplement the integrated 1,274-case baseline. Physical SQLite/
+WAL and archive hashes remain unchanged during reads; migration, repeated
+reembed, sibling isolation, invalidation, corrupt/missing origins, source
+changes, interrupted reads and transactional carry failure are covered.
+Historical gaps without provenance remain unavailable rather than guessed.
+The seven existing skips, instrumentation and coverage gates are unchanged;
+exact root line coverage improves from 9,712/12,166 to 10,283/12,753.
+Independent approval is recorded; current-head Windows/macOS CI remains required.
+Broader REST/browser/Tray session authentication and the 85%/60% wave-close
+target remain separate.
+
+## Integrated file-first search/operator — PR #25
+
+The schema-16 feature wires body/extracted-content FTS, real HTTP/MCP
 queries and an explicit bounded local `reindex-files` dry-run/apply operator.
-The independently revised source and execution evidence are approved locally;
-current published-head Windows/macOS CI remains required before integration.
+PR #25 merged into `main` as `df0cad9b` after independent source and portable
+fixture approval. All five published-head checks and all seven main
+build/test/publish jobs passed.
 
 | Measure | Executed result |
 |---------|-------------------|
@@ -22,7 +75,9 @@ current published-head Windows/macOS CI remains required before integration.
 | Obsolete skips replaced | Three body-text cases replaced by real file-first HTTP/MCP/reindex assertions |
 | Independent F# review | Approved after separate authors corrected safety and source-snippet findings |
 | First published-head CI | macOS passed; Windows had 20 fixture/path assertions fail |
-| Portable fixture correction / replacement CI | Local full suite passed; new-head Windows proof pending |
+| Portable fixture correction / replacement CI | Passed on actual Windows and macOS; 1,274 total, 1,267 passed, 7 skipped |
+| Published Windows exact root lines | 9,712/12,166 = 79.829032% |
+| Post-merge main | All seven build/test/publish jobs passed |
 
 Independent review closed explicit operator authority, complete pagination and
 in-flight source-identity publication findings. A third author's shared-query
@@ -43,8 +98,8 @@ volumes, UNC, relative and unrelated roots; three portable cases cover byte/text
 reads/writes, sizes/hashes, directory/list/move/delete and non-alias identities.
 Fault injection uses the same normaliser, and home expansion uses the actual
 platform separator contract. Production guard/hash logic is unchanged; actual
-Windows CLI-process tests already passed, but replacement full Windows CI must
-still prove the repaired fixtures.
+Windows CLI-process tests already passed; replacement full Windows/macOS CI
+subsequently proved the repaired fixtures.
 
 The synthetic Core/in-memory SQLite + MemFs measurement indexed 1,000 distinct
 valid sources in batches of at most 100 in 2,327.237 ms; 40 queries after one

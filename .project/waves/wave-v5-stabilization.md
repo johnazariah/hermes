@@ -43,8 +43,8 @@ follow-on work.
 | 0 | Capture redacted current-main baseline | Hockney / Fenster / McManus / Verbal / Rai | ✅ Done | Evidence below; personal archive not accessed |
 | 0 | Reconcile testing register and support matrix | Hockney / Keaton | ✅ Done | Baseline below and testing register |
 | 1A | Stabilize V5 reflow and reclassification | McManus / Hockney | ✅ Done | #17 closed after merged #19/#20 and independent acceptance mapping |
-| 1B | Restore file-first FTS, semantic/hybrid, and Osprey reachability | McManus / Hockney | ⏳ Active | #11 implementation in progress after #17 closure; #6 follows the indexed-content contract |
-| 1C | Enforce local HTTP/MCP trust boundary | McManus / Keaton / Rai | ⬜ Blocked | #6; depends on final MCP contract |
+| 1B | Restore file-first FTS, semantic/hybrid, and Osprey reachability | McManus / Hockney | ⏳ Active | #11 integrated in #25; #6 source independently approved, publication/CI pending |
+| 1C | Enforce local HTTP/MCP trust boundary | McManus / Keaton / Rai | ⏳ Active | #6 MCP/Host/origin candidate under review; broader REST/browser/Tray authentication remains unwired |
 | 1D | Stabilize canonical React/Tray assets and SSE | Verbal / Fenster / Hockney | ⬜ Blocked | #9 and #8; depends on trust-boundary browser policy |
 | 1E | Reach 85% line / 60% branch coverage and close wave | Hockney / Fenster | ⬜ Blocked | #18; depends on Phase 1A-1D |
 
@@ -97,6 +97,29 @@ or live document was opened. Results record behavior and counts, not content.
 8. PR #15 is reviewed and merged before Phase 1A implementation starts.
 
 ## Log
+
+### 2026-10-19 - Typed retrieval source independently approved for publication
+
+- **Changed:** Independent F# re-review approves the separate-author revision and closes all three initial findings. The source preserves stage-specific provenance, legal keyword callers, explicit vector dependency failures, unknown-tool compatibility and authenticated opt-in mutation permissions.
+- **Evidence:** The final post-BOM graph builds with 0 warnings/errors; its full instrumented run is 1,387 total, 1,380 passed, 7 retained skips, 0 failed. Exact root counters are 10,283/12,753 lines and 9,558/20,265 branches across the unchanged Core/Service/UI scope. The testing register includes the executed 113-case addition and final disposition.
+- **Blockers:** Published-head Windows/macOS proof, integration and main-bundle/storage verification remain. Approval does not waive these gates or establish broader REST session authentication or unattributed shared enrichment.
+- **Next:** Commit the reviewed tree, retain verified main ancestry, open the templated PR and integrate only after exact-head CI passes.
+
+### 2026-10-19 - Retrieval provenance revision passes the preserved suite
+
+- **Changed:** A separate F# author corrected all three initial findings. Schema 17 records an explicit original-publication link atomically during embedding-only reflow; reads distinguish current document generation from canonical publication generation. Keyword callers retain positive Int32 limits, vector modes remain bounded, and unknown tools are resolved independently of mutation permissions.
+- **Evidence:** Eleven new test modules contribute 113 cases above the integrated baseline. Real HTTP/MCP and physical SQLite/WAL assertions cover full persisted payslip fields, manual metadata, original digests, repeated reembed before/after actual embedding, sibling isolation, source/read races, invalid origins, additive migration and full rollback on carry failure. Existing snippet and removed-tool compatibility assertions remain unchanged.
+- **Validation:** Both revised and final BOM-normalised Release graphs build with 0 warnings/errors. The final full run is 1,387 total, 1,380 passed, 7 retained skips, 0 failed; exact root coverage is 10,283/12,753 line and 9,558/20,265 branch across Core/Service/UI, improving the integrated line baseline without exclusions or gate changes.
+- **Blockers:** Independent re-review and actual published-head Windows/macOS CI remain. Shared enrichment without document attribution and historical generation gaps remain explicitly unavailable; broader REST/browser/Tray session authentication and the #18 wave-close gate are separate.
+- **Next:** Conclude independent review, publish the reviewed tree, verify exact-head cross-platform CI and merge, then verify main bundles and prune the checkpoint's artifacts.
+
+### 2026-10-19 - File-first search integrated; retrieval currentness revision required
+
+- **Changed:** PR #25 merged into `main` as `df0cad9b`, completing #11. Its reviewed portable fixture correction passed actual Windows/macOS checks; all seven main build/test/publish jobs passed. Pruned five failed/success/main artifacts totalling 186,563,632 bytes; zero artifacts and the two useful main caches (114,212,113 bytes) remain.
+- **Evidence:** The next #6 candidate wires typed search modes, source-grounded persisted reads, default read-only MCP capability discovery and explicit Host/origin checks through the real HTTP composition. Shared enrichment without document attribution remains explicitly unavailable. No personal archive or provider was accessed.
+- **Validation:** Release full graph has 0 warnings/errors and 59 new focused cases pass. The preserved full run executes 1,333 cases: 1,324 passed, 2 failed, 7 retained skips. Diagnostic root coverage is 10,167/12,677 line and 9,470/20,207 branch with Core/Service/UI scope unchanged.
+- **Blockers:** Independent review rejects loss of still-current comprehension after `reembed`, the new cap on existing large-limit keyword callers and incorrect classification of removed/unknown tools as policy-denied. The initial author is locked out; a separate F# author owns the revision and corrected real-transport regressions. This candidate remains unpublished.
+- **Next:** Prove stage-specific publication provenance and compatibility without weakening read fences or authorization, then repeat full coverage/review and publish only on passing exact-head CI.
 
 ### 2026-10-19 - Published search Windows fixtures corrected without relaxing production
 

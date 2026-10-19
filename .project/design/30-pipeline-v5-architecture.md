@@ -78,7 +78,7 @@ SQLite stores document identity, workflow state, per-stage metadata, learned pat
 
 The rebuildable file-content FTS projection is populated from immutable body
 files and generation-fenced extraction artifacts. Search reads only metadata
-and current index rows; it does not invoke providers or mutate the archive.
+and current index rows; keyword reads do not invoke providers or mutate the archive.
 Metadata/content matches share stable document identity, with ranking and
 deduplication before pagination.
 
@@ -139,6 +139,27 @@ source-identity transition.
 
 Triage runs for every extracted document and produces a fast type/category/confidence result. Deep comprehension runs only when the triage category passes its gate, using the full thread and type-specific prompt registry. Both stages can write `thread.comprehension.json`; the deep result supersedes the triage artifact.
 
+Read-only structured retrieval uses an attributable document-scoped canonical
+publication, not an arbitrary shared-folder JSON file. It returns the complete
+persisted JSON, source identity and publication digest alongside effective
+metadata, including user corrections. Unattributed shared enrichment is
+explicitly unavailable. This accessor has no generative-provider capability
+and does not repair missing state.
+
+Stage currentness and publication origin are distinct from the global document
+generation used to fence a read. Reembedding preserves current comprehension
+and its original provenance; invalidating comprehension or changing source
+identity makes those fields unavailable until a valid publication exists.
+Concurrent source/generation changes cannot turn a historical or sibling
+publication into a successful current read.
+
+An accepted embedding-only reflow atomically records an additive
+`comprehension_provenance` origin link with its generation and operation audit.
+It neither copies nor relabels canonical publications. Responses distinguish
+`generation` (the current document read fence) from `publicationGeneration`
+(the original canonical stage generation). Missing links across historical
+generation gaps are not inferred or repaired during a read.
+
 See [24-comprehension-stage.md](24-comprehension-stage.md).
 
 ## Interfaces
@@ -150,6 +171,47 @@ See [24-comprehension-stage.md](24-comprehension-stage.md).
   issue [#9](https://github.com/johnazariah/hermes/issues/9) owns canonical
   route and asset stabilization.
 - **Desktop:** Windows tray plus MAUI shell builds for Windows and macOS.
+
+### Typed search
+
+HTTP and `hermes_search` use one keyword/semantic/hybrid request contract.
+Keyword remains the default. Semantic retrieval uses the configured query
+embedding capability and current `document_chunks` evidence; hybrid combines
+keyword and vector rankings using reciprocal-rank fusion. Evidence is loaded
+after query encoding so an intervening invalidation cannot leave a stale
+pre-encoding snapshot eligible.
+
+Results identify the requested mode and vector coverage. Missing or failed
+query encoding and absent current vectors have explicit unavailable/error
+outcomes. Partial indexes expose partial coverage; they do not silently turn a
+semantic or hybrid request into keyword search. Persisted comprehension reads
+require neither query encoding nor an LLM.
+
+Keyword limits accept positive 32-bit integers, retaining established MCP
+callers; semantic/hybrid limits are 1–100. Omitted limits retain HTTP 50 and
+MCP 20 defaults. Explicit malformed, nonpositive or overflowing limits are
+rejected, as are repeated HTTP limit parameters.
+
+### Local MCP capability boundary
+
+Every tool declares `Read` or `Mutate`. Default discovery and dispatch expose
+only read capabilities. `HERMES_MCP_MUTATIONS=true` opts into mutations and
+requires a configured `HERMES_MCP_TOKEN` of 32–4,096 non-whitespace characters.
+Each mutation requires its bearer token; token comparison uses fixed-length
+hashes and constant-time comparison. An absent Origin header is not
+authentication. Unknown or removed tool names remain unknown independently of
+the policy for recognised tools.
+
+The Service validates loopback remote addresses, the requested Host/listener
+port and browser origins before routing. Allowed origins are canonical
+loopback HTTP(S) origins for production 21741, development 21742 and the
+configured Service port. `HERMES_ALLOWED_ORIGINS` supplies additional explicit
+semicolon-separated loopback preview origins; wildcard CORS is not allowed.
+Invalid policy configuration fails startup. Local read-only requests without
+an Origin remain usable.
+
+This capability policy authenticates MCP mutations. Broader REST/browser/Tray
+session authentication requires its own UI/session integration.
 
 ## Design Rules
 

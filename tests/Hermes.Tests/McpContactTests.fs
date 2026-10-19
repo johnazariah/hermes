@@ -9,6 +9,8 @@ open System.Threading.Tasks
 open Xunit
 open Hermes.Core
 
+module McpServer = Hermes.Tests.McpTestPolicy.Server
+
 // ─── Test data ───────────────────────────────────────────────────────
 
 let private acmeComprehension =
