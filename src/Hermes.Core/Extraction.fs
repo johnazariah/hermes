@@ -1,4 +1,4 @@
-namespace Hermes.Core
+﻿namespace Hermes.Core
 
 open System
 open System.Text.RegularExpressions
@@ -203,9 +203,10 @@ module Extraction =
         task {
             let! _ =
                 db.execNonQuery
-                    """UPDATE documents
-                       SET extracted_date = @date,
-                           extracted_amount = @amount, extracted_vendor = @vendor,
+                    $"""UPDATE documents
+                       SET extracted_date = {StageState.extractionValue StageState.Date "@date"},
+                           extracted_amount = {StageState.extractionValue StageState.Amount "@amount"},
+                           extracted_vendor = {StageState.extractionValue StageState.Vendor "@vendor"},
                            extracted_abn = @abn, extraction_method = @method,
                            ocr_confidence = @confidence, extraction_confidence = @extConf,
                            extracted_at = @now

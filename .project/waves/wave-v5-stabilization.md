@@ -98,6 +98,39 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-19 - Reflow publication resumed through the remaining integration gates
+
+- **Changed:** John directed completing the remaining publication and CI steps autonomously rather than stopping at local readiness. Proceed with the existing PR #20 and established `main` target, without force-pushing, rewriting published history or creating another worktree/branch.
+- **Evidence:** The independently approved source remains covered by its final per-file manifest. Eleven historical PR #20 journal entries are preserved verbatim alongside every existing current entry; the already-reviewed main-plus-reflow tree will be recorded with both original histories as merge ancestry.
+- **Validation:** Final formatted-source Release build has 0 warnings/errors; all 1,115 cases execute with 1,105 passed, 10 existing skips and 0 failed. Exact conservative root coverage is 9,123/11,604 = 78.6194% line and 7,848/18,295 = 42.8970% branch, including Core, Service and UI. Source review is approved; no threshold or instrumentation exclusion is changed.
+- **Blockers:** Windows and exact published-head CI remain unverified until the branch is pushed. The 85% / 60% wave-close target and subsequent financial-document search/read-only Osprey work remain outstanding.
+- **Next:** Commit the validated reconciliation, record its already-integrated ancestry, push normally to PR #20, verify current-head CI and merge only on passing gates. Prune unneeded Actions artifacts at the integration checkpoint; keep useful dependency caches.
+
+### 2026-10-19 - Reflow integration independently approved and passing locally
+
+- **Changed:** Imported the reviewed #20/main reconciliation into the session checkout with per-file baseline/hash guards. Combined schema 15 preserves the source-ownership and immutable-ingestion contracts; audited DAG replay uses the existing physical-connection transaction scope. Effective user-corrected date/amount/vendor now survive invalidation and extraction replay, every failed nested callback cleans up its savepoint, and superseded deep extraction returns a truthful MCP tool-error envelope.
+- **Evidence:** A different F# revision author resolved the independent rejection; the reviewer now approves the revised source and execution evidence. All 46 imported source/project/test files match the approved candidate byte-for-byte. A source-only recovery archive, import manifest, TRX and coverage evidence remain in session artifacts; the temporary in-workspace candidate/reference directory was removed.
+- **Validation:** Restoring the changed project graph followed by the actual-checkout Release build produced 0 warnings/errors. Candidate and checkout executions both passed 1,105 with 10 existing skips (1,115 total), including all eight new savepoint/real-HTTP financial-correction/MCP-supersession cases. Root line coverage is conservatively 9,123/11,604 (78.61%; checkout 9,124/11,604); checkout branch coverage is 7,867/18,295 (43.00%). Instrumentation now includes Core, Service and UI; no exclusions or threshold reductions were introduced. HTTP tests use synthetic data, fake providers and the previously documented isolated-content-root/polling accommodation.
+- **Blockers:** Work remains uncommitted and unpublished on the unchanged session branch; PR #20's remote head is still the historical head. Current Windows/published-head CI and publication authority remain separate gates. The wave-close 85% line / 60% branch target, existing skips/weak fixtures and subsequent file-first search/read-only Osprey work remain unfinished.
+- **Next:** Publish the validated #20 integration only with explicit Git authority, then verify its exact published head before merge and proceed to the financial-document search slice. Parent #17 stays open until the remaining acceptance evidence is complete; legacy repair and packaging remain separate.
+
+### 2026-10-19 - Financial-document delivery prioritised; reflow candidate rejected
+
+- **Changed:** Started the #20 integration against `main` `367feb4`, prioritising reliable financial-document ingestion, content search and source-grounded read-only retrieval. Useful coverage recovery accompanies that path; no filing jurisdiction, tax year, deadline or personal-corpus access is assumed. The user was unavailable for the standing publication-permission question, so no new commit/push/merge authority is inferred.
+- **Evidence:** An isolated main-plus-#20 candidate reconciles the code/project conflicts, advances the combined schema to 15 and builds Core, Service and Tests without warnings/errors. The tracked source checkout and earlier local journal entry remain preserved; temporary workspace-contained candidate/reference snapshots accommodate the language agent's workspace-only reads. Execution priorities are recorded on [#11](https://github.com/johnazariah/hermes/issues/11#issuecomment-6257466569) and [#20](https://github.com/johnazariah/hermes/pull/20#issuecomment-6257466812).
+- **Validation:** Adjacent unchanged-main execution passed 982 with 10 existing skips (992 total), with Core-only line coverage 6086/8107. The candidate full suite is diagnostic only: 1079 passed, 18 failed, 10 existing skips (1107 total). Its root coverage is 8903/11581 across Core, Service and UI, not the former Core-only scope; no acceptance claim is made while tests fail.
+- **Blockers:** Independent F# review rejected incomplete nested-savepoint exception/cancellation rollback, reextract erasing effective user-corrected date/amount/vendor, and MCP success envelopes for superseded deep extraction. Legacy and new fixtures also need lawful archive identities/hashes and precise user-tag assertions. The rejected integration author is locked out; a different F# author owns production fixes and fixture reconciliation.
+- **Next:** Prove the three corrections through transaction, real correction/replay and HTTP MCP regressions; rerun the independent review and complete build/test/coverage/transport gates before importing or publishing a candidate. Existing 75% merge and 85% line / 60% branch wave-close gates remain unchanged.
+
+### 2026-10-19 - Actions storage pruned and next integration work sequenced
+
+- **Changed:** Deleted all four retained Hermes Actions artifacts (185,613,575 bytes) and the two redundant caches scoped to closed PR #19 (114,217,070 bytes). The two useful `main` dependency caches remain (114,212,113 bytes). Future coverage/build retention stays at seven/three days; workflow logs and session-local validation evidence are preserved.
+- **Evidence:** PR #19 merged into `main` as `367feb4`; its merge tree matches the reviewed head, and all seven post-merge build/test/publish jobs passed. Live storage now lists zero artifacts and two `main` caches. The next-work briefs are recorded on [PR #20](https://github.com/johnazariah/hermes/pull/20#issuecomment-6257267541) and [issue #18](https://github.com/johnazariah/hermes/issues/18#issuecomment-6257267971).
+- **Queue:** First reconcile deterministic reflow #20 with schema 14, the shared connection/transaction scope, metadata-only reclassification and immutable ingestion; then independently review and prove the full request-to-observable-outcome path. Audit #21 for genuinely additional tests rather than restoring superseded production changes, then restack and validate Config #22 and FolderWatcher #23. Follow with file-first search/read-only Osprey (#11/#6), the HTTP/MCP trust boundary (#6), and canonical React/Tray lifecycle work (#9/#8); #18 spans those phases. Legacy repair #24 remains separately designed/reviewed and packaging #16 remains deferred.
+- **Validation:** Deletion targets and duplicate cache keys were checked before removal; the resulting artifact/cache inventory was verified. No source code or workflow configuration changed, and no branch switch, rebase, force-push or new implementation was performed.
+- **Blockers:** #20 and #21 currently conflict with `main`. #22/#23 are clean only against their old stack parents and have no recorded checks. Historical test counts/coverage are not integration evidence; root/per-assembly coverage, the unchanged 75% merge gate, and the 85% line / 60% branch wave-close target remain explicit.
+- **Next:** Execute the bounded F# integration/review brief for #20 against current `main`; keep parent #17 open until its remaining acceptance criteria are proved. This journal entry is local and uncommitted.
+
 ### 2026-10-19 - Publication and merge explicitly authorised
 
 - **Changed:** John requested pushing the completed revision, creating a PR and merging it. PR #19 is already open on the approved branch with base `main`, so publication will update that PR rather than create a duplicate or retarget the established integration path.
@@ -188,6 +221,94 @@ or live document was opened. Results record behavior and counts, not content.
 - **Validation:** Before implementation, original head `c9e5d4f` passed Release Core/Tests and Service builds with 0 warnings/errors; the full suite ran 951 cases (941 passed, 10 skipped). Comparable Core-only Cobertura measured 68.50% line (5,888/8,595) and 33.58% branch (4,215/12,549).
 - **Blockers:** The scope decision does not approve the implementation or waive review/CI. A fresh independent F# revision is required under the existing reviewer lockout. PRs #20-#23 remain frozen pending the narrowed change and required rebases/revalidation.
 - **Next:** Remove the repair operator and scan/cursor machinery while proving retained reclassification, compatibility and ownership requirements. No commit, push, merge or live-corpus replay is authorised.
+
+### 2026-08-28 - Phase 1A PR A coordinator gate corrections approved
+
+- **Changed:** Closed stale sibling and deep-extraction sidecar overwrites with folder revision fencing; made stage-attempt cleanup recover from transient failures; made schema startup fail fast and shutdown quiesce before disposal; made MCP reflow failures and malformed containers protocol-truthful; and replaced the artificial v11 migration check with a populated deployed-v8 to v12 proof.
+- **Evidence:** Deterministic tests force sibling/deep-extraction interleavings, cleanup deletion faults, unresponsive shutdown, malformed MCP value/container types, repeated `tools/list`, populated migration with duplicate active dead letters, and second-run idempotency. Per-algebra SQLite serialization also passed 20 repeated Release stress iterations; EmailSync multi-command identity remains independently owned by blocking PR #21.
+- **Validation:** Release Core, Service, and Tests build with 0 warnings/errors; full suite executes 967 tests (957 passed, 10 skipped); local CI-equivalent coverage is 71.71% aggregate line / 35.91% branch and 79.13% Core line / 39.84% branch. Independent `fsharp-dev` review approved race safety, migration/idempotency, connection lifetime, cancellation, and compatibility.
+- **Blockers:** PR #20 must not merge before PR #19; it must then rebase and resolve Database/API/MCP/project/docs conflicts. The Windows workflow's authoritative 75% aggregate line check remains red and is not claimed as cleared; issue #18 retains the 85% / 60% wave-close target.
+- **Next:** Push the reviewed correction head, keep PR #19 separate, then rebase PR #20 after #19 lands before final merge consideration.
+
+### 2026-08-28 - Phase 1A PR A coordinator gate reassessed
+
+- **Changed:** Confirmed the process-wide shared-connection risk exists on `main` and is already closed in PR #20 by one algebra-scoped semaphore covering every command and transaction; clarified Core-package, aggregate-CI, current merge, and wave-close coverage measures.
+- **Evidence:** `main` exposes one raw shared `SqliteConnection` without serialization; PR #20 routes all `Algebra.Database` operations through the same gate, uses separate physical pipeline/reflow connections, and passed 20 Release stress iterations covering same-connection command/transaction exclusion plus two-connection write coordination.
+- **Validation:** PR head `83f208c`; macOS .NET, Shell, and Tray checks pass. Windows Release build and all 940 tests pass, then coverage fails at 71.3% aggregate line / 35.5% aggregate branch. The current workflow enforces 75% aggregate line only; the authoritative wave-close target remains 85% line / 60% branch under #18.
+- **Blockers:** Coordinator merge gate remains in force pending renewed scope review; no coverage gate is claimed as cleared.
+- **Next:** Complete renewed race, migration, lifetime, cancellation, and compatibility review, then return disposition to the master session.
+
+### 2026-08-27 - Phase 1A PR A Release compiler correction
+
+- **Changed:** Replaced a task-expression `for` loop in the stale-stage-output regression with a tail-recursive task helper so F# Release compilation remains statically resumable under warnings-as-errors.
+- **Evidence:** PR #20 initial CI identified FS3511 at `ReflowTests.fs`; the production implementation was unaffected.
+- **Validation:** Release test-project build passed with 0 warnings/errors; the affected regression passed; the full Release suite executed 940 tests (930 passed, 10 skipped).
+- **Blockers:** Awaiting refreshed PR checks; issue #18 retains ownership of the 85% / 60% wave-close gate.
+- **Next:** Push the correction and verify cross-platform CI.
+
+### 2026-08-27 - Phase 1A PR A cross-document publication races closed
+
+- **Changed:** Canonicalized artifact lock identities against the archive root, moved deep-extraction merge/read/write under the shared folder fence, fenced every V5 stage-owned output with its captured generation, persisted one canonical comprehension publication per stage generation, and made extracted-content reads stable across reflow.
+- **Evidence:** Issue #17 PR A scope on `johnazariah-17-v5-file-first-correctness`; deterministic regressions cover relative/absolute folder aliases, sibling publication during an LLM call, stale extract/triage/deep/embed output publication, divergent comprehension retry responses, reextract during content read, and schema-v12 upgrade/idempotency.
+- **Validation:** Full build passed with 0 warnings/errors; expanded focused suite passed 277 tests; full suite executed 940 tests (930 passed, 10 skipped); comparable Core coverage is 79.06% line / 39.61% branch (+14.06 / +8.51 points from baseline), with overall collected coverage 70.75% / 35.59%.
+- **Blockers:** None for PR A pending renewed independent approval; issue #18 retains ownership of the 85% / 60% wave-close gate, and Phase 1B remains independently owned.
+- **Next:** Obtain renewed independent approval and open PR A for review.
+
+### 2026-08-27 - Phase 1A PR A shared-artifact and retry idempotency closed
+
+- **Changed:** Extended publication fencing from document identity to normalized shared artifact folders, made apply requests fail without mutation when a safe folder identity cannot be derived, and added durable per-document learned-pattern evidence plus equivalent-pending-suggestion guards so real comprehension retries remain exactly once after finalization rollback.
+- **Evidence:** Issue #17 PR A scope on `johnazariah-17-v5-file-first-correctness`; two-document same-folder ordering proves stale work cannot overwrite newer thread bytes, and real triage/deep-comprehend finalization-fault cases prove retries do not inflate learned evidence or duplicate suggestions while evidence from distinct documents still accumulates.
+- **Validation:** Full build passed with 0 warnings/errors; focused concurrency and comprehension suite passed 131 tests; full suite executed 932 tests (922 passed, 10 skipped); comparable Core coverage is 78.85% line / 39.12% branch (+13.85 / +8.02 points from baseline), with overall collected coverage 70.23% / 35.03%.
+- **Blockers:** None for PR A pending renewed independent approval; issue #18 retains ownership of the 85% / 60% wave-close gate, and Phase 1B remains independently owned.
+- **Next:** Obtain renewed independent approval and open PR A for review.
+
+### 2026-08-27 - Phase 1A PR A final concurrency review blockers closed
+
+- **Changed:** Serialized canonical sidecar publication with reflow acceptance, switched write transactions to `BEGIN IMMEDIATE` for safe two-connection fencing, isolated and recorded pipeline-cycle faults, observed terminal background-task failures, and kept transient finalization faults retryable without false dead letters.
+- **Evidence:** Issue #17 PR A scope on `johnazariah-17-v5-file-first-correctness`; deterministic tests prove stale deep extraction cannot overwrite newer-generation sidecar bytes, a second file-backed writer waits and commits without `SQLITE_BUSY_SNAPSHOT`, and injected finalization/cycle faults remain observable while later retries converge.
+- **Validation:** Full build passed with 0 warnings/errors; focused concurrency suite passed 103 tests; full suite executed 928 tests (918 passed, 10 skipped); comparable Core coverage is 78.31% line / 38.70% branch (+13.31 / +7.60 points from baseline), with overall collected coverage 69.65% / 34.60%.
+- **Blockers:** None for PR A pending renewed independent approval; issue #18 retains ownership of the 85% / 60% wave-close gate, and Phase 1B remains independently owned.
+- **Next:** Obtain renewed independent approval and open PR A for review.
+
+### 2026-08-27 - Phase 1A PR A generation fencing validated
+
+- **Changed:** Added per-document generations and stage-attempt leases so reflow acceptance atomically supersedes in-flight work; stale stage output is discarded before retry, identical active requests still coalesce, different reflow kinds retain independent attribution, and deep extraction, contact backfill, RAC hints, and comprehension publication are generation-fenced without deleting shared sidecars.
+- **Evidence:** Issue #17 PR A scope on `johnazariah-17-v5-file-first-correctness`; deterministic barrier tests cover reflow during an active processor, duplicate and different-kind overlap, stale-lease recovery, deep-extraction publication, contact linking, and RAC sidecar use.
+- **Validation:** Full build passed with 0 warnings/errors; focused reflow/race suite passed 98 tests; full suite executed 924 tests (914 passed, 10 skipped); comparable Core coverage is 77.85% line / 37.90% branch (+12.85 / +6.80 points from baseline), with overall collected coverage 69.29% / 33.87%.
+- **Blockers:** None for PR A; issue #18 retains ownership of the 85% / 60% wave-close gate, and Phase 1B remains independently owned.
+- **Next:** Obtain final independent approval and open PR A for review.
+
+### 2026-08-27 - Phase 1A PR A stale-artifact consumers closed
+
+- **Changed:** Required current deep-comprehend completion plus document-level comprehension output before deep extraction or contact backfill can consume shared sidecar content, preventing manual classifications or skipped content-rule gates from revalidating stale comprehension.
+- **Evidence:** Issue #17 PR A scope on `johnazariah-17-v5-file-first-correctness`; 49 net-new synthetic cases from the Phase 0 baseline now include stale-sidecar contact backfill and missing-output deep-extraction regressions while proving the shared sidecar remains untouched.
+- **Validation:** Full build passed with 0 warnings/errors; focused stale-artifact suite passed 74 tests; full suite executed 916 tests (906 passed, 10 skipped); comparable Core coverage is 76.45% line / 36.76% branch (+11.45 / +5.66 points from baseline), with overall collected coverage 68.13% / 33.00%.
+- **Blockers:** None for PR A; issue #18 retains ownership of the 85% / 60% wave-close gate, and Phase 1B remains independently owned.
+- **Next:** Obtain final independent approval and open PR A for review.
+
+### 2026-08-27 - Phase 1A PR A final review blockers closed
+
+- **Changed:** Made stage success/failure finalization atomic, made status reads snapshot-consistent, retired stale-DAG operations without executing them, derived legacy stage from the completion ledger, removed comprehension-owned current state during invalidation, gated extracted/comprehension artifact readers on current completions, and retained the legacy `requeued` response field.
+- **Evidence:** Issue #17 PR A scope on `johnazariah-17-v5-file-first-correctness`; 47 net-new synthetic cases from the Phase 0 baseline now include fault-injected finalization rollback, stale-DAG handling, two-connection status coherence, derived-state ownership, compatibility projection, artifact currentness, and legacy API contracts.
+- **Validation:** Full build passed with 0 warnings/errors; focused review suite passed 169 tests with 1 expected platform skip; full suite executed 914 tests (904 passed, 10 skipped); comparable Core coverage is 76.39% line / 36.72% branch (+11.39 / +5.62 points from baseline), with overall collected coverage 68.08% / 32.96%.
+- **Blockers:** None for PR A; issue #18 retains ownership of the 85% / 60% wave-close gate, and Phase 1B remains independently owned.
+- **Next:** Obtain final independent approval and open PR A for review.
+
+### 2026-08-27 - Phase 1A PR A concurrency correction validated
+
+- **Changed:** Made reflow acceptance a single transaction from operation creation through invalidation, serialized all use of each SQLite connection, isolated production REST/MCP reflow traffic on a dedicated connection, and prevented pending or stale failed operations from corrupting stage claims/completions.
+- **Evidence:** Issue #17 PR A scope on `johnazariah-17-v5-file-first-correctness`; 35 net-new synthetic cases now cover DAG policy, atomic visibility/rollback, connection serialization, operation identity, retries, stale-ledger recovery, chunk replacement, migration, and supported surfaces.
+- **Validation:** Full build passed with 0 warnings/errors; focused concurrency/reflow/API/MCP suite passed 109 with 1 expected platform skip; full suite executed 902 tests (892 passed, 10 skipped); comparable Core coverage is 71.17% line / 34.05% branch (+6.17 / +2.95 points from baseline), with overall collected coverage 63.34% / 30.49%.
+- **Blockers:** None for PR A; issue #18 retains ownership of the 85% / 60% wave-close gate, and Phase 1B remains independently owned.
+- **Next:** Complete final independent review and open PR A for review.
+
+### 2026-08-27 - Phase 1A PR A DAG reflow implemented
+
+- **Changed:** Added typed dry-run/apply reextract, recomprehend, and reembed operations with DAG-closure validation, atomic invalidation, v9 audit state, truthful retries, and REST/MCP/pipeline/activity/dead-letter observability.
+- **Evidence:** Issue #17 PR A scope on `johnazariah-17-v5-file-first-correctness`; 29 synthetic cases cover policy closure, exact preservation/invalidation, rollback, retry, chunk replacement, migration, and supported surfaces.
+- **Validation:** Full build passed with 0 warnings/errors; 896 .NET tests executed (886 passed, 10 skipped); comparable Core coverage 71.3% line / 33.5% branch (+6.3 / +2.4 points from baseline).
+- **Blockers:** None for PR A; reclassification remains separately scoped, and issue #18 retains ownership of the 85% / 60% wave-close gate.
+- **Next:** Prepare PR A for review without claiming Phase 1B search or whole-wave coverage completion.
 
 ### 2026-08-29 - File-first repair correction approved
 

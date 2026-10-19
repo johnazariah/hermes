@@ -102,10 +102,25 @@ Successful empty provider responses are distinct from transport failures.
 Provider and pagination failures must remain observable through ingestion so an
 incomplete enumeration cannot be mistaken for a completed sync.
 
-Reextract remains a V4 management boundary: clearing legacy extraction
-projections alone does not invalidate V5 completion rows. Explicit DAG reflow is
-required before that compatibility boundary can be removed. Legacy saved-path
-recovery is separate from ordinary reclassification.
+Public HTTP/MCP replay requests use an audited reflow operation rather than
+clearing legacy projections alone. Reextract invalidates extract, triage,
+deep-comprehend and embed; recomprehend invalidates triage and deep-comprehend;
+reembed invalidates embed only. Each requested closure is checked against the
+declared DAG and fails closed if topology changes.
+
+Reflow operations, generations and attempt leases persist independently of
+in-memory scheduling. Publication fences and folder revisions reject
+superseded work, including shared thread artifacts. Responses expose operation
+identity and observed lifecycle outcomes rather than treating acceptance as
+successful processing. Connection-scoped transactions share one execution gate;
+nested result callbacks roll back their savepoint on errors, exceptions and
+cancellation before propagation.
+
+User corrections remain effective through extraction invalidation and replay.
+The latest correction for each date, amount or vendor field overrides generated
+metadata without freezing unrelated extraction fields. Source identity,
+correction history and user annotations are preserved. Legacy saved-path
+recovery remains separate from ordinary reclassification.
 
 ## Comprehension
 

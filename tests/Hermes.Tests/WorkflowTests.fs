@@ -1,4 +1,4 @@
-module Hermes.Tests.WorkflowTests
+﻿module Hermes.Tests.WorkflowTests
 
 #nowarn "3261"
 
@@ -30,6 +30,9 @@ let private fakeDb () : Algebra.Database =
           { new Algebra.Transaction with
               member _.Run<'T>(_) =
                   Task.FromException<'T>(InvalidOperationException("Unexpected transaction in workflow fake")) }
+      inTransaction = fun _ ->
+          Task.FromException<Result<unit, string>>(
+              InvalidOperationException("Unexpected transaction in workflow fake"))
       schemaVersion = fun () -> task { return 1 }
       dispose = fun () -> () }
 

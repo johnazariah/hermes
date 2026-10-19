@@ -63,6 +63,11 @@
     <Compile Include="EmailProviderRateLimitTests.fs" />
     <Compile Include="LegacyEmailRetryFixtures.fs" />
     <Compile Include="LegacyEmailRetryTests.fs" />
+    <Compile Include="ReflowTests.fs" />
+    <Compile Include="ReflowMigrationIntegrationTests.fs" />
+    <Compile Include="DatabaseBoundaryIntegrationTests.fs" />
+    <Compile Include="TransactionSavepointTests.fs" />
+    <Compile Include="ReflowSourceHistoryIntegrationTests.fs" />
     <Compile Include="ThreadsTests.fs" />
     <Compile Include="ExcelExtractionTests.fs" />
     <Compile Include="WordExtractionTests.fs" />
@@ -78,6 +83,11 @@
     <Compile Include="OutlookProviderTests.fs" />
     <Compile Include="ComprehensionRacTests.fs" />
     <Compile Include="ArchiveWriterTests.fs" />
+    <Compile Include="ApiReflowTests.fs" />
+    <Compile Include="HttpRegressionFixture.fs" />
+    <Compile Include="CorrectedExtractionHttpTests.fs" />
+    <Compile Include="DeepExtractionHttpTests.fs" />
+    <Compile Include="ServiceLifetimeTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
@@ -90,5 +100,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Hermes.Core\Hermes.Core.fsproj" />
+    <ProjectReference Include="..\..\src\Hermes.Service\Hermes.Service.fsproj" />
   </ItemGroup>
 </Project>

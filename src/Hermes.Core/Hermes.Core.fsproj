@@ -16,12 +16,16 @@
     <Compile Include="ArchiveWriter.fs" />
     <Compile Include="Config.fs" />
     <Compile Include="Logging.fs" />
+    <Compile Include="TransactionExecution.fs" />
     <Compile Include="DatabaseExecution.fs" />
     <Compile Include="SavedPathSchema.fs" />
     <Compile Include="Database.fs" />
     <Compile Include="SourceFileAccess.fs" />
     <Compile Include="SourceFiles.fs" />
     <Compile Include="Reclassification.fs" />
+    <Compile Include="PublicationFence.fs" />
+    <Compile Include="Generation.fs" />
+    <Compile Include="StageState.fs" />
     <Compile Include="Document.fs" />
     <Compile Include="Rules.fs" />
     <Compile Include="SenderClassification.fs" />
@@ -61,6 +65,7 @@
     <Compile Include="GmailProvider.fs" />
     <Compile Include="OutlookProvider.fs" />
     <Compile Include="PipelineV5.fs" />
+    <Compile Include="Reflow.fs" />
     <Compile Include="Workflow.fs" />
     <Compile Include="Stages.fs" />
     <Compile Include="StagesV5.fs" />

@@ -2,6 +2,57 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Current local integration — PR #20, unpublished
+
+The local source integrates deterministic V5 reflow with merged `main` `367feb4`.
+It is independently approved and validated locally, but remains uncommitted;
+the published PR #20 head and its historical checks have not changed.
+
+| Measure | Executed result, 2026-10-19 |
+|---------|----------------------------|
+| Release build of test project and Core/Service/UI references | Passed; 0 warnings/errors after restoring the changed project graph |
+| Candidate and actual-checkout full execution | 1,115 total; 1,105 passed, 10 existing skips, 0 failed |
+| Final formatted-checkout root line coverage | 9,123 / 11,604 = 78.6194% |
+| Adjacent earlier-checkout root line coverage | 9,124 / 11,604 = 78.6281% |
+| Final formatted-checkout root branch coverage | 7,848 / 18,295 = 42.8970% |
+| Adjacent earlier-checkout root branch coverage | 7,867 / 18,295 = 43.0008% |
+| Instrumented assemblies | Hermes.Core, Hermes.Service, Hermes.UI |
+| Final package covered/valid lines | Core 8,811/10,252; Service 312/921; UI 0/431 |
+| Exact unchanged 75% root gate | Passed without rounding, exclusions or threshold changes |
+| Independent F# review | Approved after a different author corrected three substantive findings |
+| Current Windows/published-head CI | Not run for this uncommitted integration |
+
+These broader root rates must not be described as Core-only coverage or as
+meeting the 85% line / 60% branch wave-close target. The ten existing skips and
+four potentially non-asserting Osprey fixture cases remain separate backlog.
+Touched F# files were normalised mechanically to UTF-8 BOM/LF, with reviewed
+body content preserved and both pre-format/final hashes retained. The final
+build and 1,115-case run passed after formatting; the table retains the
+conservative adjacent-run counts rather than selecting the higher sample.
+Real HTTP regressions used an isolated synthetic archive, fake providers, an
+isolated content root and the documented polling-file-watcher accommodation;
+no personal corpus or live provider was accessed.
+
+New/reconciled reflow modules and their executed case counts:
+
+| Module | Cases | Principal contract |
+|--------|-------|--------------------|
+| ReflowTests | 46 | DAG invalidation, generations, publication races, retry and failure recovery |
+| ApiReflowTests | 13 | Real HTTP requests, idempotence, malformed inputs and reclassification compatibility |
+| ServiceLifetimeTests | 9 | Startup failure, observed workers, quiescence and disposal |
+| ReflowMigrationIntegrationTests | 2 | v14 source history/claims and v12-layout reflow preservation through schema 15 |
+| DatabaseBoundaryIntegrationTests | 3 | Shared physical-connection gate, nested result rollback and whole-transaction claims |
+| ReflowSourceHistoryIntegrationTests | 3 | Immutable earlier bodies/annotations, metadata-only category changes and guarded artifacts |
+| TransactionSavepointTests | 3 | Ordinary failure, IO failure and cancellation cleanup before an outer commit |
+| CorrectedExtractionHttpTests | 2 | Latest field-specific HTTP corrections survive invalidation/replay and remain effective in REST/MCP reads |
+| DeepExtractionHttpTests | 3 | Actual HTTP MCP supersession errors and a successful fake-provider publication control |
+
+The eight cases in the final three modules directly cover the independent
+review findings. The existing comprehension sibling-race tests now use distinct
+source identities in one shared folder. Artifact-write fault injection targets
+the actual protected byte-write capability and asserts the exact failed outcome;
+ownership guards and substantive race assertions were not weakened.
+
 ## Summary — historical original PR head inventory
 
 The inventory below describes original PR head `c9e5d4f`, not the in-progress
@@ -73,7 +124,7 @@ remains Phase 1D scope.
 
 ---
 
-## PR #19 Option 1 revision — source approved; merge gates pending
+## PR #19 Option 1 revision — historical pre-publication evidence
 
 Latest fully executed evidence for uncommitted revision 2 and its contract
 additions over 2026-10-18/19:

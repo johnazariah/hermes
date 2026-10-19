@@ -1,4 +1,4 @@
-namespace Hermes.Core
+﻿namespace Hermes.Core
 
 open System
 open System.IO
@@ -49,6 +49,13 @@ module Algebra =
 
     // ─── Database ────────────────────────────────────────────────────
 
+    /// Bound to an in-flight SqliteTransaction. Same query surface as Database,
+    /// scoped so callers cannot escape the transaction.
+    type TransactionScope =
+        { execNonQuery: string -> (string * obj) list -> Task<int>
+          execScalar: string -> (string * obj) list -> Task<obj | null>
+          execReader: string -> (string * obj) list -> Task<Map<string, obj> list> }
+
     type Database =
         { execNonQuery: string -> (string * obj) list -> Task<int>
           execScalar: string -> (string * obj) list -> Task<obj | null>
@@ -57,6 +64,8 @@ module Algebra =
           tableExists: string -> Task<bool>
           transaction: Transaction
           schemaVersion: unit -> Task<int>
+          /// Run callback inside a transaction. Ok commits; Error or an exception rolls back.
+          inTransaction: (TransactionScope -> Task<Result<unit, string>>) -> Task<Result<unit, string>>
           dispose: unit -> unit }
 
     /// Generic transaction capability; callbacks receive the transaction-scoped database.

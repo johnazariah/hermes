@@ -1,4 +1,4 @@
-namespace Hermes.Core
+﻿namespace Hermes.Core
 
 #nowarn "3261"
 
@@ -49,9 +49,10 @@ module DocumentManagement =
         task {
             let! affected =
                 db.execNonQuery
-                    """UPDATE documents
-                       SET extracted_date = NULL,
-                           extracted_amount = NULL, extracted_vendor = NULL,
+                    $"""UPDATE documents
+                       SET extracted_date = {StageState.extractionValue StageState.Date "NULL"},
+                           extracted_amount = {StageState.extractionValue StageState.Amount "NULL"},
+                           extracted_vendor = {StageState.extractionValue StageState.Vendor "NULL"},
                            extracted_abn = NULL, extraction_method = NULL,
                            ocr_confidence = NULL, extraction_confidence = NULL,
                            extracted_at = NULL
