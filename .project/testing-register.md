@@ -44,6 +44,10 @@ Windows/native and Mac gates remain required.
 | Approved readiness correction | Eight focused cases passed; full Mac 1,571 total, 1,564 passed, seven retained skips, zero failed |
 | Readiness correction exact root | 10,623/13,116 lines; 10,018/20,728 branches; non-regressing Core/Service/UI scope |
 | Approved native transport correction | Cross-build clean; five-second connect/eight-second request budgets, explicit refusal-only free classification and safe probe diagnostics |
+| Corrective-head actual Windows native suite | 100 passed; zero failed/skipped |
+| Corrective-head actual desktop/WebView2 smoke | Passed six routes and 30 live ownership checks; owned PID 1436, graceful unforced exit 0 and successful cleanup |
+| Corrective-head Windows Service suite | 1,567 selected; 1,559 passed, one restart-fixture SQLite cleanup failure, seven retained skips |
+| Final parent SQLite fixture correction | Independently approved explicit nonpooled connection; full local 1,571 total, 1,564 passed, seven skips, zero failed |
 
 The first browser run exposed decorative icons in accessible navigation names,
 a missing synthetic extraction artifact and an incorrect fake Ollama endpoint.
@@ -101,6 +105,15 @@ the bounded Service-startup poll. Separately, the native preflight reported
 the successful native unit suite does not substitute for desktop/WebView
 execution. Fresh platform corrections require safe transport diagnostics and
 replacement-head proof, not an unchanged retry or weaker ownership oracle.
+
+The corrective native run supplies real WebView2/runtime, route/module and
+same-owned-PID graceful shutdown proof. Its first probe measured explicit
+connection refusal after 2,083 ms, beyond the old two-second request budget.
+The remaining Windows restart-fixture failure is parent SQLite pooling during
+directory cleanup. Its helper now opens an explicitly nonpooled connection
+with archive authority, without global pool clearing, cleanup retries or
+changes to production pooling and preservation assertions. Replacement-head
+Windows proof remains required.
 
 ## Integrated typed retrieval and MCP policy — PR #26
 

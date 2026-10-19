@@ -3,6 +3,7 @@
 open System
 open System.IO
 open System.Threading.Tasks
+open Microsoft.Data.Sqlite
 open Xunit
 open Hermes.Core
 open Hermes.Tests.OwnedServiceProcess
@@ -13,7 +14,12 @@ type private TableRows =
 
 let private withDatabase paths action =
     task {
-        let db = Database.fromPath (Path.Combine(paths.Archive, "db.sqlite"))
+        let settings =
+            SqliteConnectionStringBuilder(
+                DataSource = Path.Combine(paths.Archive, "db.sqlite"), Pooling = false)
+        use connection = new SqliteConnection(settings.ConnectionString)
+        connection.Open()
+        let db = Database.fromConnectionForArchive paths.Archive connection
         try return! action db
         finally db.dispose ()
     }

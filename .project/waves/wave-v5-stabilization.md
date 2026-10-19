@@ -98,6 +98,15 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-20 - Real Windows native proof passes; parent SQLite fixture lifetime corrected
+
+- **Changed:** Corrective head `86ef314` passes actual Windows native units (100/100, zero skips) and desktop/WebView2 smoke. The report identifies owned PID 1436, all six canonical routes, module byte proof and 30 live identity checks, followed by graceful unforced exit 0 and successful synthetic cleanup.
+- **Evidence:** The native first probe records explicit connection refusal in 2,083 ms, beyond the earlier two-second request budget. Mac full .NET and all 45 browser cases pass. Windows Service selection runs 1,567 cases: 1,559 pass, seven existing skips and one remaining restart-fixture cleanup error on `db.sqlite`.
+- **Correction:** The parent test helper's pooled SQLite handle outlives disposal on Windows. A fresh F# change uses an explicitly nonpooled connection with archive authority and scoped disposal. Independent review approves it; restart/PID/ledger/watermark assertions, production pooling and cleanup failure behavior are unchanged.
+- **Validation:** Local full execution is 1,571 total, 1,564 passed, seven retained skips and zero failed, with a clean build. Exact root is 10,624/13,116 lines and 9,964/20,728 branches, preserving non-regression.
+- **Blockers:** The revised Windows restart/cleanup case and all current-head checks must pass before merge; the successful native job does not override the remaining failed gate.
+- **Next:** Push the reviewed fixture-only correction and conclude the exact-head Windows/Mac gates.
+
 ### 2026-10-20 - Bounded Windows transport corrections approved for replacement CI
 
 - **Changed:** A fresh F# fixture revision distinguishes individual probe timeouts from its unchanged 20-second startup deadline; cancellation and PID/status failures still propagate. The eligible native revision author adds bounded five/eight-second connection/request policy, explicit connection-refusal-only free classification, and safe first/last transport diagnostics. Uncertain endpoints and real listeners remain occupied.
