@@ -11,6 +11,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="TestHelpers.fs" />
+    <Compile Include="MemFsTests.fs" />
     <Compile Include="ConfigTests.fs" />
     <Compile Include="ConfigSalvageTests.fs" />
     <Compile Include="DatabaseTests.fs" />

@@ -27,13 +27,14 @@ let private mutateFiles (server: Server) fault =
 let private faultFileSystem (server: Server) (fault: string) =
     let fs = server.Files.Fs
     let target = if fault.EndsWith("source", StringComparison.Ordinal) then sourcePath else sidecarPath
+    let isTarget path = server.Files.Norm path = server.Files.Norm target
     { fs with
         readAllBytes = fun path ->
-            if path = target && fault.StartsWith("unreadable", StringComparison.Ordinal) then
+            if isTarget path && fault.StartsWith("unreadable", StringComparison.Ordinal) then
                 Task.FromException<byte array>(UnauthorizedAccessException("synthetic denied read"))
             else fs.readAllBytes path
         getFileSize = fun path ->
-            if path = target && fault.StartsWith("oversized", StringComparison.Ordinal) then
+            if isTarget path && fault.StartsWith("oversized", StringComparison.Ordinal) then
                 ArchiveContent.MaxSourceBytes + ArchiveContent.MaxTextBytes + 1L
             else fs.getFileSize path }
 

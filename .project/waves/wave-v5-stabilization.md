@@ -98,6 +98,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-19 - Published search Windows fixtures corrected without relaxing production
+
+- **Changed:** The first published search head passed macOS and all builds, but Windows had 20 failures: 19 cascaded from drive-qualified canonical paths not matching fake `/archive` keys, and one asserted a hardcoded Unix separator. The actual Windows CLI-process tests using real files passed. Applied the eligible author's test-only fake-path alias/home-expectation correction; no production file changed.
+- **Evidence:** The fake normaliser aliases only current-DOS-drive absolute paths to existing rooted keys, retaining other volumes, UNC, relative, doubled and unrelated roots. Denied/oversized read injections compare the same normalised identity. Three portable regressions exercise text/bytes/size/hash, directory/list/move/delete and distinct keys.
+- **Validation:** Release build has 0 warnings/errors; all 38 focused fixture/failure/authority cases pass locally. Full local execution is 1,274 total, 1,267 passed, 7 retained skips, 0 failed; exact root coverage remains 9,712/12,166 line and 8,868/19,432 branch, with source/gates/instrumentation unchanged.
+- **Blockers:** Narrow independent fixture re-review and actual replacement-head Windows/macOS CI remain required. A local pass is not Windows proof, and the red published gate is not bypassed.
+- **Next:** Commit the reviewed test-only delta, push normally, run current-head CI and integrate the search/operator feature only on passing checks.
+
 ### 2026-10-19 - File-first keyword search and local operator approved for publication
 
 - **Changed:** Independent review now approves the final #11 source. The last separate-author revision resolves preferred content snippets for selected identities independently of ranking prefixes; ordinary, unified, email and paged keyword searches share the corrected query. Earlier operator-authority, pagination and source-identity race findings remain closed.

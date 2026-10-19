@@ -112,9 +112,10 @@ let ``Ordinary service parsing retains default archive behavior`` (yaml: string)
 [<Fact>]
 [<Trait("Category", "Unit")>]
 let ``Explicit operator authority uses the typed config mapping and synthetic home expansion`` () =
-    let environment = TestHelpers.fakeEnvironment "/synthetic-home" "/synthetic-config" "/synthetic-documents"
+    let home = "/synthetic-home"
+    let environment = TestHelpers.fakeEnvironment home "/synthetic-config" "/synthetic-documents"
     let parsed =
         Config.parseOperatorYaml environment "archive_dir: ~/selected\nsync_interval_minutes: 9\n"
         |> Result.defaultWith failwith
-    Assert.Equal("/synthetic-home/selected", parsed.ArchiveDir)
+    Assert.Equal(Path.Combine(home, "selected"), parsed.ArchiveDir)
     Assert.Equal(9, parsed.SyncIntervalMinutes)

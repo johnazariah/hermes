@@ -15,12 +15,14 @@ current published-head Windows/macOS CI remains required before integration.
 | Initial file-keyword/startup/local-operator selection | 87 passed, 0 failed/skipped |
 | Independent revision/benchmark selection | 42 passed, 0 failed/skipped |
 | Final rank-skew/HTTP/pagination selection | 19 passed, 0 failed/skipped |
-| Final full execution | 1,271 total; 1,264 passed, 7 skipped, 0 failed |
-| Final root lines / branches | 9,712/12,166 lines; 8,861/19,432 branches |
+| Final portable-fixture selection | 38 passed, 0 failed/skipped |
+| Final full local execution | 1,274 total; 1,267 passed, 7 skipped, 0 failed |
+| Final local root lines / branches | 9,712/12,166 lines; 8,868/19,432 branches |
 | Instrumented assemblies | Core, Service, UI |
 | Obsolete skips replaced | Three body-text cases replaced by real file-first HTTP/MCP/reindex assertions |
 | Independent F# review | Approved after separate authors corrected safety and source-snippet findings |
-| Current published-head CI | Pending |
+| First published-head CI | macOS passed; Windows had 20 fixture/path assertions fail |
+| Portable fixture correction / replacement CI | Local full suite passed; new-head Windows proof pending |
 
 Independent review closed explicit operator authority, complete pagination and
 in-flight source-identity publication findings. A third author's shared-query
@@ -29,10 +31,20 @@ selected identities. A real SQLite skew corpus proves distinct metadata/source
 rankings and stable preferred evidence across Core, HTTP and HTTP MCP limits
 and offsets, with unchanged database/FTS/file hashes.
 
-The feature adds 130 executed cases; replacing only the three obsolete skipped
-body-text cases changes the prior 1,144 total to 1,271, with the other seven skips
+The feature adds 133 executed cases; replacing only the three obsolete skipped
+body-text cases changes the prior 1,144 total to 1,274, with the other seven skips
 retained. Exact root line coverage is 79.8290%, above the unchanged merge gate
 and prior combined baseline; the stronger 85%/60% wave-close target is not met.
+
+The first Windows run exposed in-memory filesystem aliasing rather than a
+production authority failure: drive-qualified canonical paths did not share
+the existing fake rooted keys. A test-only normaliser correction retains other
+volumes, UNC, relative and unrelated roots; three portable cases cover byte/text
+reads/writes, sizes/hashes, directory/list/move/delete and non-alias identities.
+Fault injection uses the same normaliser, and home expansion uses the actual
+platform separator contract. Production guard/hash logic is unchanged; actual
+Windows CLI-process tests already passed, but replacement full Windows CI must
+still prove the repaired fixtures.
 
 The synthetic Core/in-memory SQLite + MemFs measurement indexed 1,000 distinct
 valid sources in batches of at most 100 in 2,327.237 ms; 40 queries after one
