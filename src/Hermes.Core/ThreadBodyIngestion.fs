@@ -49,6 +49,9 @@ module ThreadBodyIngestion =
                 let path = Path.Combine(archiveDirectory, source.SavedPath)
                 do! SourceFiles.writeNew db fs path source.Bytes
                 let! id = record db source
+                do! FileContentIndex.replace db.execNonQuery id
+                        { Kind = FileContentIndex.EmailBody
+                          Text = ArchiveContent.decode source.Bytes }
                 do! writeMetadata db fs archiveDirectory account message now source
                 return Some { DocumentId = id; SavedPath = source.SavedPath }
         }

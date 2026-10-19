@@ -2,10 +2,49 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
-## Coverage salvage — PR #21 local candidate
+## File-first search/operator — locally approved, publication pending
 
-The useful test contracts from old drafts #21-#23 are reconciled onto merged
-reflow without restoring their superseded production changes. Sixteen provider
+The first schema-16 candidate wires body/extracted-content FTS, real HTTP/MCP
+queries and an explicit bounded local `reindex-files` dry-run/apply operator.
+The independently revised source and execution evidence are approved locally;
+current published-head Windows/macOS CI remains required before integration.
+
+| Measure | Executed result |
+|---------|-------------------|
+| Release full graph | 0 warnings/errors |
+| Initial file-keyword/startup/local-operator selection | 87 passed, 0 failed/skipped |
+| Independent revision/benchmark selection | 42 passed, 0 failed/skipped |
+| Final rank-skew/HTTP/pagination selection | 19 passed, 0 failed/skipped |
+| Final full execution | 1,271 total; 1,264 passed, 7 skipped, 0 failed |
+| Final root lines / branches | 9,712/12,166 lines; 8,861/19,432 branches |
+| Instrumented assemblies | Core, Service, UI |
+| Obsolete skips replaced | Three body-text cases replaced by real file-first HTTP/MCP/reindex assertions |
+| Independent F# review | Approved after separate authors corrected safety and source-snippet findings |
+| Current published-head CI | Pending |
+
+Independent review closed explicit operator authority, complete pagination and
+in-flight source-identity publication findings. A third author's shared-query
+revision resolves source snippets independently of the ranking prefix for
+selected identities. A real SQLite skew corpus proves distinct metadata/source
+rankings and stable preferred evidence across Core, HTTP and HTTP MCP limits
+and offsets, with unchanged database/FTS/file hashes.
+
+The feature adds 130 executed cases; replacing only the three obsolete skipped
+body-text cases changes the prior 1,144 total to 1,271, with the other seven skips
+retained. Exact root line coverage is 79.8290%, above the unchanged merge gate
+and prior combined baseline; the stronger 85%/60% wave-close target is not met.
+
+The synthetic Core/in-memory SQLite + MemFs measurement indexed 1,000 distinct
+valid sources in batches of at most 100 in 2,327.237 ms; 40 queries after one
+warmup measured p50 0.141 ms and p95 0.167 ms. Source hashes, claims, IDs and
+snippets were checked. These are measured synthetic timings, not a production
+threshold or owner-corpus benchmark. No personal archive/provider was accessed.
+
+## Integrated coverage baseline — PR #21
+
+PR #21 merged into `main` as `d830c610`. The useful test contracts from old
+drafts #21-#23 are reconciled onto reflow without restoring their superseded
+production changes. Sixteen provider
 cases, eight Config cases and four FolderWatcher cases add 28 executed cases;
 one controlled deadline/cleanup regression adds a twenty-ninth case.
 Existing replay, concurrent identity and failure-logging assertions are stronger.
@@ -23,7 +62,8 @@ Existing replay, concurrent identity and failure-logging assertions are stronger
 | Assembly scope | Core, Service, UI; unchanged |
 | Production source changes | None |
 | Independent F# review | Approved after a different author corrected bounded producer progress |
-| Current published-head CI | Pending |
+| Published-head Windows/macOS CI | Passed all five build/test jobs at `b46cc3a`; both OS suites 1,134 passed, 10 skipped, 0 failed |
+| Published Windows exact root lines | 9,155 / 11,604 |
 
 Provider-only line coverage was 9,122/11,604, within the known one-line
 adjacent-run variance; no provider-only line-rate improvement is claimed.

@@ -63,7 +63,7 @@ let private assertSchema (db: Algebra.Database) =
     task {
         do! reflowTables |> Prelude.foldTask check ()
         let! version = db.schemaVersion ()
-        Assert.Equal(15, version)
+        Assert.Equal(Database.CurrentSchemaVersion, version)
     }
 
 let private mainV14Layout (fixture: Fixture) (history: History) =
@@ -94,7 +94,8 @@ let private verifyMainHistory fixture history before =
         do! assertSchema fixture.Database
         let! versions =
             fixture.Database.execScalar
-                "SELECT COUNT(*) FROM schema_version WHERE version IN (14, 15)" []
+                "SELECT COUNT(*) FROM schema_version WHERE version IN (14, @current)"
+                [ "@current", Database.boxVal Database.CurrentSchemaVersion ]
         Assert.Equal(2L, unbox<int64> versions)
     }
 

@@ -173,7 +173,7 @@ After:
 ```
 Read bytes from folder_path/{filename} → extract → write {filename}.extracted.md
                                                   → UPDATE documents SET stage = 'extracted'
-                                                  → planned: INSERT content into FTS5 (#11)
+                                                  → replace current file-content FTS projection
 ```
 
 ### Comprehend (changed)
@@ -200,11 +200,41 @@ Embeddings stay in SQLite — they're only useful as a searchable index.
 
 ### Search (changed)
 
-- **FTS5 target**: populate from files at extract time, not from a DB content column.
-  The current baseline indexes metadata only; issue
-  [#11](https://github.com/johnazariah/hermes/issues/11) owns this work.
+- **FTS5**: immutable email-body files are indexed in the ingestion transaction.
+  Extraction publication replaces a rebuildable `document_content_fts` projection
+  alongside the generation-fenced artifact. Normal document/message tables do not
+  regain body or extracted-text columns.
+- **Unified keyword reads**: HTTP, MCP and the existing document-query route
+  combine metadata and current content hits with stable identities and snippets.
+  Ranking and deduplication precede document pagination. Metadata-only legacy
+  rows remain searchable without reading their missing or external files.
+- **Currentness**: generated-content hits require current extraction output and
+  its completion marker. Reextract removes obsolete generated-content hits;
+  recomprehend/reembed retain valid extraction content. A source path/hash/type
+  reassignment supersedes the document generation and current completions before
+  old in-flight work can publish; it does not rewrite either immutable source.
 - **sqlite-vec**: unchanged
 - **Field search**: `json_extract()` on comprehension JSON — now needs to read the `.comprehension.json` file, OR we keep a thin indexed copy of key fields in the DB
+
+### Selected content-index rebuild
+
+The local Service command `reindex-files` rebuilds only explicitly selected
+positive, distinct document IDs, up to 100 per invocation. It never scans the
+archive implicitly, reprocesses a document through an LLM, changes source bytes,
+or exposes a new network mutation endpoint.
+
+Dry-run is the default and opens SQLite read-only, without schema migration.
+An operator configuration must supply an explicit nonblank `archive_dir`;
+ordinary service configuration defaults are not operator authority. `--apply`
+explicitly permits the additive index schema and selected index writes.
+Missing databases are not created, and current or stale attempt leases are
+refused rather than stolen or recovered by this command.
+
+JSON output contains document IDs and per-document outcomes, not source text.
+Apply continues reporting later selected identities after a document failure;
+successful earlier index writes remain committed. Exit codes are 0 for success,
+1 for operational/document failure and 2 for invalid invocation. This is an
+index-maintenance operation, not the complete database recovery below.
 
 ### Target DB rebuild (not implemented)
 

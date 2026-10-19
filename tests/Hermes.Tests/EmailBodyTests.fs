@@ -89,20 +89,6 @@ let ``EmailSync_StripHtml_DecodesNbsp`` () =
 
 // --- Messages FTS5 tests ---
 
-[<Fact(Skip = "Content moved to files - body_text no longer in FTS")>]
-[<Trait("Category", "Integration")>]
-let ``MessagesFts_InsertTrigger_IndexesBodyText`` () =
-    task {
-        let db = TestHelpers.createRawDb ()
-        try
-            let! _ = db.initSchema ()
-            do! insertTestMessage db "test-acct" "msg-100" "alice@example.com" "Quarterly Report" "Revenue increased by 15 percent in Q3"
-            let! result = db.execScalar "SELECT COUNT(*) FROM messages_fts WHERE messages_fts MATCH 'revenue'" []
-            Assert.True((result :?> int64) > 0L, "Should find 'revenue' in messages_fts")
-        finally
-            db.dispose ()
-    }
-
 [<Fact>]
 [<Trait("Category", "Integration")>]
 let ``MessagesFts_SearchBySubject_FindsMessage`` () =
@@ -161,38 +147,6 @@ let ``MessagesFts_UpdateTrigger_ReindexesOnUpdate`` () =
     }
 
 // --- Email search tests ---
-
-[<Fact(Skip = "Content moved to files - body_text no longer searchable in FTS")>]
-[<Trait("Category", "Integration")>]
-let ``Search_ExecuteEmailSearch_FindsMessageByBody`` () =
-    task {
-        let db = TestHelpers.createRawDb ()
-        try
-            let! _ = db.initSchema ()
-            do! insertTestMessage db "test-acct" "msg-200" "alice@example.com" "Report" "The quarterly financial report shows growth"
-            let filter = Search.defaultFilter "financial"
-            let! results = Search.executeEmailSearch db filter
-            Assert.NotEmpty(results)
-            Assert.Equal("email", results.[0].ResultType)
-        finally
-            db.dispose ()
-    }
-
-[<Fact(Skip = "Content moved to files - body_text snippet no longer available")>]
-[<Trait("Category", "Integration")>]
-let ``Search_ExecuteEmailSearch_ReturnsSnippet`` () =
-    task {
-        let db = TestHelpers.createRawDb ()
-        try
-            let! _ = db.initSchema ()
-            do! insertTestMessage db "test-acct" "msg-201" "bob@test.com" "Payment" "Please process the payment for invoice number twelve"
-            let filter = Search.defaultFilter "payment"
-            let! results = Search.executeEmailSearch db filter
-            Assert.NotEmpty(results)
-            Assert.True(results.[0].Snippet.IsSome, "Expected snippet")
-        finally
-            db.dispose ()
-    }
 
 [<Fact>]
 [<Trait("Category", "Integration")>]

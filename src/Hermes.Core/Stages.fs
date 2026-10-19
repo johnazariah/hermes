@@ -34,15 +34,22 @@ module Stages =
     type private ExtractionArtifact =
         { FullPath: string
           Markdown: string
+          Index: FileContentIndex.Content
           Enriched: Document.T }
 
-    let private archivePath (deps: Deps) (doc: Document.T) =
-        let savedPath =
-            doc
-            |> Document.decode<string> "saved_path"
-            |> Option.defaultValue ""
-        if IO.Path.IsPathRooted savedPath then savedPath
-        else IO.Path.Combine(deps.ArchiveDir, savedPath)
+    let private extractionIdentity (doc: Document.T) : ArchiveContent.Identity =
+        { DocumentId = Document.id doc
+          SavedPath = doc |> Document.decode<string> "saved_path" |> Option.defaultValue ""
+          Sha256 = doc |> Document.decode<string> "sha256" |> Option.defaultValue "" }
+
+    let private extractionIndex
+        (doc: Document.T) (source: ArchiveContent.Source) (markdown: string)
+        : FileContentIndex.Content =
+        if doc |> Document.decode<string> "source_type" = Some "email_body" then
+            { Kind = FileContentIndex.EmailBody
+              Text = ArchiveContent.decode source.Bytes }
+        else
+            { Kind = FileContentIndex.Extraction; Text = markdown }
 
     let private enrichExtraction
         (now: string)
@@ -64,28 +71,17 @@ module Stages =
         (doc: Document.T)
         : Task<ExtractionArtifact> =
         task {
-            let savedPath = doc |> Document.decode<string> "saved_path" |> Option.defaultValue ""
-            let docId = Document.id doc
-            let fullPath = archivePath deps doc
-
-            if not (deps.Fs.fileExists fullPath) then
-                deps.Logger.warn $"Extract: file not found for doc {docId}: {savedPath}"
-                return failwith $"Extract failed for doc {docId}: source file not found: {savedPath}"
-            else
-
-            let! bytes = deps.Fs.readAllBytes fullPath
-            let! result = Extraction.extractFromBytes deps.Extractor savedPath bytes
-            match result with
-            | Error e ->
-                deps.Logger.warn $"Extract failed for doc {docId}: {e}"
-                return failwith $"Extraction failed for doc {docId}: {e}"
-            | Ok extraction ->
-                let now = deps.Clock.utcNow().ToString("o")
-                let markdownContent = extraction.Markdown |> Option.defaultValue extraction.Text
-                return
-                    { FullPath = fullPath
-                      Markdown = markdownContent
-                      Enriched = enrichExtraction now extraction doc }
+            let identity = extractionIdentity doc
+            let! source = ArchiveContent.readSource deps.Db deps.Fs deps.ArchiveDir identity
+            let! result = Extraction.extractFromBytes deps.Extractor identity.SavedPath source.Bytes
+            let extraction =
+                result |> Result.defaultWith (fun error ->
+                    invalidOp $"Extraction failed for doc {identity.DocumentId}: {error}")
+            let markdown = extraction.Markdown |> Option.defaultValue extraction.Text
+            return
+                { FullPath = source.Path; Markdown = markdown
+                  Index = extractionIndex doc source markdown
+                  Enriched = enrichExtraction (deps.Clock.utcNow().ToString("o")) extraction doc }
         }
 
     let private extractionFolder deps doc =
@@ -102,27 +98,19 @@ module Stages =
         (generation: Generation.Token)
         (doc: Document.T)
         (artifact: ExtractionArtifact)
-        : Task<unit> =
-        task {
-            match extractionFolder deps doc with
-            | None ->
-                return
-                    invalidOp
-                        $"Extraction write failed for doc {Document.id doc}: archive folder not found"
-            | Some folder ->
-                match!
-                    Generation.publishEffect
-                        deps.Db generation folder (fun () ->
-                            ArchiveWriter.writeExtraction
-                                (SourceFiles.metadataFileSystem deps.Db deps.Fs)
-                                artifact.FullPath artifact.Markdown)
-                with
-                | Generation.Published () -> return ()
-                | Generation.Superseded ->
-                    return
-                        invalidOp
-                            $"Extraction for doc {Document.id doc} was superseded by reflow"
-        }
+        : Task<Generation.Publication<unit>> =
+        let folder =
+            extractionFolder deps doc
+            |> Option.defaultWith (fun () ->
+                invalidOp $"Extraction write failed for doc {Document.id doc}: archive folder not found")
+        Generation.publishArtifact
+            deps.Db generation folder
+            (fun () ->
+                ArchiveWriter.writeExtraction
+                    (SourceFiles.metadataFileSystem deps.Db deps.Fs)
+                    artifact.FullPath artifact.Markdown)
+            (fun scope ->
+                FileContentIndex.replace scope.execNonQuery (Document.id doc) artifact.Index)
 
     let internal extractAt
         (generation: Generation.Token)
@@ -131,8 +119,10 @@ module Stages =
         : Task<Document.T> =
         task {
             let! artifact = createExtractionArtifact deps doc
-            do! publishExtractionArtifact deps generation doc artifact
-            return artifact.Enriched
+            match! publishExtractionArtifact deps generation doc artifact with
+            | Generation.Published () -> return artifact.Enriched
+            | Generation.Superseded ->
+                return invalidOp $"Extraction for doc {Document.id doc} was superseded by reflow"
         }
 
     /// Extract text from a document file. Returns enriched document with extraction fields.

@@ -69,6 +69,26 @@ $env:HERMES_PORT = "21742"
 dotnet run --project src/Hermes.Service -- --initial-sync-days 90
 ```
 
+### Rebuild selected file-content search indexes
+
+Use an existing archive and a configuration file with an explicit, nonblank
+`archive_dir`. The command defaults to a read-only preview:
+
+```bash
+dotnet run --project src/Hermes.Service -- reindex-files --config /path/to/config.yaml --document-id 123 --document-id 456
+
+# Explicitly apply the selected index updates:
+dotnet run --project src/Hermes.Service -- reindex-files --config /path/to/config.yaml --document-id 123 --document-id 456 --apply
+```
+
+Select 1–100 positive, distinct IDs; there is no implicit whole-archive mode.
+The command exits before starting providers, watchers or the web host. It
+reports JSON outcomes for every selected document, preserves source files and
+user metadata, and refuses documents with persisted processing attempts.
+Missing/empty operator configuration never falls back to a default archive.
+Exit codes: `0` success, `1` operational/document failure, `2` invalid arguments.
+This rebuilds derived search content, not a lost SQLite database.
+
 ## Solution Structure
 
 ```

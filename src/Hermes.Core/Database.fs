@@ -11,8 +11,8 @@ open Microsoft.Data.Sqlite
 [<RequireQualifiedAccess>]
 module Database =
 
-    // Main's v14 and the older reflow schema history converge forward at v15.
-    let [<Literal>] CurrentSchemaVersion = 15
+    // v15 converges source/reflow history; v16 adds rebuildable file-content FTS.
+    let [<Literal>] CurrentSchemaVersion = 16
 
     // ─── Schema DDL ──────────────────────────────────────────────────
 
@@ -633,8 +633,10 @@ module Database =
     /// In particular, source claims and reflow objects must both be present.
     let private applySchema conn transaction =
         [ coreSchemaSql |> Array.toList
+          StageCompletionSchema.statements |> Array.toList
           ftsSql |> Array.toList
-          SavedPathSchema.statements ]
+          SavedPathSchema.statements
+          FileContentSchema.statements ]
         |> List.concat
         |> Prelude.foldTask
             (fun () sql ->
@@ -679,9 +681,7 @@ module Database =
 
     // ─── Build the Database algebra from a connection ────────────────
 
-    /// Explicit archive authority for isolated databases and embedded callers.
-    let fromConnectionForArchive archiveDirectory (conn: SqliteConnection) =
-        applyConnectionPragmas conn
+    let private registerArchiveAuthority archiveDirectory (conn: SqliteConnection) =
         let key savedPath =
             canonicalArchivePath archiveDirectory savedPath
             |> Result.bind (fun canonical ->
@@ -690,7 +690,22 @@ module Database =
                 SavedPathSchema.validateFile archiveDirectory physicalPath
                 |> Result.map (fun () -> canonical.OwnershipKey))
         SavedPathSchema.register conn key
+
+    /// Explicit archive authority for isolated databases and embedded callers.
+    let fromConnectionForArchive archiveDirectory (conn: SqliteConnection) =
+        applyConnectionPragmas conn
+        registerArchiveAuthority archiveDirectory conn
         DatabaseExecution.create conn (fun () -> initSchemaImpl conn)
+
+    /// No journal-mode changes or schema initialization on an operator preview.
+    /// SQLite itself rejects writes through every query/transaction surface.
+    let fromReadOnlyConnectionForArchive archiveDirectory (conn: SqliteConnection) =
+        let settings = SqliteConnectionStringBuilder(conn.ConnectionString)
+        if settings.Mode <> SqliteOpenMode.ReadOnly then
+            invalidArg (nameof conn) "A Mode=ReadOnly SQLite connection is required"
+        registerArchiveAuthority archiveDirectory conn
+        DatabaseExecution.create conn (fun () ->
+            Task.FromResult(Error "Schema initialization is not allowed on a read-only archive"))
 
     /// File databases derive archive authority from the database's directory.
     let fromConnection (conn: SqliteConnection) : Algebra.Database =

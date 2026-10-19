@@ -1712,6 +1712,10 @@ let ``StagesV5_Extract_ArtifactWriteFailure_DoesNotComplete`` () =
             mem.Bytes.[mem.Norm savedPath] <- System.Text.Encoding.UTF8.GetBytes("plain text")
             let throwingFs = { mem.Fs with writeAllBytes = fun _ _ -> task { return failwith "write fault" } }
             let! docId = insertBareDocument db savedPath
+            let! _ =
+                db.execNonQuery "UPDATE documents SET sha256=@sha WHERE id=@id"
+                    [ "@sha", Database.boxVal (SourceFiles.hash (System.Text.Encoding.UTF8.GetBytes "plain text"))
+                      "@id", Database.boxVal docId ]
             let! outcome = StagesV5.extract (baseDeps db throwingFs) db logger docId
             assertFailed "write failure" outcome
             Assert.Equal<PipelineV5.StageOutcome>(PipelineV5.Failed "write fault", outcome)
