@@ -1,4 +1,4 @@
-namespace Hermes.Core
+﻿namespace Hermes.Core
 
 open System
 open System.IO
@@ -11,7 +11,8 @@ open Microsoft.Data.Sqlite
 [<RequireQualifiedAccess>]
 module Database =
 
-    let [<Literal>] CurrentSchemaVersion = 14
+    // Main's v14 and the older reflow schema history converge forward at v15.
+    let [<Literal>] CurrentSchemaVersion = 15
 
     // ─── Schema DDL ──────────────────────────────────────────────────
 
@@ -161,6 +162,20 @@ module Database =
             dismissed     INTEGER NOT NULL DEFAULT 0
         );
         """
+           """
+        UPDATE dead_letters
+        SET dismissed = 1
+        WHERE dismissed = 0
+          AND EXISTS (
+              SELECT 1
+              FROM dead_letters newer
+              WHERE newer.doc_id = dead_letters.doc_id
+                AND newer.stage = dead_letters.stage
+                AND newer.dismissed = 0
+                AND newer.id > dead_letters.id
+          );
+        """
+           "CREATE UNIQUE INDEX IF NOT EXISTS idx_dead_letters_active ON dead_letters(doc_id, stage) WHERE dismissed = 0;"
 
            // ── Tags ─────────────────────────────────────────────────────
            """
@@ -265,6 +280,35 @@ module Database =
         );
         """
 
+           // ── Durable learned-pattern evidence (reflow; forward v15) ──
+           """
+        CREATE TABLE IF NOT EXISTS learned_pattern_evidence (
+            document_id     INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            stage_name      TEXT NOT NULL,
+            generation      INTEGER NOT NULL,
+            sender_domain   TEXT NOT NULL,
+            document_type   TEXT NOT NULL,
+            confidence      REAL NOT NULL,
+            observed_at     TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (document_id, stage_name, generation)
+        );
+        """
+           "CREATE INDEX IF NOT EXISTS idx_learned_evidence_pattern ON learned_pattern_evidence(sender_domain, document_type);"
+
+           // ── Durable canonical stage responses (reflow; forward v15) ──
+           """
+        CREATE TABLE IF NOT EXISTS stage_publications (
+            document_id       INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            stage_name        TEXT NOT NULL,
+            generation        INTEGER NOT NULL,
+            response_json     TEXT NOT NULL,
+            current_category  TEXT,
+            published_at      TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (document_id, stage_name, generation)
+        );
+        """
+           "CREATE INDEX IF NOT EXISTS idx_stage_publications_stage ON stage_publications(stage_name, generation);"
+
            // ── Suggestions (low-confidence review queue) ────────────────
            """
         CREATE TABLE IF NOT EXISTS suggestions (
@@ -280,6 +324,67 @@ module Database =
         """
            "CREATE INDEX IF NOT EXISTS idx_suggestions_status ON suggestions(status);"
            "CREATE INDEX IF NOT EXISTS idx_suggestions_doc ON suggestions(document_id);"
+
+           // ── Reflow operations (reflow; forward v15) ──────────────
+           """
+        CREATE TABLE IF NOT EXISTS reflow_operations (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            document_id     INTEGER NOT NULL REFERENCES documents(id),
+            operation_kind  TEXT NOT NULL,
+            requested_mode  TEXT NOT NULL CHECK (requested_mode IN ('dry_run', 'apply')),
+            lifecycle       TEXT NOT NULL DEFAULT 'pending' CHECK (lifecycle IN ('pending', 'running', 'completed', 'failed')),
+            dag_signature   TEXT,
+            created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+            completed_at    TEXT,
+            error           TEXT
+        );
+        """
+           "CREATE UNIQUE INDEX IF NOT EXISTS idx_reflow_ops_active_apply ON reflow_operations(document_id, operation_kind) WHERE requested_mode = 'apply' AND lifecycle IN ('pending', 'running');"
+           "CREATE INDEX IF NOT EXISTS idx_reflow_ops_doc ON reflow_operations(document_id);"
+           "CREATE INDEX IF NOT EXISTS idx_reflow_ops_lifecycle ON reflow_operations(lifecycle);"
+
+           """
+        CREATE TABLE IF NOT EXISTS reflow_operation_stages (
+            operation_id    INTEGER NOT NULL REFERENCES reflow_operations(id),
+            stage_name      TEXT NOT NULL,
+            outcome         TEXT NOT NULL CHECK (outcome IN ('current', 'pending', 'reran', 'failed', 'skipped')),
+            started_at      TEXT,
+            completed_at    TEXT,
+            error           TEXT,
+            PRIMARY KEY (operation_id, stage_name)
+        );
+        """
+           "CREATE INDEX IF NOT EXISTS idx_reflow_stages_op ON reflow_operation_stages(operation_id);"
+
+           // ── Per-document reflow generation (reflow; forward v15) ──
+           """
+        CREATE TABLE IF NOT EXISTS document_generations (
+            document_id INTEGER PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+            generation  INTEGER NOT NULL DEFAULT 0,
+            updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        """
+
+           // ── Shared artifact folder revisions ─────────────────────
+           """
+        CREATE TABLE IF NOT EXISTS artifact_folder_revisions (
+            folder_identity TEXT PRIMARY KEY,
+            revision        INTEGER NOT NULL DEFAULT 0,
+            updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        """
+
+           // Available atomically with the reflow schema version. Pipeline
+           // startup repeats the same idempotent framework DDL.
+           """
+        CREATE TABLE IF NOT EXISTS pipeline_stage_attempts (
+            document_id INTEGER PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+            stage_name TEXT NOT NULL CHECK (length(trim(stage_name)) > 0),
+            attempt_token TEXT NOT NULL UNIQUE CHECK (length(attempt_token) = 32),
+            started_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        """
+           "CREATE INDEX IF NOT EXISTS idx_pipeline_stage_attempts_stage ON pipeline_stage_attempts(stage_name);"
         |]
 
     let private ftsSql =
@@ -431,12 +536,8 @@ module Database =
             return result
         }
 
-    let private execReader (conn: SqliteConnection) (sql: string) (ps: (string * obj) list) =
+    let private readRows (reader: SqliteDataReader) =
         task {
-            use cmd = conn.CreateCommand()
-            cmd.CommandText <- sql
-            addParams cmd ps
-            use! reader = cmd.ExecuteReaderAsync()
             let results = ResizeArray<Map<string, obj>>()
             let! firstRow = reader.ReadAsync()
             let mutable hasMore = firstRow
@@ -460,6 +561,45 @@ module Database =
                 hasMore <- nextRow
 
             return results |> Seq.toList
+        }
+
+    let private execReader (conn: SqliteConnection) (sql: string) (ps: (string * obj) list) =
+        task {
+            use cmd = conn.CreateCommand()
+            cmd.CommandText <- sql
+            addParams cmd ps
+            use! reader = cmd.ExecuteReaderAsync()
+            return! readRows reader
+        }
+
+    // ─── Transaction-bound query helpers ─────────────────────────────
+
+    let private execNonQueryTx (conn: SqliteConnection) (tx: SqliteTransaction) (sql: string) (ps: (string * obj) list) =
+        task {
+            use cmd = conn.CreateCommand()
+            cmd.Transaction <- tx
+            cmd.CommandText <- sql
+            addParams cmd ps
+            return! cmd.ExecuteNonQueryAsync()
+        }
+
+    let private execScalarTx (conn: SqliteConnection) (tx: SqliteTransaction) (sql: string) (ps: (string * obj) list) =
+        task {
+            use cmd = conn.CreateCommand()
+            cmd.Transaction <- tx
+            cmd.CommandText <- sql
+            addParams cmd ps
+            return! cmd.ExecuteScalarAsync()
+        }
+
+    let private execReaderTx (conn: SqliteConnection) (tx: SqliteTransaction) (sql: string) (ps: (string * obj) list) =
+        task {
+            use cmd = conn.CreateCommand()
+            cmd.Transaction <- tx
+            cmd.CommandText <- sql
+            addParams cmd ps
+            use! reader = cmd.ExecuteReaderAsync()
+            return! readRows reader
         }
 
     let private toInt64 (value: obj | null) : int64 =
@@ -488,67 +628,60 @@ module Database =
 
     // ─── Migrations ─────────────────────────────────────────────────
 
-    /// No-op: all tables and columns are in coreSchemaSql.
-    /// Schema version 5 = clean slate, no migration path needed.
-    let private runMigrations (_conn: SqliteConnection) =
-        task { () }
+    /// Replay the combined idempotent DDL even when an archive already reports
+    /// v12 or v14: those version numbers describe different historical trees.
+    /// In particular, source claims and reflow objects must both be present.
+    let private applySchema conn transaction =
+        [ coreSchemaSql |> Array.toList
+          ftsSql |> Array.toList
+          SavedPathSchema.statements ]
+        |> List.concat
+        |> Prelude.foldTask
+            (fun () sql ->
+                task {
+                    let! _ = execNonQueryTx conn transaction sql []
+                    return ()
+                })
+            ()
 
     let private initSchemaImpl (conn: SqliteConnection) =
         task {
             try
-                for sql in coreSchemaSql do
-                    let! _ = execNonQuery conn sql []
-                    ()
-
-                for sql in ftsSql do
-                    let! _ = execNonQuery conn sql []
-                    ()
-
-                for sql in SavedPathSchema.statements do
-                    let! _ = execNonQuery conn sql []
-                    ()
-
-                // Run migrations for existing databases
-                do! runMigrations conn
-
-                // Record current schema version if not already present
-                let! count =
-                    execScalar
-                        conn
-                        "SELECT COUNT(*) FROM schema_version WHERE version = @v"
-                        [ ("@v", boxVal CurrentSchemaVersion) ]
-
-                if (toInt64 count) = 0L then
-                    let! _ =
-                        execNonQuery
-                            conn
-                            "INSERT INTO schema_version (version) VALUES (@v)"
-                            [ ("@v", boxVal CurrentSchemaVersion) ]
-
-                    ()
-
-                return Ok()
-            with ex ->
-                return Error $"Schema init failed: {ex.Message}"
+                use transaction = conn.BeginTransaction(deferred = false)
+                do! applySchema conn transaction
+                let! _ =
+                    execNonQueryTx conn transaction
+                        "INSERT OR IGNORE INTO schema_version (version) VALUES (@v)"
+                        [ "@v", boxVal CurrentSchemaVersion ]
+                transaction.Commit()
+                return Ok ()
+            with :? SqliteException as error ->
+                return Error $"Schema init failed: {error.Message}"
         }
 
     // ─── Connection management ───────────────────────────────────────
 
-    /// Open a connection with WAL mode and foreign keys enabled.
+    /// WAL for reader/writer concurrency, foreign keys for referential
+    /// integrity, and a busy timeout so a competing writer waits for the write
+    /// lock instead of failing immediately.
+    let private applyConnectionPragmas (conn: SqliteConnection) : unit =
+        use pragma = conn.CreateCommand()
+        pragma.CommandText <-
+            "PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 30000;"
+        pragma.ExecuteNonQuery() |> ignore
+
+    /// Open a connection with WAL mode, foreign keys, and a busy timeout.
     let openConnection (dbPath: string) =
         let conn = new SqliteConnection($"Data Source={dbPath}")
         conn.Open()
-
-        use pragma = conn.CreateCommand()
-        pragma.CommandText <- "PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;"
-        pragma.ExecuteNonQuery() |> ignore
-
+        applyConnectionPragmas conn
         conn
 
     // ─── Build the Database algebra from a connection ────────────────
 
     /// Explicit archive authority for isolated databases and embedded callers.
     let fromConnectionForArchive archiveDirectory (conn: SqliteConnection) =
+        applyConnectionPragmas conn
         let key savedPath =
             canonicalArchivePath archiveDirectory savedPath
             |> Result.bind (fun canonical ->

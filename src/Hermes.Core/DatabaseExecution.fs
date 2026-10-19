@@ -93,6 +93,9 @@ module DatabaseExecution =
             execReader = reader connection (Some transaction)
             tableExists = exists connection (Some transaction)
             schemaVersion = fun () -> version connection (Some transaction)
+            inTransaction = fun callback ->
+                TransactionExecution.run
+                    (scoped connection transaction database).transaction callback
             initSchema = fun () ->
                 Task.FromResult(Error "Schema initialization is not allowed inside a transaction")
             dispose = fun () -> invalidOp "A transaction-scoped database cannot be disposed"
@@ -119,6 +122,9 @@ module DatabaseExecution =
           initSchema = fun () -> locked gate initialize
           tableExists = fun name -> locked gate (fun () -> exists connection None name)
           schemaVersion = fun () -> locked gate (fun () -> version connection None)
+          inTransaction = fun callback ->
+              TransactionExecution.run
+                  (session connection gate initialize).transaction callback
           dispose = fun () -> connection.Dispose(); gate.Dispose()
           transaction =
               { new Algebra.Transaction with

@@ -18,6 +18,17 @@ let createTestDbWithSchema () : Task<Algebra.Database> =
         return db
     }
 
+let private partialFailAfterEmbedder (okCount: int) : Algebra.EmbeddingClient =
+    let calls = ref 0
+    { embed = fun _ ->
+        task {
+            calls.Value <- calls.Value + 1
+            if calls.Value <= okCount then return Ok(Array.init 4 (fun i -> float32 (calls.Value + i)))
+            else return Error $"embedding failed for chunk call {calls.Value}"
+        }
+      dimensions = 4
+      isAvailable = fun () -> task { return true } }
+
 // ─── Text chunking tests ─────────────────────────────────────────────
 
 [<Fact>]
@@ -359,6 +370,59 @@ let ``Embeddings_EmbedDocument_FailingClient_ReportsErrors`` () =
             | Ok _ -> failwith "Expected Error due to failing client"
         finally
             db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``Embeddings_EmbedDocument_ReembedFiveToThree_ReplacesAllChunks`` () =
+    task {
+        let! db = createTestDbWithSchema ()
+        try
+            let! _ =
+                db.execNonQuery
+                    "INSERT INTO documents (source_type,saved_path,category,sha256) VALUES ('manual_drop','test.pdf','invoices','reembed')"
+                    []
+            let client = TestHelpers.fakeEmbedder 4
+            let! first = Embeddings.embedDocument db Logging.silent TestHelpers.defaultClock client 1L (String.replicate 2000 "a")
+            let! second = Embeddings.embedDocument db Logging.silent TestHelpers.defaultClock client 1L (String.replicate 1000 "b")
+            Assert.Equal(Ok 5, first)
+            Assert.Equal(Ok 3, second)
+            let! rows = db.execReader "SELECT chunk_index FROM document_chunks WHERE document_id=1 ORDER BY chunk_index" []
+            let indexes = rows |> List.map (fun row -> row.["chunk_index"] :?> int64)
+            Assert.Equal<int64 list>([ 0L; 1L; 2L ], indexes)
+            let! count = db.execScalar "SELECT chunk_count FROM documents WHERE id=1" []
+            Assert.Equal(3L, count :?> int64)
+        finally db.dispose ()
+    }
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``Embeddings_EmbedDocument_PartialFailure_PreservesExistingChunksAtomically`` () =
+    task {
+        let! db = createTestDbWithSchema ()
+        try
+            let! _ =
+                db.execNonQuery
+                    """INSERT INTO documents (source_type,saved_path,category,sha256,embedded_at,chunk_count)
+                       VALUES ('manual_drop','test.pdf','invoices','atomic','2020-01-01',2)"""
+                    []
+            let! _ =
+                db.execNonQuery
+                    """INSERT INTO document_chunks (document_id,chunk_index,chunk_text)
+                       VALUES (1,0,'old zero'),(1,1,'old one')"""
+                    []
+            let! result =
+                Embeddings.embedDocument db Logging.silent TestHelpers.defaultClock
+                    (partialFailAfterEmbedder 4) 1L (String.replicate 2000 "a")
+            Assert.True(Result.isError result)
+            let! rows = db.execReader "SELECT chunk_text FROM document_chunks WHERE document_id=1 ORDER BY chunk_index" []
+            let texts = rows |> List.map (fun row -> row.["chunk_text"] :?> string)
+            Assert.Equal<string list>([ "old zero"; "old one" ], texts)
+            let! doc = db.execReader "SELECT embedded_at,chunk_count FROM documents WHERE id=1" []
+            let r = Prelude.RowReader(List.head doc)
+            Assert.Equal("2020-01-01", r.String "embedded_at" "")
+            Assert.Equal(2L, r.Int64 "chunk_count" 0L)
+        finally db.dispose ()
     }
 
 // ─── Keyword search integration ──────────────────────────────────────

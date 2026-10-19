@@ -29,7 +29,7 @@ let private withDocument (verify: Fixture -> Task<unit>) =
 let private callTool (fixture: Fixture) message =
     McpServer.processMessage
         fixture.Db fixture.Files.Fs TestHelpers.silentLogger
-        TestHelpers.defaultClock "/archive" None message
+        TestHelpers.defaultClock (TestHelpers.standardV5Dag ()) "/archive" None message
 
 let private nodeString (node: JsonNode) (name: string) : string =
     node[name]
