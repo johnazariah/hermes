@@ -2,6 +2,37 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## VSTest in-process flush preserves native coverage collection
+
+Hosted run `39418524069` passes Windows Core execution and all 61 actual browser
+journeys, alongside Setup 456, Control 48, Servicing/model 297 and Tray 319.
+The remaining failure is its coverage gate: the native report retains the full
+17,126-line denominator but only 3,592 covered lines, with broad in-process API,
+pipeline and access modules reporting zero hits. The macOS graph remains green.
+
+Coverlet 6.0.2 documents VSTest's early test-host shutdown as a known source of
+lost process-exit hits and recommends its in-process collector handshake. CI
+now enables only that flush hook, resolving the pinned collector path and
+assembly identity from existing package metadata. Native Coverlet remains the
+sole instrumenter/reporter and still merges native JSON; no second collector,
+source exclusion, denominator change or threshold reduction is introduced.
+
+A controlled local tracker-log experiment confirms that
+`CoverletInProcDataCollector` calls module unload before shutdown. The exact
+updated workflow then passes **297/297 Servicing/model** and **2,182/2,182 F#**
+cases and the unchanged five-assembly gate at
+**14,683/17,126 lines (85.7351%)** and
+**15,197/24,668 branches (61.6061%)**. The solution also builds warning-free and
+passes all 2,182 Debug cases.
+
+`Assert-TestExecution.ps1` validates fresh named TRX counters and prints only
+aggregate counts. Eight synthetic controls reject empty, failed, skipped,
+incomplete, invalid and malformed runs; the existing seven exact coverage
+controls remain. The valid fixture includes VSTest's `name` attribute, and root
+validation uses the DOM local name rather than PowerShell's attribute-adapted
+`Name` property. Raw TRX/captured output remain private. Actual Windows flush
+confirmation and installed acceptance are still required.
+
 ## Runtime closed-pipe HRESULT classification
 
 Hosted run `39415995186` confirms the isolated-profile correction: no startup,

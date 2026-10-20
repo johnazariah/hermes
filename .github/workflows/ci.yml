@@ -82,15 +82,37 @@ jobs:
 
       - name: Test and merge native coverage
         shell: pwsh
+        env:
+          COVERLET_DATACOLLECTOR_INPROC_EXCEPTIONLOG_ENABLED: '1'
         run: |
           ./scripts/Test-CoverageGate.ps1
-          dotnet coverlet tests/Hermes.Servicing.Tests/bin/Release/net9.0/Hermes.Servicing.Tests.dll --target dotnet --targetargs "vstest tests/Hermes.Servicing.Tests/bin/Release/net9.0/Hermes.Servicing.Tests.dll --Logger:trx --ResultsDirectory:.artifacts/coverage/servicing" --format json --format cobertura --output .artifacts/coverage/servicing/coverage --verbosity normal
+          $collectorRoot = (& dotnet msbuild tests/Hermes.Tests/Hermes.Tests.fsproj -nologo -getProperty:Pkgcoverlet_collector).Trim()
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $servicingCollectorRoot = (& dotnet msbuild tests/Hermes.Servicing.Tests/Hermes.Servicing.Tests.csproj -nologo -getProperty:Pkgcoverlet_collector).Trim()
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($collectorRoot -cne $servicingCollectorRoot) { throw 'Both coverage suites must use the same pinned collector.' }
+          $collectorPath = Join-Path $collectorRoot 'build/netstandard2.0/coverlet.collector.dll'
+          $collectorAssembly = [Reflection.AssemblyName]::GetAssemblyName($collectorPath)
+          [xml]$settings = '<RunSettings><InProcDataCollectionRunSettings><InProcDataCollectors><InProcDataCollector /></InProcDataCollectors></InProcDataCollectionRunSettings></RunSettings>'
+          $collector = $settings.SelectSingleNode('/RunSettings/InProcDataCollectionRunSettings/InProcDataCollectors/InProcDataCollector')
+          $collector.SetAttribute('assemblyQualifiedName', "Coverlet.Collector.DataCollection.CoverletInProcDataCollector, $($collectorAssembly.FullName)")
+          $collector.SetAttribute('friendlyName', 'XPlat Code Coverage')
+          $collector.SetAttribute('enabled', 'True')
+          $collector.SetAttribute('codebase', $collectorPath)
+          New-Item -ItemType Directory -Force -Path .artifacts/coverage | Out-Null
+          $settings.Save((Join-Path $PWD '.artifacts/coverage/flush.runsettings'))
+          foreach ($suite in @('servicing', 'core')) {
+            $report = ".artifacts/coverage/$suite/tests.trx"
+            if (Test-Path -LiteralPath $report) { Remove-Item -LiteralPath $report }
+          }
+          # Only the in-process flush hook is enabled; native Coverlet remains the sole instrumenter.
+          dotnet coverlet tests/Hermes.Servicing.Tests/bin/Release/net9.0/Hermes.Servicing.Tests.dll --target dotnet --targetargs "vstest tests/Hermes.Servicing.Tests/bin/Release/net9.0/Hermes.Servicing.Tests.dll --Settings:.artifacts/coverage/flush.runsettings --Logger:trx;LogFileName=tests.trx --ResultsDirectory:.artifacts/coverage/servicing" --format json --format cobertura --output .artifacts/coverage/servicing/coverage --verbosity normal
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $filter = if ($IsWindows) { " --TestCaseFilter:Platform!=Unix" } else { "" }
-          dotnet coverlet tests/Hermes.Tests/bin/Release/net9.0/Hermes.Tests.dll --target dotnet --targetargs "vstest tests/Hermes.Tests/bin/Release/net9.0/Hermes.Tests.dll --Logger:trx --ResultsDirectory:.artifacts/coverage/core$filter" --merge-with .artifacts/coverage/servicing/coverage.json --format json --format cobertura --output .artifacts/coverage/combined/coverage --verbosity quiet
+          dotnet coverlet tests/Hermes.Tests/bin/Release/net9.0/Hermes.Tests.dll --target dotnet --targetargs "vstest tests/Hermes.Tests/bin/Release/net9.0/Hermes.Tests.dll --Settings:.artifacts/coverage/flush.runsettings --Logger:trx;LogFileName=tests.trx --ResultsDirectory:.artifacts/coverage/core$filter" --merge-with .artifacts/coverage/servicing/coverage.json --format json --format cobertura --output .artifacts/coverage/combined/coverage --verbosity quiet
           $testExitCode = $LASTEXITCODE
           if ($testExitCode -ne 0) {
-            $reports = @(Get-ChildItem -LiteralPath .artifacts/coverage/core -Filter *.trx -File)
+            $reports = @(Get-ChildItem -LiteralPath .artifacts/coverage/core -Filter tests.trx -File)
             if ($reports.Count -eq 0) { Write-Warning 'Core test execution failed without a TRX report.' }
             foreach ($report in $reports) {
               [xml]$results = Get-Content -LiteralPath $report.FullName -Raw
@@ -109,6 +131,9 @@ jobs:
               }
             }
             exit $testExitCode
+          }
+          foreach ($suite in @('servicing', 'core')) {
+            ./scripts/Assert-TestExecution.ps1 -ReportPath ".artifacts/coverage/$suite/tests.trx" -Suite $suite
           }
 
       - name: Install browser

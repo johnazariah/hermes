@@ -30,3 +30,36 @@ foreach ($case in $cases) {
     }
 }
 Write-Output "$($cases.Count) exact coverage-gate controls passed."
+
+$executionGate = Join-Path $PSScriptRoot 'Assert-TestExecution.ps1'
+$executionCases = @(
+    @{ Name = 'all selected passed'; Total = '2'; Executed = '2'; Passed = '2'; Failed = '0'; Skipped = '0'; Pass = $true },
+    @{ Name = 'zero selected'; Total = '0'; Executed = '0'; Passed = '0'; Failed = '0'; Skipped = '0'; Pass = $false },
+    @{ Name = 'failed test'; Total = '2'; Executed = '2'; Passed = '1'; Failed = '1'; Skipped = '0'; Pass = $false },
+    @{ Name = 'skipped test'; Total = '2'; Executed = '1'; Passed = '1'; Failed = '0'; Skipped = '1'; Pass = $false },
+    @{ Name = 'unexecuted test'; Total = '2'; Executed = '1'; Passed = '2'; Failed = '0'; Skipped = '0'; Pass = $false },
+    @{ Name = 'invalid integer'; Total = '2'; Executed = '2'; Passed = 'invalid'; Failed = '0'; Skipped = '0'; Pass = $false },
+    @{ Name = 'missing counters'; Xml = '<TestRun><ResultSummary /></TestRun>'; Pass = $false },
+    @{ Name = 'wrong report'; Xml = '<coverage />'; Pass = $false }
+)
+foreach ($case in $executionCases) {
+    $path = [IO.Path]::GetTempFileName()
+    try {
+        $xml = if ($case.ContainsKey('Xml')) { $case.Xml } else {
+            @"
+<TestRun name="synthetic-run" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <ResultSummary><Counters total="$($case.Total)" executed="$($case.Executed)" passed="$($case.Passed)" failed="$($case.Failed)" notExecuted="$($case.Skipped)" /></ResultSummary>
+</TestRun>
+"@
+        }
+        [IO.File]::WriteAllText($path, $xml, [Text.UTF8Encoding]::new($false))
+        $output = & pwsh -NoLogo -NoProfile -NonInteractive -File $executionGate -ReportPath $path -Suite synthetic 2>&1
+        if (($LASTEXITCODE -eq 0) -ne $case.Pass) {
+            throw "Test-execution control failed: $($case.Name): $($output -join [Environment]::NewLine)"
+        }
+    }
+    finally {
+        [IO.File]::Delete($path)
+    }
+}
+Write-Output "$($executionCases.Count) test-execution controls passed."

@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-20 - Windows behaviour passes; coverage shutdown handshake is repaired
+
+- **Evidence:** Hosted run `39418524069` passes the Windows Core test phase and all 61 actual browser journeys. Setup 456, Control 48, Servicing/model 297 and Tray 319 also pass. Only coverage fails, reporting 3,592/17,126 lines with in-process modules missing broad hit data; the Mac graph remains green.
+- **Changed:** Primary Coverlet 6.0.2 documentation identifies VSTest's early host shutdown as a known hit-loss problem. CI now enables only the pinned in-process flush handshake while retaining native instrumentation, JSON merging, all five assemblies and exact 85/60 gates. Fresh named TRX reports are independently validated without publishing their contents.
+- **Validation:** A controlled tracker log proves the in-process collector actually flushes instrumented modules. The exact workflow passes 297 Servicing/model and 2,182 F# cases at 14,683/17,126 lines (85.7351%) and 15,197/24,668 branches (61.6061%). Seven coverage and eight execution-metadata controls pass; the full solution build is warning-free and all 2,182 Debug cases pass. Static installer controls retain 19 payload and 28 adverse report passes.
+- **Blockers:** Windows must confirm complete hit retention before the installed-native/MSI lifecycle can run. Main and distribution stay gated; strict legacy repair remains disabled.
+- **Next:** Publish the collection repair and rerun actual Windows coverage followed by the installed lifecycle gate.
+
 ### 2026-10-20 - Windows startup recovers; surplus-write classification matches the runtime
 
 - **Evidence:** Hosted run `39415995186` passes the repaired startup/canonical preflight, MCP and drain cases. Its sole Windows failure is the pipe fixture's surplus-write classifier after valid first-response and closure proof. The complete Mac job, Tray and compatibility jobs pass; installed acceptance remains skipped.
