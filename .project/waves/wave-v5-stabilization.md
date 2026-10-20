@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-20 - Hosted Mac acceptance passes; Windows enrolled fixture is corrected
+
+- **Evidence:** At head `4caf4fe`, hosted run `39402069802` passes the complete macOS job: 102 JavaScript units, 61 actual browser journeys, Setup 456, Control 48 and exact coverage of 14,533/17,018 lines (85.3978%) and 14,997/24,636 branches (60.8743%). Windows passes Tray 319, Setup 456 and Control 48, then repeats the five enrolled-service fixture failures before Core/browser acceptance.
+- **Changed:** A fresh C# specialist identifies mixed native/protocol separators in fixture paths. The correction uses native absolute image paths, refuses unexpected metadata inputs, adds both apphost-spelling cases and retains the strict loaded-generation/order assertions. Production policy is unchanged. Coverage diagnostics now retain an available partial report without treating it as combined proof.
+- **Validation:** All 22 focused and 251 portable Servicing/model cases pass locally. The updated exact recipe retains the five-assembly denominator and passes at 14,533/17,018 lines (85.3978%) and 15,126/24,636 branches (61.3980%). The default solution builds without warnings/errors and passes all 2,159 Debug cases.
+- **Blockers:** Current-head Windows Core/browser and complete installed-native/MSI acceptance remain pending. The draft PR and main merge remain gated; strict legacy repair stays disabled.
+- **Next:** Publish the fixture correction and run the actual Windows instrumented phase before proceeding to installed acceptance.
+
 ### 2026-10-20 - First hosted candidate exposes a pairing-test scheduling assumption
 
 - **Evidence:** The reviewed candidate is pushed at `4683cf3` and draft [PR #30](https://github.com/johnazariah/hermes/pull/30) targets main. Its canonical main ancestry was recorded with the candidate tree unchanged. Hosted run `39400527124` passes Tray and both compatibility jobs, but macOS fails one of 102 JavaScript units before backend/browser acceptance.

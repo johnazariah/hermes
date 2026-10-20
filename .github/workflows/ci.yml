@@ -84,7 +84,7 @@ jobs:
         shell: pwsh
         run: |
           ./scripts/Test-CoverageGate.ps1
-          dotnet coverlet tests/Hermes.Servicing.Tests/bin/Release/net9.0/Hermes.Servicing.Tests.dll --target dotnet --targetargs "vstest tests/Hermes.Servicing.Tests/bin/Release/net9.0/Hermes.Servicing.Tests.dll --Logger:trx --ResultsDirectory:.artifacts/coverage/servicing" --format json --format cobertura --output .artifacts/coverage/servicing/coverage --verbosity quiet
+          dotnet coverlet tests/Hermes.Servicing.Tests/bin/Release/net9.0/Hermes.Servicing.Tests.dll --target dotnet --targetargs "vstest tests/Hermes.Servicing.Tests/bin/Release/net9.0/Hermes.Servicing.Tests.dll --Logger:trx --ResultsDirectory:.artifacts/coverage/servicing" --format json --format cobertura --output .artifacts/coverage/servicing/coverage --verbosity normal
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $filter = if ($IsWindows) { " --TestCaseFilter:Platform!=Unix" } else { "" }
           dotnet coverlet tests/Hermes.Tests/bin/Release/net9.0/Hermes.Tests.dll --target dotnet --targetargs "vstest tests/Hermes.Tests/bin/Release/net9.0/Hermes.Tests.dll --Logger:trx --ResultsDirectory:.artifacts/coverage/core$filter" --merge-with .artifacts/coverage/servicing/coverage.json --format json --format cobertura --output .artifacts/coverage/combined/coverage --verbosity quiet
@@ -107,7 +107,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
-          path: .artifacts/coverage/combined/coverage.cobertura.xml
+          path: |
+            .artifacts/coverage/combined/coverage.cobertura.xml
+            .artifacts/coverage/servicing/coverage.cobertura.xml
           retention-days: 3
 
   # ── Windows Tray app ─────────────────────────────────────────────

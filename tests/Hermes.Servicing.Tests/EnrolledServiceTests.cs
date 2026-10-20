@@ -11,8 +11,8 @@ public sealed class EnrolledServiceTests
     private static readonly string Root = Path.GetFullPath("synthetic-enrolled-service");
     private static readonly string Directory = Path.Combine(Root, "service");
     private static readonly string Executable = Path.Combine(Directory, "Hermes.Service.exe");
-    private static readonly string Entry = Path.Combine(Root, EntryRelative);
-    private static readonly string Library = Path.Combine(Root, LibraryRelative);
+    private static readonly string Entry = Path.Combine(Directory, "Hermes.Service.dll");
+    private static readonly string Library = Path.Combine(Directory, "Hermes.Servicing.dll");
     private static readonly Guid EntryMvid = new("11111111-1111-1111-1111-111111111111");
     private static readonly Guid LibraryMvid = typeof(StartupAdmission).Assembly.ManifestModule.ModuleVersionId;
     private static readonly string[] PhysicalOrder = [Root, Directory, Executable, Entry, Library];
@@ -24,13 +24,29 @@ public sealed class EnrolledServiceTests
         var metadata = new RecordingMetadata(path =>
         {
             Assert.Contains(path, paths.Reads);
-            return path == Entry ? EntryMvid : LibraryMvid;
+            return ExpectedMvid(path);
         });
         var capability = Capability(Installation(), paths, metadata);
         Assert.Equal(new ServiceSelected(Executable), capability.SelectService(Executable));
         Assert.Equal(PhysicalOrder, paths.Reads);
         Assert.Equal([Entry, Library], metadata.Reads);
         Assert.False(capability is IDisposable);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Fixed_child_accepts_native_or_forward_slash_apphost_paths(bool forwardSlashes)
+    {
+        var supplied = forwardSlashes
+            ? Executable.Replace(Path.DirectorySeparatorChar, '/')
+            : Executable;
+        var paths = new RecordingPaths(path => path);
+        var metadata = Metadata();
+        Assert.Equal(new ServiceSelected(Executable),
+            Capability(Installation(), paths, metadata).SelectService(supplied));
+        Assert.Equal(PhysicalOrder, paths.Reads);
+        Assert.Equal([Entry, Library], metadata.Reads);
     }
 
     [Theory]
@@ -78,7 +94,7 @@ public sealed class EnrolledServiceTests
         var paths = new RecordingPaths(path => path);
         var metadata = new RecordingMetadata(path =>
             path == (library ? Library : Entry) ? Guid.Empty :
-                path == Entry ? EntryMvid : LibraryMvid);
+                ExpectedMvid(path));
         Assert.Equal(new ServiceRefused(RefusalReason.WrongGeneration),
             Capability(Installation(), paths, metadata).SelectService(Executable));
         Assert.Equal(library ? new[] { Entry, Library } : [Entry], metadata.Reads);
@@ -108,9 +124,12 @@ public sealed class EnrolledServiceTests
         {
             Images = [new(EntryRelative, EntryMvid), new(LibraryRelative, Guid.NewGuid())]
         };
-        var metadata = Metadata();
+        var paths = new RecordingPaths(path => path);
+        var metadata = new RecordingMetadata(path => path == Library
+            ? installation.Images[1].ModuleVersionId : ExpectedMvid(path));
         Assert.Equal(new ServiceRefused(RefusalReason.WrongGeneration),
-            Capability(installation, new RecordingPaths(path => path), metadata).SelectService(Executable));
+            Capability(installation, paths, metadata).SelectService(Executable));
+        Assert.Equal(PhysicalOrder.Take(3), paths.Reads);
         Assert.Empty(metadata.Reads);
     }
 
@@ -189,7 +208,14 @@ public sealed class EnrolledServiceTests
         new EnrolledServiceLease(new Token(), installation, paths, metadata);
 
     private static RecordingMetadata Metadata() =>
-        new(path => path == Entry ? EntryMvid : LibraryMvid);
+        new(ExpectedMvid);
+
+    private static Guid ExpectedMvid(string path) => path switch
+    {
+        var value when value == Entry => EntryMvid,
+        var value when value == Library => LibraryMvid,
+        _ => throw new Xunit.Sdk.XunitException($"Unexpected managed image path: {path}")
+    };
 
     private sealed record Token : IProcessLease;
 

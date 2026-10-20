@@ -2,6 +2,35 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Enrolled-service fixture uses native absolute paths
+
+The first two hosted Windows runs expose five fixture failures in
+`EnrolledServiceTests`: `Path.Combine` preserves embedded protocol `/`
+separators, while production canonicalises the absolute paths to Windows
+separators. Exact fixture comparisons then miss entry-image identity and
+redirection, misclassifying it as the library image.
+
+A C# specialist corrects only the fixture: absolute paths use native components,
+protocol inventory paths retain `/`, and unexpected metadata paths fail
+explicitly. Two new cases exercise native and forward-slash apphost inputs; the
+replacement-library case retains the loaded-generation refusal before image
+metadata reads. Production containment, ordering and MVID policy are unchanged.
+All **22 focused cases** and **251 portable Servicing/model cases** pass locally.
+
+The updated exact coverage recipe retains five assemblies at
+**14,533/17,018 lines (85.3978%)** and
+**15,126/24,636 branches (61.3980%)**; all seven threshold controls pass.
+The default solution builds cleanly and passes all 2,159 Debug cases.
+Servicing coverage now logs normal diagnostic output. Windows uploads any
+available Servicing Cobertura alongside the required combined report, keeping
+the three-day retention; a partial report cannot satisfy the combined gate.
+
+Hosted run `39402069802`, before this fixture correction, proves the pairing
+checkpoint fix on macOS: all 102 units and 61 actual browser journeys pass,
+alongside Setup 456, Control 48 and exact 85/60 coverage. Windows passes Tray
+319, Setup 456 and Control 48 but still fails the old enrolled fixture.
+Current-head Windows acceptance remains required.
+
 ## Hosted pairing-cancellation regression
 
 The first candidate's macOS hosted job executes 101/102 JavaScript units and
