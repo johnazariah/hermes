@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-20 - First hosted candidate exposes a pairing-test scheduling assumption
+
+- **Evidence:** The reviewed candidate is pushed at `4683cf3` and draft [PR #30](https://github.com/johnazariah/hermes/pull/30) targets main. Its canonical main ancestry was recorded with the candidate tree unchanged. Hosted run `39400527124` passes Tray and both compatibility jobs, but macOS fails one of 102 JavaScript units before backend/browser acceptance.
+- **Changed:** The late-pairing cancellation test now waits for actual deferred-fetch entry instead of assuming one event-loop turn completes Web Crypto. It still cancels an outstanding create, delivers its late response and asserts that no pairing is published.
+- **Validation:** The focused regression, lint and all 102 units pass locally. Production code and the canonical asset bundle are unchanged.
+- **Blockers:** Current-head Windows/macOS and installed-native/MSI acceptance remain pending; main is unchanged and strict legacy repair remains disabled.
+- **Next:** Publish the test-only correction and rerun the complete target-host gates.
+
 ### 2026-10-20 - Preserve the retired Mac command's executable refusal
 
 - **Changed:** Restored `scripts/setup-mac.sh`'s original executable bit after the replacement lost it. Direct invocation now reaches the deliberate support-boundary message instead of failing with permission denied.

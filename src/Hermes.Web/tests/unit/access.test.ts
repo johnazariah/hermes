@@ -462,11 +462,15 @@ test('pairing polls once per two seconds, is bounded to 180 seconds and cancella
   assert.equal(f.client.getSnapshot().phase, 'expired');
   const calls = f.calls.length; await f.tick(10_000);
   assert.equal(f.calls.length, calls);
-  let release!: (response: Response) => void;
-  f.routes.set('/api/access/pairings', () => new Promise(resolve => { release = resolve; }));
+  const entered = Promise.withResolvers<void>();
+  const response = Promise.withResolvers<Response>();
+  f.routes.set('/api/access/pairings', () => {
+    entered.resolve();
+    return response.promise;
+  });
   const pending = f.client.pair();
-  await setImmediate();
-  f.client.cancel(); release(json(pairBody(), 201)); await pending;
+  await entered.promise;
+  f.client.cancel(); response.resolve(json(pairBody(), 201)); await pending;
   assert.equal(f.client.getSnapshot().pairing, undefined);
 });
 

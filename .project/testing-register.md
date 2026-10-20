@@ -2,6 +2,18 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Hosted pairing-cancellation regression
+
+The first candidate's macOS hosted job executes 101/102 JavaScript units and
+fails the late-pairing cancellation case: one `setImmediate` does not guarantee
+that asynchronous Web Crypto has completed and the deferred fetch has started.
+The test now waits for an explicit fetch-entry signal before cancellation and
+then releases the late response. Its polling/expiry and discarded-result
+assertions remain unchanged; production code is unchanged.
+
+The focused regression, lint and all 102 units pass locally. Current-head
+hosted execution remains the acceptance gate.
+
 ## Native writer provenance correction verified locally
 
 The fresh revision replaces classic diagnostic events with a manifest-based ETW
