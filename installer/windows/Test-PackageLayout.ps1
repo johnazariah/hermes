@@ -92,6 +92,34 @@ try {
     }
 } finally { [Console]::SetError($savedError) }
 Require ($contextFailed -and $diagnostics.ToString().Contains('MSI finalization failed during synthetic-phase; source line ')) 'Explicit finalization diagnostics must retain failure and identify its phase.'
+$readbackStart = $finalizer.IndexOf("`$phase = 'summary-package-readback'")
+Require ($readbackStart -gt $finalizer.IndexOf('[void]$database.Commit()')) 'Persisted summary readback must follow the database commit.'
+$writeSource = $finalizer.Substring(0, $readbackStart)
+Require ($writeSource.Contains('[void]$summary.Persist()') `
+    -and $writeSource.Contains('[Runtime.InteropServices.Marshal]::FinalReleaseComObject($summary)') `
+    -and $writeSource.Contains('[Runtime.InteropServices.Marshal]::FinalReleaseComObject($database)')) 'Summary readback must close the writable summary and database after persistence.'
+$readbackSource = $finalizer.Substring($readbackStart)
+Require ($readbackSource.Contains('$database = $installer.OpenDatabase((Resolve-Path -LiteralPath $PackagePath).Path, 0)') `
+    -and $readbackSource.Contains("'SummaryInformation', [Reflection.BindingFlags]::GetProperty, `$null, `$database, @(0)")) 'Persisted identity must be read from a fresh read-only database and summary.'
+$packageChecks = @($finalizerAst.FindAll({
+    param($node)
+    $node -is [Management.Automation.Language.IfStatementAst] `
+        -and ($node.Extent.Text.Contains("throw 'MSI summary PackageCode setter") `
+            -or $node.Extent.Text.Contains("throw 'MSI summary PackageCode was not persisted."))
+}, $true))
+Require ($packageChecks.Count -eq 2) 'Both retained and persisted PackageCode require strict identity checks.'
+$identity = [pscustomobject]@{ packageCode = '11111111-1111-1111-1111-111111111111' }
+foreach ($check in $packageChecks) {
+    $guard = [scriptblock]::Create($check.Extent.Text)
+    $pending = $actual = $identity.packageCode
+    & $guard
+    foreach ($invalid in @($null, '', 'not-a-guid', '22222222-2222-2222-2222-222222222222')) {
+        $pending = $actual = $invalid
+        $identityFailed = $false
+        try { & $guard } catch { $identityFailed = $true }
+        Require $identityFailed 'Missing, malformed or different retained/persisted PackageCode must fail.'
+    }
+}
 Require ($finalizer -match '\[void\]\$view\.Execute\(\)' -and $finalizer -match '\[void\]\$view\.Close\(\)') 'MSI row queries must not emit bookkeeping method results as rows.'
 $view = [pscustomobject]@{}
 $view | Add-Member ScriptMethod Execute { 'synthetic execute result' }

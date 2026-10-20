@@ -73,11 +73,19 @@ try {
     if ($template.Split(';')[0] -cne 'x64' -or [int]$wordCount -ne 10) { throw 'MSI summary platform or compressed per-user scope differs from the manifest contract.' }
     $phase = 'summary-package-write'
     $summary.GetType().InvokeMember('Property', [Reflection.BindingFlags]::SetProperty, $null, $summary, @(9, ([Guid]$identity.packageCode).ToString('B').ToUpperInvariant())) | Out-Null
-    $summary.Persist()
-    $database.Commit()
+    $pending = $summary.GetType().InvokeMember('Property', [Reflection.BindingFlags]::GetProperty, $null, $summary, @(9))
+    if ($null -eq $pending -or [Guid]$pending -ne [Guid]$identity.packageCode) { throw 'MSI summary PackageCode setter did not retain the selected identity.' }
+    [void]$summary.Persist()
+    [void]$database.Commit()
+    [Runtime.InteropServices.Marshal]::FinalReleaseComObject($summary) | Out-Null
+    $summary = $null
+    [Runtime.InteropServices.Marshal]::FinalReleaseComObject($database) | Out-Null
+    $database = $null
     $phase = 'summary-package-readback'
+    $database = $installer.OpenDatabase((Resolve-Path -LiteralPath $PackagePath).Path, 0)
+    $summary = $database.GetType().InvokeMember('SummaryInformation', [Reflection.BindingFlags]::GetProperty, $null, $database, @(0))
     $actual = $summary.GetType().InvokeMember('Property', [Reflection.BindingFlags]::GetProperty, $null, $summary, @(9))
-    if ([Guid]$actual -ne [Guid]$identity.packageCode) { throw 'MSI summary PackageCode was not persisted.' }
+    if ($null -eq $actual -or [Guid]$actual -ne [Guid]$identity.packageCode) { throw 'MSI summary PackageCode was not persisted.' }
 } catch {
     [Console]::Error.WriteLine("MSI finalization failed during $phase; source line $($_.InvocationInfo.ScriptLineNumber).")
     @($_.ScriptStackTrace -split '\r?\n' | Select-Object -First 4) | ForEach-Object {

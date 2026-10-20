@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Null GUID is located in cached summary readback
+
+- **Evidence:** Run `39460550649` passes both supported jobs, Tray and native Windows 31/31. Explicit context locates the conversion at finaliser line 80, `summary-package-readback`: the writable summary's PackageCode getter returns null after persist/commit. Product/scope, all 697 file/component identities and summary platform/WordCount have passed.
+- **Changed:** Require the setter to retain the selected GUID, close writable handles after commit and verify the persisted MSI through fresh read-only database/summary handles. Missing/malformed/different identities still fail; finalisation remains before complete ICE.
+- **Validation:** Both exact GUID guards pass matching identity and reject four adverse values. Static ordering/context controls, 22 payload and 28 adverse report cases pass. The solution builds with zero warnings/errors and all 2,182 F# cases pass.
+- **Blockers:** Actual Windows must prove setter retention and persisted identity before ICE and installed lifecycle acceptance can advance. Main/distribution remain gated; no component identity defect or successful install is claimed.
+- **Next:** Publish committed-file verification and continue actual Windows finalisation/lifecycle acceptance.
+
 ### 2026-10-21 - Initial finaliser diagnostic phase is kept in script scope
 
 - **Changed:** Review catches the initial diagnostic phase assignment in helper-local scope. Move it before the outer MSI try block and enforce its exact scope/order, preventing an early failure from being masked by strict-mode variable lookup.

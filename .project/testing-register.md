@@ -2,6 +2,27 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## PackageCode verification reads the committed MSI
+
+Run `39460550649` identifies the null-GUID failure precisely: phase
+`summary-package-readback`, line 80, where the original writable summary
+object returns null after persist/commit. Product/scope, all 697 file/component
+checks and summary platform/WordCount have already passed. This is not a
+component-GUID failure.
+
+The finaliser now requires the setter to retain the selected non-null GUID
+before persistence, closes the writable summary/database after commit, then
+opens fresh read-only handles to verify the committed PackageCode. Missing,
+empty, malformed or different identities still fail. Complete ICE still runs
+after finalisation, and no later mutation is introduced.
+
+Controls execute both exact GUID guards with matching and four adverse values,
+require persist/commit/release/read-only ordering and retain original failure
+context. All 22 payload and 28 adverse report controls pass. The solution builds
+warning-free and all 2,182 F# cases pass. Windows must establish whether the
+setter retains the value and whether the committed file contains it; no native
+success is claimed from these controls.
+
 ## Finaliser context is initialised in script scope
 
 Review of the diagnostic-only delta finds its initial phase assignment in
