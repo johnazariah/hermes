@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-20 - Preserve the retired Mac command's executable refusal
+
+- **Changed:** Restored `scripts/setup-mac.sh`'s original executable bit after the replacement lost it. Direct invocation now reaches the deliberate support-boundary message instead of failing with permission denied.
+- **Validation:** Executing the command returns exit 3 and explains the supported Service/browser path without workload, launchd, application or user-data changes. The script bytes are unchanged.
+- **Evidence:** The reviewed candidate is committed as `ac124ac`; its actual target-host acceptance and merge remain pending.
+- **Blockers:** Windows/native/installed acceptance remains mandatory; strict legacy repair remains disabled.
+- **Next:** Preserve the candidate tree while recording already-verified main ancestry, then push it for PR CI.
+
 ### 2026-10-20 - Reviewed candidate prepared for target-host CI
 
 - **Changed:** Staged the complete reviewed access/servicing graph and its synthetic regressions, documentation and blocking CI gates. Applied the required UTF-8 BOM consistently to staged F#/C# sources and removed one trailing blank line; code and line structure are otherwise unchanged by formatting.
