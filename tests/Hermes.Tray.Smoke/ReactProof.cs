@@ -9,7 +9,8 @@ namespace Hermes.Tray.Smoke;
 internal sealed record AssetProof(string Path, string Sha256);
 internal sealed record RouteProof(string Path, string Heading, bool SpaNavigation, bool DeepLink);
 internal sealed record ReactProofResult(
-    string Runtime, ImmutableArray<AssetProof> Assets, ImmutableArray<RouteProof> Routes);
+    string Runtime, ImmutableArray<AssetProof> Assets, ImmutableArray<RouteProof> Routes,
+    NativeAuthenticationProof Authentication);
 internal sealed record RouteTarget(string Path, string Heading);
 internal sealed record AssetManifest(ImmutableArray<string> Entrypoints);
 internal sealed record DomState(string Path, bool React, string Heading, ImmutableArray<string> Scripts, ImmutableArray<string> Links);
@@ -47,7 +48,8 @@ internal static class ReactProof
         routes.Add(new("/", root.Heading, false, true));
         foreach (var target in Targets)
             routes.Add(await ProveRouteAsync(options, window, oracle, target, assets, cancellationToken));
-        return new(window.RuntimeVersion, assets, routes.ToImmutable());
+        var authentication = await NativeAuthentication.RunAsync(options, window, oracle, cancellationToken);
+        return new(window.RuntimeVersion, assets, routes.ToImmutable(), authentication);
     }
 
     private static async Task<ImmutableArray<AssetProof>> ProveAssetsAsync(
@@ -59,7 +61,7 @@ internal static class ReactProof
         var parsed = JsonSerializer.Deserialize<AssetManifest>(manifest, Json)
             ?? throw new InvalidOperationException("Asset manifest is missing.");
         var scripts = parsed.Entrypoints.Where(path => path.EndsWith(".js", StringComparison.Ordinal)).ToImmutableArray();
-        if (scripts.IsEmpty || scripts.Distinct().Count() != scripts.Length)
+        if (scripts.Length is 0 or > 32 || scripts.Distinct().Count() != scripts.Length)
             throw new InvalidOperationException("Asset manifest must contain distinct JavaScript entrypoints.");
         var proofs = await Task.WhenAll(scripts.Select(path =>
             ProveAssetAsync(options, http, oracle, webRoot, path, cancellationToken)));
@@ -70,7 +72,8 @@ internal static class ReactProof
         TrayOptions options, HttpClient http, SmokeOwnershipOracle oracle,
         string webRoot, string path, CancellationToken cancellationToken)
     {
-        if (!Regex.IsMatch(path, @"^/assets/[A-Za-z0-9_./-]+\.js$") || path.Contains("..", StringComparison.Ordinal))
+        if (path.Length > 256 || !Regex.IsMatch(path, @"^/assets/[A-Za-z0-9_./-]+\.js$") ||
+            path.Contains("..", StringComparison.Ordinal))
             throw new InvalidOperationException("Manifest entrypoint is not a canonical local JavaScript asset.");
         var bytes = await MatchingBytesAsync(options, http, oracle, webRoot, path, cancellationToken);
         return new(path, Convert.ToHexString(SHA256.HashData(bytes)));

@@ -11,6 +11,12 @@
 
   <ItemGroup>
     <Compile Include="Prelude.fs" />
+    <Compile Include="OwnerControlTarget.fs" />
+    <Compile Include="LocalAccessWire.fs" />
+    <Compile Include="OwnerControlPipe.fs" />
+    <Compile Include="LocalAccessModel.fs" />
+    <Compile Include="LocalAccessDomain.fs" />
+    <Compile Include="LocalAccessRuntime.fs" />
     <Compile Include="Domain.fs" />
     <Compile Include="Algebra.fs" />
     <Compile Include="ArchiveWriter.fs" />

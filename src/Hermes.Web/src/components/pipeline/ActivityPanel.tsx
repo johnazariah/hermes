@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { request } from '../../api/http';
 
 interface ActivityEntry {
   id: number;
@@ -26,7 +27,7 @@ const categoryIcons: Record<string, string> = {
 export function ActivityPanel() {
   const { data: entries } = useQuery<ActivityEntry[]>({
     queryKey: ['activity'],
-    queryFn: () => fetch('/api/activity?limit=100').then(r => r.json()),
+    queryFn: () => request('/api/activity?limit=100').then(r => r.json()),
     refetchInterval: 5000,
   });
 

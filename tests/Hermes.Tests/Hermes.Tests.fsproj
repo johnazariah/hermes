@@ -12,6 +12,36 @@
   <ItemGroup>
     <Compile Include="TestHelpers.fs" />
     <Compile Include="McpTestPolicy.fs" />
+    <Compile Include="LocalAccessWireTests.fs" />
+    <Compile Include="LocalAccessOutboundTests.fs" />
+    <Compile Include="OwnerControlTargetTests.fs" />
+    <Compile Include="OwnerControlPipeTests.fs" />
+    <Compile Include="OwnerStatusDiscoveryWireTests.fs" />
+    <Compile Include="OwnerStatusDiscoveryFixture.fs" />
+    <Compile Include="OwnerStatusDiscoveryPipeTests.fs" />
+    <Compile Include="OwnerStatusDiscoveryRejectionTests.fs" />
+    <Compile Include="OwnerControlPipeRestartTests.fs" />
+    <Compile Include="OwnerUiFixtures.fs" />
+    <Compile Include="OwnerUiCommandTests.fs" />
+    <Compile Include="OwnerUiOperatorTests.fs" />
+    <Compile Include="OwnerUiStatusTests.fs" />
+    <Compile Include="OwnerUiOwnedTests.fs" />
+    <Compile Include="LocalAccessDomainTests.fs" />
+    <Compile Include="LocalAccessBoundaryTests.fs" />
+    <Compile Include="LocalAccessRuntimeTests.fs" />
+    <Compile Include="LocalAccessRuntimeConcurrencyTests.fs" />
+    <Compile Include="LocalAccessHttpFixture.fs" />
+    <Compile Include="LocalAccessHttpTests.fs" />
+    <Compile Include="LocalAccessMalformedJsonTests.fs" />
+    <Compile Include="LocalAccessTerminalTests.fs" />
+    <Compile Include="OwnerAccessAdapterTests.fs" />
+    <Compile Include="OwnerStaleInstanceTests.fs" />
+    <Compile Include="ServiceAccessHostTestSupport.fs" />
+    <Compile Include="ServiceAccessHostFixture.fs" />
+    <Compile Include="ServiceAccessHostSessionSupport.fs" />
+    <Compile Include="ServiceAccessHostTests.fs" />
+    <Compile Include="ServiceAccessHostDrainSupport.fs" />
+    <Compile Include="ServiceAccessHostDrainTests.fs" />
     <Compile Include="MemFsTests.fs" />
     <Compile Include="ConfigTests.fs" />
     <Compile Include="ConfigSalvageTests.fs" />
@@ -48,6 +78,17 @@
     <Compile Include="EmailChannelFixtures.fs" />
     <Compile Include="EmailChannelTestSupport.fs" />
     <Compile Include="EmailHistoryFixtures.fs" />
+    <Compile Include="AsyncCapabilityControl.fs" />
+    <Compile Include="V5SchedulerConformanceEffects.fs" />
+    <Compile Include="McpAsyncConformanceFixture.fs" />
+    <Compile Include="McpAsyncConformanceControl.fs" />
+    <Compile Include="McpAsyncConformanceReadMutationTests.fs" />
+    <Compile Include="McpAsyncConformanceDeepTests.fs" />
+    <Compile Include="McpAsyncConformancePublicationTests.fs" />
+    <Compile Include="McpAsyncConformanceReflowTests.fs" />
+    <Compile Include="AsyncEmailConformanceSupport.fs" />
+    <Compile Include="AsyncEmailConformanceAssertions.fs" />
+    <Compile Include="AsyncEmailConformanceTests.fs" />
     <Compile Include="SavedPathLegacyMetadataTests.fs" />
     <Compile Include="EmailChannelStagedSourceTests.fs" />
     <Compile Include="EmailChannelProducerTests.fs" />
@@ -95,6 +136,13 @@
     <Compile Include="LegacyPipelineRegressionTests.fs" />
     <Compile Include="PipelineV5BatchRegressionTests.fs" />
     <Compile Include="GenerationValidationRegressionTests.fs" />
+    <Compile Include="V5AsyncSupport.fs" />
+    <Compile Include="V5AsyncFixtures.fs" />
+    <Compile Include="V5AsyncAssertions.fs" />
+    <Compile Include="V5AsyncTests.fs" />
+    <Compile Include="V5SchedulerConformanceSupport.fs" />
+    <Compile Include="V5SchedulerConformanceTests.fs" />
+    <Compile Include="V5SchedulerConformanceLifecycleTests.fs" />
     <Compile Include="PromptLoaderTests.fs" />
     <Compile Include="SenderClassificationTests.fs" />
     <Compile Include="DeepExtractionTests.fs" />
@@ -104,12 +152,14 @@
     <Compile Include="OutlookProviderTests.fs" />
     <Compile Include="ComprehensionRacTests.fs" />
     <Compile Include="ArchiveWriterTests.fs" />
-    <Compile Include="ApiReflowTests.fs" />
+    <Compile Include="SyntheticAuthenticatedFixtureSupport.fs" />
     <Compile Include="HttpRegressionFixture.fs" />
+    <Compile Include="ApiReflowTests.fs" />
     <Compile Include="CanonicalUiTestSupport.fs" />
     <Compile Include="CanonicalUiPreflightTests.fs" />
     <Compile Include="CanonicalUiModuleTests.fs" />
     <Compile Include="CanonicalUiHttpTests.fs" />
+    <Compile Include="CanonicalUiHostTests.fs" />
     <Compile Include="CanonicalUiBoundaryTests.fs" />
     <Compile Include="CanonicalUiStartupTests.fs" />
     <Compile Include="FileKeywordFixtures.fs" />
@@ -128,6 +178,8 @@
     <Compile Include="ComprehensionProvenanceTests.fs" />
     <Compile Include="ComprehensionProvenanceSchemaTests.fs" />
     <Compile Include="KeywordLimitHttpTests.fs" />
+    <Compile Include="ExistingRouteAccessHttpTests.fs" />
+    <Compile Include="ExistingRouteModelHttpTests.fs" />
     <Compile Include="UnknownToolHttpTests.fs" />
     <Compile Include="SyntheticKeywordCorpus.fs" />
     <Compile Include="FileKeywordHttpTests.fs" />
@@ -161,6 +213,7 @@
     <Compile Include="ServiceMutationContractCorrectionValidation.fs" />
     <Compile Include="ServiceMutationContractCorrectionAtomicity.fs" />
     <Compile Include="ServiceLifetimeTests.fs" />
+    <Compile Include="StartupAdmissionTests.fs" />
     <Compile Include="ServiceSyncTestSupport.fs" />
     <Compile Include="ProducerCycleTestSupport.fs" />
     <Compile Include="ProducerCycleFolderTests.fs" />
@@ -176,6 +229,11 @@
     <Compile Include="OwnedServiceProcessTests.fs" />
     <Compile Include="OwnedPipeAdmissionTests.fs" />
     <Compile Include="Program.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="../SyntheticFixtures/http-access-v1.json"
+          Link="SyntheticFixtures/http-access-v1.json"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.2" />

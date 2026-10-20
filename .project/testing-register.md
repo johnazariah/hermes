@@ -2,6 +2,334 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Native writer provenance correction verified locally
+
+The fresh revision replaces classic diagnostic events with a manifest-based ETW
+provider imported into Application. Native provider/PID/event-time fields bind
+each diagnostic to a freshly observed OS process instance and the expected
+custom-action host; cached inventory cannot substitute for that observation.
+Portable regressions reject absent or contradictory headers, PID reuse,
+claim/creation mismatches, replay and competing invocations.
+
+All **249 Servicing/model cases** pass, zero failures/skips. Two initial test
+failures were corrected without changing production behaviour: an
+`ImmutableArray` assertion now compares its sequence, and the creation-identity
+mutation expects the stronger PID-reuse refusal. Control remains **48/48**.
+Acceptance, ProcessProbe, WindowsTests and the managed Guard cross-build with
+zero warnings/errors. The strict report suite passes its valid fixture and
+**28 adverse controls**; static packaging retains all 19 payload passes.
+
+The exact native coverage recipe executes all 249 model/Servicing and 2,159 F#
+cases and retains five assemblies at **14,533/17,018 lines (85.3978%)** and
+**15,043/24,636 branches (61.0610%)** in the final rebuilt candidate. Both integer gates and all seven threshold
+controls pass. The default solution also builds without warnings/errors and
+passes all 2,159 Debug cases.
+
+Independent source re-review approves the corrected provenance, report and
+non-authoritative transport/harness, closing the prior finding. Microsoft's
+native header and event XML documentation confirm that their process fields
+identify the event's generating process. The manifest parses, and its harness
+refuses macOS before filesystem/profile effects. Actual Windows resource
+compilation, registration, event delivery, MSI schemas, installed lifecycle and
+published-artifact acceptance remain pending.
+
+## Five-assembly coverage and independent observer review
+
+The exact CI collection recipe now executes **212 portable Servicing/model
+cases** and **2,159 F# cases**, with zero failures/skips. Its native JSON merge
+retains Core, Service, UI, Servicing and the new Acceptance.Model assembly at
+**14,447/16,932 lines (85.3236%)** and
+**15,110/24,582 branches (61.4677%)**. Both integer gates and all seven threshold
+regression controls pass. The additional model initially took line coverage
+below 85%; 37 new parser/lifecycle/correlation cases cover its real positive and
+negative paths rather than removing it from measurement.
+
+The new cases exercise lifecycle 1040/1042, install/removal/configuration outcomes
+1033/1034/1035, both ProductCode encodings, and distinct engine/client identities.
+The synthetic records validate parser and correlation behaviour; actual Windows
+provider schemas still require target-host execution.
+
+Control passes **48/48 portable cases** after separating Windows-only observation
+and its failure sink from the portable authority. Acceptance, ProcessProbe,
+WindowsTests and the managed Guard cross-build without warnings/errors. The
+default solution also builds with zero warnings/errors and passes all 2,159
+Debug cases.
+
+Workflow source now restores, builds and runs the portable Setup and Control
+projects explicitly on both supported platforms; neither was included in the
+default solution or Windows-only test project. The exact new local build/test
+commands pass all 456 Setup and 48 Control cases. Target-host CI execution
+remains pending. Generated `.artifacts/` output is excluded from Git.
+
+Independent source review approves the kernel/process component and the
+non-authoritative Control/Guard callback seam. It rejects the independent
+writer-provenance proof: checking the PID/start time claimed in diagnostic JSON
+does not establish which process reported the native event. A fresh author owns
+the correction; the original author is excluded from that revision. Actual
+Windows execution, complete installed lifecycle acceptance and publication
+remain pending.
+
+## Corrective repair locally verified and independently approved
+
+The fresh aggregate revision passes **456/456 portable Setup cases**, zero
+failures/skips. Pre-servicing registered ownership can admit a definitively
+owned missing/damaged payload; complete hash/length/MVID proof remains required
+before Ready. New repair, same-package reinstall, upgrade/downgrade and uninstall
+cases retain binding, ownership, path, retained-media, fence and pending-work
+negatives. Failed restoration of damaged bytes remains Closed. The fixture's
+three authored version fields now derive from its manifest, allowing the real
+1.2.4 upgrade/downgrade scenarios to reach MSI and verification.
+
+Independent root re-review approves this distinction and carries forward the
+Main/compiled-trust/composition/pin-lifetime findings. The whole default solution
+also builds without warnings/errors and runs 2,159 Debug cases with zero
+failures/skips; the separate Release/native coverage and browser evidence below
+remain valid.
+
+The actual Windows diagnostic component and its process probe and Windows-test
+projects now cross-build without warnings/errors. The single mechanical
+compilation correction wraps an `ImmutableArray`-returning method group in its
+typed `SelectMany` lambda. Attempting only the four pure report-policy cases on
+macOS fails assembly resolution for the Windows-RID helper; it supplies no
+passing test or Windows-runtime evidence.
+
+Its first source delivery explicitly leaves five old-engine-outcome cases
+Blocked and returns incomplete exit 3; those results cannot satisfy publication.
+A concrete independent observer binding is still being authored and must be
+source-reviewed and exercised on the disposable Windows host. Construction-gate
+replacement is authorised only for the now-reviewed complete construction;
+runtime, MSI, recovery/interleaving and publication gates remain mandatory.
+
+## Exact local coverage gates passed; Windows acceptance still pending
+
+All **2,159 F# cases** and **154 portable Servicing cases** pass, with zero
+failures/skips and a warning-free build. The last bounded MCP variation reuses
+the independently approved yielding interpreter and retains exact public tool,
+transaction, source/history and artifact assertions.
+
+Native Coverlet 6.0.2 collection and native JSON merging preserve Core,
+Service, UI and Servicing at **14,127/16,594 lines (85.1332%)** and
+**14,835/24,311 branches (61.0218%)**. The exact workflow step was then extracted
+and executed locally: its independent run reports the same line counts and
+14,775/24,311 branches (60.7750%). Both satisfy the integer gates without
+rounding, exclusions or denominator changes. `Assert-Coverage.ps1` now enforces
+85% line and 60% branch on both CI platforms, requires all four assemblies and
+validates the counters. Seven regression controls prove exact boundaries pass,
+rounded near-misses fail, and missing assemblies or invalid denominators fail.
+The tool version is pinned in `.config/dotnet-tools.json`.
+
+The latest canonical bundle retains 61 passing actual Chromium journeys and
+102 passing units. The complete initial Setup root suite passes 399 portable
+cases, but independent review identifies a real corrective-repair precondition:
+full payload equality is required before repairing a definitively owned
+missing/damaged file. A fresh eligible author has supplied its bounded
+ownership/post-verification distinction and regressions; that revision is not
+yet accepted. Native MSI construction remains blocked.
+
+Installer payload/schema/coordinator/workflow static validation passes all
+19 payload cases and its additional contract checks. Actual Windows units,
+native exports/callbacks, interrupted recovery/interleavings and complete
+installed SDK-free servicing remain separate mandatory gates. No post-financial
+code slice has yet been published.
+
+## Latest conformance and executable-root integration
+
+The complete current F# graph builds without warnings/errors and passes
+2,155/2,155 cases, with zero failures/skips. New controlled and yielding
+interpreter cases exercise scheduler dependencies, real transaction ownership,
+source claims, recovery and MCP reads/mutations. A real staged-source conflict
+exposed a faulted MCP request task: typed ownership rejection now remains under
+the metadata writer transaction and publication fence, returns a tool error,
+and cannot advance the artifact revision. Existing throwing guards and
+unrelated programming-fault propagation are preserved. Independent review
+approves both that production delta and the test-only interpreter decoration.
+
+Pinned local `coverlet.console` 6.0.2 collects Servicing separately and merges
+its native JSON while executing the full F# graph. Both actual test runs pass
+(154 and 2,155 cases). The resulting native Cobertura retains all four
+assemblies and reports **14,127/16,594 lines** and
+**14,550/24,311 branches**: the exact 60% branch gate needs **37 more covered
+branches**. A standard ReportGenerator trial changed the source denominator
+and is not used for gating; the checked local-tool manifest pins native
+Coverlet instead. Further meaningful MCP immediate/yielding variations are
+being authored, not counted as executed.
+
+The OS installation-observation and MSI authoring-validator components build
+cleanly, pass 328 portable cases and have independent source approval. The
+subsequent actual Setup aggregate/factory/entry source has been applied and
+builds cleanly, but its expanded suite is **347 passed, 43 failed, zero
+skipped, 390 total**. Most failures encounter synthetic UNC/host path
+interpretation before their ownership or post-state assertions; fresh-install
+and other aggregate outcomes also remain unproved. The eligible author owns a
+coherent correction; no tests are skipped or expected safety outcomes relaxed.
+Its executable/publication wiring is not installer acceptance, and the
+unconditional MSI construction block remains.
+
+The exact latest canonical bundle still has 61 passing real Chromium journeys,
+102 passing JavaScript units and clean lint/build. Actual Windows native,
+installed-runtime and complete servicing acceptance remain outstanding. No
+post-financial slice is yet published.
+
+## Complete local access graph — executed, not yet published
+
+The complete Release graph now builds without warnings/errors and executes
+2,133/2,133 F# cases, with zero failures/skips. Independent source re-review
+approves the corrected Host/Program request lifetime, shared canonical routing,
+early owner CLI/default target selection and real authenticated HTTP fixtures.
+The final private-adapter revision is also approved: stale pinned requests are
+rejected against the actual composition identity before any phase-dependent
+owner call. Its real pipe scenario traverses Starting, Ready and Stopped while
+retaining listener health, pending pairing and existing session authority.
+
+All 61 actual Chromium cases pass against the exact canonical bundle
+`1ac59912876db25479f308c61d76c64f40f9af766bbea20808a99b0b4ca97c34`,
+served by the rebuilt isolated Service with real foreground owner-CLI approval.
+The source also passes lint, build and 102 JavaScript units. The browser run
+includes protected persistence, local locking and real revocation, restart
+fencing, two-instance previews, and actual PDF rendering. The transport now
+preserves null-body responses and fences generation changes after pending body
+cancellation. Native option disabling is checked through its DOM property and
+keyboard behaviour; the focus/save case restores its own synthetic preferences.
+
+Portable Servicing executes 154/154 cases. Setup executes 181/181, including
+the corrected descendant-absence, native unregistered-component and complete
+compressed-media controls plus additive query-snapshot tests. Independent
+re-review approves the three I/O-leaf corrections. New Windows observation
+readers and an MSI authoring validator are separate uncompiled integration
+batches; aggregate verification and executable Setup composition remain missing.
+
+The F# collector alone includes the newly referenced Servicing assembly without
+executing its portable suite: 13,185/16,579 lines and 13,338/24,245 branches.
+A separate proper Servicing collection reports 913/1,124 lines and 322/453
+branches. The resolved source identities are identical, its line coverage is a
+superset, and the first report covers zero Servicing branches. Their
+denominator-preserving union therefore retains Core, Service, UI and Servicing
+at **14,096/16,579 lines (85.0232%)** and **13,660/24,245 branches (56.3415%)**.
+No assemblies or source are excluded. Another 887 covered branches are needed
+for the exact 60% gate; CI aggregation and target-OS evidence remain outstanding.
+The initial combined VSTest attempt without a discoverable collector supplies
+test execution only, not coverage evidence.
+
+Actual Windows units, owned authenticated WebView and the complete installed
+MSI lifecycle remain unexecuted for this graph. No new code slice has been
+published since the financial merge; MSI production remains blocked.
+
+## Unpublished access integration and servicing-policy revision
+
+The Release .NET test graph builds with zero warnings/errors after integrating
+the real owner pipe, bounded authority runtime, HTTP protocol/private adapter,
+outer Service startup admission and suspended V5 controls. The combined
+`LocalAccessRuntime`, `OwnerControlPipe`, `V5AsyncTests`, `LocalAccessHttp`,
+`OwnerAccessAdapterTests` and `StartupAdmissionTests` selection passes all
+79 cases, with zero failures/skips.
+
+The separate status-only discovery addition also builds cleanly. Its combined
+`OwnerStatusDiscovery`, `OwnerControlPipe` and `LocalAccessWire` selection
+passes 127 cases, with zero failures/skips. These exercise actual macOS
+same-owner pipe exchanges as well as strict codecs; they are not Windows
+acceptance. Discovery precedes HTTP identity comparison and cannot resolve or
+approve a pairing. The existing completely pinned client remains strict.
+
+Independent source review approves the bounded actor and F# pre-effect
+startup hook. It rejects stale-instance outbound encoding that can terminate
+the listener, malformed escaped-Unicode handling, and missing no-store headers
+on framework protocol errors. Fresh revisions are required before the boundary
+can be accepted. Passing component cases do not cover those missing paths.
+The real Host, early owner CLI and existing-route/authenticated-fixture batches
+are being integrated separately; their complete graph and application journeys
+have not yet passed.
+
+The fresh Setup publication-policy revision passes all 72 portable cases,
+including 17 new returned-failure, throw-after-visible-Ready, failed-reclosure
+and pending-reclosure/disposal controls. Independent source re-review approves
+the revision: only a successful confirmed reclosure claims Closed; otherwise
+the result is Unknown and preserves its native receipt. Unknown does not prove
+runtime denial. Ready publication is reachable only after completed guarded
+MSI execution, durable receipt and safe-target verification in the source model.
+Production I/O, executable composition and actual Windows acceptance remain
+separate gates.
+
+The shared servicing library now passes 154 portable cases, including 20
+enrolled-child controls; private MSI control has 46 passing portable cases.
+Independent review approves the fresh native revision: actual Tray,
+diagnostic and fixture-helper entries acquire pre-effect admission, installed
+child selection validates the enrolled physical Service/MVIDs before launch,
+and navigation completion is bound to the initiating engine ID. Both native
+tests and the BCL-only Smoke executable cross-build without warnings/errors.
+The shared `SmokeEntry` is exercised by source-linked tests rather than linking
+its executable `Main`. Actual Windows units, owned authenticated WebView and
+installed MSI lifecycle have not run for this graph.
+
+Concrete Setup I/O leaves build without warnings/errors and bring the portable
+Setup selection to 96 passing cases. Their 24 new cases cover actual owned
+temporary-file persistence, retention and inventory functions. Independent
+review nevertheless rejects descendant-junction false absence, unregistered
+component result handling and acceptance of loose files in supposedly complete
+retained MSI media. A fresh author owns that revision; aggregate inspection,
+verification and executable composition remain separate. MSI publication
+remains blocked.
+
+The full Host/CLI/real-route graph has not compiled: its first attempt reports
+40 production diagnostics, mostly CLI qualification/type annotations. Separate
+source review also rejects production canonical routing that never reaches its
+middleware, disposal beneath still-running admitted HTTP work, and default
+environment-port parsing that differs from the running Service. A fresh
+shared production/fixture/lifetime revision is being applied. Three further
+test-only V5 cases have been added for genuinely pending embedding, failed
+replacement/retry and stale generation, including production semantic retrieval;
+they are not yet compiled or executed.
+
+The last full measured access-foundations coverage remains the 1,849-case
+baseline below. No newer full coverage result, 85%/60% close, authentication
+completion or installer promotion is claimed.
+
+## Financial slice integrated; current unfinished foundations
+
+#29 merged as `e7758a3797dc6ca5d52ae1ac573a2a4802f0a27a`.
+Exact-head run `39361173950` passes all five real checks: Windows executes
+1,714 cases and Mac 1,718, with zero failures/skips. Both execute all 45
+browser cases and 21 JavaScript units. Windows also passes all 100 native
+cases and real WebView2 154.0.4258.62 proof for owned PID 4312, followed by
+graceful unforced exit 0 and successful cleanup.
+
+Main run `39362778578` passes all seven jobs. Each exact published Service
+bundle passes all 45 browser cases before upload and records manifest
+`b29507df6e860e22caa76b75c940438d42d355210d7d931f0e3ae3ca8d8c1e96`.
+Main Windows root is 11,108/13,209 lines and 10,581/20,820 branches across
+Core/Service/UI. The 85%/60% close gate remains unmet.
+
+The separate uncommitted foundations graph builds cleanly and runs
+1,849/1,849 Mac cases with zero failures/skips. Its root is 11,754/13,901
+lines and 11,275/21,350 branches, retaining the same assemblies. The 131
+focused passes comprise 49 pure-domain cases, 64 strict wire cases, 12 target
+naming cases and six genuinely suspended email-capability cases.
+
+The fresh domain collision revision is independently approved: live and
+retained credential digests cannot be reissued; revoked digests join the
+existing bounded recent-history store. Seven new cases preserve approval,
+prepared rejection state and the invalid-proof budget while proving old-token
+denial, noncolliding recovery, retention and capacity. This is not perpetual
+entropy history or a completed HTTP authentication feature.
+
+The four new `AsyncCapabilityControl` / `AsyncEmailConformance*` modules
+exercise controlled pending provider/SQLite effects, original archive/history,
+source claims, retry, duplicate content and ownership races without sleeps.
+Strict wire/target and these email cases still require independent review.
+Owner-pipe I/O, runtime serialization, HTTP/CLI/native wiring and actual
+Windows/Mac journeys remain separate gates.
+
+Native client lifetime revisions cross-build, but a cancelled-successful-
+settlement path remains under fresh revision. The browser source revision
+is independently approved with 99 passing units and 61 discovered cases;
+a standalone Chromium PDF probe is not canonical-app/authentication proof.
+
+The strict servicing-library revision passes 94 portable cases; its actual
+Windows kernel tests remain unexecuted. The separate MSI private-control
+slice passes 16 fake-effect cases; NativeAOT loading and full Setup/recovery
+orchestration are not thereby established. Fixed-root Windows source/dev
+classification is being implemented before the F# startup hook can be
+enabled safely. MSI construction continues to fail closed.
+
 ## Financial preservation slice — exact staged-tree local proof
 
 The financial/Workflow/API slice is validated separately from unfinished

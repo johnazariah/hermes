@@ -1,6 +1,7 @@
 ﻿module Hermes.Tests.HttpRegressionFixture
 
 open System
+open System.Collections.Concurrent
 open System.IO
 open System.Net.Http
 open System.Net.Http.Json
@@ -11,67 +12,125 @@ open Microsoft.AspNetCore.Builder
 open Microsoft.AspNetCore.Hosting
 open Microsoft.AspNetCore.Hosting.Server
 open Microsoft.AspNetCore.Hosting.Server.Features
+open Microsoft.AspNetCore.Http
 open Microsoft.Extensions.DependencyInjection
 open Xunit
 open Hermes.Core
 open Hermes.Service
+open Hermes.Core.LocalAccess
 
 type Server =
     { App: WebApplication
       Client: HttpClient
       Db: Algebra.Database
+      Files: TestHelpers.MemFs
+      Access: SyntheticAuthenticatedFixtureSupport.Running
+      BodyReads: ConcurrentQueue<unit>
+      McpAuthorization: Headers.AuthenticationHeaderValue option }
+
+type private Hosted =
+    { App: WebApplication
+      Authority: SyntheticAuthenticatedFixtureSupport.Authority
+      BodyReads: ConcurrentQueue<unit> }
+
+type private Prepared =
+    { Hosted: Hosted
+      Db: Algebra.Database
       Files: TestHelpers.MemFs }
 
 let timeout = TimeSpan.FromSeconds 10.0
 
-let private createApp encoder policy origins ui db (files: TestHelpers.MemFs) deepDeps =
-    let builder = WebApplication.CreateBuilder()
-    builder.WebHost.UseUrls("http://127.0.0.1:0") |> ignore
-    let app = builder.Build()
-    LocalBoundary.attach app origins
+let private mapUi (app: WebApplication) (ui: CanonicalUi.Bundle option) : unit =
     ui |> Option.iter (CanonicalUi.attach app)
+
+let private mapRoutes encoder chat policy (app: WebApplication) db (files: TestHelpers.MemFs) deepDeps =
     let dag = TestHelpers.standardV5Dag ()
     ApiServer.mapRoutesWithSearch encoder app db db files.Fs TestHelpers.silentLogger
-        TestHelpers.defaultClock dag None "/archive" "/config"
+        TestHelpers.defaultClock dag chat "/archive" "/config"
     ApiServer.mapMcpRouteWithPolicy encoder policy app db db files.Fs TestHelpers.silentLogger
         TestHelpers.defaultClock dag "/archive" deepDeps
-    app
 
-let private address (app: WebApplication) =
-    let server = app.Services.GetRequiredService<IServer>()
-    server.Features.Get<IServerAddressesFeature>()
-    |> Option.ofObj
-    |> Option.defaultWith (fun () -> failwith "No HTTP server addresses")
-    |> fun feature -> feature.Addresses |> Seq.head
+let private middleware
+    (hosted: Hosted) origins encoder chat (ui: CanonicalUi.Bundle option) : unit =
+    let availability: ModelAvailability =
+        { IsAvailable = function
+            | ModelOperation.Chat -> Option.isSome chat
+            | ModelOperation.Search -> Option.isSome encoder }
+    LocalBoundary.attach hosted.App origins
+    HttpRequestReadProbe.attach hosted.App hosted.BodyReads
+    hosted.App.UseRouting() |> ignore
+    SyntheticAuthenticatedFixtureSupport.attach hosted.App hosted.Authority availability
+    mapUi hosted.App ui
 
-let private start createDb encoder policy origins deepDeps ui =
+let private createApp encoder chat policy origins ui db files deepDeps : Hosted =
+    let builder = WebApplication.CreateBuilder()
+    builder.WebHost.UseUrls("http://127.0.0.1:0") |> ignore
+    let authority = SyntheticAuthenticatedFixtureSupport.create ()
+    builder.Services.AddSingleton<SyntheticAuthenticatedFixtureSupport.Authority>(authority) |> ignore
+    HttpAccessPolicy.addStartupValidation builder.Services
+    let app = builder.Build()
+    let hosted: Hosted =
+        { App = app; Authority = authority; BodyReads = ConcurrentQueue<unit>() }
+    middleware hosted origins encoder chat ui
+    mapRoutes encoder chat policy app db files deepDeps
+    hosted
+
+let private prepare createDb encoder chat policy origins deepDeps ui : Task<Prepared> =
     task {
         let db = createDb ()
-        do! TestHelpers.initV5 db
-        let files = TestHelpers.memFs ()
-        let app = createApp encoder policy origins ui db files deepDeps
-        do! app.StartAsync()
-        return
-            { App = app; Db = db; Files = files
-              Client = new HttpClient(BaseAddress = Uri(address app), Timeout = timeout) }
+        try
+            do! TestHelpers.initV5 db
+            let files = TestHelpers.memFs ()
+            return
+                { Hosted = createApp encoder chat policy origins ui db files deepDeps
+                  Db = db; Files = files }
+        with error ->
+            db.dispose ()
+            return raise error
     }
 
-let private withHostingServer createDb encoder policy origins deepDeps ui verify =
+let private defaultClient ready access : Task<HttpClient> =
+    if ready then
+        SyntheticAuthenticatedFixtureSupport.client access SyntheticAuthenticatedFixtureSupport.all
+    else
+        SyntheticAuthenticatedFixtureSupport.guest access.Audience |> Task.FromResult
+
+let private start (prepared: Prepared) origins ready : Task<Server> =
     task {
-        let! server = start createDb encoder policy origins deepDeps ui
-        try do! verify server
+        let hosted = prepared.Hosted
+        do! hosted.App.StartAsync()
+        let access = SyntheticAuthenticatedFixtureSupport.activate hosted.App hosted.Authority origins
+        if ready then do! SyntheticAuthenticatedFixtureSupport.startReady access
+        let! client = defaultClient ready access
+        return
+            { App = hosted.App; Db = prepared.Db; Files = prepared.Files; Client = client
+              Access = access; BodyReads = hosted.BodyReads; McpAuthorization = None }
+    }
+
+let private cleanup (prepared: Prepared) : unit =
+    try SyntheticAuthenticatedFixtureSupport.stop prepared.Hosted.Authority
+    finally
+        try prepared.Hosted.App.StopAsync().GetAwaiter().GetResult()
         finally
-            server.Client.Dispose()
-            server.App.StopAsync().GetAwaiter().GetResult()
-            server.App.DisposeAsync().AsTask().GetAwaiter().GetResult()
-            server.Db.dispose ()
+            try prepared.Hosted.App.DisposeAsync().AsTask().GetAwaiter().GetResult()
+            finally prepared.Db.dispose ()
+
+let private withHostingServer createDb encoder chat policy origins deepDeps ui ready verify =
+    task {
+        let! prepared = prepare createDb encoder chat policy origins deepDeps ui
+        try
+            let! server = start prepared origins ready
+            use client = server.Client
+            do! verify server
+        finally cleanup prepared
     }
 
 let withServerUsing createDb encoder policy origins deepDeps verify =
-    withHostingServer createDb encoder policy origins deepDeps None verify
+    withHostingServer createDb encoder None policy origins deepDeps None true verify
 
-let withUiServer bundle origins verify =
-    withHostingServer TestHelpers.createDb None McpAccess.readOnly origins None (Some bundle) verify
+let withUiServer (bundle: CanonicalUi.Bundle) origins verify =
+    withHostingServer TestHelpers.createDb None None McpAccess.readOnly
+        origins None (Some bundle) true verify
 
 let withConfiguredServer encoder policy origins deepDeps verify =
     withServerUsing TestHelpers.createDb encoder policy origins deepDeps verify
@@ -79,11 +138,23 @@ let withConfiguredServer encoder policy origins deepDeps verify =
 let withServer deepDeps verify =
     withConfiguredServer None McpAccess.readOnly [] deepDeps verify
 
+let withChatServer chat encoder verify =
+    withHostingServer TestHelpers.createDb encoder chat McpAccess.readOnly [] None None true verify
+
+let withStartingServer verify =
+    withHostingServer TestHelpers.createDb None None McpAccess.readOnly [] None None false verify
+
+let newGuestClient (server: Server) : HttpClient =
+    SyntheticAuthenticatedFixtureSupport.guest server.Access.Audience
+
+let newScopedClient (capabilities: Set<Capability>) (server: Server) : Task<HttpClient> =
+    SyntheticAuthenticatedFixtureSupport.client server.Access capabilities
+
 let withAuthenticatedServer deepDeps verify =
     withConfiguredServer None McpTestPolicy.policy [] deepDeps (fun server ->
-        server.Client.DefaultRequestHeaders.Authorization <-
-            Headers.AuthenticationHeaderValue("Bearer", McpTestPolicy.token)
-        verify server)
+        verify
+            { server with
+                McpAuthorization = Some(Headers.AuthenticationHeaderValue("Bearer", McpTestPolicy.token)) })
 
 let json (text: string) =
     use document = JsonDocument.Parse(text)
@@ -91,7 +162,14 @@ let json (text: string) =
 
 let post (server: Server) (path: string) (body: obj | null) =
     task {
-        use! response = server.Client.PostAsJsonAsync(path, body)
+        use request = new HttpRequestMessage(HttpMethod.Post, path)
+        request.Content <- JsonContent.Create(body)
+        match path, server.McpAuthorization with
+        | "/mcp", Some authorization
+            when not (server.Client.DefaultRequestHeaders.Contains("Authorization")) ->
+            request.Headers.Authorization <- authorization
+        | _ -> ()
+        use! response = server.Client.SendAsync(request)
         Assert.Equal(200, int response.StatusCode)
         let! text = response.Content.ReadAsStringAsync()
         return json text

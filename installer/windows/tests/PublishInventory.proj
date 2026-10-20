@@ -1,0 +1,13 @@
+<Project>
+  <PropertyGroup>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <HermesPublishInventoryPath>$(MSBuildThisFileDirectory)../obj/static-publish-inventory.txt</HermesPublishInventoryPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <ResolvedFileToPublish Include="$(MSBuildThisFileDirectory)../payload.test.mjs">
+      <RelativePath>synthetic-fixture.dll</RelativePath>
+    </ResolvedFileToPublish>
+  </ItemGroup>
+  <Import Project="../Publish-Inventory.targets" />
+</Project>

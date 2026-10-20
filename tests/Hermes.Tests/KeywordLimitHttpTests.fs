@@ -73,7 +73,7 @@ let ``HTTP rejects invalid nonpositive overflow and repeated limits instead of d
     withServer None (fun server ->
         task {
             let! result = response server $"/api/search?q=quartz&limit={value}" 400
-            Assert.Equal("invalid_request", text "status" result)
+            Assert.Equal("invalid_request", text "error" result)
         })
 
 [<Theory>]
@@ -104,7 +104,7 @@ let ``Vector-only limit bounds reject before encoder lookup through HTTP and MCP
     withServer None (fun server ->
         task {
             let! http = response server $"/api/search?q=quartz&mode={mode}&limit=101" 400
-            Assert.Equal("invalid_request", text "status" http)
+            Assert.Equal("invalid_request", text "error" http)
             let! mcp = mcpCall server "hermes_search" (box {| query = "quartz"; mode = mode; limit = 101 |})
             Assert.Equal(-32602, mcp.GetProperty("error").GetProperty("code").GetInt32())
         })

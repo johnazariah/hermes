@@ -12,7 +12,7 @@ internal enum EventCode
     Configuration, Starting, Healthy, Retrying, Cancelled, ForeignListener,
     IdentityMismatch, StartupTimeout, HealthLost, ChildExited, LaunchFailed,
     RetryExhausted, ShutdownRequested, ShutdownTimedOut, StopFailed, Stopped,
-    OutputDrained, PipeFailed, UnexpectedFailure, WindowFailed, BrowserFailed, HealthProbe
+    OutputDrained, PipeFailed, UnexpectedFailure, WindowFailed, BrowserFailed, HealthProbe, AccessFailed
 }
 
 internal sealed record ServiceSnapshot(
@@ -79,7 +79,7 @@ internal sealed class LifecycleFault(EventCode code, bool retry) : Exception(cod
 internal sealed class OwnedService(
     TrayOptions options, IProcessLauncher launcher, IHealthProbe health,
     IServiceClock clock, IServiceLog log, IServiceObserver observer, LifecyclePolicy policy)
-    : IOwnershipVerifier, IDisposable
+    : IOwnershipVerifier, IOwnedAccessSource, IDisposable
 {
     private readonly TaskCompletionSource<int> _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource<SupervisionResult> _final =
@@ -89,6 +89,7 @@ internal sealed class OwnedService(
     private ImmutableArray<OwnedStop> _stops = [];
     private OwnedIdentity? _lastOwned;
     private IOwnedProcess? _owned;
+    private OwnedAccessState? _accessState;
     private int _started;
     private int _restart;
 
@@ -96,6 +97,25 @@ internal sealed class OwnedService(
     public Task<SupervisionResult> Final => _final.Task;
     public ServiceSnapshot Snapshot => Volatile.Read(ref _snapshot);
     public StopOutcome? LastStop => _stops.IsEmpty ? null : _stops[^1].Outcome;
+
+    public OwnedAccessState? ReadAccess()
+    {
+        var current = Volatile.Read(ref _accessState);
+        return (Snapshot, current) switch
+        {
+            ({ Phase: ServicePhase.Running, ProcessId: { } pid } snapshot, { } owned)
+                when owned.Process.IsAlive && owned.Process.Identity.ProcessId == pid &&
+                    owned.ReadyHealthProcessId == pid &&
+                    owned.RestartGeneration == snapshot.Restart => owned,
+            _ => null
+        };
+    }
+
+    private void PublishAccess(IOwnedProcess process, HealthObservation observation) =>
+        Volatile.Write(ref _accessState,
+            process is Hermes.Tray.Access.IAccessProcessHandle handle &&
+            observation is { Healthy: true, ProcessId: { } pid } && pid == process.Id
+                ? new(handle, _restart, pid) : null);
 
     public async Task RunAsync(CancellationToken cancellationToken)
     {
@@ -187,7 +207,10 @@ internal sealed class OwnedService(
             EnsureIdentity(process, observation);
             EnsureAlive(process);
             if (observation.Healthy && observation.ProcessId == process.Id)
+            {
+                PublishAccess(process, observation);
                 return;
+            }
             await clock.DelayAsync(policy.PollInterval, cancellationToken);
         }
         throw new LifecycleFault(EventCode.StartupTimeout, true);
@@ -203,6 +226,7 @@ internal sealed class OwnedService(
             var observation = await ProbeSerializedAsync(cancellationToken);
             EnsureIdentity(process, observation);
             EnsureAlive(process);
+            PublishAccess(process, observation);
             failures = observation.Healthy && observation.ProcessId == process.Id ? 0 : failures + 1;
             if (failures >= policy.HealthFailureLimit)
                 throw new LifecycleFault(EventCode.HealthLost, true);
@@ -232,6 +256,7 @@ internal sealed class OwnedService(
 
     private async Task ReleaseOwnedProcessAsync()
     {
+        Volatile.Write(ref _accessState, null);
         if (_owned is not { } process)
             return;
         var identity = new OwnedIdentity(process.Id, _restart);

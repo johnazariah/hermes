@@ -8,10 +8,23 @@ internal sealed record SmokeReport(
     StopOutcome? Stop, ImmutableArray<AssetProof> Assets, ImmutableArray<RouteProof> Routes,
     bool Cleaned = false, string? RetainedSyntheticDirectory = null)
 {
+    public bool InstalledTrayLaunched { get; init; }
+    public string? TrayExecutablePath { get; init; }
+    public int? TrayProcessId { get; init; }
+    public long? TrayStartUtcTicks { get; init; }
+    public long? ServiceStartUtcTicks { get; init; }
+    public string? InstalledProductCode { get; init; }
+    public string? InstalledVersion { get; init; }
+    public Guid? TrayModuleVersionId { get; init; }
+    public ImmutableArray<InstalledFileProof> InstalledFiles { get; init; } = [];
+    public bool InstalledSourceUnchanged { get; init; }
+    public bool ReadyReached { get; init; }
+    public bool Continued { get; init; }
     public SupervisionResult? Supervision { get; init; }
     public HealthProbeDiagnostic? FirstHealthProbe { get; init; }
     public HealthProbeDiagnostic? LastHealthProbe { get; init; }
     public ImmutableArray<OwnershipProof> OwnershipChecks { get; init; } = [];
+    public NativeAuthenticationProof? Authentication { get; init; }
     public static SmokeReport Empty { get; } = new(false, "Native smoke did not complete.", null, null, null, [], []);
 }
 
@@ -23,20 +36,29 @@ internal sealed class SmokeContext : ApplicationContext, IServiceObserver, IBrow
     private readonly MainWindow _window;
     private readonly OwnedService _service;
     private readonly SmokeOwnershipOracle _oracle;
+    private readonly StableProcessVerifier _identity;
+    private readonly Func<SmokeReport, CancellationToken, Task>? _hold;
+    private readonly Action<SmokeReport>? _checkpoint;
     private Task _worker = Task.CompletedTask;
     public Task Completion { get; private set; } = Task.CompletedTask;
     public SmokeReport Report { get; private set; } = SmokeReport.Empty;
 
-    public SmokeContext(TrayOptions options, TimeSpan timeout)
+    public SmokeContext(
+        TrayOptions options, TimeSpan timeout,
+        Func<SmokeReport, CancellationToken, Task>? hold = null,
+        Action<SmokeReport>? checkpoint = null)
     {
         _options = options;
+        _hold = hold;
+        _checkpoint = checkpoint;
         _deadline = new(timeout);
         var log = new JsonServiceLog(options);
         var external = new GuardedExternalOpener(options, new ShellExternalLauncher(), log, this);
-        _window = new(options, external);
         _service = new(options, new NativeProcessLauncher(log), _health,
             new ServiceClock(), log, this, LifecyclePolicy.Default);
-        _oracle = new(_service);
+        _window = new(options, external, _service, log);
+        _identity = new(_service, options.ServicePath, new WindowsProcessIdentitySource());
+        _oracle = new(_identity);
         Application.Idle += Start;
     }
 
@@ -62,11 +84,25 @@ internal sealed class SmokeContext : ApplicationContext, IServiceObserver, IBrow
         catch (Exception error)
         {
             Report = Report with { Passed = false, Failure = SafeFailure.Describe(error) };
+            Checkpoint();
         }
         finally
         {
-            await FinishAsync();
-            ExitThread();
+            try
+            {
+                Checkpoint();
+                await FinishAsync();
+            }
+            finally { ExitThread(); }
+        }
+    }
+
+    private void Checkpoint()
+    {
+        try { _checkpoint?.Invoke(Report); }
+        catch (Exception error)
+        {
+            Report = Report with { Passed = false, Failure = SafeFailure.Describe(error) };
         }
     }
 
@@ -82,13 +118,26 @@ internal sealed class SmokeContext : ApplicationContext, IServiceObserver, IBrow
         Report = Report with
         {
             Failure = null, WebViewRuntime = proof.Runtime,
-            Assets = proof.Assets, Routes = proof.Routes
+            Assets = proof.Assets, Routes = proof.Routes,
+            Authentication = proof.Authentication,
+            ServiceStartUtcTicks = _identity.Bound?.StartUtcTicks
         };
+        await HoldAsync(_deadline.Token);
+    }
+
+    private async Task HoldAsync(CancellationToken cancellationToken)
+    {
+        if (_hold is not { } hold)
+            return;
+        await _oracle.ProveAsync("installed:servicing-hold",
+            token => hold(Report, token), cancellationToken);
+        Report = Report with { ReadyReached = true, Continued = true };
     }
 
     private async Task FinishAsync()
     {
         await PrepareStopAsync();
+        await StopNativeAccessAsync();
         _deadline.Cancel();
         await StopWorkerAsync();
         var final = await _service.Final;
@@ -99,6 +148,7 @@ internal sealed class SmokeContext : ApplicationContext, IServiceObserver, IBrow
             ProcessId = verdict.Identity?.ProcessId, Stop = verdict.Stop?.Outcome,
             Supervision = final, OwnershipChecks = verdict.Checks,
             FirstHealthProbe = _health.FirstDiagnostic, LastHealthProbe = _health.LastDiagnostic
+            , ServiceStartUtcTicks = _identity.Bound?.StartUtcTicks
         };
         ReleaseNativeResources();
     }
@@ -119,6 +169,15 @@ internal sealed class SmokeContext : ApplicationContext, IServiceObserver, IBrow
     private async Task StopWorkerAsync()
     {
         try { await _worker; }
+        catch (Exception error)
+        {
+            Report = Report with { Passed = false, Failure = SafeFailure.Describe(error) };
+        }
+    }
+
+    private async Task StopNativeAccessAsync()
+    {
+        try { await _window.StopAccessAsync(CancellationToken.None); }
         catch (Exception error)
         {
             Report = Report with { Passed = false, Failure = SafeFailure.Describe(error) };

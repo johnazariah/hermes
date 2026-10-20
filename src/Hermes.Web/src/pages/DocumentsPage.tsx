@@ -216,13 +216,8 @@ export function DocumentsPage() {
         async (tag: string) => {
             const ids = Array.from(selectedIds);
             if (ids.length === 0) return;
-            try {
-                await batchDocuments(ids, "tag", tag);
-            } catch {
-                for (const id of ids) {
-                    await addDocumentTag(id, tag);
-                }
-            }
+            if (ids.length === 1) await addDocumentTag(ids[0], tag);
+            else await batchDocuments(ids, "tag", tag);
             setSelectedIds(new Set());
             queryClient.invalidateQueries({ queryKey: ["tags"] });
             queryClient.invalidateQueries({ queryKey: ["docs"] });

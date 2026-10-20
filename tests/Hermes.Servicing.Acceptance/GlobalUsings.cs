@@ -1,0 +1,16 @@
+﻿global using System.Collections.Immutable;
+global using System.Diagnostics;
+global using System.Reflection;
+global using System.Reflection.Metadata;
+global using System.Reflection.PortableExecutable;
+global using System.Runtime.InteropServices;
+global using System.Runtime.Loader;
+global using System.Security.Cryptography;
+global using System.Text.Json;
+global using System.Text.Json.Serialization;
+global using Hermes.Installer.Control;
+global using Hermes.Servicing;
+global using Hermes.Setup;
+global using Hermes.Tray.Smoke;
+global using Microsoft.Win32.SafeHandles;
+global using Hermes.Servicing.Acceptance.Model;

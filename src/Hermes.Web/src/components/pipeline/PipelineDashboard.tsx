@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { fetchStats } from "../../api/hermes";
+import { request } from "../../api/http";
 import type { IndexStats } from "../../types/hermes";
 
 interface PipelineStatus {
@@ -8,7 +9,7 @@ interface PipelineStatus {
 }
 
 async function fetchPipeline(): Promise<PipelineStatus> {
-    return (await fetch("/api/pipeline")).json();
+    return (await request("/api/pipeline")).json();
 }
 
 function ProgressBar({

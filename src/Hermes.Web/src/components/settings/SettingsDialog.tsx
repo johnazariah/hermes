@@ -1,30 +1,40 @@
 import { useState, useEffect } from 'react';
+import { request } from '../../api/http';
+import { useAccess } from '../../hooks/useAccess';
+import { UnlockReason } from '../AccessPanel';
 
 export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [yaml, setYaml] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [loaded, setLoaded] = useState(false);
+  const access = useAccess();
+  const readable = access.can('config.read');
+  const writable = readable && access.can('mutate');
 
   useEffect(() => {
-    if (open) {
-      fetch('/api/settings')
+    const controller = new AbortController();
+    if (open && readable) {
+      request('/api/settings', { signal: controller.signal })
         .then(r => r.text())
-        .then(setYaml)
-        .catch(() => setYaml('# Failed to load config'));
+        .then(value => { if (!controller.signal.aborted) { setYaml(value); setLoaded(true); } })
+        .catch(error => { if (!controller.signal.aborted) setError(error.message); });
     }
-  }, [open]);
+    return () => { controller.abort(); };
+  }, [open, readable]);
 
   if (!open) return null;
 
   const handleSave = async () => {
     setLoading(true);
     try {
-      await fetch('/api/settings', {
+      await request('/api/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'text/yaml' },
         body: yaml,
       });
       onClose();
-    } catch { /* show error */ }
+    } catch (error) { setError(error instanceof Error ? error.message : 'Save failed.'); }
     finally { setLoading(false); }
   };
 
@@ -36,9 +46,12 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
           <button onClick={onClose} className="text-neutral-500 hover:text-neutral-300">✕</button>
         </div>
         <div className="flex-1 overflow-y-auto p-6">
+          {!writable && <UnlockReason capability={readable ? 'mutate' : 'config.read'} />}
+          {error && <p role="alert">{error}</p>}
           <label className="text-xs text-neutral-500 uppercase tracking-wider mb-2 block">config.yaml</label>
           <textarea
-            value={yaml}
+            value={readable ? yaml : ''}
+            disabled={!writable || loading}
             onChange={e => setYaml(e.target.value)}
             className="w-full h-80 bg-neutral-950 border border-neutral-700 rounded-lg p-4 text-sm font-mono leading-relaxed focus:outline-none focus:border-blue-500 resize-none"
             spellCheck={false}
@@ -48,7 +61,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
           <button onClick={onClose} className="px-4 py-2 text-sm text-neutral-400 hover:text-neutral-200">Cancel</button>
           <button
             onClick={handleSave}
-            disabled={loading}
+            disabled={loading || !writable || !loaded}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-500 disabled:opacity-50"
           >
             {loading ? 'Saving...' : 'Save'}

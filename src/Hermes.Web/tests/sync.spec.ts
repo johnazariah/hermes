@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { DocumentSummary } from '../src/types/hermes';
+import { unlock } from './owner';
 
 interface StagedFixture {
   originalName: string;
@@ -22,6 +23,7 @@ for (const surface of ['settings', 'palette'] as const) {
     const originalName = `synthetic-manual-sync-${surface}.txt`;
 
     await page.goto('/documents');
+    await unlock(page);
     await expect(page.getByRole('heading', { name: 'Documents', exact: true })).toBeVisible();
     await expect(page.getByRole('link', { name: originalName, exact: true })).toHaveCount(0);
     const beforeResponse = await request.get('/api/documents?limit=200');

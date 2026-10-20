@@ -11,6 +11,19 @@ module SourceFileAccess =
         { DocumentId: int64
           Sha256: string }
 
+    type internal UnclaimedConflict =
+        | DocumentOwners of path: string * documentIds: int64 list
+        | StagedSource of path: string
+
+    let private documentConflictMessage (path: string) (documentIds: int64 list) =
+        $"Saved path ownership conflict for {path}; owners: {documentIds}"
+
+    let internal describeUnclaimedConflict = function
+        | DocumentOwners (path, documentIds) ->
+            documentConflictMessage path documentIds
+        | StagedSource path ->
+            $"Saved path ownership conflict with a staged source: {path}"
+
     let private ownerFromRow row : Owner =
         let value = Prelude.RowReader(row)
         { DocumentId = value.Int64 "id" 0L
@@ -34,19 +47,31 @@ module SourceFileAccess =
             let actual = current |> List.map (fun owner -> owner.DocumentId)
             let expected = expectedDocument |> Option.toList
             if actual <> expected then
-                invalidOp $"Saved path ownership conflict for {path}; owners: {actual}"
+                invalidOp (documentConflictMessage path actual)
+        }
+
+    let internal checkUnclaimed (db: Algebra.Database) (path: string)
+        : Task<Result<unit, UnclaimedConflict>> =
+        task {
+            let! current = owners db path
+            let documentIds = current |> List.map (fun owner -> owner.DocumentId)
+            if not (List.isEmpty documentIds) then
+                return Error (DocumentOwners (path, documentIds))
+            else
+                let! value =
+                    db.execScalar
+                        """SELECT COUNT(*) FROM archive_source_claims
+                           WHERE ownership_key = hermes_saved_path_key(@path)"""
+                        [ "@path", Database.boxVal path ]
+                return
+                    if unbox<int64> value = 0L then Ok ()
+                    else Error (StagedSource path)
         }
 
     let requireUnclaimed (db: Algebra.Database) (path: string) =
         task {
-            do! requireExclusive db path None
-            let! value =
-                db.execScalar
-                    """SELECT COUNT(*) FROM archive_source_claims
-                       WHERE ownership_key = hermes_saved_path_key(@path)"""
-                    [ "@path", Database.boxVal path ]
-            if unbox<int64> value <> 0L then
-                invalidOp $"Saved path ownership conflict with a staged source: {path}"
+            let! result = checkUnclaimed db path
+            return result |> Result.defaultWith (describeUnclaimedConflict >> invalidOp)
         }
 
     let claim (db: Algebra.Database) (path: string) (sha256: string) =

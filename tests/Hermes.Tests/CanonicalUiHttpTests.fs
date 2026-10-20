@@ -122,8 +122,21 @@ let ``Nonread methods do not receive the SPA shell`` method =
     withServer (fun _ server ->
         task {
             let! response = request server (HttpMethod(method)) "/documents"
-            Assert.Equal(404, response.StatusCode)
+            Assert.Equal(405, response.StatusCode)
             assertNotHtml response
+        })
+
+[<Fact>]
+[<Trait("Category", "Integration")>]
+let ``Canonical route method rejection advertises exactly GET and HEAD`` () =
+    withServer (fun _ server ->
+        task {
+            use message = new HttpRequestMessage(HttpMethod.Post, "/documents")
+            use! response = server.Client.SendAsync(message)
+            Assert.Equal(405, int response.StatusCode)
+            Assert.Equal<string>(
+                [| "GET"; "HEAD" |],
+                response.Content.Headers.Allow |> Seq.sort |> Seq.toArray)
         })
 
 [<Fact>]

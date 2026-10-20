@@ -4,6 +4,7 @@ open System
 open System.IO
 open System.Security.Cryptography
 open System.Text
+open System.Threading.Tasks
 
 /// Targeted ingestion mutations, never archive scanning or saved-path repair.
 [<RequireQualifiedAccess>]
@@ -45,6 +46,27 @@ module SourceFiles =
                 do! SourceFileAccess.claim transaction path (hash bytes)
                 do! ensureContent fs path bytes
             })
+
+    let private writeUnclaimedMetadata
+        (db: Algebra.Database) (fs: Algebra.FileSystem)
+        (path: string) (bytes: byte array)
+        : Task<Result<unit, SourceFileAccess.UnclaimedConflict>> =
+        task {
+            match! SourceFileAccess.checkUnclaimed db path with
+            | Error conflict -> return Error conflict
+            | Ok () ->
+                do! fs.writeAllBytes path bytes
+                return Ok ()
+        }
+
+    /// Ownership checks and the write share the actual writer transaction.
+    /// Only recognised ownership conflicts become Error; faults still propagate.
+    let internal tryWriteMetadata
+        (db: Algebra.Database) (fs: Algebra.FileSystem)
+        (path: string) (bytes: byte array)
+        : Task<Result<unit, SourceFileAccess.UnclaimedConflict>> =
+        db.transaction.Run(fun transaction ->
+            writeUnclaimedMetadata transaction fs path bytes)
 
     let writeMetadata (db: Algebra.Database) (fs: Algebra.FileSystem) path bytes =
         db.transaction.Run(fun transaction ->

@@ -1,0 +1,17 @@
+{
+  "naming": [
+    {"canonicalDirectory":"C:\\HERMES\\CONFIG","port":31991,"preimage":"hermes-owner-control-v1\nC:\\HERMES\\CONFIG\n31991\n"},
+    {"canonicalDirectory":"C:\\","port":21741,"preimage":"hermes-owner-control-v1\nC:\\\n21741\n"},
+    {"canonicalDirectory":"/synthetic/Hermes/config","port":65535,"preimage":"hermes-owner-control-v1\n/synthetic/Hermes/config\n65535\n"}
+  ],
+  "requests": [
+    {"version":1,"requestId":"AAAAAAAAAAAAAAAAAAAAAA","expectedInstanceId":null,"operation":"status","payload":{}},
+    {"version":1,"requestId":"AAAAAAAAAAAAAAAAAAAAAA","expectedInstanceId":"AAAAAAAAAAAAAAAAAAAAAA","operation":"resolve","payload":{"userCode":"0123-4567-89AB"}},
+    {"version":1,"requestId":"AAAAAAAAAAAAAAAAAAAAAA","expectedInstanceId":"AAAAAAAAAAAAAAAAAAAAAA","operation":"approve","payload":{"pairingId":"AQEBAQEBAQEBAQEBAQEBAQ","userCode":"0123-4567-89AB","challenge":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","capabilities":["config.read","model.invoke","mutate"]}}
+  ],
+  "responses": [
+    {"version":1,"requestId":"AAAAAAAAAAAAAAAAAAAAAA","instance":{"instanceId":"AAAAAAAAAAAAAAAAAAAAAA","processId":4123,"processStartTimeUtc":"2026-10-19T23:59:00+00:00","origin":"http://127.0.0.1:31991","configKey":"0000000000000000000000000000000000000000000000000000000000000000"},"ok":true,"result":{"phase":"ready","capabilities":["archive.read","config.read","model.invoke","mutate"]},"error":null},
+    {"version":1,"requestId":"AAAAAAAAAAAAAAAAAAAAAA","instance":{"instanceId":"AAAAAAAAAAAAAAAAAAAAAA","processId":4123,"processStartTimeUtc":"2026-10-19T23:59:00+00:00","origin":"http://127.0.0.1:31991","configKey":"0000000000000000000000000000000000000000000000000000000000000000"},"ok":true,"result":{"pairingId":"AQEBAQEBAQEBAQEBAQEBAQ","userCode":"0123-4567-89AB","challenge":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","browserOrigin":"http://127.0.0.1:31991","apiOrigin":"http://127.0.0.1:31991","requestedCapabilities":["config.read","model.invoke","mutate"],"createdAt":"2026-10-20T00:00:00+00:00","expiresAt":"2026-10-20T00:03:00+00:00","state":"pending"},"error":null},
+    {"version":1,"requestId":"AAAAAAAAAAAAAAAAAAAAAA","instance":{"instanceId":"AAAAAAAAAAAAAAAAAAAAAA","processId":4123,"processStartTimeUtc":"2026-10-19T23:59:00+00:00","origin":"http://127.0.0.1:31991","configKey":"0000000000000000000000000000000000000000000000000000000000000000"},"ok":true,"result":{"pairingId":"AQEBAQEBAQEBAQEBAQEBAQ","state":"approved","capabilities":["config.read","model.invoke","mutate"],"expiresAt":"2026-10-20T00:01:00+00:00"},"error":null}
+  ]
+}

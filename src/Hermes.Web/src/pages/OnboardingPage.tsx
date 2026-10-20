@@ -1,6 +1,9 @@
 import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTheme } from "../hooks/theme-context";
+import { request } from "../api/http";
+import { useAccess } from "../hooks/useAccess";
+import { AccessPanel, UnlockReason } from "../components/AccessPanel";
 
 const PLACEHOLDER_TEXT = `I have two investment properties:
 - 1 Avalon St, Richmond
@@ -10,7 +13,7 @@ I work at Microsoft.
 Anything from ATO is tax-related.`;
 
 async function savePreferences(text: string): Promise<void> {
-    await fetch("/api/preferences", {
+    await request("/api/preferences", {
         method: "PUT",
         headers: { "Content-Type": "text/plain" },
         body: text,
@@ -46,6 +49,7 @@ function StepWelcome({
     onNext: () => void;
 }) {
     const [saving, setSaving] = useState(false);
+    const [error, setError] = useState('');
 
     const handleNext = useCallback(async () => {
         setSaving(true);
@@ -54,6 +58,8 @@ function StepWelcome({
                 await savePreferences(preferences.trim());
             }
             onNext();
+        } catch (error) {
+            setError(error instanceof Error ? error.message : 'Preferences were not saved.');
         } finally {
             setSaving(false);
         }
@@ -61,6 +67,7 @@ function StepWelcome({
 
     return (
         <div className="animate-fade-in">
+            {error && <p role="alert">{error}</p>}
             <div className="text-center mb-6">
                 <span className="text-5xl mb-4 block">👋</span>
                 <h1 className="text-2xl font-bold text-neutral-900 dark:text-white mb-2">
@@ -118,7 +125,7 @@ function StepConnect({ onNext }: { onNext: () => void }) {
                     <span className="text-2xl">📧</span>
                     <div className="text-left flex-1">
                         <div className="text-sm font-medium text-neutral-900 dark:text-white">
-                            Connect Gmail
+                            Configure Gmail in Settings
                         </div>
                         <div className="text-xs text-neutral-500 dark:text-neutral-400">
                             Sync emails and attachments from Google
@@ -139,7 +146,7 @@ function StepConnect({ onNext }: { onNext: () => void }) {
                     <span className="text-2xl">📨</span>
                     <div className="text-left flex-1">
                         <div className="text-sm font-medium text-neutral-900 dark:text-white">
-                            Connect Outlook
+                            Configure Outlook in Settings
                         </div>
                         <div className="text-xs text-neutral-500 dark:text-neutral-400">
                             Sync emails and attachments from Microsoft
@@ -213,6 +220,7 @@ function StepReady({
 }
 
 export function OnboardingPage() {
+    const access = useAccess();
     const [step, setStep] = useState(1);
     const [preferences, setPreferences] = useState("");
     const { theme, toggleTheme } = useTheme();
@@ -230,6 +238,12 @@ export function OnboardingPage() {
 
             {/* Card */}
             <div className="w-full max-w-xl">
+                <AccessPanel />
+                {(!access.can('config.read') || !access.can('mutate')) ? <>
+                    <h1>Welcome to Hermes</h1>
+                    <UnlockReason capability="config.read and mutate" />
+                    <a href="/">Browse the archive without unlocking</a>
+                </> : <>
                 <StepIndicator current={step} />
                 <div className="bg-white dark:bg-neutral-900 rounded-2xl shadow-lg dark:shadow-neutral-950/50 border border-neutral-200 dark:border-neutral-800 p-8 transition-colors">
                     {step === 1 && (
@@ -248,6 +262,7 @@ export function OnboardingPage() {
                         />
                     )}
                 </div>
+                </>}
             </div>
         </div>
     );

@@ -1,0 +1,59 @@
+name: Windows preview release
+
+on:
+  push:
+    tags: ['v[0-9]*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    uses: ./.github/workflows/ci.yml
+
+  package:
+    needs: quality
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: src/Hermes.Web/package-lock.json
+      - name: Build current self-contained Windows package
+        shell: pwsh
+        run: |
+          $version = "0.1.0"
+          if ($env:GITHUB_REF -like "refs/tags/*") {
+            if ($env:GITHUB_REF_NAME -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') { throw "Expected a three-part version tag." }
+            $version = $env:GITHUB_REF_NAME.Substring(1)
+          }
+          npm ci --prefix src/Hermes.Web
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build --prefix src/Hermes.Web
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./installer/windows/Publish-Servicing.ps1 -OutputDirectory "$PWD/.artifacts/release-servicing"
+          $servicing = Get-Content -LiteralPath "$PWD/.artifacts/release-servicing/servicing-build.json" -Raw | ConvertFrom-Json
+          ./installer/windows/Publish-Payload.ps1 -PayloadDirectory "$PWD/publish" -InventoryDirectory "$PWD/.artifacts/release-inventory" -RuntimeVersion $version
+          ./installer/windows/Build-Package.ps1 -PayloadDirectory "$PWD/publish" -InventoryDirectory "$PWD/.artifacts/release-inventory" -PackageVersion $version -OutputDirectory "$PWD/package" -GuardPath $servicing.guardPath -ExpectedGuardSha256 $servicing.guardSha256 -ServicingBuildPath "$PWD/.artifacts/release-servicing/servicing-build.json"
+          ./installer/windows/New-WindowsBundle.ps1 -ServicingBuildPath "$PWD/.artifacts/release-servicing/servicing-build.json" -PackageDirectory "$PWD/package" -OutputPath "$PWD/Hermes-Windows-Preview.zip"
+      - name: Retain preview installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: hermes-windows-installer
+          path: Hermes-Windows-Preview.zip
+          retention-days: 3
+      - name: Create a draft preview release for an explicitly pushed version tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$env:GITHUB_REF_NAME" Hermes-Windows-Preview.zip --repo "$env:GITHUB_REPOSITORY" --verify-tag --draft --title "Hermes $env:GITHUB_REF_NAME Windows preview" --notes "Unsigned per-user Windows Service/Tray preview bundle containing the SDK-free coordinator and MSI. Use Hermes.Setup.exe, not raw MSI servicing. The source revision passed the disposable Windows lifecycle gate; this versioned package was built with normal MSI validation. Existing configuration and archive data remain user-owned. macOS installers and MAUI surfaces are not promoted."

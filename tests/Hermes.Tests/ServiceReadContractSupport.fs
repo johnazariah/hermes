@@ -28,7 +28,8 @@ type Snapshot =
       Schema: Map<string, obj> list
       Preserved: PreservedState }
 
-// The current fixture is a logical handler host, not an HTTP authentication assertion.
+// Logical route contracts use a real synthetic owner-approved API session.
+// HTTP authority and boundary assertions live in the dedicated route-access tests.
 let withServer verify = HttpRegressionFixture.withServer None verify
 
 let execute (server: Server) (sql: string) (parameters: (string * obj) list) : Task<unit> =

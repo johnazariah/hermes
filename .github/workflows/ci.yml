@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_call:
   push:
     branches: [main]
   pull_request:
@@ -57,20 +58,37 @@ jobs:
           dotnet restore src/Hermes.Core/Hermes.Core.fsproj
           dotnet restore src/Hermes.Service/Hermes.Service.fsproj
           dotnet restore tests/Hermes.Tests/Hermes.Tests.fsproj
+          dotnet restore tests/Hermes.Servicing.Tests/Hermes.Servicing.Tests.csproj
+          dotnet restore tests/Hermes.Setup.Tests/Hermes.Setup.Tests.csproj
+          dotnet restore tests/Hermes.Installer.Control.Tests/Hermes.Installer.Control.Tests.csproj
+          dotnet tool restore
 
       - name: Build
         run: |
           dotnet build src/Hermes.Core/Hermes.Core.fsproj --no-restore -c Release -v q
           dotnet build src/Hermes.Service/Hermes.Service.fsproj --no-restore -c Release -v q
           dotnet build tests/Hermes.Tests/Hermes.Tests.fsproj --no-restore -c Release -v q
+          dotnet build tests/Hermes.Servicing.Tests/Hermes.Servicing.Tests.csproj --no-restore -c Release -v q
+          dotnet build tests/Hermes.Setup.Tests/Hermes.Setup.Tests.csproj --no-restore -c Release -v q
+          dotnet build tests/Hermes.Installer.Control.Tests/Hermes.Installer.Control.Tests.csproj --no-restore -c Release -v q
 
-      - name: Test (Windows; excluding Unix-only cases)
-        if: matrix.os == 'windows-latest'
-        run: dotnet test tests/Hermes.Tests/Hermes.Tests.fsproj --no-build -c Release -v q --logger "console;verbosity=normal" --collect:"XPlat Code Coverage" --filter "Platform!=Unix"
+      - name: Test portable Setup and installer authority
+        shell: pwsh
+        run: |
+          dotnet test tests/Hermes.Setup.Tests/Hermes.Setup.Tests.csproj --no-build --no-restore -c Release -v q
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet test tests/Hermes.Installer.Control.Tests/Hermes.Installer.Control.Tests.csproj --no-build --no-restore -c Release -v q
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Test (macOS; all cases)
-        if: matrix.os == 'macos-latest'
-        run: dotnet test tests/Hermes.Tests/Hermes.Tests.fsproj --no-build -c Release -v q --logger "console;verbosity=normal" --collect:"XPlat Code Coverage"
+      - name: Test and merge native coverage
+        shell: pwsh
+        run: |
+          ./scripts/Test-CoverageGate.ps1
+          dotnet coverlet tests/Hermes.Servicing.Tests/bin/Release/net9.0/Hermes.Servicing.Tests.dll --target dotnet --targetargs "vstest tests/Hermes.Servicing.Tests/bin/Release/net9.0/Hermes.Servicing.Tests.dll --Logger:trx --ResultsDirectory:.artifacts/coverage/servicing" --format json --format cobertura --output .artifacts/coverage/servicing/coverage --verbosity quiet
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $filter = if ($IsWindows) { " --TestCaseFilter:Platform!=Unix" } else { "" }
+          dotnet coverlet tests/Hermes.Tests/bin/Release/net9.0/Hermes.Tests.dll --target dotnet --targetargs "vstest tests/Hermes.Tests/bin/Release/net9.0/Hermes.Tests.dll --Logger:trx --ResultsDirectory:.artifacts/coverage/core$filter" --merge-with .artifacts/coverage/servicing/coverage.json --format json --format cobertura --output .artifacts/coverage/combined/coverage --verbosity quiet
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Install browser
         working-directory: src/Hermes.Web
@@ -80,24 +98,17 @@ jobs:
         working-directory: src/Hermes.Web
         run: npm test
 
-      - name: Check coverage threshold
-        if: matrix.os == 'windows-latest'
+      - name: Enforce exact 85% line and 60% branch coverage
         shell: pwsh
-        run: |
-          $xml = [xml](Get-Content (Get-ChildItem tests/Hermes.Tests/TestResults -Recurse -Filter "coverage.cobertura.xml" | Select-Object -First 1).FullName)
-          $line = [math]::Round([double]$xml.coverage.'line-rate' * 100, 1)
-          $branch = [math]::Round([double]$xml.coverage.'branch-rate' * 100, 1)
-          Write-Host "Line coverage: $line%"
-          Write-Host "Branch coverage: $branch%"
-          if ($line -lt 75) { Write-Host "::error::Line coverage $line% is below 75% threshold"; exit 1 }
+        run: ./scripts/Assert-Coverage.ps1 -ReportPath .artifacts/coverage/combined/coverage.cobertura.xml
 
       - name: Upload coverage
         if: always() && matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
-          path: tests/Hermes.Tests/TestResults/**/coverage.cobertura.xml
-          retention-days: 7
+          path: .artifacts/coverage/combined/coverage.cobertura.xml
+          retention-days: 3
 
   # ── Windows Tray app ─────────────────────────────────────────────
   build-tray:
@@ -130,28 +141,15 @@ jobs:
       - name: Test owned native lifecycle
         run: dotnet test tests/Hermes.Tray.Tests/Hermes.Tray.Tests.csproj -c Release -v q
 
-      - name: Publish isolated native smoke Service
-        shell: pwsh
-        run: |
-          dotnet publish src/Hermes.Service/Hermes.Service.fsproj -c Release -r win-x64 --self-contained true -o "$env:RUNNER_TEMP/hermes-native-smoke/service" -v q
-          node src/Hermes.Web/scripts/assets.mjs verify "$env:RUNNER_TEMP/hermes-native-smoke/service/wwwroot"
+      - name: Build external installed-Tray smoke harness
+        run: dotnet build tests/Hermes.Tray.Smoke/Hermes.Tray.Smoke.csproj -c Release -v q
 
-      - name: Real Windows Tray and WebView2 smoke
-        shell: pwsh
-        run: |
-          dotnet run --project tests/Hermes.Tray.Smoke/Hermes.Tray.Smoke.csproj -c Release -- --service-path "$env:RUNNER_TEMP/hermes-native-smoke/service/Hermes.Service.exe" --port 31873 --report "$env:RUNNER_TEMP/hermes-native-smoke.json" --timeout-seconds 150
+      # Real WebView/ownership proof now runs inside the installed Tray in the
+      # blocking installer job below. The service-only host CLI is not supported.
 
-      - name: Preserve failed native smoke evidence
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: native-smoke-failure
-          path: ${{ runner.temp }}/hermes-native-smoke.json
-          if-no-files-found: warn
-          retention-days: 3
-
-  # ── MAUI Shell (Windows) ─────────────────────────────────────────
+  # Compatibility builds remain excluded from the supported product surface.
   build-shell-windows:
+    name: Excluded MAUI compatibility build (Windows)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -169,6 +167,7 @@ jobs:
 
   # ── MAUI Shell (macOS) ───────────────────────────────────────────
   build-shell-macos:
+    name: Excluded MAUI compatibility build (macOS)
     runs-on: macos-latest
     continue-on-error: true  # Xcode version may not match MAUI workload requirement
     steps:
@@ -188,9 +187,69 @@ jobs:
       - name: Build Shell
         run: dotnet build src/Hermes.Shell/Hermes.Shell.csproj -c Release -v q
 
-  # ── Publish artifacts ────────────────────────────────────────────
-  publish:
+  installer:
+    name: Supported Windows installer lifecycle
     needs: [build-and-test, build-tray]
+    runs-on: windows-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: src/Hermes.Web/package-lock.json
+      - name: Reject synthetic payload contamination and build changed runtime payloads
+        shell: pwsh
+        run: |
+          npm ci --prefix src/Hermes.Web
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build --prefix src/Hermes.Web
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./installer/windows/Publish-Servicing.ps1 -OutputDirectory "$PWD/.artifacts/servicing"
+          ./installer/windows/Publish-Acceptance.ps1 -ServicingBuildPath "$PWD/.artifacts/servicing/servicing-build.json" -OutputDirectory "$PWD/.artifacts/servicing-acceptance"
+          ./installer/windows/Publish-Payload.ps1 -PayloadDirectory "$PWD/.artifacts/installer-payload" -InventoryDirectory "$PWD/.artifacts/installer-inventory" -RuntimeVersion 0.1.0
+          ./installer/windows/Publish-Payload.ps1 -PayloadDirectory "$PWD/.artifacts/installer-upgrade-payload" -InventoryDirectory "$PWD/.artifacts/installer-upgrade-inventory" -RuntimeVersion 0.1.1
+          node --test installer/windows/payload.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./installer/windows/Test-PackageLayout.ps1
+          dotnet publish tests/Hermes.Tray.Smoke/Hermes.Tray.Smoke.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o "$PWD/.artifacts/installer-smoke-host" -v q
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Execute the complete Windows servicing test project
+        shell: pwsh
+        run: |
+          $servicing = Get-Content -LiteralPath "$PWD/.artifacts/servicing/servicing-build.json" -Raw | ConvertFrom-Json
+          $trust = $servicing.approvedGuardSha256.Replace(';', '%3B')
+          dotnet test tests/Hermes.Servicing.WindowsTests/Hermes.Servicing.WindowsTests.csproj -c Release "-p:HermesApprovedGuardSha256=$trust"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Coordinator install, repair, launch, upgrade, rollback and uninstall without SDK access
+        shell: pwsh
+        run: |
+          $servicing = Get-Content -LiteralPath "$PWD/.artifacts/servicing/servicing-build.json" -Raw | ConvertFrom-Json
+          $helpers = Get-Content -LiteralPath "$PWD/.artifacts/servicing-acceptance/acceptance-build.json" -Raw | ConvertFrom-Json
+          ./installer/windows/Test-Installer.ps1 -PayloadDirectory "$PWD/.artifacts/installer-payload" -InventoryDirectory "$PWD/.artifacts/installer-inventory" -UpgradePayloadDirectory "$PWD/.artifacts/installer-upgrade-payload" -UpgradeInventoryDirectory "$PWD/.artifacts/installer-upgrade-inventory" -SmokeExecutable "$PWD/.artifacts/installer-smoke-host/Hermes.Tray.Smoke.exe" -SetupExecutable $servicing.setupExecutable -GuardPath $servicing.guardPath -GuardSha256 $servicing.guardSha256 -ServicingBuildPath "$PWD/.artifacts/servicing/servicing-build.json" -AcceptanceExecutable $helpers.acceptanceExecutable -ProbeOldDirectory $helpers.probeOld -ProbeNewDirectory $helpers.probeNew -EvidenceDirectory "$PWD/.artifacts/installer-evidence"
+      - name: Require complete actual native recovery and fence evidence
+        shell: pwsh
+        run: |
+          ./installer/windows/Assert-ServicingEvidence.ps1 -EvidenceDirectory "$PWD/.artifacts/installer-evidence"
+      - name: Preserve bounded synthetic acceptance and native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-acceptance
+          path: |
+            .artifacts/installer-evidence/acceptance.json
+            .artifacts/installer-evidence/*-native.json
+            .artifacts/installer-evidence/actual-servicing.json
+          if-no-files-found: warn
+          retention-days: 3
+
+  # ── Publish only after supported installer acceptance ────────────
+  publish:
+    needs: [build-and-test, build-tray, installer]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     strategy:
       matrix:
@@ -228,8 +287,15 @@ jobs:
           npm run build
           npm run test:discovery
 
-      - name: Publish service
-        run: dotnet publish src/Hermes.Service/Hermes.Service.fsproj -c Release -r ${{ matrix.rid }} --self-contained -o publish/service
+      - name: Publish Service and Windows Tray with SDK-resolved inventory
+        shell: pwsh
+        run: |
+          if ("${{ matrix.rid }}" -eq "win-x64") {
+            ./installer/windows/Publish-Payload.ps1 -PayloadDirectory "$PWD/publish" -InventoryDirectory "$PWD/.artifacts/release-inventory"
+          } else {
+            dotnet publish src/Hermes.Service/Hermes.Service.fsproj -c Release -r ${{ matrix.rid }} --self-contained -o publish/service
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
 
       - name: Verify published React provenance
         run: node src/Hermes.Web/scripts/assets.mjs verify publish/service/wwwroot
@@ -245,9 +311,22 @@ jobs:
           $env:HERMES_TEST_SERVICE_DLL = (Resolve-Path "../../publish/service/Hermes.Service.dll").Path
           npm test
 
-      - name: Publish tray (Windows only)
+      - name: Build supported Windows MSI
         if: matrix.rid == 'win-x64'
-        run: dotnet publish src/Hermes.Tray/Hermes.Tray.csproj -c Release -r win-x64 --self-contained -o publish/tray
+        shell: pwsh
+        run: |
+          ./installer/windows/Publish-Servicing.ps1 -OutputDirectory "$PWD/.artifacts/release-servicing"
+          $servicing = Get-Content -LiteralPath "$PWD/.artifacts/release-servicing/servicing-build.json" -Raw | ConvertFrom-Json
+          ./installer/windows/Build-Package.ps1 -PayloadDirectory "$PWD/publish" -InventoryDirectory "$PWD/.artifacts/release-inventory" -PackageVersion 0.1.0 -OutputDirectory "$PWD/.artifacts/installer-release" -GuardPath $servicing.guardPath -ExpectedGuardSha256 $servicing.guardSha256 -ServicingBuildPath "$PWD/.artifacts/release-servicing/servicing-build.json"
+          ./installer/windows/New-WindowsBundle.ps1 -ServicingBuildPath "$PWD/.artifacts/release-servicing/servicing-build.json" -PackageDirectory "$PWD/.artifacts/installer-release" -OutputPath "$PWD/.artifacts/Hermes-Windows-Preview.zip"
+
+      - name: Upload complete Windows coordinator and MSI bundle
+        if: matrix.rid == 'win-x64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: hermes-windows-installer
+          path: .artifacts/Hermes-Windows-Preview.zip
+          retention-days: 3
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

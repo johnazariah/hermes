@@ -46,7 +46,7 @@ test('HTTP chat failures remain visible rather than an empty success', async ({ 
 
 for (const resultType of ['document', 'email'] as const) {
 test(`a legacy email cannot open a colliding ${resultType} document but its file-backed source can`, async ({ page }) => {
-  const email = { ...source, resultType: 'email', savedPath: '', originalName: null,
+  const email = { ...source, resultType: 'email', savedPath: '', originalName: '',
     subject: 'Synthetic legacy message', category: 'email', extractedAmount: null,
     sender: 'synthetic@example.invalid', snippet: 'Synthetic metadata, not a document' };
   const document = { ...source, resultType, originalName: 'synthetic-payslip.md',

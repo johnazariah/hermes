@@ -8,6 +8,8 @@ import {
 } from "../api/hermes";
 import type { Suggestion, DocumentSummary } from "../types/hermes";
 import { Link } from "react-router-dom";
+import { useAccess } from "../hooks/useAccess";
+import { UnlockReason } from "../components/AccessPanel";
 
 // ── Date grouping ────────────────────────────────────────────
 
@@ -89,6 +91,7 @@ function TriageCard({
     isApproving: boolean;
     isRejecting: boolean;
 }) {
+    const access = useAccess();
     const name = suggestion.originalName ?? `Document #${suggestion.id}`;
     const pct = Math.round(suggestion.confidence * 100);
 
@@ -114,16 +117,17 @@ function TriageCard({
                 </div>
             </div>
             <div className="mt-3 flex items-center gap-2">
+                {!access.can('mutate') && <UnlockReason />}
                 <button
                     onClick={onApprove}
-                    disabled={isApproving}
+                    disabled={!access.can('mutate') || isApproving || isRejecting}
                     className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50 dark:bg-emerald-700 dark:hover:bg-emerald-600"
                 >
                     ✓ Accept
                 </button>
                 <button
                     onClick={onReject}
-                    disabled={isRejecting}
+                    disabled={!access.can('mutate') || isRejecting || isApproving}
                     className="inline-flex items-center gap-1 rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50 dark:bg-red-700 dark:hover:bg-red-600"
                 >
                     ✗ Reject
@@ -153,19 +157,6 @@ function TriagePanel() {
 
     const approveMutation = useMutation({
         mutationFn: approveSuggestion,
-        onMutate: async (id: number) => {
-            await queryClient.cancelQueries({ queryKey: ["suggestions"] });
-            const previous =
-                queryClient.getQueryData<Suggestion[]>(["suggestions"]);
-            queryClient.setQueryData<Suggestion[]>(["suggestions"], (old) =>
-                (old ?? []).filter((s) => s.id !== id),
-            );
-            return { previous };
-        },
-        onError: (_err, _id, context) => {
-            if (context?.previous)
-                queryClient.setQueryData(["suggestions"], context.previous);
-        },
         onSettled: () => {
             queryClient.invalidateQueries({ queryKey: ["suggestions"] });
             queryClient.invalidateQueries({ queryKey: ["recent-documents"] });
@@ -174,19 +165,6 @@ function TriagePanel() {
 
     const rejectMutation = useMutation({
         mutationFn: rejectSuggestion,
-        onMutate: async (id: number) => {
-            await queryClient.cancelQueries({ queryKey: ["suggestions"] });
-            const previous =
-                queryClient.getQueryData<Suggestion[]>(["suggestions"]);
-            queryClient.setQueryData<Suggestion[]>(["suggestions"], (old) =>
-                (old ?? []).filter((s) => s.id !== id),
-            );
-            return { previous };
-        },
-        onError: (_err, _id, context) => {
-            if (context?.previous)
-                queryClient.setQueryData(["suggestions"], context.previous);
-        },
         onSettled: () => {
             queryClient.invalidateQueries({ queryKey: ["suggestions"] });
         },
