@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - MSI identity disagreement is isolated to its property comparison
+
+- **Evidence:** Hosted run `39437427176` preserves all passing platform, payload and native-kernel gates. Visible finalisation output now identifies the strict built-MSI product-property comparison as the failure, before summary finalisation or ICE validation.
+- **Changed:** The same refusal reports which selected build-identity property, row count, actual type and expected/actual value differ. The comparison and all subsequent identity/scope/file/component/summary checks are unchanged; no owner or archive data is queried.
+- **Validation:** An exact-branch controlled non-MSI probe retains equality success and mismatch failure with precise comparison evidence. Static controls pass 22 payload and 28 adverse cases. The solution builds without warnings/errors and all 2,182 F# cases pass.
+- **Blockers:** The mismatched property/value or row shape is not yet established. No package identity correction, actual installation or installed-runtime acceptance is claimed.
+- **Next:** Capture the precise native comparison result, fix its demonstrated cause and retain full finalisation/ICE/lifecycle gates.
+
 ### 2026-10-21 - All native kernel cases pass; MSI finalisation error is made visible
 
 - **Evidence:** Hosted run `39431966923` passes both supported platform jobs and all 31 actual Windows servicing cases, zero skips. Lifecycle construction reaches package-identity finalisation before normal ICE validation, then its child command exits 1. Quiet MSBuild output retains only the wrapper error; bounded acceptance evidence records failure during build and no cleanup failure.

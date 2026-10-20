@@ -41,7 +41,11 @@ try {
         @('ProductVersion', $identity.version)
     )) {
         $rows = @(Get-RowValues "SELECT ``Value`` FROM ``Property`` WHERE ``Property``='$($property[0])'" 1)
-        if ($rows.Count -ne 1 -or $rows[0][0] -ne $property[1]) { throw 'Bound MSI product identity differs from the manifest.' }
+        if ($rows.Count -ne 1 -or $rows[0][0] -ne $property[1]) {
+            $actual = if ($rows.Count -eq 1) { [string]$rows[0][0] } else { '<not unique>' }
+            $kind = if ($rows.Count -eq 1 -and $null -ne $rows[0][0]) { $rows[0][0].GetType().FullName } else { '<none>' }
+            throw "Bound MSI identity differs for $($property[0]): rows=$($rows.Count); expected=$($property[1]); actual=$actual; type=$kind."
+        }
     }
     foreach ($property in @('ALLUSERS', 'INSTALLFOLDER')) {
         $rows = @(Get-RowValues "SELECT ``Value`` FROM ``Property`` WHERE ``Property``='$property'" 1)

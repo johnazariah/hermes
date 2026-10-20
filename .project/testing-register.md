@@ -2,6 +2,22 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Finalisation comparison evidence
+
+Hosted run `39437427176` exposes the previously hidden failure: the built MSI's
+product identity check disagrees with the manifest at the three-property
+comparison. The original error still does not identify which property, row
+count or returned type differs.
+
+The unchanged comparison now reports its selected build-identity property,
+expected/actual value, row count and type. Only ProductCode, UpgradeCode and
+ProductVersion are queried here; no owner/archive data is involved. A controlled
+probe extracted from the exact comparison confirms equality still passes and
+mismatch still fails with the additional evidence. Static validation passes
+22 payload and 28 adverse controls; the solution builds warning-free and all
+2,182 F# cases pass. No identity mismatch is accepted or guessed away; the next
+Windows result is needed to establish the correction.
+
 ## Complete native suite passes; identity finalisation needs its original error
 
 Hosted run `39431966923` passes the complete **31/31 Windows servicing suite**
