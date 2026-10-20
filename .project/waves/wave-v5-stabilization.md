@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-20 - Windows startup recovers; surplus-write classification matches the runtime
+
+- **Evidence:** Hosted run `39415995186` passes the repaired startup/canonical preflight, MCP and drain cases. Its sole Windows failure is the pipe fixture's surplus-write classifier after valid first-response and closure proof. The complete Mac job, Tray and compatibility jobs pass; installed acceptance remains skipped.
+- **Changed:** Primary .NET 9.0.15 source establishes the exact three HRESULTs that its pipe implementation maps to closed-pipe results. The fixture accepts only those uncancelled Windows outcomes after its existing proof and expands positive/negative cases; production code, deadlines, dispatch policy and task cleanup are unchanged.
+- **Validation:** Independent F# review approves the narrow classification/matrix delta. All 26 focused and 2,182 full F# cases pass locally, zero failures/skips; the solution builds without warnings/errors. Exact native collection passes 297 Servicing/model cases and retains five assemblies at 14,683/17,126 lines (85.7351%) and 15,134/24,668 branches (61.3507%).
+- **Blockers:** Current-head Windows coverage/browser and the complete installed-native/MSI lifecycle remain unaccepted. Main and distribution stay gated; strict legacy repair stays disabled.
+- **Next:** Push this final known Core fixture correction and run the actual Windows and installed lifecycle gates.
+
 ### 2026-10-20 - Profile and full-duplex fixture candidate passes all local gates
 
 - **Changed:** The isolated native-profile helper and full-duplex pipe fixture are complete. A fresh compiler specialist replaces only two problematic resumable loops with deferred, monomorphic sequential checks; it preserves every matrix case, ordering and fault identity without suppression or parallel execution.

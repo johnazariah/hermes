@@ -181,9 +181,12 @@ module private PipelinedOwnerExchange =
         | Windows
         | Other
 
-    // HRESULT_FROM_WIN32(ERROR_BROKEN_PIPE), not ERROR_PIPE_NOT_CONNECTED.
+    // .NET WinIOError: ERROR_BROKEN_PIPE (109), ERROR_NO_DATA (232), ERROR_PIPE_NOT_CONNECTED (233).
     [<Literal>]
     let brokenPipeHResult = -2147024787
+
+    let brokenPipeHResults =
+        [ brokenPipeHResult; -2147024664; -2147024663 ]
 
     // Capture faults for joining; acceptance is decided only after receiving proof.
     let observe (work: unit -> Task) =
@@ -197,7 +200,7 @@ module private PipelinedOwnerExchange =
 
     let private brokenPipe platform (cancellation: CancellationToken) (error: IOException) =
         platform = Platform.Windows
-        && error.HResult = brokenPipeHResult
+        && (brokenPipeHResults |> List.contains error.HResult)
         && not cancellation.IsCancellationRequested
 
     let private expectClose platform (pipe: Stream) cancellation =
@@ -417,6 +420,12 @@ module OwnerControlPipePipelineFixtureTests =
                 return! sequentially remaining
         }
 
+    let private unexpectedIoFaults =
+        (brokenPipeHResults |> List.map (fun code -> Platform.Other, ioFailure code))
+        @ ([ 109; 232; 233; -2147024891; -2147024809 ]
+           |> List.map (fun code -> Platform.Windows, ioFailure code))
+        @ [ Platform.Windows, IOException() ]
+
     [<Fact>]
     let ``combined write can remain pending until the reply and EOF are read`` () =
         task {
@@ -427,60 +436,63 @@ module OwnerControlPipePipelineFixtureTests =
 
     [<Fact>]
     let ``Windows broken surplus write requires a valid first reply and closure`` () =
-        task {
-            let sample = scenario ()
-            let error = ioFailure brokenPipeHResult
-            do! check Platform.Windows sample (reply sample) (afterClose (Some error)) succeeded
-        }
-
-    [<Fact>]
-    let ``other write faults are preserved whether immediate or after closure`` () =
-        let checkCase (platform: Platform, code: int) () : Task<unit> =
+        let checkCase code () : Task<unit> =
             task {
                 let sample = scenario ()
                 let error = ioFailure code
+                do! check Platform.Windows sample (reply sample) (afterClose (Some error)) succeeded
+                do! check Platform.Windows sample (reply sample) (immediately error) succeeded
+            }
+        brokenPipeHResults
+        |> List.map checkCase
+        |> sequentially
+
+    [<Fact>]
+    let ``other write faults are preserved whether immediate or after closure`` () =
+        let checkCase (platform: Platform, error: IOException) () : Task<unit> =
+            task {
+                let sample = scenario ()
                 do! check platform sample (reply sample) (afterClose (Some error)) (failedWith error)
                 do! check platform sample (reply sample) (immediately error) (failedWith error)
             }
-        [ Platform.Other, brokenPipeHResult
-          Platform.Windows, -2147024664
-          Platform.Windows, -2147024891
-          Platform.Windows, 109 ]
+        unexpectedIoFaults
         |> List.map checkCase
         |> sequentially
 
     [<Fact>]
     let ``broken surplus writes cannot hide absent malformed or uncorrelated replies`` () =
-        task {
-            let sample = scenario ()
-            let error = ioFailure brokenPipeHResult
-            for script in invalidReplies sample do
+        let sample = scenario ()
+        let checkCase code script () : Task<unit> =
+            task {
+                let error = ioFailure code
                 do! check Platform.Windows sample script (afterClose (Some error)) failed
-        }
+                do! check Platform.Windows sample script (immediately error) failed
+            }
+        brokenPipeHResults
+        |> List.collect (fun code -> invalidReplies sample |> List.map (checkCase code))
+        |> sequentially
 
     [<Fact>]
     let ``broken first read is not proof of a first reply`` () =
-        task {
+        let checkCase code () : Task<unit> =
             let sample = scenario ()
-            let error = ioFailure brokenPipeHResult
+            let error = ioFailure code
             let script = { Bytes = Array.empty; CloseError = Some error }
-            do! check Platform.Windows sample script (immediately error) (failedWith error)
-        }
+            check Platform.Windows sample script (immediately error) (failedWith error)
+        brokenPipeHResults
+        |> List.map checkCase
+        |> sequentially
 
     [<Fact>]
-    let ``closure faults are restricted to the exact Windows broken pipe result`` () =
-        let broken = ioFailure brokenPipeHResult
-        let unexpected = ioFailure -2147024891
-        let checkCase (platform: Platform, error: IOException, verify: Result<unit, exn> -> unit) () : Task<unit> =
-            task {
-                let sample = scenario ()
-                let script = { reply sample with CloseError = Some error }
-                do! check platform sample script (afterClose None) verify
-            }
-        [ Platform.Windows, broken, succeeded
-          Platform.Other, broken, failedWith broken
-          Platform.Windows, unexpected, failedWith unexpected ]
-        |> List.map checkCase
+    let ``closure faults are restricted to the exact Windows broken pipe results`` () =
+        let checkCase platform (error: IOException) verify () : Task<unit> =
+            let sample = scenario ()
+            let script = { reply sample with CloseError = Some error }
+            check platform sample script (afterClose None) verify
+        (brokenPipeHResults
+         |> List.map (fun code -> checkCase Platform.Windows (ioFailure code) succeeded))
+        @ (unexpectedIoFaults
+           |> List.map (fun (platform, error) -> checkCase platform error (failedWith error)))
         |> sequentially
 
     [<Fact>]

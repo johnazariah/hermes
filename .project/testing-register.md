@@ -2,6 +2,29 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Runtime closed-pipe HRESULT classification
+
+Hosted run `39415995186` confirms the isolated-profile correction: no startup,
+canonical preflight, MCP or drain failures remain. The sole Windows failure is
+the surplus-write classification **after** the pipe fixture has validated its
+correlated first response and closure.
+
+The .NET 9.0.15 `PipeStream.WinIOError` implementation maps Win32 broken-pipe,
+no-data and pipe-not-connected results to the same broken-pipe message while
+preserving their distinct HRESULTs. The fixture now recognises exactly
+`0x8007006D`, `0x800700E8` and `0x800700E9`, only on Windows while uncancelled
+and after the existing first-response proof. It does not match message text or
+accept generic I/O failures.
+
+The matrix exercises all three write/closure outcomes and rejects invalid
+first responses, other-platform results, raw Win32 integers, access-denied,
+invalid-parameter and generic I/O errors. Independent source review approves
+the narrow change. All **26 focused pipe cases** and **2,182 full F# cases**
+pass locally, zero failures/skips, with a warning-free build. Exact native
+collection retains five assemblies at **14,683/17,126 lines (85.7351%)** and
+**15,134/24,668 branches (61.3507%)**, with all 297 Servicing/model cases passing.
+Actual Windows confirmation and installed/native acceptance remain pending.
+
 ## Isolated-profile and full-duplex pipe fixture corrections
 
 Hosted run `39411699226` confirms the startup cause: each failing owned child
