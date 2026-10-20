@@ -100,6 +100,21 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Strict empty Signature correction is approved; normal lifecycle restored
+
+- **Changed:** Candidate/retained/cache admission recognises only absent or exact-schema, zero-row Signature metadata. The FileName type is pinned to primary WiX6 nonlocalized s255/3583; any row or schema deviation remains a refusal and raw-HKCU searches are unchanged.
+- **Review:** Fresh-author localization closure and integrated seven-file source receive final independent approval. The original author lockout remains respected.
+- **Validation:** Parent passes warning-free root build, 2,182 Core and 779 portable Setup cases. The applier passes 318 Servicing, 48 Control and native-project cross-build; static/payload 22/materialisation 7/actionlint pass. Twelve native cases remain for actual Windows.
+- **Cleanup:** All temporary probe code/hooks and the pre-fixture stop are removed, preserving the bounded actual evidence and restoring normal lifecycle/all publication gates.
+- **Next:** Publish the strict correction with cleanup and run the normal exact-head Windows lifecycle; no installed acceptance is inferred from source or managed cases.
+
+### 2026-10-21 - One fetch proves the validated Signature table is empty
+
+- **Actual result:** Run `39509813811` at `ad46db9` preserves source/package hashes and returns query/fetch success with isEmpty=true, no native error. No row contents, profile fixture or installation are read/created.
+- **Contract fact:** The same candidate's only unmatched table is Signature, and it contains no rows. This is a sufficient strict inventory rejection, not complete media acceptance or original reachability proof.
+- **Ownership:** A fresh C# author now supplies a narrowly constrained present-but-empty schema correction. Arbitrary Signature data or relaxed search/ownership rules are not authorised.
+- **Next:** Remove the temporary probe/stop, review the strict C# correction and resume exact-head Windows lifecycle acceptance.
+
 ### 2026-10-21 - Selected observation narrows to Signature emptiness only
 
 - **Actual fact:** The first bounded native query finds 24 tables, matching source/receipt hashes, with only Signature outside the strict C# inventory. Table presence does not prove emptiness.

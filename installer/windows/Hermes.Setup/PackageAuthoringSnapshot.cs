@@ -75,7 +75,10 @@ internal static class PackageAuthoringQueries
             ["LaunchCondition"] = ["Condition", "Description"],
             ["Icon"] = ["Name"],
             ["AppSearch"] = ["Property", "Signature_"],
-            ["RegLocator"] = ["Signature_", "Root", "Key", "Name", "Type"]
+            ["RegLocator"] = ["Signature_", "Root", "Key", "Name", "Type"],
+            ["Signature"] =
+                ["Signature", "FileName", "MinVersion", "MaxVersion",
+                 "MinSize", "MaxSize", "MinDate", "MaxDate", "Languages"]
         }.ToImmutableDictionary(StringComparer.Ordinal);
 
     internal static ImmutableArray<string> ActualColumns(

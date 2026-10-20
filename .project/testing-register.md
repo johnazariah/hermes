@@ -2,6 +2,40 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Exact empty Signature metadata is admitted; temporary probe is removed
+
+Final independent review approves the seven-file correction. Optional absence
+and observed-empty `Signature` with the exact pinned-WiX6 nine-column schema
+are supported. `FileName` is nonlocalized `s255` / 3583; localized, nullable,
+wrong-width and other schema changes fail. Every Signature row remains
+rejected, including one matching the known registry-search identifier.
+
+Parent passes the warning-free root build, 2,182 Core and 779 unfiltered
+portable Setup cases. The applier passes 318 Servicing, 48 Control and Windows
+cross-build; all static/payload 22/materialisation 7/actionlint controls pass.
+The 47 added portable cases cover real reader/validator/catalog and retention
+paths. Twelve native scratch-database cases are wired to the existing complete
+Windows project, without filters, skips or OS-return branches; not run locally.
+
+The rejected localization assumption was corrected by a fresh author against
+primary v6 definitions. The temporary four-file probe and pre-install stop are
+fully removed; normal lifecycle/gates/retention are restored. Actual evidence
+remains in session artefacts. Fresh Windows full media/install acceptance is
+still required.
+
+## The same validated candidate has an empty Signature table
+
+The single-fetch run `39509813811` at `ad46db9` returns matching immutable
+source/package bindings, successful read-only query and fetch, no native
+failure, and `isEmpty=true`. No row contents, owner fixture or installation
+are involved.
+
+Together with the earlier `unmatchedNames=["Signature"]`, this proves that
+the closed inventory rejects a genuine present-but-empty Signature table.
+A fresh C# author owns the smallest exact-schema/zero-row correction;
+arbitrary file-search signatures are not authorised. The temporary probe is
+now being removed before normal lifecycle acceptance resumes.
+
 ## One native fetch will establish Signature emptiness
 
 The prior receipt/source-bound inventory query succeeds with 24 tables and

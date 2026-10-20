@@ -302,6 +302,11 @@ Windows execution.
 
 ## Completion and recovery
 
+Application media admission permits an optional standard `Signature` table
+only with its exact pinned-WiX6 nine-column schema and zero observed rows.
+`FileName` is nonlocalized `s255`; arbitrary signatures or file-search recipes
+remain unsupported. The fixed raw-HKCU search contract is unchanged.
+
 Published MSI files are independent materialised copies, not hard or symbolic
 aliases of SDK intermediates. WiX copy-link options are explicitly disabled
 and their effective values checked. Fresh per-build outputs and isolated

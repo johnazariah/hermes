@@ -7,6 +7,27 @@ namespace Hermes.Setup.Tests;
 
 public sealed class MsiTargetNameIntegrationTests
 {
+    [Fact]
+    public async Task EmptySignatureSurvivesSourceRetentionAndRegisteredCache()
+    {
+        var bare = Bare();
+        using var world = new CatalogFixture(SignatureFixture.WithEmpty(bare));
+        var candidate = world.Catalog.Source(
+            world.SourcePath, PackageAuthoringMode.CandidateSource);
+        AssertPackage(world, bare, candidate, PackageAuthoringMode.CandidateSource);
+        await AssertRetentionAsync(world, bare, candidate, CancellationToken.None);
+        AssertRegisteredCache(world, bare);
+    }
+
+    [Fact]
+    public void SignatureFileSearchFailsAcrossSourceRetentionAndRegisteredCache()
+    {
+        var changed = SignatureFixture.WithEmpty(Bare())
+            .Rows(SignatureFixture.Name, [SignatureFixture.Row]);
+        using var world = new CatalogFixture(changed);
+        AssertRejected(world, changed, SetupCode.MediaInvalid);
+    }
+
     [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]

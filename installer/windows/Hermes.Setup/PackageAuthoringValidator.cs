@@ -87,6 +87,13 @@ internal static class PackageAuthoringSchema
                 ["DiskId", "LastSequence", "DiskPrompt", "Cabinet", "VolumeLabel", "Source"]
         }.ToImmutableDictionary(StringComparer.Ordinal);
 
+    // WiX v6 Signature schema: s72, s255, S20, S20, I4, I4, I4, I4, S255.
+    // Pin the complete native type words, including localization, key and
+    // nullability flags. Only an observed empty table is supported below.
+    internal static ImmutableArray<int> SignatureColumnTypes { get; } =
+        [0x2d48, 0x0dff, 0x1d14, 0x1d14,
+         0x1104, 0x1104, 0x1104, 0x1104, 0x1dff];
+
     // Unknown tables are unsupported, even when empty. These additional tables
     // contain metadata, not install-time resource/action authoring.
     internal static ImmutableDictionary<string, ImmutableArray<string>> Columns { get; } =
@@ -219,6 +226,9 @@ internal static partial class PackageAuthoringValidator
         // semantics below are checked independently of SQL key/nullability flags.
         Require(actual.All(row => Number(row[3]) is > 0 and < 0x4000 &&
             (Number(row[3]) & 0x100) != 0));
+        if (table == "Signature")
+            Require(actual.Select(row => Number(row[3]))
+                .SequenceEqual(PackageAuthoringSchema.SignatureColumnTypes));
     }
 
     private static void ValidateObservedRows(PackageAuthoringSnapshot snapshot)
@@ -381,6 +391,7 @@ internal static partial class PackageAuthoringValidator
 
     private static void ValidateSearch(PackageAuthoringSnapshot snapshot)
     {
+        Require(snapshot.OptionalTable("Signature").IsEmpty);
         var search = snapshot.RequireTable("AppSearch");
         var locator = snapshot.RequireTable("RegLocator");
         Require(search.Length == 1 &&

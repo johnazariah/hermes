@@ -50,7 +50,6 @@ try {
     & (Join-Path $PSScriptRoot 'Test-PackageLayout.ps1')
     & (Join-Path $PSScriptRoot 'Test-SetupContract.ps1')
     & (Join-Path $PSScriptRoot 'Test-ConstructionContract.ps1')
-    & (Join-Path $PSScriptRoot 'Test-MsiTableObservation.ps1')
     & (Join-Path $PSScriptRoot 'Test-AcceptanceReport.ps1')
     & dotnet msbuild installer/windows/tests/PublishInventory.proj -t:WriteHermesPublishInventory -nologo -v:q
     if ($LASTEXITCODE -ne 0) { throw 'MSBuild publish inventory task failed.' }
