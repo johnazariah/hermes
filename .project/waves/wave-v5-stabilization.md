@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Independent native acceptance no longer waits on Mac runner allocation
+
+- **Evidence:** Run `39464582678` passes Windows. The supported Mac job has zero executed steps and is cancelled by hosted-runner allocation failure; one unchanged failed-job retry is requested. MSI acceptance never starts.
+- **Decision/change:** Run self-contained installer acceptance independently: it builds all inputs on its own disposable Windows host and consumes no other job's artefacts. Keep publication dependent on both supported platform jobs, Tray and complete installer acceptance. No acceptance, promotion or merge condition is removed.
+- **Validation:** Static graph controls enforce independent input construction and the unchanged complete publication dependencies. All 22 payload and 28 adverse controls and workflow lint pass. The solution builds with zero warnings/errors and all 2,182 F# cases pass.
+- **Blockers:** Setter retention, committed PackageCode, complete ICE and the full installed lifecycle remain unaccepted; Mac infrastructure must also recover before merge.
+- **Next:** Publish independent scheduling and capture actual native committed-file verification without waiting for unrelated runner capacity.
+
 ### 2026-10-21 - Null GUID is located in cached summary readback
 
 - **Evidence:** Run `39460550649` passes both supported jobs, Tray and native Windows 31/31. Explicit context locates the conversion at finaliser line 80, `summary-package-readback`: the writable summary's PackageCode getter returns null after persist/commit. Product/scope, all 697 file/component identities and summary platform/WordCount have passed.

@@ -70,4 +70,9 @@ Require ($publisher.IndexOf('$guardHash =', [StringComparison]::Ordinal) -lt $pu
     -and $publisher.Contains('-p:HermesApprovedGuardSha256=') -and $publisher.Contains('Get-HermesCompiledGuardTrust')) 'The independent guard hash must precede Setup compilation and be verified in its actual assembly metadata.'
 $ci = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../.github/workflows/ci.yml') -Raw
 Require ($ci.Contains('Assert-ServicingEvidence.ps1') -and $ci.Contains('Publish-Acceptance.ps1')) 'Publication must execute the actual component and validate both independently scoped final evidence sets.'
+$installerJob = [regex]::Match($ci, '(?ms)^  installer:\n(?<body>.*?)(?=^  [a-zA-Z0-9_-]+:|\z)').Groups['body'].Value
+Require ($installerJob.Contains('Publish-Servicing.ps1') -and $installerJob.Contains('Publish-Payload.ps1') `
+    -and $installerJob -notmatch '(?m)^    needs:' -and -not $installerJob.Contains('download-artifact')) 'Self-contained Windows acceptance must not wait on unrelated runner allocation or consume another job''s inputs.'
+$publishJob = [regex]::Match($ci, '(?ms)^  publish:\n(?<body>.*?)(?=^  [a-zA-Z0-9_-]+:|\z)').Groups['body'].Value
+Require ($publishJob.Contains('needs: [build-and-test, build-tray, installer]')) 'Publication must retain every supported platform, Tray and complete installer acceptance gate.'
 Write-Output 'Coordinator contract controls passed without executing Setup, a guard DLL, MSI, or a Windows profile operation.'

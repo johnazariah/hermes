@@ -237,7 +237,6 @@ jobs:
 
   installer:
     name: Supported Windows installer lifecycle
-    needs: [build-and-test, build-tray]
     runs-on: windows-latest
     timeout-minutes: 75
     steps:

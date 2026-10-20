@@ -2,6 +2,22 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Self-contained Windows acceptance runs independently
+
+Run `39464582678` passes Windows but never executes a macOS supported step:
+GitHub cancels allocation with “The job was not acquired by Runner of type
+hosted even after multiple attempts”. The installer is consequently skipped;
+this is an infrastructure failure, not an MSI or macOS test result. One
+unchanged failed-job retry was requested.
+
+The installer job builds every input in its own disposable Windows workspace
+and downloads no other job's artefacts. Its scheduling-only prerequisites are
+removed so unrelated runner allocation cannot prevent native diagnostics.
+Publication still requires `build-and-test`, `build-tray` and `installer`.
+Static controls enforce both independent construction and the complete
+publication dependency set. All 22 payload and 28 adverse controls and
+workflow lint pass; the solution builds warning-free and all 2,182 F# cases pass.
+
 ## PackageCode verification reads the committed MSI
 
 Run `39460550649` identifies the null-GUID failure precisely: phase
