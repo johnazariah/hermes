@@ -67,6 +67,7 @@ Require ($builder -match '\-v\s+minimal\b') 'The build wrapper must not suppress
 $finalizer = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Finalize-PackageIdentity.ps1') -Raw
 Require ($finalizer.Contains("`$ErrorView = 'NormalView'")) 'Finalization type-conversion failures must retain their source location.'
 Require ($finalizer.Contains('MSI finalization failed during $phase') -and $finalizer.Contains('$_.ScriptStackTrace')) 'Finalization failures must retain explicit phase and stack context independently of the error formatter.'
+Require ($finalizer.Contains("`n`$phase = 'product-properties'`ntry {")) 'The initial failure phase must be set in script scope before opening the MSI, not in the row helper scope.'
 $parseTokens = $null
 $parseErrors = $null
 $finalizerAst = [Management.Automation.Language.Parser]::ParseInput($finalizer, [ref]$parseTokens, [ref]$parseErrors)

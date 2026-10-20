@@ -2,6 +2,16 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Finaliser context is initialised in script scope
+
+Review of the diagnostic-only delta finds its initial phase assignment in
+the row helper's local scope. It now precedes the outer MSI try block so an
+early database/property failure cannot replace its original exception with
+an uninitialised-variable error. A package-layout control enforces that scope
+and ordering. The exact-catch exception-identity control still passes; the
+solution builds warning-free and all 2,182 F# cases pass. The superseded
+diagnostic run is cancelled; no native result is claimed for this correction.
+
 ## Explicit finalisation phase and stack evidence
 
 Run `39456791213` passes both complete supported platform jobs, including all

@@ -100,6 +100,13 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Initial finaliser diagnostic phase is kept in script scope
+
+- **Changed:** Review catches the initial diagnostic phase assignment in helper-local scope. Move it before the outer MSI try block and enforce its exact scope/order, preventing an early failure from being masked by strict-mode variable lookup.
+- **Validation:** Package-layout and original-exception-identity controls pass. The solution builds with zero warnings/errors and all 2,182 F# cases pass.
+- **Blockers:** Native finalisation and the installed lifecycle remain unaccepted; no identity rule or acceptance gate changes.
+- **Next:** Cancel the superseded diagnostic run and execute the corrected exact-head native gate.
+
 ### 2026-10-21 - Supported platforms pass; finaliser failure gets explicit context
 
 - **Evidence:** Run `39456791213` passes both complete supported platform jobs, including all 61 browser journeys, plus all 31 Windows servicing cases. Normal error view still omits the native null-GUID conversion's source line; actual installation remains unstarted.

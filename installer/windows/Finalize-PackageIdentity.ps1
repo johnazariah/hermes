@@ -21,7 +21,6 @@ $summary = $null
 
 function Get-RowValues([string]$Query, [int]$Columns) {
     $view = $database.OpenView($Query)
-    $phase = 'product-properties'
     try {
         [void]$view.Execute()
         while ($null -ne ($record = $view.Fetch())) {
@@ -35,6 +34,7 @@ function Get-RowValues([string]$Query, [int]$Columns) {
     } finally { [void]$view.Close(); [Runtime.InteropServices.Marshal]::FinalReleaseComObject($view) | Out-Null }
 }
 
+$phase = 'product-properties'
 try {
     $database = $installer.OpenDatabase((Resolve-Path -LiteralPath $PackagePath).Path, 1)
     foreach ($property in @(
