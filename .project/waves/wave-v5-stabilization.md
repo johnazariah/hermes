@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - All native kernel cases pass; MSI finalisation error is made visible
+
+- **Evidence:** Hosted run `39431966923` passes both supported platform jobs and all 31 actual Windows servicing cases, zero skips. Lifecycle construction reaches package-identity finalisation before normal ICE validation, then its child command exits 1. Quiet MSBuild output retains only the wrapper error; bounded acceptance evidence records failure during build and no cleanup failure.
+- **Changed:** The build wrapper uses minimal verbosity and gives finalisation stdout/stderr high importance. Ordering, package identity rules, complete validation and failure exit remain unchanged. No speculative finalisation fix is applied.
+- **Validation:** A controlled local non-MSI MSBuild failure proves quiet logging hides the original exception and the new setting exposes it without converting failure to success. Static validation passes all 22 payload and 28 adverse controls and requires visible diagnostics. The solution builds warning-free and all 2,182 F# cases pass.
+- **Blockers:** The original Windows finalisation error must be observed and fixed before the first actual install and full installed-native/MSI lifecycle. Main and distribution remain gated; strict legacy repair stays disabled.
+- **Next:** Publish visible build diagnostics, capture the actual finaliser failure and correct its established cause.
+
 ### 2026-10-20 - Real kernel suite reaches one incorrect native-spelling premise
 
 - **Evidence:** Hosted run `39427186591` passes the complete payload-construction step, then runs all 31 Windows servicing cases. Thirty pass; the intermediate-directory trailing-space row fails its native alias precondition with exact Win32 error 3 before inventory validation.

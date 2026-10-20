@@ -60,4 +60,8 @@ Require ($construction.Count -eq 1 -and $construction[0].Command.Contains('-Serv
 $finalize = $project.SelectSingleNode('/Project/Target[@Name="FinalizeHermesPackageCode"]')
 Require ($finalize.BeforeTargets -ceq 'WindowsInstallerValidation' -and $finalize.DependsOnTargets -ceq 'CoreCompile' `
     -and -not $finalize.HasAttribute('AfterTargets')) 'The selected PackageCode must be finalized before, never after or instead of, normal ICE validation.'
+$finalizeCommand = $finalize.SelectSingleNode('Exec')
+Require ($finalizeCommand.StandardOutputImportance -ceq 'High' -and $finalizeCommand.StandardErrorImportance -ceq 'High') 'Identity finalization failures must retain their original command diagnostics.'
+$builder = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Build-Package.ps1') -Raw
+Require ($builder -match '\-v\s+minimal\b') 'The build wrapper must not suppress finalization diagnostics with quiet logging.'
 Write-Output 'Package source layout matches the frozen schema/guard contract; MSI compilation and Windows validation were not run.'

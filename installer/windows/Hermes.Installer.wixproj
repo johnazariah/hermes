@@ -38,7 +38,8 @@
   <!-- WiX 6 generates summary PID_REVNUMBER; set the selected build GUID before
        its normal ICE validation, never after validation or after signing. -->
   <Target Name="FinalizeHermesPackageCode" BeforeTargets="WindowsInstallerValidation" DependsOnTargets="CoreCompile">
-    <Exec Command="pwsh -NoProfile -File &quot;$(MSBuildThisFileDirectory)Finalize-PackageIdentity.ps1&quot; -PackagePath &quot;$(IntermediateOutputPath)%(CultureGroup.OutputFolder)$(TargetFileName)&quot; -ManifestPath &quot;$(HermesManifestPath)&quot; -IdentityPath &quot;$(HermesIdentityPath)&quot;" />
+    <Exec StandardOutputImportance="High" StandardErrorImportance="High"
+          Command="pwsh -NoProfile -File &quot;$(MSBuildThisFileDirectory)Finalize-PackageIdentity.ps1&quot; -PackagePath &quot;$(IntermediateOutputPath)%(CultureGroup.OutputFolder)$(TargetFileName)&quot; -ManifestPath &quot;$(HermesManifestPath)&quot; -IdentityPath &quot;$(HermesIdentityPath)&quot;" />
   </Target>
 
 </Project>

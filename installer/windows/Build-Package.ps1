@@ -25,7 +25,7 @@ try {
     }
     $productCode = [Guid]::NewGuid().ToString('B').ToUpperInvariant()
     $packageCode = [Guid]::NewGuid().ToString('B').ToUpperInvariant()
-    & dotnet build $project -c Release --nologo -v quiet `
+    & dotnet build $project -c Release --nologo -v minimal `
         "-p:HermesPayloadDir=$payload" "-p:HermesPackageVersion=$PackageVersion" `
         "-p:HermesInventoryDir=$([IO.Path]::GetFullPath($InventoryDirectory))" `
         "-p:HermesProductCode=$productCode" "-p:HermesPackageCode=$packageCode" `

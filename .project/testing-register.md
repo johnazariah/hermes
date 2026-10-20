@@ -2,6 +2,26 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Complete native suite passes; identity finalisation needs its original error
+
+Hosted run `39431966923` passes the complete **31/31 Windows servicing suite**
+with zero skips. Both supported Core/browser/coverage jobs, Tray and payload
+construction remain green. The first lifecycle build now reaches
+`Finalize-PackageIdentity.ps1` before normal ICE validation, but its child
+command exits 1 and the quiet wrapper exposes only MSB3073.
+
+A controlled, non-MSI MSBuild/PowerShell failure reproduces the logging defect:
+quiet output omits the original exception, while minimal verbosity with high
+child-stream importance preserves it and still returns failure. The package
+wrapper now uses that visible setting. Static controls require it and retain
+the existing finalise-before-validation ordering, complete ICE requirements and
+all identity checks. No finalisation or installation rule is changed.
+
+All 22 payload and 28 adverse report controls pass; the solution builds
+warning-free and passes all 2,182 F# cases. The actual finalisation cause is
+still unknown until the next Windows build exposes it. No MSI install, native
+WebView or interrupted-recovery acceptance is claimed.
+
 ## Actual Windows kernel spelling expectations
 
 Hosted run `39427186591` completes the corrected payload-construction step and
