@@ -2,6 +2,23 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Native import identifier uses xUnit-associated failure output
+
+Run `39516442512` at `3648771` repeats the same common Import failure but
+contains no scalar or unknown diagnostic marker in the job log. Capture
+visibility through Console.Error is therefore unproved.
+
+The reviewed one-file continuation injects per-test `ITestOutputHelper` and
+passes only its bounded string writer into all three fixture-creation paths.
+The callback is assigned before construction-time Import. Native field
+capture, release, fixed unknowns, original exception and all 57 cases remain
+unchanged.
+
+Parent passes warning-free root and Windows cross-builds, all 2,182 Core
+cases, metadata-only native discovery and static controls. Independent review
+approves source wiring only. The next Windows failure output must supply the
+numeric identifier before a fixture correction is selected.
+
 ## Native scratch import needs its numeric MSI error identifier
 
 Run `39514317262` at `7309a39` executes 57 native cases: the prior 45 pass and

@@ -100,6 +100,13 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Scalar native Import diagnostic is wired to xUnit output
+
+- **Evidence:** Run `39516442512` at `3648771` repeats the common Import failure without any scalar/unknown diagnostic in the job log. No numeric error was inferred.
+- **Changed:** A source-approved one-file continuation routes the unchanged scalar through per-test xUnit output, assigned before fixture creation. Capture/release/original exception, assertions, schema and all 57 tests are unchanged.
+- **Validation:** Parent passes warning-free root/cross-build, 2,182 Core, metadata-only discovery and static controls. No native body ran locally and observed visibility remains for Windows.
+- **Next:** Publish and read only the native Import identifier; no format or admission correction is chosen before that result.
+
 ### 2026-10-21 - Native fixture Import retains one numeric MSI error field
 
 - **Actual failure:** Run `39514317262` at `7309a39` passes the prior 45 native cases; all 12 new cases fail common scratch Import before reader assertions. No production contract defect or justified IDT correction follows from the generic Automation message.

@@ -6,11 +6,12 @@ using System.Text;
 using Hermes.Setup;
 using Hermes.Setup.Tests;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Hermes.Servicing.WindowsTests;
 
 [SupportedOSPlatform("windows")]
-public sealed class WindowsSignatureDatabaseTests
+public sealed class WindowsSignatureDatabaseTests(ITestOutputHelper output)
 {
     // Imported through MSI's own IDT implementation, independently of the
     // production numeric type words and the synthetic observation fixture.
@@ -22,7 +23,7 @@ public sealed class WindowsSignatureDatabaseTests
     [InlineData(true)]
     public void ActualReaderPreservesAbsenceOrExactObservedEmptySchema(bool present)
     {
-        using var database = new ScratchSignatureMsi(present ? Types : []);
+        using var database = new ScratchSignatureMsi(present ? Types : [], output.WriteLine);
         var snapshot = new WindowsPackageDatabase().ReadAuthoring(database.PackagePath);
         Assert.Equal(present, snapshot.HasTable(SignatureFixture.Name));
         Assert.Empty(snapshot.OptionalTable(SignatureFixture.Name));
@@ -38,7 +39,7 @@ public sealed class WindowsSignatureDatabaseTests
     [InlineData("UnreferencedSignature")]
     public void ActualReaderDoesNotDiscardSchemaCorrectSignatureRows(string key)
     {
-        using var database = new ScratchSignatureMsi(Types, key);
+        using var database = new ScratchSignatureMsi(Types, output.WriteLine, key);
         var snapshot = new WindowsPackageDatabase().ReadAuthoring(database.PackagePath);
         AssertSignatureDefinitions(snapshot);
         var row = Assert.Single(snapshot.RequireTable(SignatureFixture.Name));
@@ -57,7 +58,8 @@ public sealed class WindowsSignatureDatabaseTests
     [InlineData(8, "L255")]
     public void ActualReaderRetainsTypeDifferencesForStrictValidation(int index, string type)
     {
-        using var database = new ScratchSignatureMsi(Types.SetItem(index, type));
+        using var database = new ScratchSignatureMsi(
+            Types.SetItem(index, type), output.WriteLine);
         var snapshot = new WindowsPackageDatabase().ReadAuthoring(database.PackagePath);
         Assert.True(snapshot.HasTable(SignatureFixture.Name));
         Assert.Empty(snapshot.RequireTable(SignatureFixture.Name));
@@ -89,14 +91,17 @@ public sealed class WindowsSignatureDatabaseTests
 [SupportedOSPlatform("windows")]
 internal sealed class ScratchSignatureMsi : IDisposable
 {
+    private readonly Action<string> _writeDiagnostic;
     private readonly string _root =
         Directory.CreateTempSubdirectory("Hermes.Signature.Tests-").FullName;
 
     internal AuthoringFixture Authoring { get; } = AuthoringFixture.Create();
     internal string PackagePath => Path.Combine(_root, "source.msi");
 
-    internal ScratchSignatureMsi(ImmutableArray<string> types, string signatureKey = "")
+    internal ScratchSignatureMsi(
+        ImmutableArray<string> types, Action<string> writeDiagnostic, string signatureKey = "")
     {
+        _writeDiagnostic = writeDiagnostic;
         try { Create(types, signatureKey); }
         catch { Dispose(); throw; }
     }
@@ -171,12 +176,12 @@ internal sealed class ScratchSignatureMsi : IDisposable
         catch (COMException) { ReportImportError(installer); throw; }
     }
 
-    private static void ReportImportError(object installer)
+    private void ReportImportError(object installer)
     {
         string id;
         try { id = ReadImportErrorId(installer); }
         catch { id = "unknown:capture-failed"; }
-        try { Console.Error.WriteLine("MSI_IMPORT_ERROR_ID=" + id); }
+        try { _writeDiagnostic("MSI_IMPORT_ERROR_ID=" + id); }
         catch { /* Optional diagnostics must not replace the Import exception. */ }
     }
 
