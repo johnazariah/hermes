@@ -2,6 +2,24 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Native scratch import needs its numeric MSI error identifier
+
+Run `39514317262` at `7309a39` executes 57 native cases: the prior 45 pass and
+all 12 new Signature cases fail during common scratch-database Import, before
+reader/validator assertions. The Automation error `Import,Folder,File` does
+not identify a justified formatting or schema correction.
+
+The reviewed one-file test-only seam now reads the same installer's
+LastErrorRecord field 1 immediately after that failure and prints only its
+decimal identifier or a fixed unknown marker. Record cleanup or optional
+output failure cannot replace the original COM exception. Production
+admission, test assertions, selection and all 57 cases remain unchanged.
+
+Parent passes warning-free root build and 2,182 Core cases; the applier passes
+779 portable Setup, Windows cross-build and all static/payload 22/
+materialisation 7/actionlint checks. Independent review approves only this
+capture seam. Actual Windows must supply the identifier before a fixture fix.
+
 ## Exact empty Signature metadata is admitted; temporary probe is removed
 
 Final independent review approves the seven-file correction. Optional absence

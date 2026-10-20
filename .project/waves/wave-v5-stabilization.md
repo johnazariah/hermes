@@ -100,6 +100,13 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Native fixture Import retains one numeric MSI error field
+
+- **Actual failure:** Run `39514317262` at `7309a39` passes the prior 45 native cases; all 12 new cases fail common scratch Import before reader assertions. No production contract defect or justified IDT correction follows from the generic Automation message.
+- **Changed:** A source-approved one-file test diagnostic captures only LastErrorRecord integer field 1, releases it, and preserves the original exception even if optional capture/output fails.
+- **Validation:** Parent passes warning-free root build and 2,182 Core cases; portable Setup 779, cross-build and all static/payload 22/materialisation 7/actionlint checks pass. Assertions, production admission and all 57 test selections are unchanged.
+- **Next:** Publish and read the numeric native Import identifier, then choose the fixture-only correction from that actual code.
+
 ### 2026-10-21 - Strict empty Signature correction is approved; normal lifecycle restored
 
 - **Changed:** Candidate/retained/cache admission recognises only absent or exact-schema, zero-row Signature metadata. The FileName type is pinned to primary WiX6 nonlocalized s255/3583; any row or schema deviation remains a refusal and raw-HKCU searches are unchanged.

@@ -106,16 +106,16 @@ internal sealed class ScratchSignatureMsi : IDisposable
         using var installer = ComObject.Installer();
         using var database = new ComObject(
             (object)installer.Value.OpenDatabase(PackagePath, 3));
-        ImportBaseTables(database.Instance);
-        ImportBinaries(database.Instance);
+        ImportBaseTables(installer.Instance, database.Instance);
+        ImportBinaries(installer.Instance, database.Instance);
         if (!types.IsDefaultOrEmpty)
-            ImportSignature(database.Instance, types, signatureKey);
+            ImportSignature(installer.Instance, database.Instance, types, signatureKey);
         WriteCabinet(installer.Instance, database.Instance);
         WriteSummary(database.Instance);
         database.Value.Commit();
     }
 
-    private void ImportBaseTables(object database)
+    private void ImportBaseTables(object installer, object database)
     {
         foreach (var pair in Authoring.Snapshot.Tables)
         {
@@ -128,32 +128,33 @@ internal sealed class ScratchSignatureMsi : IDisposable
                 "Upgrade" => [columns[0], columns[^1]],
                 _ => [columns[0]]
             };
-            Import(database, pair.Key, columns, types, keys, pair.Value);
+            Import(installer, database, pair.Key, columns, types, keys, pair.Value);
         }
     }
 
-    private void ImportBinaries(object database)
+    private void ImportBinaries(object installer, object database)
     {
         var directory = Directory.CreateDirectory(Path.Combine(_root, "Binary"));
         foreach (var pair in Authoring.Snapshot.Binaries)
             File.WriteAllBytes(Path.Combine(directory.FullName, pair.Key), pair.Value.ToArray());
         var rows = Authoring.Snapshot.Binaries.Keys
             .Select(name => ImmutableArray.Create(name, name)).ToImmutableArray();
-        Import(database, "Binary", ["Name", "Data"], ["s72", "v0"], ["Name"], rows);
+        Import(installer, database, "Binary",
+            ["Name", "Data"], ["s72", "v0"], ["Name"], rows);
     }
 
     private void ImportSignature(
-        object database, ImmutableArray<string> types, string key)
+        object installer, object database, ImmutableArray<string> types, string key)
     {
         ImmutableArray<ImmutableArray<string>> rows = key.Length == 0
             ? [] : [SignatureFixture.Row.SetItem(0, key)];
-        Import(database, SignatureFixture.Name,
+        Import(installer, database, SignatureFixture.Name,
             SignatureFixture.Definitions.Select(row => row[2]).ToImmutableArray(),
             types, [SignatureFixture.Name], rows);
     }
 
     private void Import(
-        object database, string table,
+        object installer, object database, string table,
         ImmutableArray<string> columns, ImmutableArray<string> types,
         ImmutableArray<string> keys, ImmutableArray<ImmutableArray<string>> rows)
     {
@@ -166,7 +167,30 @@ internal sealed class ScratchSignatureMsi : IDisposable
         }.Concat(rows.Select(row => string.Join('\t', row)));
         File.WriteAllText(Path.Combine(_root, filename),
             string.Join("\r\n", lines) + "\r\n", Encoding.ASCII);
-        ((dynamic)database).Import(_root, filename);
+        try { ((dynamic)database).Import(_root, filename); }
+        catch (COMException) { ReportImportError(installer); throw; }
+    }
+
+    private static void ReportImportError(object installer)
+    {
+        string id;
+        try { id = ReadImportErrorId(installer); }
+        catch { id = "unknown:capture-failed"; }
+        try { Console.Error.WriteLine("MSI_IMPORT_ERROR_ID=" + id); }
+        catch { /* Optional diagnostics must not replace the Import exception. */ }
+    }
+
+    private static string ReadImportErrorId(object installer)
+    {
+        if (((dynamic)installer).LastErrorRecord is not object error)
+            return "unknown:no-last-error-record";
+        using var record = new ComObject(error);
+        var id = (int)record.Value.IntegerData[1];
+        return id switch
+        {
+            int.MinValue => "unknown:no-integer-error-id",
+            _ => id.ToString(CultureInfo.InvariantCulture)
+        };
     }
 
     private void WriteCabinet(object installer, object database)
