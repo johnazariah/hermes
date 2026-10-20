@@ -2,6 +2,43 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## One source-bound compiled table predicate is observed read-only
+
+The temporary four-file probe is independently reviewed with no blocking
+finding. It binds the published 0.1.0 candidate to its native-validation
+receipt and pins the exact 30-key C# source union at `5b06889`, then opens the
+native database read-only for one `_Tables.Name` query.
+
+Only source/package binding, native query result, observed count, ordinally
+sorted unmatched names and the selected count/membership predicate are
+retained. The workflow deliberately stops before owner-fixture creation or
+installation and always uploads the bounded JSON; it cannot pass lifecycle
+acceptance or distribution.
+
+The reviewer independently verifies source blobs/union, query/access mode,
+handle leases, error privacy, stop/upload wiring, actionlint and synthetic
+controls. Parent passes the warning-free root build, 2,182 Core cases and all
+static controls. A passing predicate eliminates only this selected check,
+not upstream duplicate-row validation or complete media admission. Actual
+Windows observation remains pending; this temporary stop must be removed.
+
+## Native publication is unit-linked; candidate now reports MediaInvalid
+
+Run `39502695162` at `5b06889` passes all 45 native Windows cases and both
+complete MSI validations. For each version, the actual bounded publication
+record reports one link for both validated intermediate and published package;
+receipt identity/hash checks succeed.
+
+Install advances from the previous non-unit-link refusal to `MediaInvalid`,
+still with 1603, Refused, ready=false and null MSI result. Recover remains
+NoRecoveryPending with no cleanup failures. No successful installation is
+claimed.
+
+A fresh C# specialist owns the now-reachable compiled-candidate media contract
+trace. The proved materialisation correction and existing admission predicate
+remain closed; media/authoring checks will not be weakened merely to accept
+the first native package.
+
 ## WiX output materialisation preserves unit-link candidate media
 
 The C# caller trace identifies the first guarded input as the candidate source

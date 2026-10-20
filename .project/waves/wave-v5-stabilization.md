@@ -100,6 +100,22 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Temporary read-only candidate table observation is approved
+
+- **Scope:** A single source/hash-bound native `_Tables.Name` query will test the exact C# closed-inventory count/membership predicate on the published 0.1.0 MSI. No contents, binary or owner paths are emitted.
+- **Safety:** The workflow deliberately stops before fixture/installation and retains bounded JSON even on failure. This cannot satisfy lifecycle acceptance or distribution; removal of the temporary stop is required after observation.
+- **Validation:** Independent review verifies source union/blobs, read-only mode, held leases, privacy, stop/upload wiring and real synthetic controls without blockers. Parent passes warning-free root build, 2,182 Core and all static controls.
+- **Boundary:** This observation proves or eliminates only the selected predicate, not full media admission or whether the original execution reached it. The upstream duplicate-row guard is separate.
+- **Next:** Publish one bounded Windows probe, inspect unmatched names, and select any strict media correction from actual data.
+
+### 2026-10-21 - Actual independent package media passes; candidate MediaInvalid is next
+
+- **Evidence:** Run `39502695162` at `5b06889` passes native 45/45 and both MSI validations. Each version's real intermediate and published-package role records show one link, with validated identity/hash checks.
+- **Outcome:** Install moves past the non-unit-link layer and now returns MediaInvalid. Recover is NoRecoveryPending and cleanup is clean; no installed success is claimed.
+- **Ownership:** A fresh C# specialist traces this reachable compiled-candidate media contract. Materialisation and admission guards remain unchanged.
+- **Blockers:** Actual media acceptance and the full installed lifecycle remain unproved; PR #30 stays draft, main/distribution gated.
+- **Next:** Identify the precise native media contract mismatch or its smallest read-only compiled-MSI observation.
+
 ### 2026-10-21 - Proved WiX copy default receives independent materialisation fix
 
 - **Root boundary:** C# tracing confirms candidate source MSI is checked before pin/hash/database reads. Executing the pinned WiX6 copy target proves its default hard-link aliasing; a later intermediate rewrite can alter an earlier output.

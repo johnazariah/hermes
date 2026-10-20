@@ -272,6 +272,24 @@ jobs:
           $trust = $servicing.approvedGuardSha256.Replace(';', '%3B')
           dotnet test tests/Hermes.Servicing.WindowsTests/Hermes.Servicing.WindowsTests.csproj -c Release "-p:HermesApprovedGuardSha256=$trust"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      # Temporary single-predicate observation, deliberately blocking all lifecycle work.
+      # Rejection establishes this strict predicate only, not which refusal ran first.
+      # Success eliminates only this predicate; it is not media acceptance.
+      - name: Observe published MSI table inventory read-only and stop before lifecycle
+        shell: pwsh
+        run: |
+          ./installer/windows/Test-MsiTableObservation.ps1
+          $servicing = Get-Content -LiteralPath "$PWD/.artifacts/servicing/servicing-build.json" -Raw | ConvertFrom-Json
+          $published = "$PWD/.artifacts/table-observation-candidate"
+          ./installer/windows/Build-Package.ps1 -PayloadDirectory "$PWD/.artifacts/installer-payload" -InventoryDirectory "$PWD/.artifacts/installer-inventory" -PackageVersion 0.1.0 -OutputDirectory $published -GuardPath $servicing.guardPath -ExpectedGuardSha256 $servicing.guardSha256 -ServicingBuildPath "$PWD/.artifacts/servicing/servicing-build.json"
+          Import-Module ./installer/windows/Msi-TableObservation.psm1 -Force
+          $observation = Invoke-HermesPublishedTableObservation -PublishedDirectory $published -RepositoryRoot "$PWD"
+          $json = $observation | ConvertTo-Json -Depth 8
+          if ([Text.Encoding]::UTF8.GetByteCount($json) -gt 128KB) { throw 'Table observation exceeded its evidence bound.' }
+          New-Item -ItemType Directory -Force -Path "$PWD/.artifacts/installer-evidence" | Out-Null
+          $json | Set-Content -LiteralPath "$PWD/.artifacts/installer-evidence/msi-table-observation.json" -Encoding utf8
+          Write-Output $json
+          throw 'Observation only: lifecycle and distribution remain blocked; no media acceptance or failure origin established.'
       - name: Coordinator install, repair, launch, upgrade, rollback and uninstall without SDK access
         shell: pwsh
         run: |
@@ -291,6 +309,7 @@ jobs:
             .artifacts/installer-evidence/acceptance.json
             .artifacts/installer-evidence/*-native.json
             .artifacts/installer-evidence/actual-servicing.json
+            .artifacts/installer-evidence/msi-table-observation.json
           if-no-files-found: warn
           retention-days: 3
 
