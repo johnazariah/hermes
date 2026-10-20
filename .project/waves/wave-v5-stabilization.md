@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-20 - Both supported platform gates pass; real payload mismatch is repaired
+
+- **Evidence:** Hosted run `39423147741` passes both complete supported jobs. Windows runs 2,178 F# and 297 Servicing/model cases plus 61 actual browser journeys at 85.9862% line / 61.6588% branch coverage; Mac runs 2,182 and 297 plus 61 journeys at 85.7118% / 61.2534%. The full denominator remains 17,126 lines / 24,668 branches.
+- **Changed:** Actual installer construction publishes the native guard and helpers, then finds a strict inventory mismatch. A non-executing local cross-publish establishes the missing SDK-declared endpoint manifest: 419 Service files against 418 inventory entries. Capture now hashes that SDK intermediate with its declared output identity, never candidate bytes, and avoids duplicate resolved entries.
+- **Validation:** All 22 payload and 28 adverse report controls pass. The genuine Service/Tray Windows cross-publish passes unchanged strict validation for all 697 runtime files. The full solution builds without warnings/errors and passes all 2,182 F# cases. No Windows binary, MSI or profile operation ran locally.
+- **Blockers:** The actual Windows construction and complete installed-native/MSI lifecycle still must pass before merge or distribution. Strict legacy repair remains blocked and disabled.
+- **Next:** Publish the provenance-preserving inventory correction and continue the actual installer lifecycle gate.
+
 ### 2026-10-20 - Windows behaviour passes; coverage shutdown handshake is repaired
 
 - **Evidence:** Hosted run `39418524069` passes the Windows Core test phase and all 61 actual browser journeys. Setup 456, Control 48, Servicing/model 297 and Tray 319 also pass. Only coverage fails, reporting 3,592/17,126 lines with in-process modules missing broad hit data; the Mac graph remains green.

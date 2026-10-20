@@ -121,7 +121,10 @@ candidate payload.
 
 `Publish-Inventory.targets` captures the SDK's resolved source paths separately
 from the output directory, including hashes captured before another version can
-overwrite compiler intermediates. Packaging checks this explicit inventory against
+overwrite compiler intermediates. It also captures the Web SDK's declared
+publish-endpoint manifest source, which the SDK copies separately from
+`ResolvedFileToPublish`, without adding it twice when already resolved.
+Packaging checks this explicit inventory against
 allowed runtime names and build/package source roots, requires essential
 Service/Tray/runtime assemblies, compares every output file to its resolved
 source hash, admits only the explicitly declared comprehension prompt resources,

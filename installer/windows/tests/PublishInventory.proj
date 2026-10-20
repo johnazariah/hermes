@@ -8,6 +8,10 @@
     <ResolvedFileToPublish Include="$(MSBuildThisFileDirectory)../payload.test.mjs">
       <RelativePath>synthetic-fixture.dll</RelativePath>
     </ResolvedFileToPublish>
+    <ResolvedFileToPublish Include="$(StaticWebAssetEndpointsPublishManifestPath)"
+                          Condition="'$(SyntheticEndpointAlreadyResolved)' == 'true'">
+      <RelativePath>$(TargetName).staticwebassets.endpoints.json</RelativePath>
+    </ResolvedFileToPublish>
   </ItemGroup>
   <Import Project="../Publish-Inventory.targets" />
 </Project>

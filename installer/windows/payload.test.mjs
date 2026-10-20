@@ -88,6 +88,47 @@ test('valid explicit SDK inventory accepts complete payload and generates stable
   assert.deepEqual(componentIdentity('service/Hermes.Service.dll'), componentIdentity('SERVICE/HERMES.SERVICE.DLL'));
   assert.notDeepEqual(componentIdentity('service/Hermes.Service.dll'), componentIdentity('tray/Hermes.Tray.dll'));
 });
+
+async function endpointInventory(f, alreadyResolved = false) {
+  const name = 'Hermes.Service.staticwebassets.endpoints.json';
+  const source = resolve(f.root, 'sdk-intermediates', name);
+  const output = resolve(f.inventory, 'sdk-endpoints.publish.txt');
+  await put(source, '{"Endpoints":[]}');
+  const result = spawnSync('dotnet', [
+    'msbuild', 'installer/windows/tests/PublishInventory.proj', '-nologo', '-v:q',
+    '-t:WriteHermesPublishInventory', `-p:HermesPublishInventoryPath=${output}`,
+    '-p:TargetName=Hermes.Service', `-p:StaticWebAssetEndpointsPublishManifestPath=${source}`,
+    `-p:SyntheticEndpointAlreadyResolved=${alreadyResolved}`,
+  ], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const lines = (await readFile(output, 'utf8')).replace(/^\uFEFF/, '').trim().split(/\r?\n/);
+  const endpoint = lines.filter(line => line.split('|')[1] === name);
+  assert.equal(endpoint.length, 1);
+  return { source, name, record: endpoint[0] };
+}
+
+test('SDK-declared static endpoint manifest retains source provenance and detects output tampering', async () => {
+  const f = await fixture('sdk-endpoint');
+  const endpoint = await endpointInventory(f);
+  assert.equal(endpoint.record.split('|')[2].toLowerCase(), hash(await readFile(endpoint.source)));
+  await put(resolve(f.payload, 'service', endpoint.name), await readFile(endpoint.source));
+  await put(resolve(f.inventory, 'service.publish.txt'), [...f.records.service, endpoint.record].join('\n'));
+  assert.ok((await validate(f.payload, f.inventory, f.canonical))
+    .some(file => file.path === `service/${endpoint.name}`));
+  await put(resolve(f.payload, 'service', endpoint.name), '{"Endpoints":["SYNTHETIC changed output"]}');
+  await assert.rejects(validate(f.payload, f.inventory, f.canonical), /differs from its SDK publish source/);
+});
+
+test('SDK-resolved static endpoint manifest is not inventoried twice', async () => {
+  await endpointInventory(await fixture('sdk-endpoint-resolved'), true);
+});
+
+test('candidate static endpoint manifest cannot supply its own publish provenance', async () => {
+  const f = await fixture('unproven-endpoint');
+  await put(resolve(f.payload, 'service/Hermes.Service.staticwebassets.endpoints.json'), '{"Endpoints":[]}');
+  await assert.rejects(validate(f.payload, f.inventory, f.canonical), /inventory/);
+});
+
 test('MSI version boundaries reject noncanonical and overflow fields', () => {
   for (const version of ['0.0.0', '255.255.65535']) assert.doesNotThrow(() => validateVersion(version));
   for (const version of ['256.0.0', '0.256.0', '0.0.65536', '01.0.0', '1.2.3.4', '9'.repeat(300) + '.0.0']) {

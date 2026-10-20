@@ -2,6 +2,36 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Both platform gates pass; SDK endpoint inventory corrected
+
+Hosted run `39423147741` proves the flush repair. Windows runs **2,178/2,178 F#**
+cases (the four governed Unix-only cases are excluded), Servicing/model
+297/297 and all 61 actual browser journeys. Its exact coverage is
+**14,726/17,126 lines (85.9862%)** and
+**15,210/24,668 branches (61.6588%)**. macOS runs 2,182/2,182 F# cases,
+Servicing/model 297/297 and 61 browser journeys at
+**14,679/17,126 lines (85.7118%)** and
+**15,110/24,668 branches (61.2534%)**. Both supported jobs pass.
+
+The first actual installer job publishes the NativeAOT guard/Setup and acceptance
+helpers, then correctly refuses a payload/inventory count mismatch. A local
+non-executing Windows cross-publish reproduces it: the Service contains 419
+files but its SDK-resolved inventory contains 418. The extra file is the Web
+SDK's separately copied endpoint manifest.
+
+Inventory capture now uses the SDK's declared
+`StaticWebAssetEndpointsPublishManifestPath` source and destination identity,
+hashing the intermediate at publish time rather than trusting candidate bytes.
+Already-resolved entries are not duplicated. Three new controls verify source
+provenance/output tampering, duplicate prevention and refusal of an unproven
+candidate manifest. All **22 payload controls** pass, as do 28 adverse report
+controls. The complete genuine Service/Tray cross-publish now passes strict
+validation for **697 runtime files**, including all 419 Service files.
+
+The normal solution builds warning-free and passes all 2,182 F# cases.
+Cross-publishing does not execute a Windows binary or establish installed
+acceptance; the next actual Windows construction/lifecycle run remains required.
+
 ## VSTest in-process flush preserves native coverage collection
 
 Hosted run `39418524069` passes Windows Core execution and all 61 actual browser
