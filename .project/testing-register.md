@@ -2,6 +2,32 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Isolated-profile and full-duplex pipe fixture corrections
+
+Hosted run `39411699226` confirms the startup cause: each failing owned child
+reports `Composition / KnownFolder / EmptyKnownFolder`. The fixture now creates
+native-path `AppData/Local` and `AppData/Roaming` beneath its owned temporary
+home and sets matching child-only environment values. Both launchers reuse
+the helper. All **11 profile/child-process cases** pass locally, including the
+three new isolation/preservation cases; production admission is unchanged.
+
+The revised pipe fixture starts its first-response read and combined write
+before releasing dispatch. Source review approves its correlated-response,
+exact-dispatch, closure, narrow Windows-error and task-settlement checks.
+The expanded matrix initially hit inference and FS3511 compiler errors.
+A fresh specialist replaced the two problematic resumable loops with a
+monomorphic runner over deferred checks. Cases remain sequential with the same
+exception identities; no warning suppression, budget or assertion change is
+used. All **26 pipe cases** now pass locally, including the native integration
+case and synthetic adverse/cancellation cases.
+
+The complete candidate builds without warnings/errors and passes **2,182 F#
+cases**, zero failures/skips. Exact native collection also passes 297
+Servicing/model cases and retains five assemblies at
+**14,683/17,126 lines (85.7351%)** and
+**15,258/24,668 branches (61.8534%)**. Current-head target-Windows confirmation
+and the complete installed lifecycle remain pending.
+
 ## Typed startup-refusal evidence integrated and reviewed
 
 The existing current-user API now has an additive, single-attempt evidence

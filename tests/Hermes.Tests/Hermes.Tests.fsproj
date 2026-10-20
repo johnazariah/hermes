@@ -161,6 +161,8 @@
     <Compile Include="CanonicalUiHttpTests.fs" />
     <Compile Include="CanonicalUiHostTests.fs" />
     <Compile Include="CanonicalUiBoundaryTests.fs" />
+    <Compile Include="SyntheticChildProfile.fs" />
+    <Compile Include="SyntheticChildProfileTests.fs" />
     <Compile Include="CanonicalUiStartupTests.fs" />
     <Compile Include="FileKeywordFixtures.fs" />
     <Compile Include="RetrievalHttpFixtures.fs" />

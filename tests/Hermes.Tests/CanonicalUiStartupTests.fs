@@ -66,8 +66,7 @@ let private childEnvironment (info: ProcessStartInfo) paths =
     info.Environment.["HERMES_ALLOWED_ORIGINS"] <- ""
     info.Environment.["HERMES_MCP_MUTATIONS"] <- "false"
     info.Environment.Remove("HERMES_MCP_TOKEN") |> ignore
-    info.Environment.["HOME"] <- paths.Working
-    info.Environment.["USERPROFILE"] <- paths.Working
+    SyntheticChildProfile.configure info paths.Working
     info.Environment.["DOTNET_DbgEnableMiniDump"] <- "0"
 
 let private startInfo paths =

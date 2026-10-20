@@ -176,47 +176,373 @@ module OwnerControlPipeFrameTests =
 module private PipelinedOwnerExchange =
     open OwnerPipeFixture
 
+    [<RequireQualifiedAccess>]
+    type Platform =
+        | Windows
+        | Other
+
+    // HRESULT_FROM_WIN32(ERROR_BROKEN_PIPE), not ERROR_PIPE_NOT_CONNECTED.
+    [<Literal>]
+    let brokenPipeHResult = -2147024787
+
+    // Capture faults for joining; acceptance is decided only after receiving proof.
+    let observe (work: unit -> Task) =
+        task {
+            try
+                do! work ()
+                return Ok ()
+            with error ->
+                return Error error
+        }
+
+    let private brokenPipe platform (cancellation: CancellationToken) (error: IOException) =
+        platform = Platform.Windows
+        && error.HResult = brokenPipeHResult
+        && not cancellation.IsCancellationRequested
+
+    let private expectClose platform (pipe: Stream) cancellation =
+        task {
+            try
+                let buffer = Array.zeroCreate<byte> 1
+                let! count = pipe.ReadAsync(Memory<byte>(buffer), cancellation).AsTask()
+                Assert.Equal<int>(0, count)
+            with :? IOException as error when brokenPipe platform cancellation error -> ()
+        }
+
+    let private receive platform target first (pipe: Stream) cancellation =
+        task {
+            let! encoded = Framing.read pipe cancellation
+            let actual = Codec.decodeResponse first (peer target) encoded |> ok
+            Assert.Equal<Response>(response target first, actual)
+            do! expectClose platform pipe cancellation
+        }
+
+    let private finishWrite platform (cancellation: CancellationToken) (outcome: Result<unit, exn>) =
+        cancellation.ThrowIfCancellationRequested()
+        outcome
+        |> Result.defaultWith (function
+            | :? IOException as error when brokenPipe platform cancellation error -> ()
+            | error -> raise error)
+
+    let frames first second =
+        [| first; second |]
+        |> Array.collect (fun request -> request |> Codec.encodeRequest |> ok |> frame)
+
     let dispatch target (calls: ConcurrentQueue<string>)
-        (written: TaskCompletionSource<unit>) (request: Request)
+        (issued: TaskCompletionSource<unit>) (request: Request)
         (cancellation: CancellationToken) =
         task {
             calls.Enqueue(request.RequestId)
-            do! written.Task.WaitAsync(cancellation)
+            do! issued.Task.WaitAsync(cancellation)
             return response target request
         }
 
-    let run target (first: Request) (written: TaskCompletionSource<unit>)
-        (cancellation: CancellationToken) =
+    let exchange platform target first second (issued: TaskCompletionSource<unit>)
+        (pipe: Stream) (parent: CancellationToken) =
         task {
-            use! pipe = connect target cancellation
-            let payload = first |> Codec.encodeRequest |> ok |> frame
-            do! pipe.WriteAsync(ReadOnlyMemory<byte>(Array.append payload payload), cancellation).AsTask()
-            // Both frames are written and the first read is issued before dispatch replies.
-            let reply = Framing.read pipe cancellation
-            written.SetResult(())
-            let! encoded = reply
-            let actual = Codec.decodeResponse first (peer target) encoded |> ok
-            Assert.Equal<Response>(response target first, actual)
-            do! closed pipe cancellation
+            let payload = frames first second
+            use lifetime = CancellationTokenSource.CreateLinkedTokenSource(parent)
+            use interrupted = lifetime.Token.Register(fun () -> pipe.Dispose())
+            let receiving = observe (fun () -> receive platform target first pipe lifetime.Token :> Task)
+            let writing = observe (fun () ->
+                pipe.WriteAsync(ReadOnlyMemory<byte>(payload), lifetime.Token).AsTask())
+            // Both operations are issued; surplus write completion must not gate dispatch.
+            issued.TrySetResult(()) |> ignore
+            let! received = receiving
+            if Result.isError received then lifetime.Cancel()
+            let! sent = writing
+            received |> Result.defaultWith raise
+            finishWrite platform parent sent
         }
 
-module OwnerControlPipePipelineFixtureTests =
+    let run target first issued cancellation =
+        task {
+            use! pipe = connect target cancellation
+            let platform = if OperatingSystem.IsWindows() then Platform.Windows else Platform.Other
+            return! exchange platform target first (request ()) issued pipe cancellation
+        }
+
+module private PipelinedOwnerProbe =
     open OwnerPipeFixture
 
-    [<Fact>]
-    let ``pipelined dispatch gate observes cancellation before write completion`` () =
+    type Scenario =
+        { Target: OwnerControlTarget.Target
+          First: Request
+          Second: Request
+          Issued: TaskCompletionSource<unit> }
+
+    type ReplyScript =
+        { Bytes: byte array
+          CloseError: exn option }
+
+    let private signal () =
+        TaskCompletionSource<unit>(TaskCreationOptions.RunContinuationsAsynchronously)
+
+    type PeerStream(expected: byte array, script: ReplyScript, release: Task,
+        completeWrite: Task -> CancellationToken -> Task) =
+        inherit MemoryStream()
+
+        let input = new MemoryStream(script.Bytes, false)
+        let readStarted = signal ()
+        let writeStarted = signal ()
+        let writeSettled = signal ()
+        let endRead = signal ()
+        let disposed = signal ()
+
+        let read buffer (cancellation: CancellationToken) =
+            task {
+                readStarted.TrySetResult(()) |> ignore
+                do! release.WaitAsync(cancellation)
+                let! count = input.ReadAsync(buffer, cancellation).AsTask()
+                if count = 0 then
+                    endRead.TrySetResult(()) |> ignore
+                    script.CloseError |> Option.iter raise
+                return count
+            }
+
+        let write (buffer: ReadOnlyMemory<byte>) cancellation : Task =
+            task {
+                try
+                    Assert.True(readStarted.Task.IsCompletedSuccessfully)
+                    Assert.Equal<byte>(expected, buffer.ToArray())
+                    writeStarted.TrySetResult(()) |> ignore
+                    do! completeWrite endRead.Task cancellation
+                finally
+                    writeSettled.TrySetResult(()) |> ignore
+            }
+
+        member _.WriteStarted = writeStarted.Task.IsCompletedSuccessfully
+        member _.WriteSettled = writeSettled.Task.IsCompletedSuccessfully
+        member _.Disposed = disposed.Task.IsCompletedSuccessfully
+
+        override _.ReadAsync(buffer: Memory<byte>, cancellation: CancellationToken) : ValueTask<int> =
+            ValueTask<int>(read buffer cancellation)
+
+        override _.WriteAsync(buffer: ReadOnlyMemory<byte>, cancellation: CancellationToken) : ValueTask =
+            ValueTask(write buffer cancellation)
+
+        override _.Dispose(disposing) =
+            if disposing then
+                input.Dispose()
+                disposed.TrySetResult(()) |> ignore
+            base.Dispose(disposing)
+
+    let scenario () =
+        { Target = target ()
+          First = request ()
+          Second = request ()
+          Issued = signal () }
+
+    let private encode request response =
+        Codec.encodeResponse request response |> ok |> frame
+
+    let reply sample =
+        { Bytes = response sample.Target sample.First |> encode sample.First
+          CloseError = None }
+
+    let invalidReplies sample =
+        let valid = reply sample
+        let expected = response sample.Target sample.First
+        let foreign =
+            { expected with
+                Instance = { expected.Instance with ProcessId = expected.Instance.ProcessId + 1 } }
+        [ Array.empty
+          header 0u
+          Array.append (header 2u) [| 1uy |]
+          response sample.Target sample.Second |> encode sample.Second
+          encode sample.First foreign ]
+        |> List.map (fun bytes -> { valid with Bytes = bytes })
+
+    let stream sample script completeWrite =
+        let first = sample.First |> Codec.encodeRequest |> ok |> frame
+        let second = sample.Second |> Codec.encodeRequest |> ok |> frame
+        new PeerStream(Array.append first second, script, sample.Issued.Task, completeWrite)
+
+    let afterClose error (closed: Task) (cancellation: CancellationToken) : Task =
         task {
-            let target = target ()
+            do! closed.WaitAsync(cancellation)
+            error |> Option.iter raise
+        }
+
+    let immediately (error: exn) (_: Task) (_: CancellationToken) : Task =
+        Task.FromException(error)
+
+    let blocked (_: Task) (cancellation: CancellationToken) : Task =
+        Task.Delay(Timeout.Infinite, cancellation)
+
+    let cancelAfterClose (cancellation: CancellationTokenSource) error
+        (closed: Task) (token: CancellationToken) : Task =
+        task {
+            do! closed.WaitAsync(token)
+            cancellation.Cancel()
+            raise error
+        }
+
+    let run platform sample (pipe: PeerStream) cancellation =
+        task {
+            use owned = pipe
+            return! PipelinedOwnerExchange.observe (fun () ->
+                PipelinedOwnerExchange.exchange platform sample.Target sample.First sample.Second
+                    sample.Issued owned cancellation :> Task)
+        }
+
+    let settled (pipe: PeerStream) =
+        Assert.True(pipe.WriteSettled)
+        Assert.True(pipe.Disposed)
+
+    let check platform sample script completeWrite verify =
+        task {
+            use deadline = new CancellationTokenSource(TimeSpan.FromSeconds 8.0)
+            let pipe = stream sample script completeWrite
+            let! actual = run platform sample pipe deadline.Token
+            settled pipe
+            verify actual
+        }
+
+    let succeeded actual = Assert.Equal<Result<unit, exn>>(Ok (), actual)
+    let failed actual = Assert.True(Result.isError actual)
+    let failedWith error actual = Assert.Equal<Result<unit, exn>>(Error error, actual)
+    let ioFailure (code: int) = IOException("Synthetic owner-pipe IO failure.", code)
+
+module OwnerControlPipePipelineFixtureTests =
+    open PipelinedOwnerExchange
+    open PipelinedOwnerProbe
+
+    let rec private sequentially (checks: (unit -> Task<unit>) list) : Task<unit> =
+        task {
+            match checks with
+            | [] -> ()
+            | next :: remaining ->
+                do! next ()
+                return! sequentially remaining
+        }
+
+    [<Fact>]
+    let ``combined write can remain pending until the reply and EOF are read`` () =
+        task {
+            let sample = scenario ()
+            Assert.NotEqual<string>(sample.First.RequestId, sample.Second.RequestId)
+            do! check Platform.Other sample (reply sample) (afterClose None) succeeded
+        }
+
+    [<Fact>]
+    let ``Windows broken surplus write requires a valid first reply and closure`` () =
+        task {
+            let sample = scenario ()
+            let error = ioFailure brokenPipeHResult
+            do! check Platform.Windows sample (reply sample) (afterClose (Some error)) succeeded
+        }
+
+    [<Fact>]
+    let ``other write faults are preserved whether immediate or after closure`` () =
+        let checkCase (platform: Platform, code: int) () : Task<unit> =
+            task {
+                let sample = scenario ()
+                let error = ioFailure code
+                do! check platform sample (reply sample) (afterClose (Some error)) (failedWith error)
+                do! check platform sample (reply sample) (immediately error) (failedWith error)
+            }
+        [ Platform.Other, brokenPipeHResult
+          Platform.Windows, -2147024664
+          Platform.Windows, -2147024891
+          Platform.Windows, 109 ]
+        |> List.map checkCase
+        |> sequentially
+
+    [<Fact>]
+    let ``broken surplus writes cannot hide absent malformed or uncorrelated replies`` () =
+        task {
+            let sample = scenario ()
+            let error = ioFailure brokenPipeHResult
+            for script in invalidReplies sample do
+                do! check Platform.Windows sample script (afterClose (Some error)) failed
+        }
+
+    [<Fact>]
+    let ``broken first read is not proof of a first reply`` () =
+        task {
+            let sample = scenario ()
+            let error = ioFailure brokenPipeHResult
+            let script = { Bytes = Array.empty; CloseError = Some error }
+            do! check Platform.Windows sample script (immediately error) (failedWith error)
+        }
+
+    [<Fact>]
+    let ``closure faults are restricted to the exact Windows broken pipe result`` () =
+        let broken = ioFailure brokenPipeHResult
+        let unexpected = ioFailure -2147024891
+        let checkCase (platform: Platform, error: IOException, verify: Result<unit, exn> -> unit) () : Task<unit> =
+            task {
+                let sample = scenario ()
+                let script = { reply sample with CloseError = Some error }
+                do! check platform sample script (afterClose None) verify
+            }
+        [ Platform.Windows, broken, succeeded
+          Platform.Other, broken, failedWith broken
+          Platform.Windows, unexpected, failedWith unexpected ]
+        |> List.map checkCase
+        |> sequentially
+
+    [<Fact>]
+    let ``second reply bytes fail and the unfinished write is joined`` () =
+        task {
+            let sample = scenario ()
+            let first = reply sample
+            let script = { first with Bytes = Array.append first.Bytes first.Bytes }
+            do! check Platform.Windows sample script (afterClose None) failed
+        }
+
+module OwnerControlPipePipelineCancellationTests =
+    open OwnerPipeFixture
+    open PipelinedOwnerExchange
+    open PipelinedOwnerProbe
+
+    [<Fact>]
+    let ``pipelined dispatch gate observes cancellation before IO is issued`` () =
+        task {
+            let sample = scenario ()
             let calls = ConcurrentQueue<string>()
-            let written = TaskCompletionSource<unit>(TaskCreationOptions.RunContinuationsAsynchronously)
             use cancellation = new CancellationTokenSource()
-            let pending =
-                PipelinedOwnerExchange.dispatch target calls written (request ()) cancellation.Token
-            Assert.False(pending.IsCompleted)
+            let pending = dispatch sample.Target calls sample.Issued sample.First cancellation.Token
+            let wasPending = not pending.IsCompleted
             cancellation.Cancel()
             let! _ =
                 Assert.ThrowsAnyAsync<OperationCanceledException>(Func<Task>(fun () -> pending :> Task))
-            Assert.Single(calls) |> ignore
+            Assert.True(wasPending)
+            Assert.Equal<string>([| sample.First.RequestId |], calls.ToArray())
+            Assert.False(sample.Issued.Task.IsCompleted)
+        }
+
+    [<Fact>]
+    let ``cancellation disposes the peer and joins pending read and write`` () =
+        task {
+            let sample = scenario ()
+            let unreleased = TaskCompletionSource<unit>(TaskCreationOptions.RunContinuationsAsynchronously)
+            use cancellation = new CancellationTokenSource()
+            let script = reply sample
+            let pipe = new PeerStream(frames sample.First sample.Second, script, unreleased.Task, blocked)
+            let pending = run Platform.Windows sample pipe cancellation.Token
+            let wasWriting = pipe.WriteStarted
+            cancellation.Cancel()
+            let! actual = pending
+            settled pipe
+            Assert.True(wasWriting)
+            failed actual
+            actual |> Result.mapError (fun error ->
+                Assert.IsAssignableFrom<OperationCanceledException>(error) |> ignore) |> ignore
+        }
+
+    [<Fact>]
+    let ``cancellation cannot turn a proven reply and broken write into success`` () =
+        task {
+            let sample = scenario ()
+            use cancellation = new CancellationTokenSource()
+            let error = ioFailure brokenPipeHResult
+            let pipe = stream sample (reply sample) (cancelAfterClose cancellation error)
+            let! actual = run Platform.Windows sample pipe cancellation.Token
+            settled pipe
+            Assert.True(cancellation.IsCancellationRequested)
+            failed actual
         }
 
 module OwnerControlPipeTests =
@@ -274,14 +600,17 @@ module OwnerControlPipeTests =
         task {
             let target = target ()
             let calls = ConcurrentQueue<string>()
-            let written = TaskCompletionSource<unit>(TaskCreationOptions.RunContinuationsAsynchronously)
-            let rig = start target (PipelinedOwnerExchange.dispatch target calls written)
+            let issued = TaskCompletionSource<unit>(TaskCreationOptions.RunContinuationsAsynchronously)
+            let rig = start target (PipelinedOwnerExchange.dispatch target calls issued)
             use run = rig.Run
             use deadline = new CancellationTokenSource(TimeSpan.FromSeconds 8.0)
             do! ready rig
             let first = request ()
-            do! PipelinedOwnerExchange.run target first written deadline.Token
+            do! PipelinedOwnerExchange.run target first issued deadline.Token
             Assert.Equal<string>([| first.RequestId |], calls.ToArray())
+            do! healthy rig deadline.Token
+            Assert.Equal<int>(2, calls.Count)
+            do! stopped run
         }
 
     [<Fact>]

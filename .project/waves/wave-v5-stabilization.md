@@ -100,6 +100,22 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-20 - Profile and full-duplex fixture candidate passes all local gates
+
+- **Changed:** The isolated native-profile helper and full-duplex pipe fixture are complete. A fresh compiler specialist replaces only two problematic resumable loops with deferred, monomorphic sequential checks; it preserves every matrix case, ordering and fault identity without suppression or parallel execution.
+- **Validation:** The solution builds with zero warnings/errors and passes all 2,182 F# cases, zero failures/skips. All 11 profile/actual-child and 26 pipe-focused cases pass locally. Exact native collection retains five assemblies at 14,683/17,126 lines (85.7351%) and 15,258/24,668 branches (61.8534%) while passing 297 Servicing/model cases and unchanged 85/60 gates.
+- **Review:** Independent fixture source approval retains all first-response/identity/exact-dispatch/closure and cancellation-settlement requirements. The profile fix changes only owned temporary directories and child environment; production admission and pipe semantics remain unchanged.
+- **Blockers:** Actual Windows must verify the known-folder and pipe corrections. Installed-native/MSI acceptance and main merge remain gated; strict legacy repair remains disabled.
+- **Next:** Push the clean fixture candidate and run the complete Windows/macOS acceptance graph.
+
+### 2026-10-20 - Native profile cause is confirmed; pipe compiler issue is escalated
+
+- **Evidence:** Hosted run `39411699226` proves the pipe/pool changes removed all drain failures, while eight children report the exact numeric cause `Composition / KnownFolder / EmptyKnownFolder`. Windows Servicing/model 297, Setup 456, Control 48 and Tray 319 pass; the Mac job remains green.
+- **Changed:** Both child launchers now share a helper that materialises only their owned synthetic Local/Roaming folders and matching child environment. A separate pipe-fixture revision uses concurrent read/write issuance rather than waiting for surplus-write completion; production admission and pipe code are unchanged.
+- **Validation:** All 11 profile/actual-child cases pass locally. Independent source review approves both fixture revisions. The pipe matrix remains unexecuted because two FS3511 compiler warnings persist after the original author's three focused attempts.
+- **Blockers:** A fresh specialist owns the narrow static-compilation correction. No suppression, timeout increase, assertion weakening or unpublished-build success is claimed. Windows and installed/native acceptance still gate merge.
+- **Next:** Obtain a warning-free fixture build, execute the local matrix and rerun the real Windows gate.
+
 ### 2026-10-20 - Typed startup evidence preserves admission and passes independent review
 
 - **Changed:** Added a first-failure capture with fixed numeric fields to current-user composition and existing native path/gate operations. Immediate native error capture and a path-free line identify the failing operation without new probes, caller callbacks or changed admission decisions. The F# adapter preserves its first marker and exit 78 and emits evidence only afterward for Unavailable.

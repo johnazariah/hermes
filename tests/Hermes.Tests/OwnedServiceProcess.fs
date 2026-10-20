@@ -88,8 +88,7 @@ let private environment (info: ProcessStartInfo) paths =
     info.Environment.["HERMES_PORT"] <- string paths.Port
     info.Environment.["HERMES_ALLOWED_ORIGINS"] <- ""
     info.Environment.["HERMES_MCP_MUTATIONS"] <- "false"
-    info.Environment.["HOME"] <- paths.Root
-    info.Environment.["USERPROFILE"] <- paths.Root
+    SyntheticChildProfile.configure info paths.Root
     info.Environment.["DOTNET_DbgEnableMiniDump"] <- "0"
     [ "HERMES_MCP_TOKEN"; "HERMES_GOOGLE_CREDENTIALS"; "HERMES_GOOGLE_CREDENTIALS_FILE" ]
     |> List.iter (fun name -> info.Environment.Remove(name) |> ignore)
