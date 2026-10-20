@@ -2,20 +2,13 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# Literal supplied by the language author, bound to both immutable source blobs.
-# A mismatch is a stop, not permission to derive or merge a different allowlist.
+# Preserve the original observation's immutable source binding, not a new contract.
+# This temporary fetch bit neither changes an allowlist nor establishes a failure origin.
 $script:tableSourceCommit = '5b06889943baf695492c651725822be7c336f352'
 $script:tableSourceHashes = [ordered]@{
     'installer/windows/Hermes.Setup/PackageAuthoringValidator.cs' = '918c41734bc05dcf58b537c51f8cdb696a2fc8f8b1ef9efc996cefb622c6ee39'
     'installer/windows/Hermes.Setup/PackageAuthoringSnapshot.cs' = '4373ad8e6cc1622054f5842b6dfdee90dc69960114c026be29f0fcece9e199c6'
 }
-$script:allowedTableNames = @(
-    'AdminExecuteSequence', 'AdminUISequence', 'AdvtExecuteSequence', 'AppSearch', 'Binary',
-    'Component', 'Condition', 'CreateFolder', 'CustomAction', 'Directory', 'Error', 'Feature',
-    'FeatureComponents', 'File', 'Icon', 'InstallExecuteSequence', 'InstallUISequence',
-    'LaunchCondition', 'Media', 'MsiDigitalCertificate', 'MsiDigitalSignature', 'MsiFileHash',
-    'Property', 'RegLocator', 'Registry', 'RemoveFile', 'RemoveRegistry', 'Shortcut', 'Upgrade', '_Validation'
-)
 
 function Get-HermesTableSourceBinding([string]$RepositoryRoot) {
     $matches = $true
@@ -27,25 +20,6 @@ function Get-HermesTableSourceBinding([string]$RepositoryRoot) {
         }
     }
     [ordered]@{ commit = $script:tableSourceCommit; files = $script:tableSourceHashes; matches = $matches }
-}
-
-function Get-HermesTablePredicate([AllowEmptyCollection()][object[]]$Names) {
-    $observed = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-    $allowed = [Collections.Generic.HashSet[string]]::new([string[]]$script:allowedTableNames, [StringComparer]::Ordinal)
-    if ($Names.Count -gt 1024) { throw 'TableObservationRowBound' }
-    foreach ($name in $Names) {
-        if ($name -isnot [string] -or $name -cnotmatch '\A[A-Za-z_][A-Za-z0-9_.]{0,71}\z') {
-            throw 'TableObservationNameBound'
-        }
-        [void]$observed.Add($name)
-    }
-    [string[]]$unmatched = @($observed | Where-Object { -not $allowed.Contains($_) })
-    [Array]::Sort($unmatched, [StringComparer]::Ordinal)
-    $countValid = $observed.Count -ge 1 -and $observed.Count -le 128
-    [ordered]@{
-        observedCount = $observed.Count; countValid = $countValid
-        unmatchedNames = $unmatched; predicate = $countValid -and $unmatched.Count -eq 0
-    }
 }
 
 function Get-HermesTableReceiptHash($Receipt, $Identity) {
@@ -60,52 +34,48 @@ function Get-HermesTableReceiptHash($Receipt, $Identity) {
 
 function New-HermesTableInstaller { New-Object -ComObject WindowsInstaller.Installer }
 
-function Get-HermesTableRecordName($Record) {
-    $Record.GetType().InvokeMember('StringData', [Reflection.BindingFlags]::GetProperty, $null, $Record, @(1))
-}
-
 function Close-HermesTableCom($Item) {
     if ($null -ne $Item -and [Runtime.InteropServices.Marshal]::IsComObject($Item)) {
         [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($Item)
     }
 }
 
-function Read-HermesNativeTableNames([string]$PackagePath) {
-    $installer = $null; $database = $null; $view = $null
-    $names = [Collections.Generic.List[object]]::new()
+function Read-HermesNativeSignatureEmpty([string]$PackagePath) {
+    $installer = $null; $database = $null; $view = $null; $record = $null
+    $result = [ordered]@{
+        querySuccess = $false; fetchSuccess = $false
+        nativeQueryFailureCode = $null; nativeQueryFailureKind = $null; isEmpty = $null
+    }
     $phase = 'CreateInstaller'
     try {
         $installer = New-HermesTableInstaller
         $phase = 'OpenDatabase'
         $database = $installer.OpenDatabase($PackagePath, 0)
         $phase = 'OpenView'
-        $view = $database.OpenView('SELECT `Name` FROM `_Tables`')
+        $view = $database.OpenView('SELECT `Signature` FROM `Signature`')
         $phase = 'Execute'
         [void]$view.Execute()
+        $result.querySuccess = $true
         $phase = 'Fetch'
-        while ($null -ne ($record = $view.Fetch())) {
-            try {
-                if ($names.Count -ge 1024) { throw 'TableObservationRowBound' }
-                $names.Add((Get-HermesTableRecordName $record))
-            } finally { Close-HermesTableCom $record }
-        }
+        # COM Fetch returns null for no rows (the native API uses ERROR_NO_MORE_ITEMS).
+        # Never read, convert, enumerate or emit a returned record.
+        $record = $view.Fetch()
+        $result.fetchSuccess = $true
         $phase = 'CloseView'
         [void]$view.Close()
-        # Validate names before they can enter the bounded evidence surface.
-        $phase = 'Parse'
-        $predicate = Get-HermesTablePredicate $names.ToArray()
-        [ordered]@{ querySuccess = $true; nativeQueryFailureCode = $null; nativeQueryFailureKind = $null; facts = $predicate }
+        $result.isEmpty = $null -eq $record
     } catch {
         $errorObject = $_.Exception
         while ($null -ne $errorObject.InnerException -and $errorObject -isnot [Runtime.InteropServices.COMException]) {
             $errorObject = $errorObject.InnerException
         }
         $code = if ($errorObject -is [Runtime.InteropServices.COMException]) { $errorObject.HResult } else { $null }
-        $kind = if ($null -ne $code) { "$phase/COMException" } else { "$phase/ObservationFailure" }
-        [ordered]@{ querySuccess = $false; nativeQueryFailureCode = $code; nativeQueryFailureKind = $kind; facts = $null }
+        $result.nativeQueryFailureCode = $code
+        $result.nativeQueryFailureKind = if ($null -ne $code) { "$phase/HResult" } else { "$phase/ObservationFailure" }
     } finally {
-        foreach ($item in @($view, $database, $installer)) { Close-HermesTableCom $item }
+        foreach ($item in @($record, $view, $database, $installer)) { Close-HermesTableCom $item }
     }
+    $result
 }
 
 function Invoke-HermesPublishedTableObservation {
@@ -124,9 +94,9 @@ function Invoke-HermesPublishedTableObservation {
 function Invoke-HermesBoundTableObservation([string]$PublishedDirectory, [string]$RepositoryRoot) {
     $result = [ordered]@{
         sourceCommitBinding = [ordered]@{ commit = $script:tableSourceCommit; files = $script:tableSourceHashes; matches = $false }
-        packageHashMatch = $false; querySuccess = $false
+        packageHashMatch = $false; querySuccess = $false; fetchSuccess = $false
         nativeQueryFailureCode = $null; nativeQueryFailureKind = $null
-        observedCount = $null; countValid = $false; unmatchedNames = @(); predicate = $false
+        isEmpty = $null
     }
     $leases = [Collections.Generic.List[IO.FileStream]]::new()
     try {
@@ -147,19 +117,21 @@ function Invoke-HermesBoundTableObservation([string]$PublishedDirectory, [string
         $expected = Get-HermesTableReceiptHash $receipt $identity
         $result.packageHashMatch = (Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $expected
         if (-not $result.packageHashMatch) { return $result }
-        $observation = Read-HermesNativeTableNames $package
+        $observation = Read-HermesNativeSignatureEmpty $package
         $result.querySuccess = $observation.querySuccess
+        $result.fetchSuccess = $observation.fetchSuccess
         $result.nativeQueryFailureCode = $observation.nativeQueryFailureCode
         $result.nativeQueryFailureKind = $observation.nativeQueryFailureKind
         $result.sourceCommitBinding = Get-HermesTableSourceBinding $RepositoryRoot
         $result.packageHashMatch = (Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $expected
-        if ($result.sourceCommitBinding.matches -and $result.packageHashMatch -and $observation.querySuccess) {
-            foreach ($key in @('observedCount', 'countValid', 'unmatchedNames', 'predicate')) { $result[$key] = $observation.facts[$key] }
+        if ($result.sourceCommitBinding.matches -and $result.packageHashMatch -and $observation.querySuccess `
+            -and $observation.fetchSuccess -and $null -eq $observation.nativeQueryFailureKind) {
+            $result.isEmpty = $observation.isEmpty
         }
     } catch {
         # Binding/I/O failures must never disclose paths, receipt content or exception messages.
         $result.packageHashMatch = $false
-        $result.predicate = $false
+        $result.isEmpty = $null
     } finally { foreach ($lease in $leases) { $lease.Dispose() } }
     $result
 }

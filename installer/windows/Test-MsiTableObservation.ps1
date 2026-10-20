@@ -18,38 +18,22 @@ try {
         }
         Require ((Get-HermesTableSourceBinding $repository).matches) 'Immutable source hashes differ.'
         Require (-not (Get-HermesTableSourceBinding $fixture).matches) 'Missing source must refuse.'
-        Require ($script:allowedTableNames.Count -eq 30) 'The authorised literal has exactly 30 keys.'
-        $authorised = '["AdminExecuteSequence","AdminUISequence","AdvtExecuteSequence","AppSearch","Binary","Component","Condition","CreateFolder","CustomAction","Directory","Error","Feature","FeatureComponents","File","Icon","InstallExecuteSequence","InstallUISequence","LaunchCondition","Media","MsiDigitalCertificate","MsiDigitalSignature","MsiFileHash","Property","RegLocator","Registry","RemoveFile","RemoveRegistry","Shortcut","Upgrade","_Validation"]'
-        Require (($script:allowedTableNames | ConvertTo-Json -Compress) -ceq $authorised) 'Do not expand or normalise the language-authorised literal.'
-        Require ((Get-HermesTablePredicate $script:allowedTableNames).predicate) 'Every authorised key must match.'
-        $zero = Get-HermesTablePredicate @()
-        Require ($zero.observedCount -eq 0 -and -not $zero.countValid -and -not $zero.predicate) 'Zero is outside the count bound.'
-        $one = Get-HermesTablePredicate @('File')
-        Require ($one.observedCount -eq 1 -and $one.countValid -and $one.predicate) 'A single allowed table is sufficient.'
-        $duplicates = Get-HermesTablePredicate @('File', 'File', 'File')
-        Require ($duplicates.observedCount -eq 1 -and $duplicates.predicate) 'Count observed unique names, not rows or allowed keys.'
-        foreach ($count in @(128, 129)) {
-            $names = @(1..$count | ForEach-Object { "Unknown$_" })
-            $value = Get-HermesTablePredicate $names
-            Require ($value.observedCount -eq $count -and $value.countValid -eq ($count -eq 128) -and -not $value.predicate) 'The upper count bound is inclusive.'
-        }
-        $case = Get-HermesTablePredicate @('File', 'file', 'FILE', 'file', '_validation', '_Validation', 'Zeta', 'alpha')
-        Require ($case.observedCount -eq 7 -and ($case.unmatchedNames -join '|') -ceq 'FILE|Zeta|_validation|alpha|file') 'Membership and unmatched sorting must be ordinal.'
-        foreach ($invalid in @(' File', 'File ', '', "File`nSECRET", ('x' * 73))) {
-            Refuse { Get-HermesTablePredicate @($invalid) }
-        }
-        Refuse { Get-HermesTablePredicate @($null) }
-        Refuse { Get-HermesTablePredicate @(1..1025 | ForEach-Object { 'File' }) }
-
-        $script:fakeNames = @('File', 'file', 'File')
+        $script:empty = $true
         $script:failurePhase = ''
-        $script:fetchIndex = 0
         $script:opened = 0
         $script:released = 0
-        $script:query = ''
+        $script:releasedRecords = 0
+        $script:fetches = 0
+        $script:queries = [Collections.Generic.List[string]]::new()
         $script:mode = -1
+        $script:fakeRecord = [pscustomobject]@{}
+        $script:fakeRecord | Add-Member ScriptProperty StringData { throw 'PRIVATE row identifier must never be read' }
+        $script:fakeRecord | Add-Member ScriptMethod ToString { throw 'PRIVATE row contents must never be converted' } -Force
         function script:New-HermesTableInstaller {
             $script:opened++
+            if ($script:failurePhase -ceq 'CreateInstaller') {
+                throw [Runtime.InteropServices.COMException]::new('PRIVATE COM creation', -2147467259)
+            }
             $installer = [pscustomobject]@{}
             $installer | Add-Member ScriptMethod OpenDatabase {
                 param($path, $mode)
@@ -60,7 +44,10 @@ try {
                 $database = [pscustomobject]@{}
                 $database | Add-Member ScriptMethod OpenView {
                     param($query)
-                    $script:query = $query
+                    $script:queries.Add($query)
+                    if ($script:failurePhase -ceq 'OpenView') {
+                        throw [Runtime.InteropServices.COMException]::new('PRIVATE query text', -2147467259)
+                    }
                     $view = [pscustomobject]@{}
                     $view | Add-Member ScriptMethod Execute {
                         if ($script:failurePhase -ceq 'Execute') {
@@ -68,56 +55,69 @@ try {
                         }
                     }
                     $view | Add-Member ScriptMethod Fetch {
-                        if ($script:failurePhase -ceq 'Fetch' -and $script:fetchIndex -ge 1) {
-                            throw [Runtime.InteropServices.COMException]::new('PRIVATE after partial rows', -2147467259)
+                        $script:fetches++
+                        if ($script:fetches -ne 1) { throw 'A second fetch is forbidden.' }
+                        if ($script:failurePhase -ceq 'Fetch') {
+                            throw [Runtime.InteropServices.COMException]::new('PRIVATE fetch details', -2147467259)
                         }
-                        if ($script:fetchIndex -lt $script:fakeNames.Count) {
-                            $value = $script:fakeNames[$script:fetchIndex]
-                            $script:fetchIndex++
-                            return [pscustomobject]@{ name = $value }
+                        if ($script:failurePhase -ceq 'FetchNoMoreItemsHResult') {
+                            throw [Runtime.InteropServices.COMException]::new('PRIVATE fetch HRESULT', -2147024637)
                         }
-                        return $null
+                        if ($script:failurePhase -ceq 'NonComFetch') { throw 'PRIVATE non-COM details' }
+                        if ($script:empty) { return $null }
+                        return $script:fakeRecord
                     }
-                    $view | Add-Member ScriptMethod Close {}
+                    $view | Add-Member ScriptMethod Close {
+                        if ($script:failurePhase -ceq 'CloseView') {
+                            throw [Runtime.InteropServices.COMException]::new('PRIVATE close details', -2147467259)
+                        }
+                    }
                     $view
                 }
                 $database
             }
             $installer
         }
-        function script:Get-HermesTableRecordName($Record) { $Record.name }
-        function script:Close-HermesTableCom($Item) { if ($null -ne $Item) { $script:released++ } }
-        $native = Read-HermesNativeTableNames 'SYNTHETIC not an MSI'
-        Require ($native.querySuccess -and $native.facts.observedCount -eq 2 -and $native.facts.unmatchedNames[0] -ceq 'file') 'The real reader must use the real unique ordinal predicate.'
-        Require ($script:mode -eq 0 -and $script:query -ceq 'SELECT `Name` FROM `_Tables`' -and $script:released -eq 6) 'One read-only query must release all handles and records.'
-        foreach ($phase in @('OpenDatabase', 'Execute', 'Fetch')) {
-            $script:fetchIndex = 0
+        function script:Close-HermesTableCom($Item) {
+            if ($null -ne $Item) { $script:released++ }
+            if ([Object]::ReferenceEquals($Item, $script:fakeRecord)) { $script:releasedRecords++ }
+        }
+        foreach ($empty in @($true, $false)) {
+            $script:empty = $empty
+            $script:fetches = 0
+            $script:queries.Clear()
+            $script:released = 0
+            $script:releasedRecords = 0
+            $native = Read-HermesNativeSignatureEmpty 'SYNTHETIC not an MSI'
+            Require ($native.querySuccess -and $native.fetchSuccess -and $native.isEmpty -eq $empty `
+                -and $null -eq $native.nativeQueryFailureCode -and $null -eq $native.nativeQueryFailureKind) 'Null COM record means empty; a record means nonempty.'
+            Require ($script:mode -eq 0 -and $script:queries.Count -eq 1 -and $script:queries[0] -ceq 'SELECT `Signature` FROM `Signature`' `
+                -and $script:fetches -eq 1) 'Use exactly the selected read-only query and one fetch.'
+            $expectedReleases = if ($empty) { 3 } else { 4 }
+            Require ($script:released -eq $expectedReleases -and $script:releasedRecords -eq [int](-not $empty)) 'Release every COM handle, including an unread returned record.'
+            Require (($native | ConvertTo-Json -Depth 8) -cnotmatch 'PRIVATE|SYNTHETIC|StringData') 'No record contents or input paths may escape.'
+        }
+        foreach ($phase in @('CreateInstaller', 'OpenDatabase', 'OpenView', 'Execute', 'Fetch', 'CloseView', 'NonComFetch', 'FetchNoMoreItemsHResult')) {
+            $script:fetches = 0
             $script:failurePhase = $phase
-            $native = Read-HermesNativeTableNames 'SYNTHETIC not an MSI'
-            Require (-not $native.querySuccess -and $null -eq $native.facts -and $native.nativeQueryFailureKind -ceq "$phase/COMException") 'Native failure must not become an empty successful inventory.'
-            $expectedCode = if ($phase -ceq 'Execute') { -2147352567 } else { -2147467259 }
-            Require ($native.nativeQueryFailureCode -eq $expectedCode) 'Retain the actual native HRESULT.'
+            $script:releasedRecords = 0
+            $native = Read-HermesNativeSignatureEmpty 'SYNTHETIC not an MSI'
+            Require ($null -eq $native.isEmpty) 'Every failed observation leaves emptiness unknown.'
+            $querySucceeded = $phase -cin @('Fetch', 'CloseView', 'NonComFetch', 'FetchNoMoreItemsHResult')
+            Require ($native.querySuccess -eq $querySucceeded -and $native.fetchSuccess -eq ($phase -ceq 'CloseView')) 'Preserve query and fetch status independently.'
+            if ($phase -ceq 'NonComFetch') {
+                Require ($null -eq $native.nativeQueryFailureCode -and $native.nativeQueryFailureKind -ceq 'Fetch/ObservationFailure') 'Never invent a native HRESULT for non-COM failure.'
+            } else {
+                $expectedCode = switch ($phase) { Execute { -2147352567 }; FetchNoMoreItemsHResult { -2147024637 }; default { -2147467259 } }
+                $failurePhase = if ($phase -ceq 'FetchNoMoreItemsHResult') { 'Fetch' } else { $phase }
+                Require ($native.nativeQueryFailureCode -eq $expectedCode -and $native.nativeQueryFailureKind -ceq "$failurePhase/HResult") 'Retain the actual COM HRESULT and failure phase; only a null record, never an exception, means empty.'
+            }
+            if ($phase -ceq 'CloseView') { Require ($script:releasedRecords -eq 1) 'Release the unread record even when closing fails.' }
             Require (($native | ConvertTo-Json -Depth 8) -cnotmatch 'PRIVATE|SYNTHETIC') 'Native messages and paths must not escape.'
         }
         $script:failurePhase = ''
-        foreach ($count in @(0, 1, 128, 129, 1025)) {
-            $script:fetchIndex = 0
-            $script:fakeNames = @(for ($index = 0; $index -lt $count; $index++) { "Unknown$index" })
-            $native = Read-HermesNativeTableNames 'SYNTHETIC not an MSI'
-            if ($count -le 1024) {
-                Require ($native.querySuccess -and $native.facts.observedCount -eq $count -and -not $native.facts.predicate) 'The actual reader must preserve observed count boundaries.'
-                Require ($native.facts.countValid -eq ($count -ge 1 -and $count -le 128)) 'The reader must apply the inclusive count predicate.'
-            } else {
-                Require (-not $native.querySuccess -and $null -eq $native.facts -and $null -eq $native.nativeQueryFailureCode) 'An oversized native observation must fail, not truncate.'
-            }
-        }
-        $script:fetchIndex = 0
-        $script:fakeNames = @('File', "PRIVATE`nowner-path")
-        $native = Read-HermesNativeTableNames 'SYNTHETIC not an MSI'
-        Require (-not $native.querySuccess -and $null -eq $native.facts -and $null -eq $native.nativeQueryFailureCode) 'Malformed names fail closed without inventing a native code.'
-        Require (($native | ConvertTo-Json -Depth 8) -cnotmatch 'PRIVATE|owner-path') 'Malformed names must not leak.'
-        $script:fetchIndex = 0
-        $script:fakeNames = @('File')
+        $script:empty = $true
+        $script:fetches = 0
         [IO.File]::WriteAllText((Join-Path $fixture 'Hermes.Installer.msi'), 'SYNTHETIC inert bytes, never opened by COM')
         $expected = (Get-FileHash -LiteralPath (Join-Path $fixture 'Hermes.Installer.msi') -Algorithm SHA256).Hash.ToLowerInvariant()
         $receipt = @{
@@ -130,14 +130,21 @@ try {
         $identityPath = Join-Path $fixture 'generated/build-identity.json'
         $receipt | ConvertTo-Json | Set-Content -LiteralPath $receiptPath
         $identity | ConvertTo-Json | Set-Content -LiteralPath $identityPath
-        $bound = Invoke-HermesBoundTableObservation $fixture $repository
-        Require ($bound.sourceCommitBinding.matches -and $bound.packageHashMatch -and $bound.querySuccess -and $bound.predicate) 'Valid receipt/source bindings reach exactly the selected observation.'
-        Require ((Get-FileHash -LiteralPath (Join-Path $fixture 'Hermes.Installer.msi') -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $expected) 'Read-only observation must retain package bytes.'
-        Require ($bound.Keys.Count -eq 9 -and ($bound | ConvertTo-Json -Depth 8) -cnotmatch 'SYNTHETIC|obj/|PRIVATE|productCode|packageCode') 'Output contains only the bounded approved fields.'
+        foreach ($empty in @($true, $false)) {
+            $script:empty = $empty
+            $script:fetches = 0
+            $bound = Invoke-HermesBoundTableObservation $fixture $repository
+            Require ($bound.sourceCommitBinding.matches -and $bound.packageHashMatch -and $bound.querySuccess `
+                -and $bound.fetchSuccess -and $bound.isEmpty -eq $empty) 'Bindings must retain both possible fetch bits.'
+            Require ((Get-FileHash -LiteralPath (Join-Path $fixture 'Hermes.Installer.msi') -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $expected) 'Retain the package bytes.'
+            Require (($bound.Keys -join '|') -ceq 'sourceCommitBinding|packageHashMatch|querySuccess|fetchSuccess|nativeQueryFailureCode|nativeQueryFailureKind|isEmpty') 'Only approved binding, status and emptiness fields may be emitted.'
+            $json = $bound | ConvertTo-Json -Depth 8
+            Require ([Text.Encoding]::UTF8.GetByteCount($json) -le 128KB -and $json -cnotmatch 'SYNTHETIC|obj/|PRIVATE|productCode|packageCode|StringData') 'Keep output bounded and private.'
+        }
         $opened = $script:opened
         $mismatch = Invoke-HermesBoundTableObservation $fixture $fixture
-        Require (-not $mismatch.sourceCommitBinding.matches -and -not $mismatch.querySuccess -and -not $mismatch.predicate -and $null -eq $mismatch.observedCount) 'Source mismatch must refuse without fabricated counts.'
-        Require ($script:opened -eq $opened) 'Source mismatch must not open the MSI.'
+        Require (-not $mismatch.sourceCommitBinding.matches -and -not $mismatch.querySuccess -and -not $mismatch.fetchSuccess `
+            -and $null -eq $mismatch.isEmpty -and $script:opened -eq $opened) 'Missing source must stop before querying.'
         function script:Get-FileHash {
             param([string]$LiteralPath, [string]$Algorithm)
             [pscustomobject]@{ Hash = '0' * 64 }
@@ -145,7 +152,7 @@ try {
         try {
             $mismatch = Invoke-HermesBoundTableObservation $fixture $repository
             Require (-not $mismatch.sourceCommitBinding.matches -and -not $mismatch.querySuccess `
-                -and -not $mismatch.predicate -and $script:opened -eq $opened) 'Different existing source hashes must stop before querying.'
+                -and $null -eq $mismatch.isEmpty -and $script:opened -eq $opened) 'Different source hashes must stop before querying.'
         } finally { Remove-Item Function:Get-FileHash }
         foreach ($change in @('hash', 'identity', 'version', 'native-exit', 'receipt-size', 'invalid-json')) {
             $changed = $receipt.Clone()
@@ -160,26 +167,27 @@ try {
             if ($change -ceq 'invalid-json') { $text = '{"PRIVATE owner-path":' }
             [IO.File]::WriteAllText($receiptPath, $text)
             $mismatch = Invoke-HermesBoundTableObservation $fixture $repository
-            Require (-not $mismatch.packageHashMatch -and -not $mismatch.querySuccess -and -not $mismatch.predicate -and $null -eq $mismatch.observedCount) 'Receipt mismatch must stop, without fabricated observations.'
-            Require ($script:opened -eq $opened) 'Receipt mismatch must not open the MSI.'
+            Require (-not $mismatch.packageHashMatch -and -not $mismatch.querySuccess -and -not $mismatch.fetchSuccess `
+                -and $null -eq $mismatch.isEmpty -and $script:opened -eq $opened) 'Receipt mismatch must stop without inventing emptiness.'
             Require (($mismatch | ConvertTo-Json -Depth 8) -cnotmatch 'PRIVATE|owner-path|SYNTHETIC') 'Binding failures must not leak input.'
         }
         $receipt | ConvertTo-Json | Set-Content -LiteralPath $receiptPath
         [IO.File]::WriteAllText((Join-Path $fixture 'Hermes.Installer.msi'), 'PRIVATE changed candidate bytes')
         $mismatch = Invoke-HermesBoundTableObservation $fixture $repository
-        Require (-not $mismatch.packageHashMatch -and -not $mismatch.querySuccess -and -not $mismatch.predicate `
-            -and $script:opened -eq $opened) 'Changed MSI bytes must not be adopted as their own expected hash.'
+        Require (-not $mismatch.packageHashMatch -and -not $mismatch.querySuccess -and $null -eq $mismatch.isEmpty `
+            -and $script:opened -eq $opened) 'Changed MSI bytes cannot supply their own expected hash.'
         Require (($mismatch | ConvertTo-Json -Depth 8) -cnotmatch 'PRIVATE|candidate bytes') 'Changed MSI bytes must not leak.'
         [IO.File]::WriteAllText((Join-Path $fixture 'Hermes.Installer.msi'), 'SYNTHETIC inert bytes, never opened by COM')
-        $script:failurePhase = 'Execute'
+        $script:failurePhase = 'Fetch'
+        $script:fetches = 0
         $bound = Invoke-HermesBoundTableObservation $fixture $repository
-        Require ($bound.sourceCommitBinding.matches -and $bound.packageHashMatch -and -not $bound.querySuccess `
-            -and $null -eq $bound.observedCount -and -not $bound.countValid -and -not $bound.predicate `
-            -and $bound.nativeQueryFailureCode -eq -2147352567) 'The final envelope must retain a real native failure without inventing inventory.'
+        Require ($bound.sourceCommitBinding.matches -and $bound.packageHashMatch -and $bound.querySuccess -and -not $bound.fetchSuccess `
+            -and $null -eq $bound.isEmpty -and $bound.nativeQueryFailureCode -eq -2147467259 `
+            -and $bound.nativeQueryFailureKind -ceq 'Fetch/HResult') 'The final envelope must preserve a native fetch failure as unknown, not empty.'
         if (-not $IsWindows) { Refuse { Invoke-HermesPublishedTableObservation $fixture $repository } }
     } $repository $fixture
 } finally {
     Remove-Module $module.Name -Force
     Remove-Item -LiteralPath $fixture -Recurse -Force
 }
-Write-Output 'Source-bound table-inventory parser/predicate controls passed; synthetic fakes only, no COM, MSI, install or profile action.'
+Write-Output 'Source/package-bound Signature empty/nonempty/failure/privacy controls passed; synthetic fakes only, no COM, MSI, install or profile action.'

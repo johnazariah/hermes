@@ -2,6 +2,23 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## One native fetch will establish Signature emptiness
+
+The prior receipt/source-bound inventory query succeeds with 24 tables and
+only `Signature` unmatched. It proves a sufficient closed-inventory rejection,
+not whether that table contains file-search recipes.
+
+The reviewed three-file continuation changes only the observation to one
+read-only `Signature` query and exactly one COM fetch. Clean null means empty;
+a record means nonempty and is released without reading content. Query,
+fetch or close failures retain the real error and leave the bit unknown.
+Source/package bindings, held leases and the terminal pre-fixture stop remain.
+
+Independent review executes the empty/nonempty and failure/privacy controls
+with no blockers. Parent passes the warning-free root build, 2,182 Core cases
+and complete static controls. No C# allowance is added before the actual bit.
+The temporary probe still must be removed after that result.
+
 ## One source-bound compiled table predicate is observed read-only
 
 The temporary four-file probe is independently reviewed with no blocking

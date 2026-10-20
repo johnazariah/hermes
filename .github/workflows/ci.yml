@@ -272,10 +272,9 @@ jobs:
           $trust = $servicing.approvedGuardSha256.Replace(';', '%3B')
           dotnet test tests/Hermes.Servicing.WindowsTests/Hermes.Servicing.WindowsTests.csproj -c Release "-p:HermesApprovedGuardSha256=$trust"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      # Temporary single-predicate observation, deliberately blocking all lifecycle work.
-      # Rejection establishes this strict predicate only, not which refusal ran first.
-      # Success eliminates only this predicate; it is not media acceptance.
-      - name: Observe published MSI table inventory read-only and stop before lifecycle
+      # Temporary one-bit observation, deliberately blocking all lifecycle work.
+      # Empty/nonempty Signature evidence is not media acceptance or a failure origin.
+      - name: Observe published MSI Signature emptiness read-only and stop before lifecycle
         shell: pwsh
         run: |
           ./installer/windows/Test-MsiTableObservation.ps1

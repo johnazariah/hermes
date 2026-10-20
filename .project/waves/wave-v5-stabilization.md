@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Selected observation narrows to Signature emptiness only
+
+- **Actual fact:** The first bounded native query finds 24 tables, matching source/receipt hashes, with only Signature outside the strict C# inventory. Table presence does not prove emptiness.
+- **Changed:** The reviewed three-file seam now makes one read-only query/fetch for the empty/nonempty bit. It never reads record contents; failures, including close failures, remain unknown rather than inferred empty.
+- **Validation:** Independent source review and executed controls pass without blockers. Parent passes warning-free root build, 2,182 Core and all static controls. Conservative CloseView handling stays unchanged.
+- **Boundary:** No C# table allowance or install attempt is made. The existing source/package binding and pre-fixture terminal stop remain intact.
+- **Next:** Publish one exact-head fetch, consume only that bit, remove the temporary stop and base the strict media correction on its actual result.
+
 ### 2026-10-21 - Temporary read-only candidate table observation is approved
 
 - **Scope:** A single source/hash-bound native `_Tables.Name` query will test the exact C# closed-inventory count/membership predicate on the published 0.1.0 MSI. No contents, binary or owner paths are emitted.
