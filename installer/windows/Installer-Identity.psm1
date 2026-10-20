@@ -56,7 +56,7 @@ function Get-HermesMsiIdentity {
             $record = $null
             try {
                 $view = $database.OpenView("SELECT ``Value`` FROM ``Property`` WHERE ``Property``='$name'")
-                $view.Execute()
+                [void]$view.Execute()
                 $record = $view.Fetch()
                 if ($null -eq $record) { throw "Missing MSI identity property: $name" }
                 $properties[$name] = $record.GetType().InvokeMember('StringData', [Reflection.BindingFlags]::GetProperty,

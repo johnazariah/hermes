@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - MSI row helper output is isolated from bookkeeping results
+
+- **Evidence:** Hosted run `39443249566` reports exactly `ProductCode: rows=3`, not a proven GUID mismatch. All platform, payload and native-kernel gates remain green.
+- **Changed:** The MSI row helper explicitly discards `Execute`/`Close` bookkeeping output; the related identity reader discards `Execute` output too. Returned rows, strict cardinality/value checks and all finalisation/ICE requirements remain unchanged; exceptions are not suppressed.
+- **Validation:** Synthetic pipeline controls reproduce the three-output symptom, preserve exactly one row after suppression and prove query exceptions still fail. Static contracts require the actual casts. All 22 payload and 28 adverse controls pass. The solution builds without warnings/errors and all 2,182 F# cases pass.
+- **Blockers:** The next Windows run must confirm actual COM row output and continue through finalisation, ICE and the complete installed lifecycle. No package is promoted and main stays gated.
+- **Next:** Publish row-only automation output and exercise the real Windows finalisation again.
+
 ### 2026-10-21 - MSI identity disagreement is isolated to its property comparison
 
 - **Evidence:** Hosted run `39437427176` preserves all passing platform, payload and native-kernel gates. Visible finalisation output now identifies the strict built-MSI product-property comparison as the failure, before summary finalisation or ICE validation.

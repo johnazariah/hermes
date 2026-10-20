@@ -2,6 +2,22 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## MSI query helpers emit only their records
+
+Hosted run `39443249566` narrows the finalisation failure to
+`ProductCode: rows=3`, before value comparison. The row helper has two
+unsuppressed bookkeeping calls surrounding its single record output.
+`Execute` and `Close` results are now explicitly discarded; the related
+identity reader also discards `Execute` output. Query exceptions still
+propagate, and uniqueness/value/component/summary checks remain unchanged.
+
+Synthetic pipeline controls reproduce three outputs with noisy bookkeeping,
+then prove one unchanged row when those results are discarded. A throwing
+query remains a failure. Static controls enforce the same casts in the actual
+helper. All 22 payload and 28 adverse controls pass; the normal solution builds
+warning-free and passes all 2,182 F# cases. Windows must still confirm the real
+COM helper's row cardinality and complete finalisation/ICE/lifecycle sequence.
+
 ## Finalisation comparison evidence
 
 Hosted run `39437427176` exposes the previously hidden failure: the built MSI's

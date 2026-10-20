@@ -21,7 +21,7 @@ $summary = $null
 function Get-RowValues([string]$Query, [int]$Columns) {
     $view = $database.OpenView($Query)
     try {
-        $view.Execute()
+        [void]$view.Execute()
         while ($null -ne ($record = $view.Fetch())) {
             try {
                 $values = for ($column = 1; $column -le $Columns; $column++) {
@@ -30,7 +30,7 @@ function Get-RowValues([string]$Query, [int]$Columns) {
                 ,@($values)
             } finally { [Runtime.InteropServices.Marshal]::FinalReleaseComObject($record) | Out-Null }
         }
-    } finally { $view.Close(); [Runtime.InteropServices.Marshal]::FinalReleaseComObject($view) | Out-Null }
+    } finally { [void]$view.Close(); [Runtime.InteropServices.Marshal]::FinalReleaseComObject($view) | Out-Null }
 }
 
 try {

@@ -64,4 +64,28 @@ $finalizeCommand = $finalize.SelectSingleNode('Exec')
 Require ($finalizeCommand.StandardOutputImportance -ceq 'High' -and $finalizeCommand.StandardErrorImportance -ceq 'High') 'Identity finalization failures must retain their original command diagnostics.'
 $builder = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Build-Package.ps1') -Raw
 Require ($builder -match '\-v\s+minimal\b') 'The build wrapper must not suppress finalization diagnostics with quiet logging.'
+$finalizer = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Finalize-PackageIdentity.ps1') -Raw
+Require ($finalizer -match '\[void\]\$view\.Execute\(\)' -and $finalizer -match '\[void\]\$view\.Close\(\)') 'MSI row queries must not emit bookkeeping method results as rows.'
+$view = [pscustomobject]@{}
+$view | Add-Member ScriptMethod Execute { 'synthetic execute result' }
+$view | Add-Member ScriptMethod Close { 'synthetic close result' }
+$noisyRows = @($view.Execute(); ,@('synthetic identity'); $view.Close())
+Require ($noisyRows.Count -eq 3) 'The regression fixture must reproduce bookkeeping output contamination.'
+$readRows = {
+    param($query)
+    try {
+        [void]$query.Execute()
+        ,@('synthetic identity')
+    } finally { [void]$query.Close() }
+}
+$rows = @(& $readRows $view)
+Require ($rows.Count -eq 1 -and $rows[0].Count -eq 1 -and $rows[0][0] -ceq 'synthetic identity') 'Bookkeeping results must not alter MSI row cardinality or shape.'
+$view | Add-Member ScriptMethod Execute { throw 'synthetic query failure' } -Force
+$queryFailed = $false
+try { & $readRows $view | Out-Null }
+catch {
+    if ($_.Exception.GetBaseException().Message -cne 'synthetic query failure') { throw }
+    $queryFailed = $true
+}
+Require $queryFailed 'Suppressing bookkeeping results must not suppress query failures.'
 Write-Output 'Package source layout matches the frozen schema/guard contract; MSI compilation and Windows validation were not run.'
