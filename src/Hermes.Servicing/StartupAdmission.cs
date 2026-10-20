@@ -68,25 +68,75 @@ public sealed class StartupAdmission(
 public static class WindowsStartupAdmission
 {
     [SupportedOSPlatform("windows")]
-    public static IStartupAdmission ForCurrentUser()
+    public static IStartupAdmission ForCurrentUser() => ForCurrentUser(null);
+
+    [SupportedOSPlatform("windows")]
+    public static IStartupAdmission ForCurrentUser(
+        StartupRefusalEvidenceCapture? evidence)
     {
         if (!OperatingSystem.IsWindows())
             throw new PlatformNotSupportedException("Windows servicing admission is Windows-only.");
-        var profile = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(profile))
-            throw new InvalidOperationException("The user profile could not be resolved.");
+        return CreateCurrentUser(new WindowsCurrentUserStartup(), evidence);
+    }
+
+    internal static IStartupAdmission CreateCurrentUser(
+        ICurrentUserStartup platform, StartupRefusalEvidenceCapture? evidence)
+    {
+        try { return ComposeCurrentUser(platform, evidence); }
+        catch (Exception error) when (
+            error is IOException or UnauthorizedAccessException or InvalidOperationException
+                or ArgumentException or NotSupportedException)
+        {
+            evidence?.Record(new(
+                StartupEvidenceStage.Composition, StartupEvidenceOperation.Compose,
+                StartupEvidenceFailure.ManagedException,
+                StartupEvidenceErrorKind.HResult, error.HResult));
+            throw;
+        }
+    }
+
+    private static IStartupAdmission ComposeCurrentUser(
+        ICurrentUserStartup platform, StartupRefusalEvidenceCapture? evidence)
+    {
+        var profile = ReadCurrentUserRoot(platform, evidence);
         var path = Path.Combine(profile, "Hermes", "Servicing",
             HermesServicingProtocol.UpgradeCode.ToString("D"), "admission.bin");
         return Create(Path.Combine(profile, "Hermes", "App"),
-            new WindowsPhysicalPaths(), new WindowsRuntimeGate(path),
-            new CurrentLoadedCode(), ProcessLeaseRoot.Instance);
+            platform.Physical(), platform.Gate(path, evidence),
+            platform.Loaded(), platform.Lifetime(), evidence);
+    }
+
+    private static string ReadCurrentUserRoot(
+        ICurrentUserStartup platform, StartupRefusalEvidenceCapture? evidence)
+    {
+        try
+        {
+            var profile = platform.LocalApplicationData();
+            if (!string.IsNullOrWhiteSpace(profile))
+                return profile;
+            evidence?.Record(new(
+                StartupEvidenceStage.Composition, StartupEvidenceOperation.KnownFolder,
+                StartupEvidenceFailure.EmptyKnownFolder));
+            throw new InvalidOperationException("The user profile could not be resolved.");
+        }
+        catch (Exception error) when (
+            error is IOException or UnauthorizedAccessException or InvalidOperationException
+                or ArgumentException or NotSupportedException)
+        {
+            evidence?.Record(new(
+                StartupEvidenceStage.Composition, StartupEvidenceOperation.KnownFolder,
+                StartupEvidenceFailure.ManagedException,
+                StartupEvidenceErrorKind.HResult, error.HResult));
+            throw;
+        }
     }
 
     internal static IStartupAdmission Create(
         string appDirectory, IPhysicalPaths physical, IRuntimeGate gate,
-        ILoadedCode loaded, ILeaseLifetime lifetime) =>
+        ILoadedCode loaded, ILeaseLifetime lifetime,
+        StartupRefusalEvidenceCapture? evidence = null) =>
         new FixedRootStartupAdmission(
-            RuntimePaths.Canonical(appDirectory), physical, gate, loaded, lifetime);
+            RuntimePaths.Canonical(appDirectory), physical, gate, loaded, lifetime, evidence);
 }
 
 internal sealed class CurrentLoadedCode : ILoadedCode
@@ -124,10 +174,12 @@ internal sealed class ProcessLeaseRoot : ILeaseLifetime
     private sealed record ProcessToken : IProcessLease;
 }
 
-internal sealed class AdmissionException(RefusalReason reason)
+internal sealed class AdmissionException(
+    RefusalReason reason, StartupRefusalEvidence? evidence = null)
     : Exception(reason.ToString())
 {
     internal RefusalReason Reason { get; } = reason;
+    internal StartupRefusalEvidence? Evidence { get; } = evidence;
 }
 
 internal static class ReadyValidation
@@ -274,37 +326,53 @@ internal sealed class FixedRootPlacement(string appDirectory, IPhysicalPaths phy
         if (inside != 0)
             throw new AdmissionException(RefusalReason.WrongGeneration);
         var resolvedRoot = RuntimePaths.Canonical(physical.Directory(root));
-        if (images.Select(physical.Image).Select(RuntimePaths.Canonical)
+        if (images.Select(ReadImage).Select(RuntimePaths.Canonical)
             .Any(path => RuntimePaths.Contains(resolvedRoot, path)))
             throw new AdmissionException(RefusalReason.WrongGeneration);
         return CodePlacement.Outside;
+    }
+
+    private string ReadImage(string path, int index)
+    {
+        try { return physical.Image(path); }
+        catch (AdmissionException error) when (error.Evidence is { } evidence)
+        {
+            throw new AdmissionException(
+                error.Reason, evidence with { Position = index });
+        }
     }
 }
 
 internal sealed class FixedRootStartupAdmission(
     string appDirectory, IPhysicalPaths physical, IRuntimeGate gate,
-    ILoadedCode loaded, ILeaseLifetime lifetime) : IStartupAdmission
+    ILoadedCode loaded, ILeaseLifetime lifetime,
+    StartupRefusalEvidenceCapture? evidence = null) : IStartupAdmission
 {
     private readonly FixedRootPlacement _placement = new(appDirectory, physical);
     private readonly StartupAdmission _installed = new(gate, loaded, lifetime, appDirectory, physical);
 
     public Admission Enter(RuntimeEntry entry)
     {
-        try
+        try { return EnterCore(entry); }
+        catch (AdmissionException error)
         {
-            if (entry is not (RuntimeEntry.Tray or RuntimeEntry.Service or RuntimeEntry.Operator))
-                return new Refused(RefusalReason.UnsupportedProtocol);
-            return _placement.Classify(loaded.Read()) switch
+            if (error.Evidence is { } detail)
+                evidence?.Record(detail);
+            return new Refused(error.Reason);
+        }
+        catch (Exception error) when (StartupAdmission.IsStateFailure(error))
+        { return new Refused(RefusalReason.InvalidState); }
+    }
+
+    private Admission EnterCore(RuntimeEntry entry) =>
+        entry is RuntimeEntry.Tray or RuntimeEntry.Service or RuntimeEntry.Operator
+            ? _placement.Classify(loaded.Read()) switch
             {
                 CodePlacement.Installed => _installed.Enter(entry),
                 CodePlacement.Outside => Outside(),
                 _ => new Refused(RefusalReason.InvalidState)
-            };
-        }
-        catch (AdmissionException error) { return new Refused(error.Reason); }
-        catch (Exception error) when (StartupAdmission.IsStateFailure(error))
-        { return new Refused(RefusalReason.InvalidState); }
-    }
+            }
+            : new Refused(RefusalReason.UnsupportedProtocol);
 
     private Admission Outside() => gate.TryOpen() switch
     {

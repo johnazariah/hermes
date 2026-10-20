@@ -2,6 +2,62 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Typed startup-refusal evidence integrated and reviewed
+
+The existing current-user API now has an additive, single-attempt evidence
+capture. Production still uses OS-known LocalApplicationData, actual loaded
+MVIDs, the same lazy physical probes and process-rooted leases. Native failures
+capture their error immediately; only fixed numeric stage/operation/failure,
+error kind/code and ancestor-depth/image-ordinal fields leave the interpreter.
+Success and other refusals do not acquire a new diagnostic or callback.
+
+The F# adapter preserves its existing API, first refusal marker and exit 78.
+Only Unavailable can append one typed line, after the marker. New tests cover
+current-user composition, unchanged refusal mappings/probe ordering, native-call
+failure attribution and no identifier disclosure. Five F# cases verify ordering,
+known exceptions, null evidence and unchanged permitted/non-Windows behaviour.
+Independent C# and F# source reviews approve their respective changes.
+
+All **297 Servicing/model cases** and **2,170 full F# cases** pass locally, zero
+failures/skips. The combined startup/pipe/drain selection passes 33 cases.
+Setup remains 456/456 and Control 48/48. Acceptance, ProcessProbe, WindowsTests
+and the managed Guard cross-build without warnings/errors; static controls
+retain 19 payload passes and 28 adverse report passes.
+
+The exact native recipe retains five assemblies at
+**14,683/17,126 lines (85.7351%)** and
+**15,225/24,668 branches (61.7196%)**, improving the measured baseline without
+exclusions or threshold changes. The complete solution builds cleanly.
+Actual Windows refusal evidence and target acceptance remain pending; this
+instrumentation does not establish or correct the startup cause.
+
+## Established Windows pipe and drain fixture corrections
+
+Sanitised hosted run `39407281492` confirms that all three drain failures occur
+while deleting `db.sqlite`, after the existing ownership/drain checks.
+Fixture cleanup now clears only the exact fixture's idle SQLite pool after
+those checks and owner cleanup. A nested-fixture regression proves that another
+fixture's pool retains its handle; no global pool clear or production database
+change is used.
+
+The pipelining failure is the initial two-frame write, not a closure read:
+synchronous dispatch can disconnect before that write completes on Windows.
+An explicit write-completion latch now controls the synthetic dispatch. The
+case still writes both frames together, decodes and compares the first reply,
+requires closure and asserts exactly the first request ID was dispatched.
+A cancellation regression covers the latch; no initial I/O error is swallowed
+and no budget or production pipe behaviour changes.
+
+All **21 focused cases** and **2,165 full Release F# cases** pass locally, zero
+failures/skips. Target-Windows confirmation is pending.
+
+The same hosted run confirms the two MCP fixture corrections. Eight actual
+Service children still exit 78 with only `HERMES_STARTUP_UNAVAILABLE`, before
+canonical preflight. That message cannot distinguish known-folder composition
+from native path/query/gate failures. A C# specialist is implementing bounded,
+path-free typed refusal evidence; no admission-policy correction is yet
+established or claimed.
+
 ## Windows Core diagnosis and qualified MCP archive root
 
 Hosted run `39403692526` confirms the corrected Windows Servicing/model suite:

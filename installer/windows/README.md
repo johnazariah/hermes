@@ -22,6 +22,15 @@ The distributed coordinator retains exclusive admission through standard MSI
 execution and verifies completion before reopening it. A process snapshot,
 Tray-only lease or diagnostic hold cannot replace that protocol.
 
+An unavailable Service startup retains exit 78 and the first stderr marker
+`HERMES_STARTUP_UNAVAILABLE`. When native refusal evidence exists, one
+`HERMES_STARTUP_EVIDENCE v=1` line follows it. Its numeric stage, operation,
+failure, error kind/code and position identify the failed operation without
+paths, profile values or credentials. The code definitions are in
+[`StartupRefusalEvidence.cs`](../../src/Hermes.Servicing/StartupRefusalEvidence.cs);
+position is an ancestor depth or loaded-image ordinal, not a process identifier.
+This evidence does not change admission or grant permission to bypass it.
+
 The external smoke harness targets `net9.0` with an assembly-level Windows
 platform annotation and has no Tray assembly reference or Windows Desktop
 framework dependency. The production Tray still targets `net9.0-windows`.

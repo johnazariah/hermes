@@ -14,6 +14,32 @@ public sealed class WindowsPlacementTests
 
     public enum CasePlacement { Outside, InstalledAlias, MissingImage }
 
+    [Fact]
+    public void Production_current_user_composition_resolves_without_opening_profile_files()
+    {
+        var capture = new StartupRefusalEvidenceCapture();
+        Assert.IsType<FixedRootStartupAdmission>(
+            WindowsStartupAdmission.ForCurrentUser(capture));
+        Assert.Null(capture.Evidence);
+        Assert.IsType<FixedRootStartupAdmission>(WindowsStartupAdmission.ForCurrentUser());
+    }
+
+    [Fact]
+    public void Native_gate_directory_denial_records_hresult_without_path_content()
+    {
+        using var sandbox = new Sandbox();
+        Directory.CreateDirectory(sandbox.Source);
+        var capture = new StartupRefusalEvidenceCapture();
+        var gate = new WindowsRuntimeGate(sandbox.Source, capture);
+        Assert.Equal(new GateUnavailable(RefusalReason.Unavailable), gate.TryOpen());
+        var evidence = Assert.IsType<StartupRefusalEvidence>(capture.Evidence);
+        Assert.Equal(new StartupRefusalEvidence(
+            StartupEvidenceStage.Gate, StartupEvidenceOperation.OpenGate,
+            StartupEvidenceFailure.ManagedException,
+            StartupEvidenceErrorKind.HResult, unchecked((int)0x80070005)), evidence);
+        Assert.DoesNotContain(sandbox.Source, evidence.ToDiagnosticLine());
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -22,10 +48,13 @@ public sealed class WindowsPlacementTests
     {
         using var sandbox = new Sandbox();
         var code = sandbox.Image(sandbox.Source);
+        var capture = new StartupRefusalEvidenceCapture();
         if (parentExists)
             Directory.CreateDirectory(sandbox.HermesDirectory);
         Assert.False(Directory.Exists(sandbox.AppDirectory));
-        Assert.IsType<OutsideKnownInstallation>(sandbox.Client(code).Enter(RuntimeEntry.Service));
+        Assert.IsType<OutsideKnownInstallation>(
+            sandbox.Client(code, capture).Enter(RuntimeEntry.Service));
+        Assert.Null(capture.Evidence);
         Assert.False(Directory.Exists(sandbox.AppDirectory));
         Assert.Equal(parentExists, Directory.Exists(sandbox.HermesDirectory));
         Assert.False(Directory.Exists(sandbox.GateDirectory));
@@ -57,6 +86,7 @@ public sealed class WindowsPlacementTests
     {
         using var sandbox = new Sandbox();
         var code = sandbox.Image(sandbox.Source);
+        var capture = new StartupRefusalEvidenceCapture();
         var target = Path.Combine(sandbox.Source, "DeletedTarget");
         Directory.CreateDirectory(target);
         if (!ancestor)
@@ -64,7 +94,10 @@ public sealed class WindowsPlacementTests
         sandbox.Junction(ancestor ? sandbox.HermesDirectory : sandbox.AppDirectory, target);
         Directory.Delete(target);
         Assert.Equal(new Refused(RefusalReason.Unavailable),
-            sandbox.Client(code).Enter(RuntimeEntry.Service));
+            sandbox.Client(code, capture).Enter(RuntimeEntry.Service));
+        Assert.Equal(new StartupRefusalEvidence(
+            StartupEvidenceStage.ReservedRoot, StartupEvidenceOperation.OpenEntry,
+            StartupEvidenceFailure.ExistingEntry, Position: ancestor ? 1 : 0), capture.Evidence);
         Assert.False(Directory.Exists(target));
     }
 
@@ -129,9 +162,17 @@ public sealed class WindowsPlacementTests
     public void A_missing_outside_image_is_unavailable_not_positive()
     {
         using var sandbox = new Sandbox();
+        var capture = new StartupRefusalEvidenceCapture();
         var code = At(Path.Combine(sandbox.Source, ImageName));
         Assert.Equal(new Refused(RefusalReason.Unavailable),
-            sandbox.Client(code).Enter(RuntimeEntry.Service));
+            sandbox.Client(code, capture).Enter(RuntimeEntry.Service));
+        var evidence = Assert.IsType<StartupRefusalEvidence>(capture.Evidence);
+        Assert.Equal(StartupEvidenceStage.LoadedImage, evidence.Stage);
+        Assert.Equal(StartupEvidenceOperation.OpenFollowing, evidence.Operation);
+        Assert.Equal(StartupEvidenceFailure.NativeCallFailed, evidence.Failure);
+        Assert.Equal(StartupEvidenceErrorKind.Win32, evidence.ErrorKind);
+        Assert.Contains(evidence.ErrorCode, new[] { 2, 3 });
+        Assert.Equal(0, evidence.Position);
         Assert.False(Directory.Exists(sandbox.HermesDirectory));
     }
 
@@ -269,9 +310,11 @@ public sealed class WindowsPlacementTests
             return At(Path.Combine(link, ImageName));
         }
 
-        internal IStartupAdmission Client(LoadedCode code) =>
+        internal IStartupAdmission Client(
+            LoadedCode code, StartupRefusalEvidenceCapture? evidence = null) =>
             WindowsStartupAdmission.Create(AppDirectory, new WindowsPhysicalPaths(),
-                new WindowsRuntimeGate(GatePath), new FixedLoaded(code), new UnexpectedLifetime());
+                new WindowsRuntimeGate(GatePath, evidence),
+                new FixedLoaded(code), new UnexpectedLifetime(), evidence);
 
         internal void Publish(GateReadyState state)
         {

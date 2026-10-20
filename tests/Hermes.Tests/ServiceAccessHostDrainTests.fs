@@ -3,18 +3,30 @@
 open System
 open System.IO
 open System.Threading.Tasks
+open Microsoft.Data.Sqlite
 open Xunit
 open Hermes.Core
 open Hermes.Service
 open Hermes.Tests.ServiceAccessHostTestSupport
 open Hermes.Tests.ServiceAccessHostDrainSupport
 
+let private databasePath root = Path.Combine(root, "db.sqlite")
+
+let private clearFixturePool root =
+    let path = databasePath root
+    // Match Database.openConnection's exact connection string, without opening another connection.
+    use pool = new SqliteConnection($"Data Source={path}")
+    SqliteConnection.ClearPool(pool)
+
 let private withDirectory (verify: string -> Task<unit>) : Task<unit> =
     task {
         let root = Path.Combine(Path.GetTempPath(), "hermes-drain-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory(root) |> ignore
         try do! verify root
-        finally Directory.Delete(root, true)
+        finally
+            // Owner disposal and admitted-request cleanup have already unwound.
+            clearFixturePool root
+            Directory.Delete(root, true)
     }
 
 let private abandoned (owner: Hermes.Service.Program.DatabaseScope)
@@ -35,7 +47,7 @@ let private abandoned (owner: Hermes.Service.Program.DatabaseScope)
 
 let private verifyAbandoned (root: string) (path: string) : Task<unit> =
     task {
-        let owner = new Hermes.Service.Program.DatabaseScope(Path.Combine(root, "db.sqlite"))
+        let owner = new Hermes.Service.Program.DatabaseScope(databasePath root)
         try
             do! withPending (TimeSpan.FromMilliseconds 250.0) owner
                     (abandoned owner path)
@@ -68,7 +80,7 @@ let private quiesce (owner: Hermes.Service.Program.DatabaseScope)
 
 let private normalOwner (root: string) : Task<Algebra.Database> =
     task {
-        use owner = new Hermes.Service.Program.DatabaseScope(Path.Combine(root, "db.sqlite"))
+        use owner = new Hermes.Service.Program.DatabaseScope(databasePath root)
         do! withPending (TimeSpan.FromSeconds 20.0) owner (quiesce owner)
         return owner.Database
     }
@@ -84,3 +96,20 @@ let private verifyNormal (root: string) : Task<unit> =
 [<Fact>]
 let ``normal request drain permits quiescence and real database disposal`` () =
     withDirectory verifyNormal
+
+let private pooledHandle root =
+    use connection = Database.openConnection (databasePath root)
+    let handle = connection.Handle
+    Assert.NotNull(handle)
+    handle
+
+[<Fact>]
+let ``fixture cleanup releases its own SQLite pool without clearing another fixture pool`` () =
+    withDirectory (fun otherRoot ->
+        task {
+            let retained = pooledHandle otherRoot
+            do! withDirectory (fun root ->
+                pooledHandle root |> ignore
+                Task.FromResult(()))
+            Assert.Same(retained, pooledHandle otherRoot)
+        })

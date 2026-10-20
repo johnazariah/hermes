@@ -173,6 +173,52 @@ module OwnerControlPipeFrameTests =
                 Assert.True(cancellation.IsCancellationRequested)
         }
 
+module private PipelinedOwnerExchange =
+    open OwnerPipeFixture
+
+    let dispatch target (calls: ConcurrentQueue<string>)
+        (written: TaskCompletionSource<unit>) (request: Request)
+        (cancellation: CancellationToken) =
+        task {
+            calls.Enqueue(request.RequestId)
+            do! written.Task.WaitAsync(cancellation)
+            return response target request
+        }
+
+    let run target (first: Request) (written: TaskCompletionSource<unit>)
+        (cancellation: CancellationToken) =
+        task {
+            use! pipe = connect target cancellation
+            let payload = first |> Codec.encodeRequest |> ok |> frame
+            do! pipe.WriteAsync(ReadOnlyMemory<byte>(Array.append payload payload), cancellation).AsTask()
+            // Both frames are written and the first read is issued before dispatch replies.
+            let reply = Framing.read pipe cancellation
+            written.SetResult(())
+            let! encoded = reply
+            let actual = Codec.decodeResponse first (peer target) encoded |> ok
+            Assert.Equal<Response>(response target first, actual)
+            do! closed pipe cancellation
+        }
+
+module OwnerControlPipePipelineFixtureTests =
+    open OwnerPipeFixture
+
+    [<Fact>]
+    let ``pipelined dispatch gate observes cancellation before write completion`` () =
+        task {
+            let target = target ()
+            let calls = ConcurrentQueue<string>()
+            let written = TaskCompletionSource<unit>(TaskCreationOptions.RunContinuationsAsynchronously)
+            use cancellation = new CancellationTokenSource()
+            let pending =
+                PipelinedOwnerExchange.dispatch target calls written (request ()) cancellation.Token
+            Assert.False(pending.IsCompleted)
+            cancellation.Cancel()
+            let! _ =
+                Assert.ThrowsAnyAsync<OperationCanceledException>(Func<Task>(fun () -> pending :> Task))
+            Assert.Single(calls) |> ignore
+        }
+
 module OwnerControlPipeTests =
     open OwnerPipeFixture
 
@@ -228,17 +274,14 @@ module OwnerControlPipeTests =
         task {
             let target = target ()
             let calls = ConcurrentQueue<string>()
-            let dispatch (request: Request) (_: CancellationToken) = calls.Enqueue(request.RequestId); Task.FromResult(response target request)
-            let rig = start target dispatch
+            let written = TaskCompletionSource<unit>(TaskCreationOptions.RunContinuationsAsynchronously)
+            let rig = start target (PipelinedOwnerExchange.dispatch target calls written)
             use run = rig.Run
             use deadline = new CancellationTokenSource(TimeSpan.FromSeconds 8.0)
             do! ready rig
-            use! pipe = connect target deadline.Token
-            let payload = request () |> Codec.encodeRequest |> ok |> frame
-            do! pipe.WriteAsync(ReadOnlyMemory<byte>(Array.append payload payload), deadline.Token).AsTask()
-            let! _ = Framing.read pipe deadline.Token
-            do! closed pipe deadline.Token
-            Assert.Equal<int>(1, calls.Count)
+            let first = request ()
+            do! PipelinedOwnerExchange.run target first written deadline.Token
+            Assert.Equal<string>([| first.RequestId |], calls.ToArray())
         }
 
     [<Fact>]

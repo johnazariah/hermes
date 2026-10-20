@@ -1,7 +1,5 @@
 ﻿using System.Buffers.Binary;
-using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Win32.SafeHandles;
@@ -12,12 +10,15 @@ namespace Hermes.Servicing;
 public sealed class WindowsRuntimeGate : IRuntimeGate
 {
     private readonly string _path;
+    private readonly StartupRefusalEvidenceCapture? _evidence;
 
-    public WindowsRuntimeGate(string path)
+    public WindowsRuntimeGate(string path) : this(path, null) { }
+
+    internal WindowsRuntimeGate(string path, StartupRefusalEvidenceCapture? evidence)
     {
         if (!OperatingSystem.IsWindows())
             throw new PlatformNotSupportedException("Windows file sharing is required.");
-        _path = path;
+        (_path, _evidence) = (path, evidence);
     }
 
     public GateOpen TryOpen()
@@ -29,16 +30,9 @@ public sealed class WindowsRuntimeGate : IRuntimeGate
                 4096, FileOptions.RandomAccess)));
         }
         catch (IOException error)
-        {
-            return new GateUnavailable((error.HResult & 0xffff) switch
-            {
-                32 or 33 => RefusalReason.Busy,
-                2 or 3 => RefusalReason.UnownedInstallation,
-                _ => RefusalReason.Unavailable
-            });
-        }
-        catch (UnauthorizedAccessException)
-        { return new GateUnavailable(RefusalReason.Unavailable); }
+        { return RuntimeGateFailures.From(error, _evidence); }
+        catch (UnauthorizedAccessException error)
+        { return RuntimeGateFailures.From(error, _evidence); }
     }
 
     private sealed class FileReadLease(FileStream stream) : IRuntimeReadLease
@@ -194,75 +188,96 @@ internal partial class ServicingJson : JsonSerializerContext;
 [SupportedOSPlatform("windows")]
 internal sealed class WindowsPhysicalPaths : IPhysicalPaths
 {
-    private const string Kernel32 = "kernel32.dll";
-    private const int MaximumPathCharacters = 32_768;
     private const int MaximumAncestorDepth = 64;
     private const int DirectoryOffset = 21;
-    private const uint BackupSemantics = 0x02000000;
     private const uint OpenReparsePoint = 0x00200000;
+    private readonly IWindowsPathApi _api;
+
+    public WindowsPhysicalPaths() : this(new WindowsPathApi()) { }
+
+    internal WindowsPhysicalPaths(IWindowsPathApi api) => _api = api;
 
     public string Directory(string path) => ReadDirectory(RuntimePaths.Canonical(path), 0);
 
     public string Image(string path)
     {
-        using var handle = Open(RuntimePaths.Canonical(path));
+        var opened = _api.Open(RuntimePaths.Canonical(path), 0);
+        using var handle = opened.Handle;
+        var probe = new Probe(StartupEvidenceStage.LoadedImage, 0);
         if (handle.IsInvalid)
-            throw new AdmissionException(RefusalReason.Unavailable);
-        var information = Information(handle);
+            throw Failure(probe, StartupEvidenceOperation.OpenFollowing,
+                StartupEvidenceFailure.NativeCallFailed, opened.Error);
+        var information = Information(handle, probe);
         if (information[DirectoryOffset] != 0 ||
             BinaryPrimitives.ReadUInt32LittleEndian(information.AsSpan(16)) != 1)
             throw new AdmissionException(RefusalReason.InvalidState);
-        return FinalPath(handle);
+        return FinalPath(handle, probe);
     }
 
-    private static string ReadDirectory(string path, int depth)
+    private string ReadDirectory(string path, int depth)
     {
         if (depth > MaximumAncestorDepth)
             throw new AdmissionException(RefusalReason.InvalidState);
-        using var handle = Open(path);
-        if (!handle.IsInvalid)
-        {
-            if (Information(handle)[DirectoryOffset] == 0)
-                throw new AdmissionException(RefusalReason.InvalidState);
-            return FinalPath(handle);
-        }
-        var error = Marshal.GetLastWin32Error();
-        if (error is not (2 or 3) || Path.GetDirectoryName(path) is not { } parent)
-            throw new AdmissionException(RefusalReason.Unavailable);
-        RequireMissing(path);
+        var opened = _api.Open(path, 0);
+        using var handle = opened.Handle;
+        if (handle.IsInvalid)
+            return ReadMissingDirectory(path, depth, opened.Error);
+        var probe = new Probe(StartupEvidenceStage.ReservedRoot, depth);
+        if (Information(handle, probe)[DirectoryOffset] == 0)
+            throw new AdmissionException(RefusalReason.InvalidState);
+        return FinalPath(handle, probe);
+    }
+
+    private string ReadMissingDirectory(string path, int depth, int error)
+    {
+        var probe = new Probe(StartupEvidenceStage.ReservedRoot, depth);
+        if (error is not (2 or 3))
+            throw Failure(probe, StartupEvidenceOperation.OpenFollowing,
+                StartupEvidenceFailure.NativeCallFailed, error);
+        if (Path.GetDirectoryName(path) is not { } parent)
+            throw Failure(probe, StartupEvidenceOperation.OpenFollowing,
+                StartupEvidenceFailure.NoParent, error);
+        RequireMissing(path, probe);
         return RuntimePaths.Canonical(Path.Combine(
             ReadDirectory(parent, depth + 1), Path.GetFileName(path)));
     }
 
-    private static void RequireMissing(string path)
+    private void RequireMissing(string path, Probe probe)
     {
         // A following open can report absence for an existing dangling reparse point.
-        using var entry = Open(path, OpenReparsePoint);
-        if (!entry.IsInvalid || Marshal.GetLastWin32Error() is not (2 or 3))
-            throw new AdmissionException(RefusalReason.Unavailable);
+        var opened = _api.Open(path, OpenReparsePoint);
+        using var entry = opened.Handle;
+        if (!entry.IsInvalid)
+            throw Failure(probe, StartupEvidenceOperation.OpenEntry,
+                StartupEvidenceFailure.ExistingEntry);
+        if (opened.Error is not (2 or 3))
+            throw Failure(probe, StartupEvidenceOperation.OpenEntry,
+                StartupEvidenceFailure.NativeCallFailed, opened.Error);
     }
 
-    private static SafeFileHandle Open(string path, uint flags = 0) =>
-        OpenPath(path, 0, FileShare.ReadWrite | FileShare.Delete,
-            0, FileMode.Open, BackupSemantics | flags, 0);
-
-    private static byte[] Information(SafeFileHandle handle)
+    private byte[] Information(SafeFileHandle handle, Probe probe)
     {
         // FILE_STANDARD_INFO: two Int64s, UInt32 link count, two BOOLEANs, padding.
-        var information = new byte[24];
-        if (!ReadInformation(handle, 1, information, (uint)information.Length) ||
-            information[20] != 0)
-            throw new AdmissionException(RefusalReason.Unavailable);
-        return information;
+        var result = _api.Information(handle);
+        if (!result.Succeeded)
+            throw Failure(probe, StartupEvidenceOperation.StandardInformation,
+                StartupEvidenceFailure.NativeCallFailed, result.Error);
+        if (result.Information[20] != 0)
+            throw Failure(probe, StartupEvidenceOperation.StandardInformation,
+                StartupEvidenceFailure.DeletePending);
+        return result.Information;
     }
 
-    private static string FinalPath(SafeFileHandle handle)
+    private string FinalPath(SafeFileHandle handle, Probe probe)
     {
-        var buffer = new StringBuilder(MaximumPathCharacters);
-        var length = ReadFinalPath(handle, buffer, (uint)buffer.Capacity, 0);
-        if (length == 0 || length >= (uint)buffer.Capacity)
-            throw new AdmissionException(RefusalReason.Unavailable);
-        var ordinary = buffer.ToString() switch
+        var result = _api.FinalPath(handle);
+        if (result.Length == 0)
+            throw Failure(probe, StartupEvidenceOperation.FinalPath,
+                StartupEvidenceFailure.NativeCallFailed, result.Error);
+        if (result.Length >= WindowsPathApi.MaximumPathCharacters)
+            throw Failure(probe, StartupEvidenceOperation.FinalPath,
+                StartupEvidenceFailure.InvalidReturnedLength);
+        var ordinary = result.Path switch
         {
             var unc when unc.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase) =>
                 @"\\" + unc[8..],
@@ -272,23 +287,13 @@ internal sealed class WindowsPhysicalPaths : IPhysicalPaths
         return RuntimePaths.Canonical(ordinary);
     }
 
-    [DllImport(Kernel32, EntryPoint = "CreateFileW", ExactSpelling = true,
-        CharSet = CharSet.Unicode, SetLastError = true)]
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    private static extern SafeFileHandle OpenPath(
-        string path, uint desiredAccess, FileShare shareMode, nint securityAttributes,
-        FileMode creationDisposition, uint flagsAndAttributes, nint templateFile);
+    private static AdmissionException Failure(
+        Probe probe, StartupEvidenceOperation operation,
+        StartupEvidenceFailure failure, int? nativeError = null) =>
+        new(RefusalReason.Unavailable, new(
+            probe.Stage, operation, failure,
+            nativeError is null ? StartupEvidenceErrorKind.None : StartupEvidenceErrorKind.Win32,
+            nativeError ?? 0, probe.Position));
 
-    [DllImport(Kernel32, EntryPoint = "GetFileInformationByHandleEx",
-        ExactSpelling = true, SetLastError = true)]
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool ReadInformation(
-        SafeFileHandle handle, int informationClass, [Out] byte[] information, uint length);
-
-    [DllImport(Kernel32, EntryPoint = "GetFinalPathNameByHandleW", ExactSpelling = true,
-        CharSet = CharSet.Unicode, SetLastError = true)]
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    private static extern uint ReadFinalPath(
-        SafeFileHandle handle, [Out] StringBuilder path, uint length, uint flags);
+    private readonly record struct Probe(StartupEvidenceStage Stage, int Position);
 }

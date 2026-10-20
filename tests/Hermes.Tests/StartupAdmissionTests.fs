@@ -167,3 +167,99 @@ let ``Application failures are not relabelled as admission failures`` () =
     Assert.Equal<Event list>(
         [ PlatformChecked true; Entered RuntimeEntry.Service; FactoryCreated; ApplicationCalled [||] ],
         captured.Events |> Seq.toList)
+
+module RefusalEvidence =
+
+    type private Expected =
+        { Evidence: StartupRefusalEvidence
+          Line: string }
+
+    let private native =
+        { Evidence =
+            StartupRefusalEvidence(
+                StartupEvidenceStage.ReservedRoot, StartupEvidenceOperation.OpenFollowing,
+                StartupEvidenceFailure.NativeCallFailed, StartupEvidenceErrorKind.Win32, 5, -1)
+          Line = "HERMES_STARTUP_EVIDENCE v=1 stage=2 operation=3 failure=2 errorKind=1 error=5 position=-1" }
+
+    let private composition =
+        { Evidence =
+            StartupRefusalEvidence(
+                StartupEvidenceStage.Composition, StartupEvidenceOperation.Compose,
+                StartupEvidenceFailure.ManagedException, StartupEvidenceErrorKind.HResult, -2147024891, -1)
+          Line = "HERMES_STARTUP_EVIDENCE v=1 stage=1 operation=1 failure=7 errorKind=2 error=-2147024891 position=-1" }
+
+    let private execute readEvidence captured =
+        Gate.runWithEvidence captured.Capability readEvidence
+            (fun line -> captured.Events.Enqueue(Diagnostic line))
+            captured.RunFactory [||]
+
+    let private assertBounded (expected: Expected) =
+        let line = expected.Evidence.ToDiagnosticLine()
+        Assert.Equal(expected.Line, line)
+        Assert.InRange(line.Length, 1, 192)
+
+    let private verifyUnavailable evidence lines admission =
+        let captured = capture true 61 admission
+        let readEvidence () =
+            Assert.Equal<Event list>(
+                [ PlatformChecked true; Entered RuntimeEntry.Service; Diagnostic unavailable.Diagnostic ],
+                captured.Events |> Seq.toList)
+            evidence
+        Assert.Equal(78, execute readEvidence captured)
+        Assert.Equal<Event list>(
+            [ PlatformChecked true; Entered RuntimeEntry.Service ] @ (lines |> List.map Diagnostic),
+            captured.Events |> Seq.toList)
+
+    let private unread () : (StartupRefusalEvidence | null) =
+        failwith "Evidence must not be inspected for this outcome"
+
+    let private verifyOtherRefusal expected admission =
+        let captured = capture true 61 admission
+        Assert.Equal(expected.ExitCode, execute unread captured)
+        Assert.Equal<Event list>(
+            [ PlatformChecked true; Entered RuntimeEntry.Service; Diagnostic expected.Diagnostic ],
+            captured.Events |> Seq.toList)
+
+    let private verifyPermitted isWindows admission =
+        let captured = capture isWindows 61 admission
+        Assert.Equal(61, execute unread captured)
+        let expected =
+            [ PlatformChecked isWindows ]
+            @ (if isWindows then [ Entered RuntimeEntry.Service ] else [])
+            @ [ FactoryCreated; ApplicationCalled [||] ]
+        Assert.Equal<Event list>(expected, captured.Events |> Seq.toList)
+
+    [<Fact>]
+    [<Trait("Category", "Unit")>]
+    let ``Unavailable writes its marker before exactly one bounded typed evidence line`` () =
+        assertBounded native
+        verifyUnavailable native.Evidence [ unavailable.Diagnostic; native.Line ]
+            (fun () -> Refused(RefusalReason.Unavailable))
+
+    [<Fact>]
+    [<Trait("Category", "Unit")>]
+    let ``A known composition exception retains captured evidence without its message`` () =
+        assertBounded composition
+        verifyUnavailable composition.Evidence [ unavailable.Diagnostic; composition.Line ]
+            (fun () -> raise (UnauthorizedAccessException("synthetic private composition detail")))
+
+    [<Fact>]
+    [<Trait("Category", "Unit")>]
+    let ``Null evidence leaves the unavailable diagnostic unchanged`` () =
+        verifyUnavailable null [ unavailable.Diagnostic ]
+            (fun () -> Refused(RefusalReason.Unavailable))
+
+    [<Fact>]
+    [<Trait("Category", "Unit")>]
+    let ``Other refusals and invalid results never inspect or emit evidence`` () =
+        rejections
+        |> List.filter (fun expected -> expected.Reason <> RefusalReason.Unavailable)
+        |> List.iter (fun expected -> verifyOtherRefusal expected (fun () -> Refused(expected.Reason)))
+        verifyOtherRefusal invalid (fun () -> null)
+
+    [<Fact>]
+    [<Trait("Category", "Unit")>]
+    let ``Permitted and nonWindows runs never inspect or emit evidence`` () =
+        verifyPermitted true (fun () -> Admitted(Lease()))
+        verifyPermitted true (fun () -> OutsideKnownInstallation())
+        verifyPermitted false (fun () -> invalidOp "Windows admission must remain untouched")

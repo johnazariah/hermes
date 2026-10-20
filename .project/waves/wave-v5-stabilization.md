@@ -100,6 +100,22 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-20 - Typed startup evidence preserves admission and passes independent review
+
+- **Changed:** Added a first-failure capture with fixed numeric fields to current-user composition and existing native path/gate operations. Immediate native error capture and a path-free line identify the failing operation without new probes, caller callbacks or changed admission decisions. The F# adapter preserves its first marker and exit 78 and emits evidence only afterward for Unavailable.
+- **Review:** Independent C# and F# reviews approve the narrow interpreter and adapter changes. Mechanical application is audited against all eight literal handoff sections; no unrelated code, imported paths or lease/generation policy changed.
+- **Validation:** All 297 Servicing/model and 2,170 F# cases pass locally, zero failures/skips; the focused startup/pipe/drain selection passes 33. Setup passes 456 and Control 48. Four native helper/Guard cross-builds and the solution are warning-free. Static validation passes 19 payload and 28 adverse report controls. Exact five-assembly coverage is 14,683/17,126 lines (85.7351%) and 15,225/24,668 branches (61.7196%), with unchanged 85/60 gates.
+- **Blockers:** The eight real Windows startup refusals still have no established cause. The next target run must supply the numeric evidence and verify the pipe/pool fixture corrections. Main, installer distribution and strict legacy repair remain gated.
+- **Next:** Publish the reviewed diagnostic candidate, then correct the operation actually reported by Windows rather than relaxing admission.
+
+### 2026-10-20 - Pipe and SQLite fixture causes are established; startup stays unresolved
+
+- **Evidence:** Hosted run `39407281492` confirms the MCP path correction and leaves 12 failures. Three drain stacks fail only at fixture directory deletion, the pipelining stack fails at its initial two-frame write, and eight children exit 78 before canonical preflight with only `HERMES_STARTUP_UNAVAILABLE`.
+- **Changed:** A fresh F# revision clears only each completed fixture's own SQLite pool and gates synthetic pipe dispatch on explicit write completion. Strong lifetime, first-response, exact-dispatch and closure assertions remain; new regressions cover pool isolation and latch cancellation. Production database/pipe behaviour is unchanged.
+- **Validation:** All 21 focused and 2,165 full Release cases pass locally, zero failures/skips. The first mechanical application hit a repeated dispatch hunk; anchoring it to the intended test restored the untouched partial-write case before these successful runs.
+- **Blockers:** The startup message conflates distinct native/composition failures. A C# specialist is adding bounded typed evidence without paths, environment values or changed admission decisions; no root cause is guessed and no Windows success is claimed.
+- **Next:** Integrate refusal evidence, identify the actual startup operation on Windows and retain the complete installed/native gate before merge.
+
 ### 2026-10-20 - Windows enrolled gate passes; Core diagnostics remain fail-closed
 
 - **Evidence:** Hosted run `39403692526` at `9d40f4c` passes Windows Servicing/model 251, Setup 456, Control 48 and Tray 319. The complete Mac job remains green. Windows then exposes 14 F# failures in child startup/canonical preflight, owner-pipe closure, request drain and two MCP ownership scenarios, so installed acceptance stays skipped.

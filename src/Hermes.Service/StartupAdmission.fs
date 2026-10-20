@@ -61,19 +61,30 @@ module StartupAdmission =
             try runFactory () arguments
             finally GC.KeepAlive(lease)
 
-    let runWith capability writeRefusal (runFactory: RunFactory) (arguments: string array) : int =
+    let private reportRefusal (readEvidence: unit -> (StartupRefusalEvidence | null)) writeRefusal reason =
+        let failure = refusal reason
+        writeRefusal failure.Diagnostic
+        if reason = RefusalReason.Unavailable then
+            readEvidence ()
+            |> Option.ofObj
+            |> Option.iter (fun evidence -> evidence.ToDiagnosticLine() |> writeRefusal)
+        failure.ExitCode
+
+    let internal runWithEvidence capability readEvidence writeRefusal (runFactory: RunFactory) (arguments: string array) : int =
         if capability.IsWindows () then
             enter capability
             |> Result.map (fun permission -> runPermitted permission runFactory arguments)
-            |> Result.defaultWith (fun reason ->
-                let failure = refusal reason
-                writeRefusal failure.Diagnostic
-                failure.ExitCode)
+            |> Result.defaultWith (reportRefusal readEvidence writeRefusal)
         else
             runFactory () arguments
 
+    let runWith capability writeRefusal (runFactory: RunFactory) (arguments: string array) : int =
+        runWithEvidence capability (fun () -> null) writeRefusal runFactory arguments
+
     let run (runFactory: RunFactory) arguments =
+        let evidence = StartupRefusalEvidenceCapture()
         let capability =
             { IsWindows = OperatingSystem.IsWindows
-              GateEnterRole = fun role -> WindowsStartupAdmission.ForCurrentUser().Enter(role) }
-        runWith capability (fun code -> Console.Error.WriteLine(code: string)) runFactory arguments
+              GateEnterRole = fun role -> WindowsStartupAdmission.ForCurrentUser(evidence).Enter(role) }
+        runWithEvidence capability (fun () -> evidence.Evidence)
+            (fun code -> Console.Error.WriteLine(code: string)) runFactory arguments
