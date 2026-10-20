@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-20 - Real kernel suite reaches one incorrect native-spelling premise
+
+- **Evidence:** Hosted run `39427186591` passes the complete payload-construction step, then runs all 31 Windows servicing cases. Thirty pass; the intermediate-directory trailing-space row fails its native alias precondition with exact Win32 error 3 before inventory validation.
+- **Changed:** A C# specialist separates positive Win32 aliases from the native-missing spelling. All four rows still require strict invalid-inventory refusal and unchanged bytes; known aliases retain open/content proof, while the missing case requires exact path-not-found. No production path policy or case is removed.
+- **Validation:** The Windows test project cross-builds without warnings/errors and all 297 portable cases pass. The solution builds cleanly. A transient local post-shutdown port-bind failure was investigated through the focused six-case Host selection and a full unchanged-code rerun; all 2,182 cases pass. No CI retry or safety assertion is weakened.
+- **Blockers:** Windows must rerun the 31-case project and proceed through the complete installed-native/MSI lifecycle before main merge or distribution. Strict legacy repair stays disabled.
+- **Next:** Publish the precise native expectation and continue actual installed acceptance.
+
 ### 2026-10-20 - Both supported platform gates pass; real payload mismatch is repaired
 
 - **Evidence:** Hosted run `39423147741` passes both complete supported jobs. Windows runs 2,178 F# and 297 Servicing/model cases plus 61 actual browser journeys at 85.9862% line / 61.6588% branch coverage; Mac runs 2,182 and 297 plus 61 journeys at 85.7118% / 61.2534%. The full denominator remains 17,126 lines / 24,668 branches.

@@ -2,6 +2,27 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Actual Windows kernel spelling expectations
+
+Hosted run `39427186591` completes the corrected payload-construction step and
+executes all **31 Windows servicing cases**: 30 pass and one fixture fails
+before its inventory-rejection assertion. The intermediate directory spelling
+`service ` returns exact Win32 error 3 rather than opening the canonical image.
+
+The fixture now distinguishes the three positive native aliases from this
+native-missing spelling. Every theory row still publishes the same contradictory
+inventory and must receive `InvalidState` without changing bytes. Native aliases
+still require successful open/content proof; the missing case requires an
+invalid handle and exact `ERROR_PATH_NOT_FOUND`, not an arbitrary I/O failure.
+Production path validation is unchanged, and the project retains 31 cases.
+
+The project cross-builds warning-free; all 297 portable Servicing/model cases
+pass. The solution builds cleanly. One local full run encountered an unrelated
+post-shutdown port-bind failure; the six-case Host selection and the complete
+2,182-case run then pass on unchanged code. No retry, budget or assertion change
+is added to CI. Native kernel execution and the installed lifecycle remain
+required on Windows.
+
 ## Both platform gates pass; SDK endpoint inventory corrected
 
 Hosted run `39423147741` proves the flush repair. Windows runs **2,178/2,178 F#**

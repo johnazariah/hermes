@@ -8,6 +8,8 @@ namespace Hermes.Servicing.WindowsTests;
 
 public sealed class KernelGateTests
 {
+    public enum Win32PathExpectation { CanonicalAlias, PathNotFound }
+
     [Fact]
     public void Runtime_reader_blocks_exclusive_open_without_changing_bytes()
     {
@@ -80,32 +82,46 @@ public sealed class KernelGateTests
     }
 
     [Theory]
-    [InlineData("service/Hermes.Service.dll.")]
-    [InlineData("service/Hermes.Service.dll ")]
-    [InlineData("service./Hermes.Service.dll")]
-    [InlineData("service /Hermes.Service.dll")]
-    public void Ordinary_win32_aliases_are_rejected_as_contradictory_inventory(string alias)
+    [InlineData("service/Hermes.Service.dll.", Win32PathExpectation.CanonicalAlias)]
+    [InlineData("service/Hermes.Service.dll ", Win32PathExpectation.CanonicalAlias)]
+    [InlineData("service./Hermes.Service.dll", Win32PathExpectation.CanonicalAlias)]
+    [InlineData("service /Hermes.Service.dll", Win32PathExpectation.PathNotFound)]
+    public void Noncanonical_win32_paths_are_rejected_as_contradictory_inventory(
+        string path, Win32PathExpectation expectation)
     {
         using var fixture = new Fixture();
-        RequireWin32Alias(fixture, alias);
+        RequireWin32Resolution(fixture, path, expectation);
         var state = new GateReadyState(new ReadyInstallation(
             new(HermesServicingProtocol.UpgradeCode, fixture.AppPath,
                 HermesServicingProtocol.AdmissionAbi),
             new Guid("44444444-4444-4444-4444-444444444444"),
             [new("service/Hermes.Service.dll",
                 new Guid("11111111-1111-1111-1111-111111111111")),
-             new(alias, new Guid("22222222-2222-2222-2222-222222222222"))]));
+             new(path, new Guid("22222222-2222-2222-2222-222222222222"))]));
         AssertInvalidPublication(fixture, state);
     }
 
-    private static void RequireWin32Alias(Fixture fixture, string alias)
+    private static void RequireWin32Resolution(Fixture fixture, string path,
+        Win32PathExpectation expectation)
     {
         const string content = "Synthetic image bytes, not a loaded assembly.";
         Directory.CreateDirectory(Path.Combine(fixture.AppPath, "service"));
         File.WriteAllText(Path.Combine(fixture.AppPath, "service", "Hermes.Service.dll"), content);
-        using var handle = OpenWin32File(Path.Combine(fixture.AppPath, alias.Replace('/', '\\')),
+        using var handle = OpenWin32File(Path.Combine(fixture.AppPath, path.Replace('/', '\\')),
             0x80000000, FileShare.Read, 0, FileMode.Open, 0, 0);
-        Assert.False(handle.IsInvalid, $"CreateFileW failed: {Marshal.GetLastWin32Error()}");
+        var error = Marshal.GetLastWin32Error();
+        if (expectation is Win32PathExpectation.PathNotFound)
+        {
+            Assert.True(handle.IsInvalid, "CreateFileW unexpectedly opened the missing path.");
+            Assert.Equal(3, error); // ERROR_PATH_NOT_FOUND
+            return;
+        }
+        AssertWin32Alias(handle, error, content);
+    }
+
+    private static void AssertWin32Alias(SafeFileHandle handle, int error, string content)
+    {
+        Assert.False(handle.IsInvalid, $"CreateFileW failed: {error}");
         using var stream = new FileStream(handle, FileAccess.Read);
         using var reader = new StreamReader(stream);
         Assert.Equal(content, reader.ReadToEnd());
