@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type APIResponse } from '@playwright/test';
 import type { DocumentSummary } from '../src/types/hermes';
 import { unlock } from './owner';
 
@@ -49,11 +49,16 @@ for (const surface of ['settings', 'palette'] as const) {
       await page.keyboard.press('Control+k');
       await page.getByPlaceholder('Type a command or search…').fill('Sync email now');
     }
-    const accepted = page.waitForResponse(value =>
-      new URL(value.url()).pathname === '/api/sync' && value.request().method() === 'POST');
+    // Retain the real Service body independently of Chromium's response-body cache.
+    const accepted = Promise.withResolvers<APIResponse>();
+    await page.route('**/api/sync', async route => {
+      const response = await route.fetch({ maxRedirects: 0, maxRetries: 0 });
+      accepted.resolve(response);
+      await route.fulfill({ response });
+    });
     if (surface === 'settings') await page.getByRole('button', { name: 'Sync Now', exact: true }).click();
     else await page.getByPlaceholder('Type a command or search…').press('Enter');
-    const acknowledgement = await accepted;
+    const acknowledgement = await accepted.promise;
     expect(acknowledgement.status()).toBe(202);
     const body: { status: string } = await acknowledgement.json();
     expect(['queued', 'coalesced']).toContain(body.status);

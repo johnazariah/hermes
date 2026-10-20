@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Browser evidence capture and native-message ordering are made causal
+
+- **Evidence:** Run `39452815857` first exposes a Windows native-navigation fixture racing Web Crypto. Both attempts fail macOS palette sync while Chromium's debugging protocol cannot retrieve the real response body; installer acceptance is skipped, so no new finaliser location is available.
+- **Changed:** Native unit cases await actual posted-message notifications under a bounded test deadline. Sync acceptance buffers the real Service response before forwarding it unchanged, with no redirects or retries. All authority, wire, acknowledgement, one-request/one-cycle, persisted-content and visible-result assertions remain.
+- **Validation:** All 102 JavaScript units, lint, build and 61-case discovery pass. Both focused real-Service sync cases and all 61 browser cases pass locally. The canonical bundle hash is unchanged; the solution builds without warnings/errors and all 2,182 F# cases pass.
+- **Blockers:** Actual finalisation/ICE and the full installed lifecycle remain unaccepted. The unchanged diagnostic rerun is retained as evidence, not treated as a repair or substituted for current-head proof.
+- **Next:** Publish the fixture corrections and continue the exact-head native finalisation/lifecycle gate.
+
 ### 2026-10-21 - MSI conversion failure needs its exact source location
 
 - **Evidence:** Hosted run `39448288911` passes both supported platform jobs, Tray and all 31 native Windows servicing cases. MSI finalisation now reports a null-to-GUID conversion without identifying the cast; the failing phase is not yet established.

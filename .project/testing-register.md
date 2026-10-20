@@ -2,6 +2,28 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Native-message ordering and real sync-response capture
+
+Run `39452815857` first fails a Windows native-navigation unit assertion:
+two event-loop turns did not finish asynchronous Web Crypto before checking
+the replacement navigation. The fixture now awaits actual native-message
+notifications for pairing, authentication and replacement pairing, with a
+five-second test deadline. The early-ready/stale-exchange case uses the same
+causal completion signal. Production access and wire assertions are unchanged.
+
+Both attempts of that run also fail macOS's palette sync case when Chromium
+cannot return its response body through `Network.getResponseBody`. The test
+now buffers the real Service response with the existing route-fetch pattern
+before delivering it unchanged to the browser. Redirect following and retries
+are disabled. Status/body, one UI POST, exactly one completed producer cycle,
+stored document/content and visible feedback assertions all remain.
+
+Local validation passes 102 JavaScript units, lint, build, discovery of all
+61 browser cases, both focused real-Service sync cases and the complete
+61-case browser suite. The canonical bundle hash remains `1ac59912876db25479f308c61d76c64f40f9af766bbea20808a99b0b4ca97c34`.
+The solution builds warning-free and all 2,182 F# cases pass. The diagnostic
+run never reaches MSI finalisation; its null-GUID location remains unknown.
+
 ## Finaliser conversion failures retain their source location
 
 Hosted run `39448288911` passes both supported platform jobs, Tray and all

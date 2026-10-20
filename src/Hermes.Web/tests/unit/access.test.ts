@@ -44,6 +44,7 @@ function fixture(t: TestContext, selected = false) {
   let granted = false;
   const calls: { path: string; init: RequestInit }[] = [];
   const native: object[] = [];
+  const nativeEvents = new EventTarget();
   const routes = new Map<string, (init: RequestInit) => Response | Promise<Response>>();
   const fetcher = async (input: RequestInfo | URL, init: RequestInit = {}) => {
     const path = new URL(String(input), browserOrigin).pathname;
@@ -58,7 +59,10 @@ function fixture(t: TestContext, selected = false) {
   const client = new AccessClient({
     browserOrigin, apiOrigin: selected ? apiOrigin : undefined, apiAudience: apiOrigin,
     fetch: fetcher as typeof fetch, crypto: webcrypto as Crypto,
-    now: () => elapsed, utcNow: () => epoch + utcElapsed, postNative: value => native.push(value),
+    now: () => elapsed, utcNow: () => epoch + utcElapsed, postNative: value => {
+      native.push(value);
+      nativeEvents.dispatchEvent(new Event('message'));
+    },
   });
   t.after(() => { client.dispose(); });
   const tick = async (ms: number) => {
@@ -66,7 +70,9 @@ function fixture(t: TestContext, selected = false) {
     for (let i = 0; i < 8; i++) await setImmediate();
   };
   const unlock = async () => { await client.check(); await client.pair(); await tick(2000); assert.equal(client.getSnapshot().phase, 'authenticated'); };
-  return { client, routes, calls, native, tick, unlock, rollback: () => { utcElapsed -= 86_400_000; } };
+  const nextNative = () => new Promise<void>(resolve =>
+    nativeEvents.addEventListener('message', () => resolve(), { once: true }));
+  return { client, routes, calls, native, nextNative, tick, unlock, rollback: () => { utcElapsed -= 86_400_000; } };
 }
 
 test('S256 pair proof is random, canonical and only the verifier exchange sends its verifier', async t => {
@@ -496,37 +502,42 @@ test('malformed exchange JSON never publishes its credential contents in an erro
   assert.equal(f.client.getSnapshot().message, 'The Service returned invalid access JSON.');
 });
 
-test('native golden wire echoes only current navigation and never crosses bearer or verifier', async t => {
+test('native golden wire echoes only current navigation and never crosses bearer or verifier', { timeout: 5000 }, async t => {
   const f = fixture(t); await f.client.check();
   f.client.acceptNative({ ...ready(), instanceId: replacement });
   f.client.acceptNative({ ...ready(), navigationId: 'not-canonical' });
   assert.equal(f.native.length, 0);
-  f.client.acceptNative(ready()); await setImmediate(); await setImmediate();
+  const firstPairing = f.nextNative();
+  f.client.acceptNative(ready()); await firstPairing;
   assert.equal(f.native.length, 1);
   const pairing = f.native[0] as Record<string, unknown>;
   assert.deepEqual(Object.keys(pairing).sort(), ['version', 'type', 'navigationId', 'instanceId', 'pairingId', 'userCode', 'challenge'].sort());
   assert.equal(pairing.type, 'hermes.access.pairing');
   assert.equal(pairing.navigationId, navigationId);
-  await f.tick(2000);
+  const authenticated = f.nextNative();
+  await f.tick(2000); await authenticated;
   assert.deepEqual(f.native[1], { version: 1, type: 'hermes.access.status', navigationId,
     instanceId, state: 'authenticated', capabilities: ['archive.read', ...requestedCapabilities], expiresAt: iso(1_800_000) });
   assert.equal(JSON.stringify(f.native).includes(bearer), false);
-  f.client.acceptNative(ready(nextNavigation)); await setImmediate(); await setImmediate();
+  const replacementPairing = f.nextNative();
+  f.client.acceptNative(ready(nextNavigation)); await replacementPairing;
   assert.equal(f.client.getSnapshot().phase, 'pairing');
   f.client.acceptNative(ready());
   assert.equal((f.native.at(-1) as Record<string, unknown>).navigationId, nextNavigation);
 });
 
-test('early host ready waits for matching public identity; stale exchange cannot revive new navigation', async t => {
+test('early host ready waits for matching public identity; stale exchange cannot revive new navigation', { timeout: 5000 }, async t => {
   const f = fixture(t);
+  const firstPairing = f.nextNative();
   f.client.acceptNative(ready());
-  await f.client.check(); await setImmediate(); await setImmediate();
+  await f.client.check(); await firstPairing;
   let release!: (response: Response) => void;
   f.routes.set(`/api/access/pairings/${pairingId}/exchange`, () => new Promise(resolve => { release = resolve; }));
   await f.tick(2000);
+  const replacementPairing = f.nextNative();
   f.client.acceptNative(ready(nextNavigation));
   release(json(exchangeBody(), 201));
-  await setImmediate(); await setImmediate();
+  await replacementPairing;
   assert.equal(f.client.getSnapshot().phase, 'pairing');
   assert.equal(f.native.some(message => (message as Record<string, unknown>).type === 'hermes.access.status'), false);
 });
