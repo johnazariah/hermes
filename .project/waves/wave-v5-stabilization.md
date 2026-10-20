@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - MSI conversion failure needs its exact source location
+
+- **Evidence:** Hosted run `39448288911` passes both supported platform jobs, Tray and all 31 native Windows servicing cases. MSI finalisation now reports a null-to-GUID conversion without identifying the cast; the failing phase is not yet established.
+- **Changed:** The finaliser selects the normal PowerShell error view so conversion failures retain their source location. No identity, inventory, scope, summary, ICE or lifecycle check changes.
+- **Validation:** A controlled null-GUID child script retains its exact failing line and non-zero exit. Package-layout controls pass; the solution builds with zero warnings/errors and all 2,182 F# cases pass.
+- **Blockers:** Actual finalisation, ICE and the complete installed-native/MSI lifecycle remain unaccepted. Main and distribution remain gated; strict legacy repair remains disabled.
+- **Next:** Capture the exact native failing cast and correct its demonstrated cause.
+
 ### 2026-10-21 - MSI row helper output is isolated from bookkeeping results
 
 - **Evidence:** Hosted run `39443249566` reports exactly `ProductCode: rows=3`, not a proven GUID mismatch. All platform, payload and native-kernel gates remain green.

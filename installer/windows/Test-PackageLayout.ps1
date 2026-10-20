@@ -65,6 +65,7 @@ Require ($finalizeCommand.StandardOutputImportance -ceq 'High' -and $finalizeCom
 $builder = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Build-Package.ps1') -Raw
 Require ($builder -match '\-v\s+minimal\b') 'The build wrapper must not suppress finalization diagnostics with quiet logging.'
 $finalizer = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Finalize-PackageIdentity.ps1') -Raw
+Require ($finalizer.Contains("`$ErrorView = 'NormalView'")) 'Finalization type-conversion failures must retain their source location.'
 Require ($finalizer -match '\[void\]\$view\.Execute\(\)' -and $finalizer -match '\[void\]\$view\.Close\(\)') 'MSI row queries must not emit bookkeeping method results as rows.'
 $view = [pscustomobject]@{}
 $view | Add-Member ScriptMethod Execute { 'synthetic execute result' }

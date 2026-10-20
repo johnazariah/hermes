@@ -7,6 +7,7 @@ param(
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$ErrorView = 'NormalView'
 if ($env:OS -ne 'Windows_NT') { throw 'MSI identity finalization requires Windows; it never installs the package.' }
 $manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
 $identity = Get-Content -LiteralPath $IdentityPath -Raw | ConvertFrom-Json

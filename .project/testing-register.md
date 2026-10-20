@@ -2,6 +2,20 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Finaliser conversion failures retain their source location
+
+Hosted run `39448288911` passes both supported platform jobs, Tray and all
+31 native Windows servicing cases, then fails during MSI finalisation with
+`Cannot convert null to type "System.Guid"`. The default concise error view
+does not identify the failing cast. Its location is not yet established.
+
+The finaliser now selects PowerShell's normal error view; all identity,
+inventory, summary, ICE and lifecycle requirements are unchanged. A controlled
+null-GUID child script proves the failing source line is retained and the
+process still fails. The package-layout control requires this diagnostic
+setting and passes. The solution builds without warnings/errors and all
+2,182 F# cases pass. Actual installed acceptance remains outstanding.
+
 ## MSI query helpers emit only their records
 
 Hosted run `39443249566` narrows the finalisation failure to
