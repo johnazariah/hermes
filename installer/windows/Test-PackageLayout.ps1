@@ -194,4 +194,6 @@ catch {
 }
 Require $queryFailed 'Suppressing bookkeeping results must not suppress query failures.'
 & (Join-Path $PSScriptRoot 'Test-ValidationPolicy.ps1')
+& node --test (Join-Path $PSScriptRoot 'package-materialization.test.mjs')
+if ($LASTEXITCODE -ne 0) { throw 'Pinned SDK package materialisation controls failed.' }
 Write-Output 'Package source layout matches the frozen schema/guard contract; MSI compilation and Windows validation were not run.'

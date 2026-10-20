@@ -100,6 +100,22 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Proved WiX copy default receives independent materialisation fix
+
+- **Root boundary:** C# tracing confirms candidate source MSI is checked before pin/hash/database reads. Executing the pinned WiX6 copy target proves its default hard-link aliasing; a later intermediate rewrite can alter an earlier output.
+- **Changed:** The source-approved five-file non-C# correction enforces independent copies/effective policy, fresh outputs, isolated intermediates and ICE-receipt-bound identity/hash checks. C# and its unit-link admission predicate are unchanged.
+- **Validation:** Independent review executes all seven materialisation controls and the real SDK Copy task, including refusing a global hard-link override before writing output. Parent passes all static controls, warning-free root build and 2,182 Core cases.
+- **Boundary:** No historical Windows count of two or successful installation is claimed. Non-blocking review suggestions do not reopen this patch.
+- **Next:** Publish and run the exact-head Windows lifecycle with correctly materialised candidate media.
+
+### 2026-10-21 - One native probe identifies image link-count rejection
+
+- **Evidence:** Run `39499387931` at `19f91ad` passes native Windows 45/45 and both MSI validations. First Install reports v1 cause 12 with no OS error: the existing image link-count-not-one invariant. Recover is NoRecoveryPending and cleanup is clean.
+- **Boundary:** The record does not yet identify the file/input role or zero-versus-multiple links. The guard is not relaxed and no installation success is claimed.
+- **Ownership:** A fresh C# scope traces reachable input roles; a separate fresh non-C# scope verifies SDK/publication materialisation. They do not duplicate each other's trace.
+- **Preserved contract:** Any proved publication correction must retain content hashes, identities, validation receipts, baseline/upgrade independence and all alias/admission checks.
+- **Next:** Correct the proved input materialisation boundary, or obtain only the bounded role/count fact needed to establish it.
+
 ### 2026-10-21 - Finite source-point seam is approved for one Windows probe
 
 - **Changed:** Nine existing managed rejection points now retain a typed discriminator through the same v1 cause field. Managed tags carry no OS error; genuine native evidence takes precedence. Exception type/reason, checks/order, catches and publication/admission policy are unchanged.

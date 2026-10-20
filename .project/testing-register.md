@@ -2,6 +2,43 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## WiX output materialisation preserves unit-link candidate media
+
+The C# caller trace identifies the first guarded input as the candidate source
+MSI, before pinning/hash/database reads. Independent review and execution
+confirm the actual pinned WiX6 copy target defaults to hard links. Its
+synthetic default aliases the intermediate/output; rewriting the intermediate
+can change a previously published baseline.
+
+The approved five-file publication correction disables hard/symbolic copies,
+checks effective overrides, isolates fresh output/intermediate directories
+and verifies published identity/hash against the native ICE receipt.
+Seven real-copy/materialisation controls pass, including unit-link distinct
+outputs, unchanged hashes, baseline/upgrade independence and adverse aliases,
+receipts and occupied outputs. The reviewer independently executes them and
+the pinned SDK Copy task; parent also passes all static controls and the
+warning-free root build plus 2,182 Core cases.
+
+The admission predicate and all C# code remain unchanged. The historical
+Windows link count was not directly observed and is not asserted to be two.
+Fresh exact-head Windows installation remains required.
+
+## Native source-point record identifies the non-unit-link invariant
+
+The single probe `39499387931` at `19f91ad` passes all **45/45 native Windows
+cases** with zero skips and both complete MSI validations. Install emits
+`stage=1 cause=12 fault=0 errorKind=0 error=0`: the existing
+`WindowsPhysicalPaths.Image` link-count-not-one rejection.
+
+This proves the invariant, not the filename, input role or whether the count
+is zero versus greater than one. Recover remains NoRecoveryPending with clean
+cleanup. No behavioural relaxation or installed success is authorised.
+
+Fresh, separate scopes now trace the C# input role and SDK/publication
+materialisation. A correction must preserve the unit-link admission rule,
+hashes, package identities, full ICE and baseline/upgrade independence; it
+cannot merely accept aliased inputs.
+
 ## Finite admission source-point evidence is source-approved
 
 The new internal discriminator tags only nine existing bare managed rejection

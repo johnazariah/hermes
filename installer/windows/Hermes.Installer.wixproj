@@ -11,12 +11,20 @@
     <HermesManifestPath>$(HermesGeneratedDir)/payload-inventory.json</HermesManifestPath>
     <HermesGuardPath Condition="'$(HermesGuardPath)' == ''">$(MSBuildThisFileDirectory)Hermes.Installer.Guard/bin/Release/net9.0-windows/win-x64/publish/Hermes.Installer.Guard.dll</HermesGuardPath>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <!-- WiX 6 otherwise hardlinks the validated intermediate MSI into OutDir. -->
+    <CreateHardLinksForCopyFilesToOutputDirectoryIfPossible>false</CreateHardLinksForCopyFilesToOutputDirectoryIfPossible>
+    <CreateSymbolicLinksForCopyFilesToOutputDirectoryIfPossible>false</CreateSymbolicLinksForCopyFilesToOutputDirectoryIfPossible>
     <DefineConstants>$(DefineConstants);PublishDir=$(HermesPayloadDir);HermesPackageVersion=$(HermesPackageVersion);HermesProductCode=$(HermesProductCode);HermesPackageCode=$(HermesPackageCode);HermesManifestPath=$(HermesManifestPath);HermesGuardPath=$(HermesGuardPath)</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Package.wxs" />
     <Compile Include="$(HermesGeneratedDir)/Payload.wxs" />
   </ItemGroup>
+
+  <Target Name="ValidateHermesCopyPolicy" BeforeTargets="PrepareForBuild;CoreCompile;CopyFilesToOutputDirectory">
+    <Error Condition="'$(CreateHardLinksForCopyFilesToOutputDirectoryIfPossible)' != 'false' Or '$(CreateSymbolicLinksForCopyFilesToOutputDirectoryIfPossible)' != 'false'"
+           Text="Published MSI outputs must be independent regular files, never hardlinks or symbolic links." />
+  </Target>
 
   <Target Name="ValidateHermesPayload" BeforeTargets="PrepareForBuild;CoreCompile">
     <Error Condition="'$(OS)' != 'Windows_NT'" Text="The Windows installer must be built and validated on Windows." />

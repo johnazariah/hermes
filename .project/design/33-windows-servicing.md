@@ -302,6 +302,13 @@ Windows execution.
 
 ## Completion and recovery
 
+Published MSI files are independent materialised copies, not hard or symbolic
+aliases of SDK intermediates. WiX copy-link options are explicitly disabled
+and their effective values checked. Fresh per-build outputs and isolated
+intermediates keep baseline and upgrade packages independent. The published
+file must retain the validated identity and ICE-receipt hash while satisfying
+the existing unit-link admission rule.
+
 The coordinator acquires exclusive admission without waiting for applications
 to close. If a runtime holds admission, it refuses without changing admission
 state, installed bytes or running processes.
