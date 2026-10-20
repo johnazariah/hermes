@@ -88,7 +88,28 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $filter = if ($IsWindows) { " --TestCaseFilter:Platform!=Unix" } else { "" }
           dotnet coverlet tests/Hermes.Tests/bin/Release/net9.0/Hermes.Tests.dll --target dotnet --targetargs "vstest tests/Hermes.Tests/bin/Release/net9.0/Hermes.Tests.dll --Logger:trx --ResultsDirectory:.artifacts/coverage/core$filter" --merge-with .artifacts/coverage/servicing/coverage.json --format json --format cobertura --output .artifacts/coverage/combined/coverage --verbosity quiet
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $testExitCode = $LASTEXITCODE
+          if ($testExitCode -ne 0) {
+            $reports = @(Get-ChildItem -LiteralPath .artifacts/coverage/core -Filter *.trx -File)
+            if ($reports.Count -eq 0) { Write-Warning 'Core test execution failed without a TRX report.' }
+            foreach ($report in $reports) {
+              [xml]$results = Get-Content -LiteralPath $report.FullName -Raw
+              foreach ($failure in @($results.TestRun.Results.UnitTestResult | Where-Object outcome -EQ 'Failed')) {
+                Write-Output ("Failed test: " + ($failure.testName -replace '\(.*$', ''))
+                $message = [string]$failure.Output.ErrorInfo.Message
+                $message = $message -replace 'h1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+', '<redacted-access-token>'
+                $message = $message -replace '(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])', '<redacted-proof>'
+                $message = $message -replace '\b[0-9A-HJKMNP-TV-Z]{4}(?:-[0-9A-HJKMNP-TV-Z]{4}){2}\b', '<redacted-pairing-code>'
+                $message = $message -replace '(?i)Bearer\s+[^\s"'',;}\]]+', 'Bearer <redacted>'
+                $message = $message -replace '\s+', ' '
+                Write-Output ("Failure message: " + $message.Substring(0, [Math]::Min(4096, $message.Length)))
+                # Captured output stays private; only bounded call frames accompany the redacted message.
+                $failure.Output.ErrorInfo.StackTrace -split '\r?\n' |
+                  Where-Object { $_ -match '^\s*at\s' } | Select-Object -First 32 | Write-Output
+              }
+            }
+            exit $testExitCode
+          }
 
       - name: Install browser
         working-directory: src/Hermes.Web

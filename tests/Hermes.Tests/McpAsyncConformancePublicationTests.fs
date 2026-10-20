@@ -39,9 +39,10 @@ module McpAsyncConformancePublicationTests =
             Assert.Equal<Snapshot>(before, after)
         }
 
-    [<Fact; Trait("Category", "Integration")>]
-    let ``MCP pending deep publication respects canonical document ownership and legacy rejection`` () =
-        withFixture registeredOwner
+    [<Theory; InlineData(false); InlineData(true); Trait("Category", "Integration")>]
+    let ``MCP pending deep publication respects canonical document ownership and legacy rejection``
+        (yieldEffects: bool) =
+        withYieldEffects yieldEffects registeredOwner
 
     let private failingFiles
         (fixture: Fixture) (trace: ConcurrentQueue<string>)

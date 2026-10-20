@@ -168,6 +168,7 @@ module McpAsyncConformanceDeepTests =
             equalJson (JsonSerializer.Serialize({| error = $"Saved path ownership conflict with a staged source: {sidecar}" |})) (payload true reply)
         }
 
-    [<Fact; Trait("Category", "Integration")>]
-    let ``MCP pending deep publication cannot overwrite a staged source or escape as a faulted task`` () =
-        withFixture stagedSourceConflict
+    [<Theory; InlineData(false); InlineData(true); Trait("Category", "Integration")>]
+    let ``MCP pending deep publication cannot overwrite a staged source or escape as a faulted task``
+        (yieldEffects: bool) =
+        withYieldEffects yieldEffects stagedSourceConflict

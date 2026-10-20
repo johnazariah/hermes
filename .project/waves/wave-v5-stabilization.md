@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-20 - Windows enrolled gate passes; Core diagnostics remain fail-closed
+
+- **Evidence:** Hosted run `39403692526` at `9d40f4c` passes Windows Servicing/model 251, Setup 456, Control 48 and Tray 319. The complete Mac job remains green. Windows then exposes 14 F# failures in child startup/canonical preflight, owner-pipe closure, request drain and two MCP ownership scenarios, so installed acceptance stays skipped.
+- **Changed:** A fresh F# specialist supplies one fully qualified archive root throughout the MCP fixture and exercises both ownership cases through immediate/yielding interpreters without weakening assertions. Separate bounded early-child diagnostics and sanitised CI failure messages expose the missing Windows evidence while retaining existing deadlines, authority checks and failing exits.
+- **Validation:** All 21 focused and 2,163 full F# cases pass locally, zero failures/skips; the solution builds without warnings/errors. The exact recipe passes at 14,533/17,018 lines (85.3978%) and 15,104/24,636 branches (61.3087%), with all five assemblies and unchanged 85/60 gates. Synthetic workflow checks prove message/frame caps, authority masking and no raw captured-output publication.
+- **Blockers:** Twelve Windows lifecycle/boundary failures still require actual detailed evidence; the MCP fixture correction also awaits target confirmation. Main and installer publication remain gated. Strict legacy repair stays disabled.
+- **Next:** Run the corrected fixture and privacy-preserving diagnostics on Windows, then fix established lifecycle causes rather than guessing or extending budgets.
+
 ### 2026-10-20 - Hosted Mac acceptance passes; Windows enrolled fixture is corrected
 
 - **Evidence:** At head `4caf4fe`, hosted run `39402069802` passes the complete macOS job: 102 JavaScript units, 61 actual browser journeys, Setup 456, Control 48 and exact coverage of 14,533/17,018 lines (85.3978%) and 14,997/24,636 branches (60.8743%). Windows passes Tray 319, Setup 456 and Control 48, then repeats the five enrolled-service fixture failures before Core/browser acceptance.

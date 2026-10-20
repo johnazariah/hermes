@@ -2,6 +2,37 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Windows Core diagnosis and qualified MCP archive root
+
+Hosted run `39403692526` confirms the corrected Windows Servicing/model suite:
+all **251 cases pass**, alongside Setup 456, Control 48 and Tray 319. The next
+Core phase exposes 14 F# failures in child startup/canonical preflight, owner
+pipe closure, request-drain cleanup and two asynchronous MCP ownership cases.
+Windows Core/browser and installed acceptance therefore remain blocked.
+
+The MCP fixture supplied `/archive` to publication while constructing its
+expected paths from a fully qualified root. On Windows, the ownership key
+agrees but the deliberately preserved error-path spelling differs. One
+qualified archive root now feeds both paths. The two exact-assertion scenarios
+also run through both immediate and yielding interpreters. Production
+publication behaviour and source authority are unchanged.
+
+Early-child test diagnostics now include exit code and bounded, redacted
+captures under the existing startup deadline. Two pure regressions cover
+authority-shape redaction, both streams and the 4,096-character limit. CI
+retains failing test names and at most 32 call frames, adds a redacted message
+capped at 4,096 characters, and never uploads raw TRX or captured output.
+Synthetic checks verify the actual workflow branch's masking, output limits
+and preserved nonzero exit status.
+
+All **21 focused cases** and **2,163 full F# cases** pass locally, zero
+failures/skips. The solution builds without warnings/errors. The exact updated
+workflow recipe passes 2,163 F# plus 251 Servicing/model cases at
+**14,533/17,018 lines (85.3978%)** and
+**15,104/24,636 branches (61.3087%)**, retaining the unchanged five-assembly
+denominator and 85/60 gates. The remaining Windows lifecycle causes await actual
+sanitised failure details; no speculative production correction is claimed.
+
 ## Enrolled-service fixture uses native absolute paths
 
 The first two hosted Windows runs expose five fixture failures in

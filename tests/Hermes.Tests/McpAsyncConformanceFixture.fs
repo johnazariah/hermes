@@ -17,7 +17,8 @@ module McpAsyncConformanceFixture =
           Bytes: Map<string, string>
           Directories: Map<string, bool> }
 
-    let source = IO.Path.GetFullPath("/archive/async/source.txt")
+    let archiveRoot = IO.Path.GetFullPath("/archive")
+    let source = IO.Path.Combine(archiveRoot, "async", "source.txt")
     let sidecar =
         let directory =
             IO.Path.GetDirectoryName(source)
@@ -156,4 +157,4 @@ module McpAsyncConformanceFixture =
         let request =
             $"""{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{"name":"{tool}","arguments":{arguments}}}}}"""
         McpServer.processMessageWithCapabilities capabilities db fs TestHelpers.silentLogger
-            TestHelpers.defaultClock (TestHelpers.standardV5Dag ()) "/archive" deps request
+            TestHelpers.defaultClock (TestHelpers.standardV5Dag ()) archiveRoot deps request
