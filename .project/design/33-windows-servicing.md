@@ -324,10 +324,10 @@ No automatic application termination or reboot resolves an outcome.
 
 ### Bounded refusal diagnostics
 
-An `InvalidEvidence` refusal may include one additional stderr line containing
-only a version, fixed stage/cause/fault identifiers, native error kind and
-numeric error code. It contains no exception messages, paths, process or owner
-identities, challenges or tokens. The public five-field result, exit status,
+An `InvalidEvidence` or `Unavailable` refusal may include one additional stderr
+line containing only a version, fixed stage/cause/fault identifiers, native
+error kind and numeric error code. It contains no exception messages, paths,
+process or owner identities, challenges or tokens. The public five-field result, exit status,
 readiness and refusal policy remain unchanged.
 
 The `HERMES_SETUP_EVIDENCE` version-1 line is limited to 192 characters within

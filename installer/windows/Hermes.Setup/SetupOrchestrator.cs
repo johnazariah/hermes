@@ -26,9 +26,18 @@ internal sealed class SetupOrchestrator(
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         { return SetupExecution.Refused(verb, SetupCode.Cancelled); }
-        catch (IOException) { return SetupExecution.Refused(verb, SetupCode.Unavailable); }
-        catch (UnauthorizedAccessException)
-        { return SetupExecution.Refused(verb, SetupCode.Unavailable); }
+        catch (IOException error)
+        {
+            return SetupExecution.Refused(verb, SetupCode.Unavailable,
+                new(SetupEvidenceStage.Entry, SetupEvidenceCause.ExpectedException,
+                    ErrorKind: StartupEvidenceErrorKind.HResult, ErrorCode: error.HResult));
+        }
+        catch (UnauthorizedAccessException error)
+        {
+            return SetupExecution.Refused(verb, SetupCode.Unavailable,
+                new(SetupEvidenceStage.Entry, SetupEvidenceCause.ExpectedException,
+                    ErrorKind: StartupEvidenceErrorKind.HResult, ErrorCode: error.HResult));
+        }
     }
 
     private async Task<SetupExecution> ExecuteLeasedAsync(

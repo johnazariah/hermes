@@ -2,6 +2,40 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Unavailable uses the existing v1 refusal evidence channel
+
+The narrow seven-file continuation is independently source-approved. It emits
+retained `Unavailable` metadata, annotates existing admission/outer-I/O return
+sites and forwards retained native error kind/code at the existing outer
+boundary. Sharing violations 32/33 remain Busy. Catch boundaries, report,
+exit/readiness policy, optional-writer handling and v1 parser are unchanged.
+
+No v2 schema, native-field suite, friend-assembly expansion or new tracing
+framework is applied. Parent passes the warning-free solution build,
+2,182 Core and 712 Setup cases plus all static controls. The applier also
+passes 48 Control, 297 Servicing and the Windows cross-build; zero skips.
+
+The next hosted record may locate a concrete handling boundary without
+uniquely identifying the originating operation. It remains diagnostic
+evidence only, not a behavioural fix or installed acceptance.
+
+## Native shortcut controls pass; install advances to Unavailable
+
+Run `39489798798` at `aa4f3df` passes the complete **41/41 Windows project**
+with zero failures/skips, including real COM field reads, managed missing-path
+mapping, missing ancestors, redirected/dangling paths, collisions and held or
+malformed files. Both MSI versions again pass complete native ICE and actual
+mutation controls.
+
+The first SDK-free Install now returns `Unavailable` rather than the previous
+shortcut `InvalidEvidence` record. Failure-Recover reports `NoRecoveryPending`;
+the bounded report contains no cleanup failures. Both still return refusal,
+`ready=false` and null MSI result, so no installation or absent-MSI-call claim
+is made.
+
+A fresh C# specialist owns the now-distinct `Unavailable` trace. The proved
+shortcut behaviour and prior trust/ICE/admission contracts are not reopened.
+
 ## Shortcut absence uses physical proof before COM loading
 
 Independent review approves the narrow five-file correction. The real

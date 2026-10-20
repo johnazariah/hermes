@@ -14,10 +14,10 @@ internal static class Program
             return await SetupEntryPoint.RunAsync(arguments, OperatingSystem.IsWindows(),
                 new WindowsSetupFactory(), Console.Out, Console.Error, CancellationToken.None);
         }
-        catch (AdmissionException)
+        catch (AdmissionException error)
         {
             return await SetupEntryPoint.NativeRefusalAsync(
-                arguments, Console.Out, Console.Error);
+                arguments, Console.Out, Console.Error, error.Evidence, error.HResult);
         }
     }
 }

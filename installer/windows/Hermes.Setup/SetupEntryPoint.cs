@@ -44,9 +44,13 @@ internal static class SetupEntryPoint
     }
 
     internal static Task<int> NativeRefusalAsync(
-        IReadOnlyList<string> arguments, TextWriter output, TextWriter diagnostics) =>
+        IReadOnlyList<string> arguments, TextWriter output, TextWriter diagnostics,
+        StartupRefusalEvidence? nativeEvidence, int hResult) =>
         SetupCommandLine.Parse(arguments) is ParsedCommand(var command)
-            ? WriteAsync(SetupExecution.Refused(Verb(command), SetupCode.Unavailable),
+            ? WriteAsync(SetupExecution.Refused(Verb(command), SetupCode.Unavailable,
+                    new(SetupEvidenceStage.Entry, SetupEvidenceCause.ExpectedException,
+                        ErrorKind: nativeEvidence?.ErrorKind ?? StartupEvidenceErrorKind.HResult,
+                        ErrorCode: nativeEvidence?.ErrorCode ?? hResult)),
                 output, diagnostics)
             : throw new InvalidOperationException("Native effects preceded command parsing.");
 
@@ -55,7 +59,8 @@ internal static class SetupEntryPoint
     {
         await output.WriteLineAsync(execution.Report.ToJson());
         await diagnostics.WriteLineAsync($"Hermes Setup: {execution.Code}.");
-        if (execution is { Code: SetupCode.InvalidEvidence, Evidence: { } evidence })
+        if (execution is
+            { Code: SetupCode.InvalidEvidence or SetupCode.Unavailable, Evidence: { } evidence })
         {
             var line = evidence.ToDiagnosticLine();
             try

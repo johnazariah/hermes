@@ -100,6 +100,22 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Existing v1 evidence now covers Unavailable return sites
+
+- **Changed:** The source-approved seven-file continuation emits retained Unavailable metadata and annotates existing admission/outer-I/O return sites. Native error precedence, Busy classification, report/exit/readiness, catch boundaries and optional-writer handling remain unchanged.
+- **Scope:** The broader v2 proposal was discarded without application. No new schema, native-field suite, tracing framework or PowerShell parser change is introduced.
+- **Validation:** Parent passes warning-free root build, 2,182 Core, 712 Setup and all static controls. The applier passes 48 Control, 297 Servicing and Windows cross-build, with zero failures/skips. Narrow independent review approves source only.
+- **Blockers:** The Unavailable origin and installed lifecycle remain unproved; a handling-boundary record is not a root-cause or absent-MSI-call claim. PR #30 remains draft and main/distribution gated.
+- **Next:** Publish the minimal v1 continuation and use the next exact-head Windows record to select the behavioural correction.
+
+### 2026-10-21 - All 41 native shortcut/kernel cases pass; next refusal is Unavailable
+
+- **Evidence:** Run `39489798798` at `aa4f3df` passes the complete Windows project 41/41 with zero skips, including real COM/missing-ancestor and adversarial physical-path cases. Both MSI versions pass complete native validation and mutation controls.
+- **Outcome:** First Install advances from shortcut InvalidEvidence to Unavailable. Failure-Recover reports NoRecoveryPending, with no cleanup failures. Refusal/ready=false/null MSI result remain explicit; no successful install or proof of absent earlier MSI calls is claimed.
+- **Ownership:** A fresh C# specialist traces this distinct Unavailable origin without reopening proved shortcut or validation contracts.
+- **Blockers:** Full installed authentication, repair/upgrade/recovery/uninstall acceptance remains outstanding. PR #30 is draft; main/distribution remain gated.
+- **Next:** Locate the new Unavailable refusal and continue the exact-head Windows lifecycle.
+
 ### 2026-10-21 - Shortcut absence correction is source-approved
 
 - **Changed:** The concrete shortcut observer proves physical absence before COM loading, using two physical identity and missing-metadata observations. Unsafe/unknown/reparse/collision states remain refusals; present-file loading failures retain numerical unreadable evidence.

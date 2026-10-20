@@ -103,32 +103,84 @@ public sealed class SetupEvidenceTests
     }
 
     [Theory]
-    [InlineData(SetupVerb.Install)]
-    [InlineData(SetupVerb.Recover)]
-    public async Task InvalidCompiledTrustIsDistinguishedFromAcquiredAdmission(object operation)
+    [InlineData(SetupVerb.Install, false)]
+    [InlineData(SetupVerb.Recover, false)]
+    [InlineData(SetupVerb.Install, true)]
+    [InlineData(SetupVerb.Recover, true)]
+    public async Task InvalidOrMissingCompiledTrustIsDistinguishedFromAcquiredAdmission(
+        object operation, bool missing)
     {
         var verb = Assert.IsType<SetupVerb>(operation);
         using var world = new RootFixture();
-        world.Factory.Trust([new(CompiledGuardTrust.MetadataName, "sensitive invalid metadata")]);
+        world.Factory.Trust(missing ? [] :
+            [new(CompiledGuardTrust.MetadataName, "sensitive invalid metadata")]);
         AssertRefused(await RunAsync(world, verb), verb,
-            new(SetupEvidenceStage.Composition, SetupEvidenceCause.Rejected));
+            new(SetupEvidenceStage.Composition, SetupEvidenceCause.Rejected),
+            missing ? SetupCode.Unavailable : SetupCode.InvalidEvidence);
         Assert.Empty(world.Files.ReadPaths);
         AssertNoMutation(world);
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task AdmissionFailurePreservesEvidenceOrIdentifiesTheAdmissionBoundary(bool detailed)
+    [InlineData(SetupCode.InvalidEvidence, false)]
+    [InlineData(SetupCode.InvalidEvidence, true)]
+    [InlineData(SetupCode.Unavailable, false)]
+    [InlineData(SetupCode.Unavailable, true)]
+    public async Task AdmissionFailurePreservesEvidenceOrIdentifiesTheAdmissionBoundary(
+        object resultCode, bool detailed)
     {
+        var code = Assert.IsType<SetupCode>(resultCode);
         using var world = new RootFixture();
         var expected = new SetupRefusalEvidence(SetupEvidenceStage.Admission,
             detailed ? SetupEvidenceCause.ExpectedException : SetupEvidenceCause.Rejected);
-        var error = new SetupIoException(SetupCode.InvalidEvidence, detailed ? expected : null);
+        var error = new SetupIoException(code, detailed ? expected : null);
         var disk = new SetupDisk(world.Files, new FailingPaths(error), world.Files);
         var admission = new FileAdmissionSource(disk, world.Scope, new SyntheticGateCodec());
         AssertRefused(await RunAsync(world, SetupVerb.Install,
-            world.Capabilities with { Admission = admission }), SetupVerb.Install, expected);
+            world.Capabilities with { Admission = admission }), SetupVerb.Install, expected, code);
+        AssertNoMutation(world);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task UnavailableIoRetainsTheExistingBoundaryAndHResult(
+        bool outer, bool accessDenied)
+    {
+        using var world = new RootFixture();
+        Exception error = accessDenied
+            ? new UnauthorizedAccessException("sensitive access detail")
+            : new IOException("sensitive I/O detail");
+        var disk = new SetupDisk(world.Files, new FailingPaths(error), world.Files);
+        IAdmissionSource admission = outer ? new ThrowingAdmission(error)
+            : new FileAdmissionSource(disk, world.Scope, new SyntheticGateCodec());
+        AssertRefused(await RunAsync(world, SetupVerb.Install,
+            world.Capabilities with { Admission = admission }), SetupVerb.Install,
+            new(outer ? SetupEvidenceStage.Entry : SetupEvidenceStage.Admission,
+                SetupEvidenceCause.ExpectedException,
+                ErrorKind: StartupEvidenceErrorKind.HResult, ErrorCode: error.HResult),
+            SetupCode.Unavailable);
+        AssertNoMutation(world);
+    }
+
+    [Theory]
+    [InlineData(32)]
+    [InlineData(33)]
+    public async Task AdmissionSharingFailuresRemainBusyWithoutEvidence(int nativeCode)
+    {
+        using var world = new RootFixture();
+        var error = new IOException("sensitive sharing detail",
+            unchecked((int)(0x80070000u | (uint)nativeCode)));
+        var disk = new SetupDisk(world.Files, new FailingPaths(error), world.Files);
+        var admission = new FileAdmissionSource(disk, world.Scope, new SyntheticGateCodec());
+        var result = await RunAsync(world, SetupVerb.Install,
+            world.Capabilities with { Admission = admission });
+        Assert.Equal(1618, result.ExitCode);
+        Assert.Equal(SetupExecution.Refused(SetupVerb.Install, SetupCode.Busy).Report.ToJson() +
+            Environment.NewLine, result.Output);
+        Assert.Equal("Hermes Setup: Busy." + Environment.NewLine, result.Diagnostics);
         AssertNoMutation(world);
     }
 
@@ -154,32 +206,42 @@ public sealed class SetupEvidenceTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task EntryTypedExceptionsPreserveTheirOriginalCodeAndAvailableEvidence(bool detailed)
+    [InlineData(SetupCode.InvalidEvidence, false)]
+    [InlineData(SetupCode.InvalidEvidence, true)]
+    [InlineData(SetupCode.Unavailable, false)]
+    [InlineData(SetupCode.Unavailable, true)]
+    public async Task EntryTypedExceptionsPreserveTheirOriginalCodeAndAvailableEvidence(
+        object resultCode, bool detailed)
     {
+        var code = Assert.IsType<SetupCode>(resultCode);
         using var world = new RootFixture();
         var expected = new SetupRefusalEvidence(
             detailed ? SetupEvidenceStage.FinalInventory : SetupEvidenceStage.Entry,
             SetupEvidenceCause.Rejected);
         var factory = new ThrowingFactory(
-            new SetupIoException(SetupCode.InvalidEvidence, detailed ? expected : null));
+            new SetupIoException(code, detailed ? expected : null));
         AssertRefused(await RunAsync(factory, SetupVerb.Install, world.New.SourcePath),
-            SetupVerb.Install, expected);
+            SetupVerb.Install, expected, code);
         AssertNoMutation(world);
     }
 
     [Theory]
-    [InlineData(WriterFault.Io, false)]
-    [InlineData(WriterFault.Io, true)]
-    [InlineData(WriterFault.AccessDenied, false)]
-    [InlineData(WriterFault.AccessDenied, true)]
-    public async Task OptionalEvidenceWriteFailurePreservesOriginalRefusal(object fault, bool asynchronous)
+    [InlineData(SetupCode.InvalidEvidence, WriterFault.Io, false)]
+    [InlineData(SetupCode.InvalidEvidence, WriterFault.Io, true)]
+    [InlineData(SetupCode.InvalidEvidence, WriterFault.AccessDenied, false)]
+    [InlineData(SetupCode.InvalidEvidence, WriterFault.AccessDenied, true)]
+    [InlineData(SetupCode.Unavailable, WriterFault.Io, false)]
+    [InlineData(SetupCode.Unavailable, WriterFault.Io, true)]
+    [InlineData(SetupCode.Unavailable, WriterFault.AccessDenied, false)]
+    [InlineData(SetupCode.Unavailable, WriterFault.AccessDenied, true)]
+    public async Task OptionalEvidenceWriteFailurePreservesOriginalRefusal(
+        object resultCode, object fault, bool asynchronous)
     {
-        var factory = new ThrowingFactory(new SetupIoException(SetupCode.InvalidEvidence));
+        var code = Assert.IsType<SetupCode>(resultCode);
+        var factory = new ThrowingFactory(new SetupIoException(code));
         var original = await RunAsync(factory, SetupVerb.Recover, "");
         AssertRefused(original, SetupVerb.Recover,
-            new(SetupEvidenceStage.Entry, SetupEvidenceCause.Rejected));
+            new(SetupEvidenceStage.Entry, SetupEvidenceCause.Rejected), code);
         var error = WriterError(fault);
         using var output = new FailingLineWriter(0, error, asynchronous);
         using var diagnostics = new FailingLineWriter(2, error, asynchronous);
@@ -187,7 +249,7 @@ public sealed class SetupEvidenceTests
             ["recover", "--quiet"], true, factory, output, diagnostics, CancellationToken.None);
         Assert.Equal(original.ExitCode, exit);
         Assert.Equal(original.Output, output.ToString());
-        Assert.Equal(InvalidEvidenceMarker + Environment.NewLine, diagnostics.ToString());
+        Assert.Equal($"Hermes Setup: {code}." + Environment.NewLine, diagnostics.ToString());
         Assert.Equal(1, output.Writes);
         Assert.Equal(2, diagnostics.Writes);
     }
@@ -387,7 +449,8 @@ public sealed class SetupEvidenceTests
     }
 
     private static void AssertRefused(
-        Captured actual, SetupVerb verb, SetupRefusalEvidence expected)
+        Captured actual, SetupVerb verb, SetupRefusalEvidence expected,
+        SetupCode code = SetupCode.InvalidEvidence)
     {
         Assert.Equal(1603, actual.ExitCode);
         using var document = JsonDocument.Parse(actual.Output);
@@ -398,7 +461,7 @@ public sealed class SetupEvidenceTests
         Assert.Equal("Refused", report.GetProperty("outcome").GetString());
         Assert.False(report.GetProperty("ready").GetBoolean());
         Assert.Equal(JsonValueKind.Null, report.GetProperty("msiExitCode").ValueKind);
-        Assert.Equal(InvalidEvidenceMarker + Environment.NewLine +
+        Assert.Equal($"Hermes Setup: {code}." + Environment.NewLine +
             expected.ToDiagnosticLine() + Environment.NewLine, actual.Diagnostics);
         Assert.DoesNotContain("sensitive", actual.Output + actual.Diagnostics);
     }
@@ -451,6 +514,11 @@ public sealed class SetupEvidenceTests
     private sealed class ThrowingFactory(Exception error) : ISetupApplicationFactory
     {
         public Effect<SetupApplication> Create() => throw error;
+    }
+
+    private sealed class ThrowingAdmission(Exception error) : IAdmissionSource
+    {
+        public Effect<ISetupLease> TryAcquire() => throw error;
     }
 
     private sealed class FailingPaths(Exception error) : ISetupPathSafety

@@ -279,7 +279,7 @@ public sealed class WindowsPlacementTests
     }
 
     [Fact]
-    public void A_missing_outside_image_is_unavailable_not_positive()
+    public async Task A_missing_outside_image_is_unavailable_not_positive()
     {
         using var sandbox = new Sandbox();
         var capture = new StartupRefusalEvidenceCapture();
@@ -294,6 +294,24 @@ public sealed class WindowsPlacementTests
         Assert.Contains(evidence.ErrorCode, new[] { 2, 3 });
         Assert.Equal(0, evidence.Position);
         Assert.False(Directory.Exists(sandbox.HermesDirectory));
+        await AssertNativeSetupEvidenceAsync(evidence);
+    }
+
+    private static async Task AssertNativeSetupEvidenceAsync(StartupRefusalEvidence evidence)
+    {
+        using var output = new StringWriter();
+        using var diagnostics = new StringWriter();
+        var source = Path.Combine(Path.GetTempPath(), "not-opened.msi");
+        var exit = await SetupEntryPoint.NativeRefusalAsync(
+            ["install", "--package", source], output, diagnostics, evidence, 0);
+        Assert.Equal(1603, exit);
+        Assert.Equal(SetupExecution.Refused(SetupVerb.Install, SetupCode.Unavailable)
+            .Report.ToJson() + Environment.NewLine, output.ToString());
+        var expected = new SetupRefusalEvidence(
+            SetupEvidenceStage.Entry, SetupEvidenceCause.ExpectedException,
+            ErrorKind: evidence.ErrorKind, ErrorCode: evidence.ErrorCode);
+        Assert.Equal("Hermes Setup: Unavailable." + Environment.NewLine +
+            expected.ToDiagnosticLine() + Environment.NewLine, diagnostics.ToString());
     }
 
     [Fact]

@@ -222,17 +222,30 @@ public sealed class SetupBoundaryTests
         Assert.Empty(world.Files.ActiveReadPaths);
     }
 
-    [Fact]
-    public async Task NativeTypedRefusalUsesTheSameScrubbedPublicReport()
+    [Theory]
+    [InlineData(null, 0)]
+    [InlineData(StartupEvidenceErrorKind.None, 0)]
+    [InlineData(StartupEvidenceErrorKind.Win32, 5)]
+    [InlineData(StartupEvidenceErrorKind.HResult, -2147024893)]
+    public async Task NativeTypedRefusalUsesTheSameScrubbedPublicReport(
+        StartupEvidenceErrorKind? kind, int nativeCode)
     {
         using var output = new StringWriter();
         using var errors = new StringWriter();
-        var code = await SetupEntryPoint.NativeRefusalAsync(["uninstall"], output, errors);
+        const int hResult = -2147024891;
+        var native = kind is { } errorKind ? new StartupRefusalEvidence(
+            StartupEvidenceStage.LoadedImage, StartupEvidenceOperation.OpenFollowing,
+            StartupEvidenceFailure.NativeCallFailed, errorKind, nativeCode) : null;
+        var code = await SetupEntryPoint.NativeRefusalAsync(
+            ["uninstall"], output, errors, native, hResult);
         Assert.Equal((int)SetupExitCode.ServicingFailed, code);
-        using var report = JsonDocument.Parse(output.ToString());
-        Assert.False(report.RootElement.GetProperty("ready").GetBoolean());
+        Assert.Equal(SetupExecution.Refused(SetupVerb.Uninstall, SetupCode.Unavailable)
+            .Report.ToJson() + Environment.NewLine, output.ToString());
+        Assert.Equal("Hermes Setup: Unavailable." + Environment.NewLine +
+            $"HERMES_SETUP_EVIDENCE v=1 stage=1 cause=2 fault=0 errorKind={(int)(kind ?? StartupEvidenceErrorKind.HResult)} error={native?.ErrorCode ?? hResult}" +
+            Environment.NewLine, errors.ToString());
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
-            await SetupEntryPoint.NativeRefusalAsync(["invalid"], output, errors));
+            await SetupEntryPoint.NativeRefusalAsync(["invalid"], output, errors, native, hResult));
     }
 
     [Fact]

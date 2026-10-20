@@ -236,11 +236,19 @@ internal sealed class FileAdmissionSource(
         { return Effect<ISetupLease>.Fail(error.Code, error.Evidence); }
         catch (IOException error)
         {
-            return Effect<ISetupLease>.Fail((error.HResult & 0xffff) is 32 or 33
-                ? SetupCode.Busy : SetupCode.Unavailable);
+            var code = (error.HResult & 0xffff) is 32 or 33
+                ? SetupCode.Busy : SetupCode.Unavailable;
+            return Effect<ISetupLease>.Fail(code, code == SetupCode.Unavailable
+                ? new(SetupEvidenceStage.Admission, SetupEvidenceCause.ExpectedException,
+                    ErrorKind: StartupEvidenceErrorKind.HResult, ErrorCode: error.HResult)
+                : null);
         }
-        catch (UnauthorizedAccessException)
-        { return Effect<ISetupLease>.Fail(SetupCode.Unavailable); }
+        catch (UnauthorizedAccessException error)
+        {
+            return Effect<ISetupLease>.Fail(SetupCode.Unavailable,
+                new(SetupEvidenceStage.Admission, SetupEvidenceCause.ExpectedException,
+                    ErrorKind: StartupEvidenceErrorKind.HResult, ErrorCode: error.HResult));
+        }
     }
 
     private void RequireExistingGate()
