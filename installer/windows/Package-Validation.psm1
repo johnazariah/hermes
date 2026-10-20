@@ -167,10 +167,25 @@ function Assert-HermesIcePrerequisites($Manifest, [hashtable]$Facts) {
     }
 }
 
+function Read-HermesIceOutput([Diagnostics.Process]$Process) {
+    $stdout = $Process.StandardOutput.ReadToEndAsync()
+    $stderr = $Process.StandardError.ReadToEndAsync()
+    $Process.WaitForExit()
+    $stdoutText = $stdout.GetAwaiter().GetResult()
+    $stderrText = $stderr.GetAwaiter().GetResult()
+    # Each stream has its own line boundary, even without a final newline.
+    [pscustomobject]@{
+        Text = $stdoutText + $stderrText
+        Lines = @($stdoutText -split '\r?\n'; $stderrText -split '\r?\n')
+        StandardOutput = $stdoutText
+        StandardError = $stderrText
+    }
+}
+
 function Assert-HermesIceDiagnostics {
     param(
         [Parameter(Mandatory = $true)]$Manifest,
-        [Parameter(Mandatory = $true)][AllowEmptyCollection()][string[]]$Lines,
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][AllowEmptyString()][string[]]$Lines,
         [Parameter(Mandatory = $true)][int]$NativeExitCode
     )
     if ($NativeExitCode -ne 0) { throw "Complete native MSI validation failed with exit code $NativeExitCode." }
@@ -203,4 +218,4 @@ function Assert-HermesIceDiagnostics {
     Write-Output "Complete native ICE validation passed with $count precisely matched, prerequisite-checked policy warnings."
 }
 
-Export-ModuleMember -Function Open-HermesPinnedWixValidator, Assert-HermesIcePrerequisites, Assert-HermesIceDiagnostics
+Export-ModuleMember -Function Open-HermesPinnedWixValidator, Assert-HermesIcePrerequisites, Read-HermesIceOutput, Assert-HermesIceDiagnostics

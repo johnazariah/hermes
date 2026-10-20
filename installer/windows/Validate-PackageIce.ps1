@@ -76,10 +76,8 @@ try {
         [void]$start.ArgumentList.Add($argument)
     }
     $process = [Diagnostics.Process]::Start($start)
-    $stdout = $process.StandardOutput.ReadToEndAsync()
-    $stderr = $process.StandardError.ReadToEndAsync()
-    $process.WaitForExit()
-    $text = $stdout.GetAwaiter().GetResult() + $stderr.GetAwaiter().GetResult()
+    $output = Read-HermesIceOutput $process
+    $text = $output.Text
     $log = Join-Path ([IO.Path]::GetDirectoryName($manifestPath)) 'ice-validation.log'
     [IO.File]::WriteAllText($log, $text, [Text.UTF8Encoding]::new($false))
     [Console]::Out.Write($text)
@@ -89,7 +87,7 @@ try {
     if ((Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash -cne $manifestBefore) {
         throw 'Validation changed the manifest; warning allowances must describe the same inventory.'
     }
-    Assert-HermesIceDiagnostics -Manifest $manifest -Lines @($text -split '\r?\n') -NativeExitCode $process.ExitCode
+    Assert-HermesIceDiagnostics -Manifest $manifest -Lines $output.Lines -NativeExitCode $process.ExitCode
     $receipt = [ordered]@{
         schemaVersion = 1
         packageSha256 = $before.ToLowerInvariant()

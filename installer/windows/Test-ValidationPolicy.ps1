@@ -9,10 +9,39 @@ function Require([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw $Message }
 }
 
-function Refuse([scriptblock]$Action, [string]$Message) {
+function Refuse([scriptblock]$Action, [string]$Message, [string]$ExpectedPrefix = '') {
     $refused = $false
-    try { & $Action | Out-Null } catch { $refused = $true }
+    try { & $Action | Out-Null } catch {
+        if ($ExpectedPrefix -and -not $_.Exception.Message.StartsWith($ExpectedPrefix, [StringComparison]::Ordinal)) {
+            throw "Wrong refusal: $($_.Exception.Message); expected $ExpectedPrefix"
+        }
+        $refused = $true
+    }
     Require $refused $Message
+}
+
+function Get-SyntheticProcessOutput([string]$Stdout, [string]$Stderr, [int]$ExitCode = 0) {
+    $payload = @{ stdout = $Stdout; stderr = $Stderr; exitCode = $ExitCode } | ConvertTo-Json -Compress
+    $encodedPayload = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($payload))
+    $child = '$data = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("' + $encodedPayload + '")) | ConvertFrom-Json; ' +
+        '[Console]::Out.Write([string]$data.stdout); [Console]::Error.Write([string]$data.stderr); exit [int]$data.exitCode'
+    $start = [Diagnostics.ProcessStartInfo]::new((Get-Process -Id $PID).Path)
+    $start.UseShellExecute = $false
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    foreach ($argument in @('-NoProfile', '-NonInteractive', '-EncodedCommand', [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($child)))) {
+        [void]$start.ArgumentList.Add($argument)
+    }
+    $process = [Diagnostics.Process]::Start($start)
+    try {
+        $output = Read-HermesIceOutput $process
+        Require ($output.StandardOutput -ceq $Stdout -and $output.StandardError -ceq $Stderr) 'Synthetic child streams must be captured without losing or rewriting output.'
+        Require ($output.Text -ceq ($Stdout + $Stderr)) 'The retained transcript must include both complete, unmodified streams.'
+        $expectedLines = @($Stdout -split '\r?\n'; $Stderr -split '\r?\n')
+        Require ($output.Lines.Count -eq $expectedLines.Count -and ($output.Lines -join "`0") -ceq ($expectedLines -join "`0")) 'Captured diagnostic lines must preserve empty elements and independent stream boundaries.'
+        $output | Add-Member -NotePropertyName ExitCode -NotePropertyValue $process.ExitCode
+        $output
+    } finally { $process.Dispose() }
 }
 
 function New-ManifestFile([string]$Path, [long]$Length) {
@@ -83,6 +112,36 @@ $warnings = @(
 )
 $lines = @($warnings | ForEach-Object { "SYNTHETIC.wxs(1): warning WIX1076: $_" })
 Assert-HermesIceDiagnostics -Manifest $manifest -Lines $lines -NativeExitCode 0 | Out-Null
+foreach ($streams in @(
+    @{ stdout = ($lines -join "`n") + "`n"; stderr = '' },
+    @{ stdout = ''; stderr = ($lines -join "`r`n") + "`r`n" },
+    @{ stdout = "`n" + ($lines -join "`n`n") + "`n`n"; stderr = "`r`n" },
+    @{ stdout = $lines[0]; stderr = ($lines[1..3] -join "`r`n") + "`r`n" },
+    @{ stdout = ($lines[0..1] -join "`r`n") + "`r`n"; stderr = "`n" + ($lines[2..3] -join "`n") + "`n" },
+    @{ stdout = $lines -join "`n"; stderr = '' }
+)) {
+    $output = Get-SyntheticProcessOutput $streams.stdout $streams.stderr
+    Assert-HermesIceDiagnostics -Manifest $manifest -Lines $output.Lines -NativeExitCode $output.ExitCode | Out-Null
+}
+foreach ($streams in @(
+    @{ stdout = ''; stderr = ''; reason = 'Native validation omitted 4 expected policy diagnostics.' },
+    @{ stdout = "`n`n"; stderr = "`r`n"; reason = 'Native validation omitted 4 expected policy diagnostics.' },
+    @{ stdout = $lines[0..2] -join "`n"; stderr = ''; reason = 'Native validation omitted 1 expected policy diagnostics.' },
+    @{ stdout = ($lines -join "`n") + "`n"; stderr = $lines[0] + "`r`n"; reason = 'Unexpected or duplicate native validation diagnostic:' },
+    @{ stdout = ($lines -join "`n") + "`n"; stderr = 'SYNTHETIC: warning WIX9999: Unknown.'; reason = 'Unexpected or duplicate native validation diagnostic:' },
+    @{ stdout = ($lines -join "`n") + "`n"; stderr = 'SYNTHETIC: error WIX0204: ICE72: DLL action forbidden.'; reason = 'Unexpected or duplicate native validation diagnostic:' },
+    @{ stdout = ($lines -join "`n").Replace($fileId, 'File_Forged'); stderr = ''; reason = 'Unexpected or duplicate native validation diagnostic:' },
+    @{ stdout = ($lines[0..2] -join "`n") + "`n" + $lines[3].Substring(0, $lines[3].Length - 1); stderr = ''; reason = 'Unexpected or duplicate native validation diagnostic:' },
+    @{ stdout = ($lines[0..2] -join "`n") + "`n" + $lines[3].Substring(0, 30); stderr = $lines[3].Substring(30); reason = 'Unexpected or duplicate native validation diagnostic:' }
+)) {
+    $output = Get-SyntheticProcessOutput $streams.stdout $streams.stderr
+    Refuse { Assert-HermesIceDiagnostics -Manifest $manifest -Lines $output.Lines -NativeExitCode $output.ExitCode } `
+        'Captured empty, incomplete, duplicate, foreign, truncated or cross-stream-forged diagnostics must fail classification.' $streams.reason
+}
+$output = Get-SyntheticProcessOutput (($lines -join "`n") + "`n") '' 7
+Refuse { Assert-HermesIceDiagnostics -Manifest $manifest -Lines $output.Lines -NativeExitCode $output.ExitCode } `
+    'Real nonzero child exit must fail even with the complete valid transcript.' 'Complete native MSI validation failed with exit code 7.'
+Write-Output 'Real synthetic child-process stdout/stderr controls passed: 6 valid layouts and 10 rejected outputs/exits; no native validator was executed.'
 foreach ($exitCode in @(1, 204, 1603)) {
     Refuse { Assert-HermesIceDiagnostics $manifest $lines $exitCode } 'A failing native validator must never be accepted.'
 }

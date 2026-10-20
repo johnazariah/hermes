@@ -2,6 +2,28 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Native ICE output reaches a blank-line adapter correction
+
+Run `39477575313` at `8c17a15` passes both supported OS jobs, Tray and all
+31 native Windows cases. Actual isolated MSI filename/reparenting mutations
+are rejected by the real read-only gate. The authenticated validator executes
+full ICE and emits exactly one ICE61, one ICE63 and 697 ICE91 warnings; the
+original ICE64/72 errors are absent. Classification then fails at PowerShell
+binding because `Lines` contains empty string elements.
+
+The reviewed adapter admits those empty elements while retaining mandatory
+diagnostic completeness. Shared capture reads stdout/stderr independently,
+preserving unterminated stream boundaries. Six valid layouts and ten rejected
+outputs/exits run through real synthetic child processes; unrelated binding
+errors cannot satisfy the negative controls. Empty output, missing/duplicate/
+foreign diagnostics, truncation and nonzero exits remain failures.
+
+Narrow independent review approves the four-file correction. Parent passes
+the warning-free solution build, all 2,182 Core cases and complete static
+22-payload/28-adverse/provenance/path/policy/actionlint controls. C# and all
+previous trust/hash/ICE requirements are unchanged. Fresh Windows classifier
+and installed-lifecycle success remain outstanding.
+
 ## Integrated MSI authoring and validation source is approved
 
 Final independent review closes all three source findings: pinned-validator

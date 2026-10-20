@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Real native ICE advances to a blank-line binding correction
+
+- **Evidence:** Run `39477575313` at `8c17a15` passes both supported jobs, Tray, native Windows 31/31 and actual copied-MSI filename/reparenting refusal. Authenticated full ICE emits one ICE61, one ICE63 and 697 ICE91 warnings, without the original ICE64/72 errors. The wrapper then refuses an empty `Lines` element before classification; no installation succeeds.
+- **Changed:** The eligible author corrects only line-array binding and shared stdout/stderr capture. Independent streams cannot concatenate into a forged diagnostic, and empty output still fails completeness.
+- **Validation:** Narrow independent review approves the correction. Six valid and ten rejected real-child-process controls pass, as do all static/payload 22/adverse 28/provenance/path/policy/actionlint checks. Parent passes warning-free solution build and all 2,182 Core cases.
+- **Blockers:** Fresh-head classifier receipt, complete installed lifecycle and native recovery remain unaccepted. C#/trust/hash/normal-ICE contracts are unchanged; PR #30 remains draft and main/distribution gated.
+- **Next:** Publish the bounded adapter correction and continue actual Windows acceptance.
+
 ### 2026-10-21 - Complete ICE correction receives integrated source approval
 
 - **Changed:** Fresh authors close validator provenance, actual MSI file/path binding and C# target-name/resource consistency. Media, authoring and catalog consumers share strict bare/`short|long` interpretation; exact identities, fixed root, native guards and empty-directory-only cleanup remain enforced.

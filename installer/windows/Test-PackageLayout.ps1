@@ -100,6 +100,8 @@ Require ($iceSource.Contains('$installer.OpenDatabase($package, 0)') `
     -and $iceSource.Contains('SELECT `File`, `Component_`, `FileName`, `FileSize` FROM `File`') `
     -and $iceSource.Contains('SELECT `Component`, `ComponentId`, `Directory_` FROM `Component`') `
     -and $iceSource.Contains('WHERE `VersionMax` IS NULL AND `Remove` IS NULL') `
+    -and $iceSource.Contains('$output = Read-HermesIceOutput $process') `
+    -and $iceSource.Contains('-Lines $output.Lines') `
     -and $iceSource.Contains('-NativeExitCode $process.ExitCode') `
     -and $iceSource.Contains(" 'ice-validation.log'") `
     -and $iceSource.Contains("throw 'Validation changed the finalised MSI") `
