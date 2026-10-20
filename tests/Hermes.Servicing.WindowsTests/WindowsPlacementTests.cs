@@ -266,7 +266,7 @@ public sealed class WindowsPlacementTests
     }
 
     [Fact]
-    public void An_outside_hard_link_to_installed_bytes_is_ambiguous_not_outside()
+    public async Task An_outside_hard_link_to_installed_bytes_is_ambiguous_not_outside()
     {
         using var sandbox = new Sandbox();
         var installed = sandbox.Image(Path.Combine(sandbox.AppDirectory, "service"));
@@ -276,6 +276,44 @@ public sealed class WindowsPlacementTests
             $"CreateHardLinkW failed: {Marshal.GetLastWin32Error()}");
         Assert.Equal(new Refused(RefusalReason.InvalidState),
             sandbox.Client(At(alias)).Enter(RuntimeEntry.Service));
+        var error = Assert.Throws<AdmissionException>(() =>
+            new WindowsPhysicalPaths().Image(alias));
+        Assert.Equal(AdmissionInvariant.ImageLinkCountNotOne, error.Invariant);
+        await AssertManagedSetupEvidenceAsync(error, SetupEvidenceCause.ImageLinkCountNotOne);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Native_file_type_collisions_retain_their_managed_source_point(bool image)
+    {
+        using var sandbox = new Sandbox();
+        if (image)
+            Directory.CreateDirectory(sandbox.Source);
+        else
+            File.WriteAllText(sandbox.Source, "Synthetic file; never executed.");
+        var physical = new WindowsPhysicalPaths();
+        Func<string> read = image
+            ? () => physical.Image(sandbox.Source) : () => physical.Directory(sandbox.Source);
+        var error = Assert.Throws<AdmissionException>(() => read());
+        Assert.Equal(image ? AdmissionInvariant.ImageIsDirectory
+            : AdmissionInvariant.DirectoryIsNotDirectory, error.Invariant);
+        await AssertManagedSetupEvidenceAsync(error, image
+            ? SetupEvidenceCause.ImageIsDirectory : SetupEvidenceCause.DirectoryIsNotDirectory);
+    }
+
+    [Fact]
+    public async Task Native_missing_ancestor_bound_does_not_become_positive_absence()
+    {
+        using var sandbox = new Sandbox();
+        var deep = Path.Combine(
+            new[] { sandbox.Source }.Concat(Enumerable.Repeat("d", 66)).ToArray());
+        var error = Assert.Throws<AdmissionException>(() =>
+            new WindowsPhysicalPaths().Directory(deep));
+        Assert.Equal(AdmissionInvariant.AncestorDepthExceeded, error.Invariant);
+        await AssertManagedSetupEvidenceAsync(error, SetupEvidenceCause.AncestorDepthExceeded);
+        Assert.False(Directory.Exists(sandbox.Source));
+        Assert.False(Directory.Exists(sandbox.HermesDirectory));
     }
 
     [Fact]
@@ -295,6 +333,24 @@ public sealed class WindowsPlacementTests
         Assert.Equal(0, evidence.Position);
         Assert.False(Directory.Exists(sandbox.HermesDirectory));
         await AssertNativeSetupEvidenceAsync(evidence);
+    }
+
+    private static async Task AssertManagedSetupEvidenceAsync(
+        AdmissionException error, SetupEvidenceCause cause)
+    {
+        Assert.Equal(RefusalReason.InvalidState, error.Reason);
+        Assert.Equal(new Exception().HResult, error.HResult);
+        Assert.Null(error.Evidence);
+        using var output = new StringWriter();
+        using var diagnostics = new StringWriter();
+        var exit = await SetupEntryPoint.NativeRefusalAsync(
+            ["recover"], output, diagnostics, error.Evidence, error.HResult, error.Invariant);
+        Assert.Equal(1603, exit);
+        Assert.Equal(SetupExecution.Refused(SetupVerb.Recover, SetupCode.Unavailable)
+            .Report.ToJson() + Environment.NewLine, output.ToString());
+        var expected = new SetupRefusalEvidence(SetupEvidenceStage.Entry, cause);
+        Assert.Equal("Hermes Setup: Unavailable." + Environment.NewLine +
+            expected.ToDiagnosticLine() + Environment.NewLine, diagnostics.ToString());
     }
 
     private static async Task AssertNativeSetupEvidenceAsync(StartupRefusalEvidence evidence)

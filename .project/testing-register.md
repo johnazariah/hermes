@@ -2,6 +2,43 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Finite admission source-point evidence is source-approved
+
+The new internal discriminator tags only nine existing bare managed rejection
+points. Independent review approves the bounded seam: exception type, reason,
+HResult, check order, catch boundaries and gate/publication guards remain.
+The existing v1 channel maps causes 10–18 explicitly, with Entry stage,
+fault=None and native kind/code zero. Genuine native evidence takes precedence.
+
+Legacy parser cases 1–9 remain unchanged. Nine new legal records and 367
+adverse combinations verify the finite vocabulary and cross-field rules;
+existing 2,599 numerical and 57 adverse controls still pass.
+
+Parent passes the warning-free root build, 2,182 Core, 732 Setup and 318
+Servicing cases plus all static controls. The applier also passes 48 Control
+and Windows cross-build. No Windows execution or behavioural root fix is
+claimed; one exact-head target record is required to identify the invariant.
+
+## Unavailable reaches a bare managed admission rejection
+
+Run `39494190534` at `bb9c02f` passes both supported OS jobs, Tray, all
+41 native Windows cases and both complete MSI validations. Install retains
+`Unavailable` with v1 `stage=1 cause=2 fault=0 errorKind=2 error=-2146233088`;
+Recover still reports NoRecoveryPending and cleanup remains clean.
+
+For the inspected production route, `0x80131500` selects the outer
+`AdmissionException` fallback without native evidence, not an ordinary OS I/O
+failure. It does not distinguish the existing bare InvalidState constructors:
+canonical-root, image kind/link count, ancestor limit, directory kind,
+final-path prefix and publication-state checks.
+
+The prior author stops at this observability boundary without a behavioural
+patch. A fresh narrowly scoped task will add only a finite typed source-point
+cause at those existing rejections and matching v1 parser/tests. This small
+vocabulary extension is necessary because existing causes 1–9 cannot describe
+the invariant truthfully; source IDs must not masquerade as OS errors.
+Exception type/reason, catch boundaries and all checks remain unchanged.
+
 ## Unavailable uses the existing v1 refusal evidence channel
 
 The narrow seven-file continuation is independently source-approved. It emits

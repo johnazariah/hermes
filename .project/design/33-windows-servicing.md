@@ -344,6 +344,12 @@ or completed recovery. A null MSI result alone does not prove that no earlier
 MSI call occurred. Failure of the optional evidence I/O write must not replace
 the refusal already reported.
 
+Causes 10–18 identify only the finite managed path/image/ancestry/publication
+invariants that otherwise share a bare rejection. They require Entry stage,
+no observation fault and no native error kind/code. Existing native evidence
+takes precedence. These tags do not change the exception, refusal reason,
+validation order or any admission/publication decision.
+
 ### Interrupted operation
 
 Recovery is another operation of the same coordinator, not a supervisor. It

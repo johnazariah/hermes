@@ -178,6 +178,87 @@ public sealed class GateStateTests
             Assert.Throws<AdmissionException>(() => sandbox.Publish(state)).Reason);
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("relative")]
+    public void Invalid_canonical_root_retains_its_original_rejection(string? path) =>
+        AssertInvariant(() => RuntimePaths.Canonical(path),
+            AdmissionInvariant.CanonicalRootInvalid);
+
+    [Fact]
+    public void Missing_ready_binding_retains_its_original_rejection()
+    {
+        // A hostile in-memory value, without weakening the non-nullable production contract.
+        var installation = Assert.IsType<ReadyInstallation>(
+            System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(
+                typeof(ReadyInstallation)));
+        AssertInvariant(() => ReadyValidation.Require(installation),
+            AdmissionInvariant.ReadyBindingMissing);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void Invalid_ready_inventory_retains_the_existing_combined_guard(int defect)
+    {
+        using var sandbox = new GateSandbox();
+        var valid = Installation(sandbox);
+        var invalid = defect switch
+        {
+            0 => valid with { ProductCode = Guid.Empty },
+            1 => valid with { Images = [] },
+            2 => valid with { Binding = valid.Binding with { AppDirectory = "relative" } },
+            _ => valid with { Images = valid.Images.Add(valid.Images[0]) }
+        };
+        AssertInvariant(() => ReadyValidation.Require(invalid),
+            AdmissionInvariant.ReadyInventoryInvalid);
+    }
+
+    [Fact]
+    public void Unsupported_ready_protocol_is_still_unannotated()
+    {
+        using var sandbox = new GateSandbox();
+        var valid = Installation(sandbox);
+        var invalid = valid with
+        {
+            Binding = valid.Binding with { AdmissionAbi = HermesServicingProtocol.AdmissionAbi + 1 }
+        };
+        var error = Assert.Throws<AdmissionException>(() => ReadyValidation.Require(invalid));
+        Assert.Equal(RefusalReason.UnsupportedProtocol, error.Reason);
+        Assert.Equal(AdmissionInvariant.None, error.Invariant);
+        Assert.Null(error.Evidence);
+        Assert.Equal(new Exception().HResult, error.HResult);
+    }
+
+    [Fact]
+    public void Oversized_publication_identifies_the_guard_without_closing_or_writing()
+    {
+        using var sandbox = new GateSandbox();
+        sandbox.Publish(new GateReadyState(null));
+        var before = File.ReadAllBytes(sandbox.GatePath);
+        var oversized = Installation(sandbox) with
+        {
+            Images = [new(new string('x', GateCodec.MaximumBodyLength), ServiceMvid)]
+        };
+        ReadyValidation.Require(oversized);
+        AssertInvariant(() => sandbox.Publish(new GateReadyState(oversized)),
+            AdmissionInvariant.ReadyBodyTooLarge);
+        Assert.Equal(before, File.ReadAllBytes(sandbox.GatePath));
+    }
+
+    private static void AssertInvariant(Action action, AdmissionInvariant invariant)
+    {
+        var error = Assert.Throws<AdmissionException>(action);
+        Assert.Equal(RefusalReason.InvalidState, error.Reason);
+        Assert.Equal(RefusalReason.InvalidState.ToString(), error.Message);
+        Assert.Equal(new Exception().HResult, error.HResult);
+        Assert.Equal(invariant, error.Invariant);
+        Assert.Null(error.Evidence);
+    }
+
     private static ReadyInstallation Installation(GateSandbox sandbox) => new(
         new(HermesServicingProtocol.UpgradeCode, sandbox.AppRoot,
             HermesServicingProtocol.AdmissionAbi),

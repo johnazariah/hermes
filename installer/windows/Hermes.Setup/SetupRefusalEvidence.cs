@@ -35,7 +35,16 @@ internal enum SetupEvidenceCause
     PendingAlias = 6,
     RegistryUnsupported = 7,
     ComponentClientsIncomplete = 8,
-    InventoryChanged = 9
+    InventoryChanged = 9,
+    CanonicalRootInvalid = 10,
+    ImageIsDirectory = 11,
+    ImageLinkCountNotOne = 12,
+    AncestorDepthExceeded = 13,
+    DirectoryIsNotDirectory = 14,
+    FinalPathPrefixUnsupported = 15,
+    ReadyBindingMissing = 16,
+    ReadyInventoryInvalid = 17,
+    ReadyBodyTooLarge = 18
 }
 
 internal sealed record SetupRefusalEvidence(
@@ -50,6 +59,31 @@ internal sealed record SetupRefusalEvidence(
     internal string ToDiagnosticLine() => string.Create(
         CultureInfo.InvariantCulture,
         $"HERMES_SETUP_EVIDENCE v=1 stage={Stage:d} cause={Cause:d} fault={Fault:d} errorKind={ErrorKind:d} error={ErrorCode}");
+
+    internal static SetupRefusalEvidence FromAdmission(
+        StartupRefusalEvidence? nativeEvidence, int hResult, AdmissionInvariant invariant)
+    {
+        var cause = InvariantCause(invariant);
+        return nativeEvidence is null && cause != SetupEvidenceCause.ExpectedException
+            ? new(SetupEvidenceStage.Entry, cause)
+            : new(SetupEvidenceStage.Entry, SetupEvidenceCause.ExpectedException,
+                ErrorKind: nativeEvidence?.ErrorKind ?? StartupEvidenceErrorKind.HResult,
+                ErrorCode: nativeEvidence?.ErrorCode ?? hResult);
+    }
+
+    private static SetupEvidenceCause InvariantCause(AdmissionInvariant invariant) => invariant switch
+    {
+        AdmissionInvariant.CanonicalRootInvalid => SetupEvidenceCause.CanonicalRootInvalid,
+        AdmissionInvariant.ImageIsDirectory => SetupEvidenceCause.ImageIsDirectory,
+        AdmissionInvariant.ImageLinkCountNotOne => SetupEvidenceCause.ImageLinkCountNotOne,
+        AdmissionInvariant.AncestorDepthExceeded => SetupEvidenceCause.AncestorDepthExceeded,
+        AdmissionInvariant.DirectoryIsNotDirectory => SetupEvidenceCause.DirectoryIsNotDirectory,
+        AdmissionInvariant.FinalPathPrefixUnsupported => SetupEvidenceCause.FinalPathPrefixUnsupported,
+        AdmissionInvariant.ReadyBindingMissing => SetupEvidenceCause.ReadyBindingMissing,
+        AdmissionInvariant.ReadyInventoryInvalid => SetupEvidenceCause.ReadyInventoryInvalid,
+        AdmissionInvariant.ReadyBodyTooLarge => SetupEvidenceCause.ReadyBodyTooLarge,
+        _ => SetupEvidenceCause.ExpectedException
+    };
 }
 
 // Only the existing read-only inspection boundary uses these wrappers.

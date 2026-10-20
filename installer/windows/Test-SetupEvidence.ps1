@@ -122,6 +122,86 @@ Require ($null -eq $result.protocolError -and $result.report.ready -and $null -e
 $result = Read-Output 'Hermes Setup: Busy.' $refusedReport 1618
 Require ($null -eq $result.protocolError -and $result.exitCode -eq 1618 -and $result.diagnosticCodes[0] -ceq 'Busy') 'Existing permitted busy exits must remain unchanged.'
 
+$sourceLines = @(foreach ($cause in 10..18) {
+    "HERMES_SETUP_EVIDENCE v=1 stage=1 cause=$cause fault=0 errorKind=0 error=0"
+})
+foreach ($line in $sourceLines) {
+    $result = Read-Output "Hermes Setup: Unavailable.`n$line"
+    Require-Refusal $result
+    Require ($null -eq $result.protocolError -and $null -eq $result.diagnosticError `
+        -and $result.diagnosticCodes.Count -eq 1 -and $result.diagnosticCodes[0] -ceq 'Unavailable') 'Valid source-point evidence changed the original diagnostics or refusal.'
+    $value = $result.refusalEvidence
+    Require (($value.PSObject.Properties.Name -join ',') -ceq 'v,stage,cause,fault,errorKind,error' `
+        -and $value.v -eq 1 -and $value.stage -eq 1 -and $value.cause -ge 10 -and $value.cause -le 18 `
+        -and $value.fault -eq 0 -and $value.errorKind -eq 0 -and $value.error -eq 0) 'Source-point evidence must use only its six typed numerical fields and zero native error.'
+    Require ($line -ceq "HERMES_SETUP_EVIDENCE v=$($value.v) stage=$($value.stage) cause=$($value.cause) fault=$($value.fault) errorKind=$($value.errorKind) error=$($value.error)") 'A source-point discriminator did not round-trip exactly.'
+    foreach ($property in $value.PSObject.Properties) {
+        Require ($property.Value -is [int] -or $property.Value -is [long]) 'Source-point fields must remain numerical.'
+    }
+    foreach ($marker in @('', 'Hermes Setup: InvalidEvidence.', 'Hermes Setup: Busy.', 'Hermes Setup: None.')) {
+        $independent = Read-Output "$marker`n$line"
+        Require ($null -eq $independent.protocolError -and $independent.refusalEvidence.cause -eq $value.cause) 'Source-point parsing must not depend on the diagnostic marker.'
+        Require-Refusal $independent
+    }
+    foreach ($text in @('not-json', ('x' * 4097), $refusedReport.Replace('"ready":false', '"ready":true'), $refusedReport.Replace('"schemaVersion":1', '"schemaVersion":2'))) {
+        $independent = Read-Output $line $text
+        Require ($independent.exitCode -eq 1603 -and $null -eq $independent.report `
+            -and $independent.protocolError -ceq 'InvalidCoordinatorReport' -and $null -eq $independent.diagnosticError `
+            -and $independent.refusalEvidence.cause -eq $value.cause) 'Source-point evidence must survive independently of report validation without repairing it.'
+        $independent = Read-Output ($line.Replace('fault=0', 'fault=1')) $text
+        Require ($independent.exitCode -eq 1603 -and $null -eq $independent.report `
+            -and $independent.protocolError -ceq 'InvalidCoordinatorReport' -and $null -eq $independent.refusalEvidence `
+            -and $independent.diagnosticError -ceq 'InvalidCoordinatorEvidence') 'Invalid source-point evidence must not overwrite the original report-validation failure.'
+    }
+    $independent = Read-Output $line $completedReport 1603
+    Require ($independent.protocolError -ceq 'InvalidCoordinatorReport' -and $null -eq $independent.report `
+        -and $null -ne $independent.refusalEvidence) 'Source-point evidence must not make an unsuccessful exit ready.'
+    $independent = Read-Output $line $completedReport 0
+    Require ($null -eq $independent.protocolError -and $independent.report.ready `
+        -and $independent.report.outcome -ceq 'Completed' -and $independent.exitCode -eq 0) 'Diagnostic evidence must not override an independently valid public report.'
+    $independent = Read-Output $line $refusedReport 0
+    Require ($independent.protocolError -ceq 'InvalidCoordinatorReport' -and $null -eq $independent.report `
+        -and $independent.exitCode -eq 0) 'Source-point evidence must not repair a refusal/exit disagreement.'
+}
+$sourceInvalid = @(
+    foreach ($line in $sourceLines) {
+        foreach ($stage in 2..16) { $line.Replace('stage=1 ', "stage=$stage ") }
+        foreach ($fault in 1..5) { $line.Replace('fault=0 ', "fault=$fault ") }
+        foreach ($kind in 1..2) { $line.Replace('errorKind=0 ', "errorKind=$kind ") }
+        foreach ($code in @(-2147483648L, -1L, 1L, 2147483647L, 2147483648L, 4294967295L)) {
+            $line.Replace('error=0', "error=$code")
+        }
+        $line.Replace('v=1', 'v=2')
+        $line.Replace('error=0', 'error=00')
+        $line.Replace('error=0', 'error=-0')
+        $line.Replace('error=0', 'error=SYNTHETIC_SECRET')
+        "$line unknown=1"
+        "$line token=SYNTHETIC_SECRET"
+        "$line`n$line"
+        "$line`n$wire"
+        "$line`nHERMES_SETUP_EVIDENCE SYNTHETIC_SECRET"
+        ($line + ('x' * 192))
+        ($line + ('x' * 4096))
+        $line.Replace(' error=0', '')
+    }
+    foreach ($cause in @('19', '0', '-1', '010', '01', '+10', '100')) {
+        $sourceLines[0].Replace('cause=10 ', "cause=$cause ")
+    }
+)
+foreach ($text in $sourceInvalid) {
+    $result = Read-Output "Hermes Setup: Unavailable.`n$text"
+    Require-Refusal $result
+    Require ($result.protocolError -ceq 'InvalidCoordinatorDiagnostics' -and $null -eq $result.refusalEvidence `
+        -and $null -ne $result.diagnosticError) 'Invalid source-point fields must be explicit without partial evidence.'
+    if (("Hermes Setup: Unavailable.`n$text").Length -le 4096) {
+        Require ($result.diagnosticCodes.Count -eq 1 -and $result.diagnosticCodes[0] -ceq 'Unavailable' `
+            -and $result.diagnosticError -cin @('InvalidCoordinatorEvidence', 'DuplicateCoordinatorEvidence')) 'Invalid source-point evidence erased bounded diagnostics or changed error handling.'
+    } else {
+        Require ($result.diagnosticCodes.Count -eq 0 -and $result.diagnosticError -ceq 'CoordinatorDiagnosticsTooLong') 'Oversized source-point diagnostics must retain no payload.'
+    }
+    Require (($result | ConvertTo-Json -Depth 8 -Compress) -cnotmatch 'SYNTHETIC_SECRET|token=|HERMES_SETUP|unknown=') 'Invalid source-point diagnostics leaked raw stderr.'
+}
+
 $start = [Diagnostics.ProcessStartInfo]::new()
 $start.FileName = Join-Path $PSHOME $(if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' })
 $start.UseShellExecute = $false
@@ -227,4 +307,4 @@ Require ($functions.Count -eq 2) 'Both actual coordinator evidence functions mus
         [IO.Directory]::Delete($destination)
     }
 }
-Write-Output "Setup evidence controls passed: $positiveCount numerical combinations/boundaries, $($invalid.Count) adverse diagnostics, real synthetic child stderr, report agreement and separate actual coordinator-stage persistence; synthetic only."
+Write-Output "Setup evidence controls passed: $positiveCount legacy numerical combinations/boundaries, $($invalid.Count) legacy adverse diagnostics, $($sourceLines.Count) source-point lines, $($sourceInvalid.Count) source-point adverse diagnostics, real synthetic child stderr, report/marker independence and separate actual coordinator-stage persistence; synthetic only."

@@ -6,7 +6,7 @@ using Xunit;
 
 namespace Hermes.Setup.Tests;
 
-public sealed class SetupEvidenceTests
+public sealed partial class SetupEvidenceTests
 {
     private const string InvalidEvidenceMarker = "Hermes Setup: InvalidEvidence.";
 

@@ -1,6 +1,7 @@
 ﻿using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using Hermes.Servicing;
+using Hermes.Setup;
 using Microsoft.Win32.SafeHandles;
 using Xunit;
 
@@ -101,6 +102,34 @@ public sealed class KernelGateTests
         AssertInvalidPublication(fixture, state);
     }
 
+    [Fact]
+    public void Setup_gate_read_still_translates_annotated_invalid_state_to_invalid_evidence()
+    {
+        using var fixture = new Fixture();
+        var bytes = InvalidReadyBytes(fixture);
+        File.WriteAllBytes(fixture.GatePath, bytes);
+        using var stream = File.OpenRead(fixture.GatePath);
+        var original = Assert.Throws<AdmissionException>(() => GateCodec.ReadReady(stream));
+        Assert.Equal(RefusalReason.InvalidState, original.Reason);
+        Assert.Equal(AdmissionInvariant.ReadyInventoryInvalid, original.Invariant);
+        var translated = Assert.Throws<SetupIoException>(() =>
+            new SharedSetupGateCodec().Read(stream));
+        Assert.Equal(SetupCode.InvalidEvidence, translated.Code);
+        Assert.Null(translated.Evidence);
+        Assert.Equal(bytes, File.ReadAllBytes(fixture.GatePath));
+    }
+
+    private static byte[] InvalidReadyBytes(Fixture fixture)
+    {
+        var state = new GateReadyState(new ReadyInstallation(
+            new(HermesServicingProtocol.UpgradeCode, fixture.AppPath,
+                HermesServicingProtocol.AdmissionAbi),
+            Guid.Empty, [new("service/Hermes.Service.dll", Guid.NewGuid())]));
+        var body = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
+            state, ServicingJson.Default.GateReadyState);
+        return [.. GateCodec.Header(GateStatus.Ready, body.Length), .. body];
+    }
+
     private static void RequireWin32Resolution(Fixture fixture, string path,
         Win32PathExpectation expectation)
     {
@@ -131,8 +160,12 @@ public sealed class KernelGateTests
     {
         var before = File.ReadAllBytes(fixture.GatePath);
         using (var exclusive = ExclusiveGate.Open(fixture.GatePath))
-            Assert.Equal(RefusalReason.InvalidState,
-                Assert.Throws<AdmissionException>(() => exclusive.PublishReady(state)).Reason);
+        {
+            var error = Assert.Throws<AdmissionException>(() => exclusive.PublishReady(state));
+            Assert.Equal(RefusalReason.InvalidState, error.Reason);
+            Assert.Equal(AdmissionInvariant.ReadyInventoryInvalid, error.Invariant);
+            Assert.Null(error.Evidence);
+        }
         Assert.Equal(before, File.ReadAllBytes(fixture.GatePath));
     }
 

@@ -174,12 +174,29 @@ internal sealed class ProcessLeaseRoot : ILeaseLifetime
     private sealed record ProcessToken : IProcessLease;
 }
 
+// Managed rejection sites only. These are not native errors or admission authority.
+internal enum AdmissionInvariant
+{
+    None = 0,
+    CanonicalRootInvalid = 1,
+    ImageIsDirectory = 2,
+    ImageLinkCountNotOne = 3,
+    AncestorDepthExceeded = 4,
+    DirectoryIsNotDirectory = 5,
+    FinalPathPrefixUnsupported = 6,
+    ReadyBindingMissing = 7,
+    ReadyInventoryInvalid = 8,
+    ReadyBodyTooLarge = 9
+}
+
 internal sealed class AdmissionException(
-    RefusalReason reason, StartupRefusalEvidence? evidence = null)
+    RefusalReason reason, StartupRefusalEvidence? evidence = null,
+    AdmissionInvariant invariant = AdmissionInvariant.None)
     : Exception(reason.ToString())
 {
     internal RefusalReason Reason { get; } = reason;
     internal StartupRefusalEvidence? Evidence { get; } = evidence;
+    internal AdmissionInvariant Invariant { get; } = invariant;
 }
 
 internal static class ReadyValidation
@@ -187,7 +204,8 @@ internal static class ReadyValidation
     internal static void Require(ReadyInstallation installation)
     {
         if (installation.Binding is not { } binding)
-            throw new AdmissionException(RefusalReason.InvalidState);
+            throw new AdmissionException(RefusalReason.InvalidState,
+                invariant: AdmissionInvariant.ReadyBindingMissing);
         if (binding.UpgradeCode != HermesServicingProtocol.UpgradeCode ||
             binding.AdmissionAbi != HermesServicingProtocol.AdmissionAbi)
             throw new AdmissionException(RefusalReason.UnsupportedProtocol);
@@ -196,7 +214,8 @@ internal static class ReadyValidation
             !installation.Images.All(ValidImage) ||
             installation.Images.Select(image => image.RelativePath)
                 .Distinct(StringComparer.OrdinalIgnoreCase).Count() != installation.Images.Length)
-            throw new AdmissionException(RefusalReason.InvalidState);
+            throw new AdmissionException(RefusalReason.InvalidState,
+                invariant: AdmissionInvariant.ReadyInventoryInvalid);
     }
 
     private static bool ValidImage(ManagedImage image) =>
@@ -286,7 +305,8 @@ internal static class RuntimePaths
     internal static string Canonical(string? path) =>
         path is { } value && ReadyValidation.ValidRoot(value)
             ? Path.TrimEndingDirectorySeparator(Path.GetFullPath(value))
-            : throw new AdmissionException(RefusalReason.InvalidState);
+            : throw new AdmissionException(RefusalReason.InvalidState,
+                invariant: AdmissionInvariant.CanonicalRootInvalid);
 
     internal static bool Contains(string root, string path) =>
         string.Equals(root, path, StringComparison.OrdinalIgnoreCase) ||

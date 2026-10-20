@@ -17,7 +17,8 @@ internal static class Program
         catch (AdmissionException error)
         {
             return await SetupEntryPoint.NativeRefusalAsync(
-                arguments, Console.Out, Console.Error, error.Evidence, error.HResult);
+                arguments, Console.Out, Console.Error,
+                error.Evidence, error.HResult, error.Invariant);
         }
     }
 }

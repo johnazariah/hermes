@@ -100,6 +100,22 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Finite source-point seam is approved for one Windows probe
+
+- **Changed:** Nine existing managed rejection points now retain a typed discriminator through the same v1 cause field. Managed tags carry no OS error; genuine native evidence takes precedence. Exception type/reason, checks/order, catches and publication/admission policy are unchanged.
+- **Review:** Fresh independent source review approves only this finite evidence seam and compatible parser bounds. No root fix or broader diagnostics design is introduced.
+- **Validation:** Parent passes warning-free root build, 2,182 Core, 732 Setup, 318 Servicing and all static controls. Legacy 2,599/57 parser controls plus nine legal and 367 adverse new records pass; the applier also passes 48 Control and Windows cross-build.
+- **Blockers:** The first-install invariant remains unknown until the next native record. No installed success, absent-MSI-call claim or acceptance waiver is made; PR #30/main/distribution remain gated.
+- **Next:** Publish and run one exact-head Windows probe, then choose the behavioural correction from its invariant.
+
+### 2026-10-21 - Bare admission constructors need a finite source-point discriminator
+
+- **Evidence:** Run `39494190534` at `bb9c02f` passes both supported jobs, native 41/41 and both MSI validations. Install emits Entry/ExpectedException/HRESULT `0x80131500`; Recover remains NoRecoveryPending with clean cleanup.
+- **Source conclusion:** On the inspected production route this is the outer AdmissionException without retained native evidence. Several existing bare InvalidState invariant branches still produce the identical record; no behavioural fix is justified.
+- **Scope decision:** The prior author stops after its final cycle. A fresh narrow task tags only those existing rejection points with a finite typed cause, reusing v1 fields and capture. Causes 1–9 cannot honestly carry that distinction, so matching bounded vocabulary/parser controls are necessary; no new wire version/fields or OS-error reinterpretation is authorised.
+- **Preserved contract:** Exception type/reason, catches, path/link/ancestry/publication checks and refusal policy remain unchanged.
+- **Next:** Review only the source-point seam, publish it and use one exact-head Windows run to identify the invariant before selecting a behavioural correction.
+
 ### 2026-10-21 - Existing v1 evidence now covers Unavailable return sites
 
 - **Changed:** The source-approved seven-file continuation emits retained Unavailable metadata and annotates existing admission/outer-I/O return sites. Native error precedence, Busy classification, report/exit/readiness, catch boundaries and optional-writer handling remain unchanged.

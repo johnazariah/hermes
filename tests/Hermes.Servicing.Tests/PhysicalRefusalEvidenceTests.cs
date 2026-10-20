@@ -62,20 +62,34 @@ public sealed class PhysicalRefusalEvidenceTests
     }
 
     [Theory]
-    [InlineData(false, 0u)]
-    [InlineData(false, 2u)]
-    [InlineData(true, 1u)]
-    public void Directory_or_ambiguous_link_count_is_still_invalid_state(bool directory, uint links)
+    [InlineData(false, 0u, AdmissionInvariant.ImageLinkCountNotOne)]
+    [InlineData(false, 2u, AdmissionInvariant.ImageLinkCountNotOne)]
+    [InlineData(true, 1u, AdmissionInvariant.ImageIsDirectory)]
+    [InlineData(true, 0u, AdmissionInvariant.ImageIsDirectory)]
+    public void Directory_or_ambiguous_link_count_is_still_invalid_state(
+        bool directory, uint links, object source)
     {
-        var api = Api(information: _ => new(true, Bytes(directory, links: links), 0));
-        AssertInvalid(() => new WindowsPhysicalPaths(api).Image(Image));
+        var api = Api(
+            information: _ => new(true, Bytes(directory, links: links), 1234),
+            finalPath: _ => throw new InvalidOperationException("Unexpected final-path query."));
+        AssertInvalid(() => new WindowsPhysicalPaths(api).Image(Image),
+            Assert.IsType<AdmissionInvariant>(source));
     }
 
     [Fact]
     public void Unexpected_final_path_prefix_is_still_invalid_state()
     {
         var api = Api(finalPath: _ => new(8, "unexpected", 0));
-        AssertInvalid(() => new WindowsPhysicalPaths(api).Image(Image));
+        AssertInvalid(() => new WindowsPhysicalPaths(api).Image(Image),
+            AdmissionInvariant.FinalPathPrefixUnsupported);
+    }
+
+    [Fact]
+    public void Accepted_prefix_with_invalid_ordinary_root_keeps_the_canonical_source_point()
+    {
+        var api = Api(finalPath: _ => new(12, @"\\?\relative", 1234));
+        AssertInvalid(() => new WindowsPhysicalPaths(api).Image(Image),
+            AdmissionInvariant.CanonicalRootInvalid);
     }
 
     [Fact]
@@ -103,7 +117,8 @@ public sealed class PhysicalRefusalEvidenceTests
     [Fact]
     public void Nondirectory_reserved_root_is_still_invalid_state()
     {
-        AssertInvalid(() => new WindowsPhysicalPaths(Api()).Directory(Root));
+        AssertInvalid(() => new WindowsPhysicalPaths(Api()).Directory(Root),
+            AdmissionInvariant.DirectoryIsNotDirectory);
     }
 
     [Fact]
@@ -174,12 +189,15 @@ public sealed class PhysicalRefusalEvidenceTests
     }
 
     [Fact]
-    public void Ancestor_bound_remains_invalid_state_without_invented_evidence()
+    public void Ancestor_bound_keeps_invalid_state_and_stops_before_another_open()
     {
         var deep = Path.Combine(
             new[] { Root }.Concat(Enumerable.Repeat("segment", 66)).ToArray());
-        AssertInvalid(() => new WindowsPhysicalPaths(
-            Api(open: (_, _) => Missing(3))).Directory(deep));
+        var opens = 0;
+        var api = Api(open: (_, _) => { opens++; return Missing(3); });
+        AssertInvalid(() => new WindowsPhysicalPaths(api).Directory(deep),
+            AdmissionInvariant.AncestorDepthExceeded);
+        Assert.Equal(130, opens);
     }
 
     private static StartupRefusalEvidence Expected(
@@ -193,13 +211,17 @@ public sealed class PhysicalRefusalEvidenceTests
     {
         var error = Assert.Throws<AdmissionException>(() => { action(); });
         Assert.Equal(RefusalReason.Unavailable, error.Reason);
+        Assert.Equal(AdmissionInvariant.None, error.Invariant);
         return Assert.IsType<StartupRefusalEvidence>(error.Evidence);
     }
 
-    private static void AssertInvalid(Func<string> action)
+    private static void AssertInvalid(Func<string> action, AdmissionInvariant invariant)
     {
         var error = Assert.Throws<AdmissionException>(() => { action(); });
         Assert.Equal(RefusalReason.InvalidState, error.Reason);
+        Assert.Equal(RefusalReason.InvalidState.ToString(), error.Message);
+        Assert.Equal(new Exception().HResult, error.HResult);
+        Assert.Equal(invariant, error.Invariant);
         Assert.Null(error.Evidence);
     }
 

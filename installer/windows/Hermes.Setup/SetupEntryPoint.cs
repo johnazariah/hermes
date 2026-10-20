@@ -45,12 +45,11 @@ internal static class SetupEntryPoint
 
     internal static Task<int> NativeRefusalAsync(
         IReadOnlyList<string> arguments, TextWriter output, TextWriter diagnostics,
-        StartupRefusalEvidence? nativeEvidence, int hResult) =>
+        StartupRefusalEvidence? nativeEvidence, int hResult,
+        AdmissionInvariant invariant = AdmissionInvariant.None) =>
         SetupCommandLine.Parse(arguments) is ParsedCommand(var command)
             ? WriteAsync(SetupExecution.Refused(Verb(command), SetupCode.Unavailable,
-                    new(SetupEvidenceStage.Entry, SetupEvidenceCause.ExpectedException,
-                        ErrorKind: nativeEvidence?.ErrorKind ?? StartupEvidenceErrorKind.HResult,
-                        ErrorCode: nativeEvidence?.ErrorCode ?? hResult)),
+                    SetupRefusalEvidence.FromAdmission(nativeEvidence, hResult, invariant)),
                 output, diagnostics)
             : throw new InvalidOperationException("Native effects preceded command parsing.");
 

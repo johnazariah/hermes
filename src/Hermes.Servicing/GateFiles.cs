@@ -142,7 +142,8 @@ internal static class GateCodec
             ReadyValidation.Require(installation);
         var body = JsonSerializer.SerializeToUtf8Bytes(state, ServicingJson.Default.GateReadyState);
         if (body.Length > MaximumBodyLength)
-            throw new AdmissionException(RefusalReason.InvalidState);
+            throw new AdmissionException(RefusalReason.InvalidState,
+                invariant: AdmissionInvariant.ReadyBodyTooLarge);
         Close(stream);
         stream.Position = HeaderSize;
         stream.Write(body);
@@ -208,23 +209,28 @@ internal sealed class WindowsPhysicalPaths : IPhysicalPaths
             throw Failure(probe, StartupEvidenceOperation.OpenFollowing,
                 StartupEvidenceFailure.NativeCallFailed, opened.Error);
         var information = Information(handle, probe);
-        if (information[DirectoryOffset] != 0 ||
-            BinaryPrimitives.ReadUInt32LittleEndian(information.AsSpan(16)) != 1)
-            throw new AdmissionException(RefusalReason.InvalidState);
+        if (information[DirectoryOffset] != 0)
+            throw new AdmissionException(RefusalReason.InvalidState,
+                invariant: AdmissionInvariant.ImageIsDirectory);
+        if (BinaryPrimitives.ReadUInt32LittleEndian(information.AsSpan(16)) != 1)
+            throw new AdmissionException(RefusalReason.InvalidState,
+                invariant: AdmissionInvariant.ImageLinkCountNotOne);
         return FinalPath(handle, probe);
     }
 
     private string ReadDirectory(string path, int depth)
     {
         if (depth > MaximumAncestorDepth)
-            throw new AdmissionException(RefusalReason.InvalidState);
+            throw new AdmissionException(RefusalReason.InvalidState,
+                invariant: AdmissionInvariant.AncestorDepthExceeded);
         var opened = _api.Open(path, 0);
         using var handle = opened.Handle;
         if (handle.IsInvalid)
             return ReadMissingDirectory(path, depth, opened.Error);
         var probe = new Probe(StartupEvidenceStage.ReservedRoot, depth);
         if (Information(handle, probe)[DirectoryOffset] == 0)
-            throw new AdmissionException(RefusalReason.InvalidState);
+            throw new AdmissionException(RefusalReason.InvalidState,
+                invariant: AdmissionInvariant.DirectoryIsNotDirectory);
         return FinalPath(handle, probe);
     }
 
@@ -282,7 +288,8 @@ internal sealed class WindowsPhysicalPaths : IPhysicalPaths
             var unc when unc.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase) =>
                 @"\\" + unc[8..],
             var dos when dos.StartsWith(@"\\?\", StringComparison.Ordinal) => dos[4..],
-            _ => throw new AdmissionException(RefusalReason.InvalidState)
+            _ => throw new AdmissionException(RefusalReason.InvalidState,
+                invariant: AdmissionInvariant.FinalPathPrefixUnsupported)
         };
         return RuntimePaths.Canonical(ordinary);
     }

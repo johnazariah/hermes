@@ -195,6 +195,33 @@ public sealed class StartupRefusalEvidenceTests
         Assert.DoesNotContain(PrivateDetail, Evidence(capture).ToDiagnosticLine());
     }
 
+    [Theory]
+    [InlineData(AdmissionInvariant.CanonicalRootInvalid)]
+    [InlineData(AdmissionInvariant.ImageIsDirectory)]
+    [InlineData(AdmissionInvariant.ImageLinkCountNotOne)]
+    [InlineData(AdmissionInvariant.AncestorDepthExceeded)]
+    [InlineData(AdmissionInvariant.DirectoryIsNotDirectory)]
+    [InlineData(AdmissionInvariant.FinalPathPrefixUnsupported)]
+    [InlineData(AdmissionInvariant.ReadyBindingMissing)]
+    [InlineData(AdmissionInvariant.ReadyInventoryInvalid)]
+    [InlineData(AdmissionInvariant.ReadyBodyTooLarge)]
+    public void Managed_metadata_does_not_change_placement_or_runtime_catches(object source)
+    {
+        var error = new AdmissionException(RefusalReason.InvalidState,
+            invariant: Assert.IsType<AdmissionInvariant>(source));
+        var paths = new RecordingPaths(_ => throw error);
+        var gate = new CountingGate(new GateUnavailable(RefusalReason.UnownedInstallation));
+        var capture = new StartupRefusalEvidenceCapture();
+        Assert.Same(error, Record.Exception(() =>
+            new FixedRootPlacement(Root, paths).Classify(Code(Source))));
+        var client = WindowsStartupAdmission.CreateCurrentUser(
+            PlatformFor(() => Profile, paths, gate), capture);
+        Assert.Equal(new Refused(RefusalReason.InvalidState), client.Enter(RuntimeEntry.Service));
+        Assert.False(StartupAdmission.IsStateFailure(error));
+        Assert.Equal(0, gate.Opens);
+        Assert.Null(capture.Evidence);
+    }
+
     private static StartupRefusalEvidence EmptyRoot() => new(
         StartupEvidenceStage.Composition, StartupEvidenceOperation.KnownFolder,
         StartupEvidenceFailure.EmptyKnownFolder);
