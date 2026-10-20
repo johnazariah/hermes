@@ -79,9 +79,22 @@
     <Compile Include="ThreadsTests.fs" />
     <Compile Include="ExcelExtractionTests.fs" />
     <Compile Include="WordExtractionTests.fs" />
+    <Compile Include="../SyntheticFixtures/FinancialPdf.fs" Link="SyntheticFixtures/FinancialPdf.fs" />
+    <Compile Include="../SyntheticFixtures/FinancialCsv.fs" Link="SyntheticFixtures/FinancialCsv.fs" />
+    <Compile Include="../SyntheticFixtures/FinancialAssertions.fs" Link="SyntheticFixtures/FinancialAssertions.fs" />
+    <Compile Include="../SyntheticFixtures/PdfWordBoundaryFixtures.fs" Link="SyntheticFixtures/PdfWordBoundaryFixtures.fs" />
+    <Compile Include="../SyntheticFixtures/PdfWordBoundaryTests.fs" Link="SyntheticFixtures/PdfWordBoundaryTests.fs" />
     <Compile Include="OspreyParityTests.fs" />
     <Compile Include="DocumentTests.fs" />
     <Compile Include="WorkflowTests.fs" />
+    <Compile Include="WorkflowCompletionRegressionTests.fs" />
+    <Compile Include="CoreRegressionSupport.fs" />
+    <Compile Include="WorkflowFailureRegressionTests.fs" />
+    <Compile Include="WorkflowTerminalRegressionTests.fs" />
+    <Compile Include="WorkflowLeaseRegressionTests.fs" />
+    <Compile Include="LegacyPipelineRegressionTests.fs" />
+    <Compile Include="PipelineV5BatchRegressionTests.fs" />
+    <Compile Include="GenerationValidationRegressionTests.fs" />
     <Compile Include="PromptLoaderTests.fs" />
     <Compile Include="SenderClassificationTests.fs" />
     <Compile Include="DeepExtractionTests.fs" />
@@ -138,6 +151,15 @@
     <Compile Include="LocalReindexCoreTests.fs" />
     <Compile Include="CorrectedExtractionHttpTests.fs" />
     <Compile Include="DeepExtractionHttpTests.fs" />
+    <Compile Include="ServiceReadContractSupport.fs" />
+    <Compile Include="ServiceReadContractDocuments.fs" />
+    <Compile Include="ServiceReadContractConfiguration.fs" />
+    <Compile Include="ServiceReadContractReminders.fs" />
+    <Compile Include="ServiceReadContractPagination.fs" />
+    <Compile Include="ServiceMutationContractMissing.fs" />
+    <Compile Include="ServiceMutationContractCorrectionSupport.fs" />
+    <Compile Include="ServiceMutationContractCorrectionValidation.fs" />
+    <Compile Include="ServiceMutationContractCorrectionAtomicity.fs" />
     <Compile Include="ServiceLifetimeTests.fs" />
     <Compile Include="ServiceSyncTestSupport.fs" />
     <Compile Include="ProducerCycleTestSupport.fs" />

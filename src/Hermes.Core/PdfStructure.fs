@@ -1,4 +1,4 @@
-namespace Hermes.Core
+﻿namespace Hermes.Core
 
 open System
 open UglyToad.PdfPig
@@ -265,51 +265,58 @@ module PdfStructure =
         { Current: Letter list
           Completed: Word list }
 
-    let private avgGlyphWidth (letters: Letter list) =
-        match letters with
-        | [] -> 5.0
-        | ls ->
-            ls
-            |> List.averageBy (fun l -> float l.BoundingBox.Width)
-            |> max 1.0
+    // Character advance includes side bearings; ink bounds do not.
+    // Called only for the non-empty current word.
+    let private averageAdvance (letters: Letter list) : float =
+        letters
+        |> List.averageBy (fun letter -> abs (letter.EndBaseLine.X - letter.StartBaseLine.X))
+        |> max 1.0
 
     let private buildWord (letters: Letter list) : Word =
-        let sorted = letters |> List.sortBy (fun l -> l.Location.X)
+        let sorted = letters |> List.sortBy (fun letter -> letter.StartBaseLine.X)
         let first = List.head sorted
         let last = List.last sorted
         { Text = sorted |> List.map (fun l -> l.Value) |> String.concat ""
-          X = first.Location.X
-          Y = first.Location.Y
-          Width = (last.Location.X + float last.BoundingBox.Width) - first.Location.X
+          X = first.StartBaseLine.X
+          Y = first.StartBaseLine.Y
+          Width = last.EndBaseLine.X - first.StartBaseLine.X
           FontSize = sorted |> List.averageBy (fun l -> float l.FontSize)
           FontName = first.FontName |> Option.ofObj |> Option.defaultValue "" }
 
-    let private shouldBreakWord (prev: Letter) (curr: Letter) (avgWidth: float) =
-        let yDist = abs (curr.Location.Y - prev.Location.Y)
-        let xGap = curr.Location.X - (prev.Location.X + float prev.BoundingBox.Width)
+    let private completeWord (acc: WordAcc) : WordAcc =
+        match acc.Current with
+        | [] -> acc
+        | letters ->
+            { Current = []
+              Completed = buildWord letters :: acc.Completed }
+
+    let private shouldBreakWord (prev: Letter) (curr: Letter) (advance: float) : bool =
+        let yDist = abs (curr.StartBaseLine.Y - prev.StartBaseLine.Y)
+        let xGap = curr.StartBaseLine.X - prev.EndBaseLine.X
         let fontSize = max (float prev.FontSize) (float curr.FontSize)
-        yDist > fontSize * 0.5 || xGap > avgWidth * 0.5
+        yDist > fontSize * 0.5 || xGap > advance * 0.5
 
     let private foldLetter (acc: WordAcc) (letter: Letter) : WordAcc =
-        match acc.Current with
-        | [] ->
-            { acc with Current = [ letter ] }
-        | prev :: _ ->
-            if shouldBreakWord prev letter (avgGlyphWidth acc.Current) then
-                { Current = [ letter ]; Completed = buildWord acc.Current :: acc.Completed }
-            else
+        if String.IsNullOrWhiteSpace letter.Value then
+            completeWord acc
+        else
+            match acc.Current with
+            | [] ->
+                { acc with Current = [ letter ] }
+            | prev :: _ when shouldBreakWord prev letter (averageAdvance acc.Current) ->
+                { Current = [ letter ]
+                  Completed = buildWord acc.Current :: acc.Completed }
+            | _ ->
                 { acc with Current = letter :: acc.Current }
 
     let private finalizeWords (acc: WordAcc) : Word list =
-        match acc.Current with
-        | [] -> acc.Completed |> List.rev
-        | letters -> (buildWord letters :: acc.Completed) |> List.rev
+        let completed = completeWord acc
+        completed.Completed |> List.rev
 
     /// Convert raw PdfPig letters into spatially-grouped words.
     let lettersToWords (letters: Letter list) : Word list =
         letters
-        |> List.filter (fun l -> not (String.IsNullOrWhiteSpace l.Value))
-        |> List.sortBy (fun l -> (-l.Location.Y, l.Location.X))
+        |> List.sortBy (fun letter -> (-letter.StartBaseLine.Y, letter.StartBaseLine.X))
         |> List.fold foldLetter { Current = []; Completed = [] }
         |> finalizeWords
 

@@ -1,6 +1,7 @@
 ﻿namespace Hermes.Service
 
 open System
+open System.Globalization
 open System.IO
 open System.Text.Json
 open System.Threading.Tasks
@@ -47,6 +48,205 @@ module ApiServer =
             | true, value when value.ValueKind = JsonValueKind.String ->
                 value.GetString() |> Option.ofObj |> Ok
             | _ -> Error $"{name} must be a string"
+
+    [<RequireQualifiedAccess>]
+    type private ApiResource = Document | Suggestion
+
+    type private DocumentPage =
+        { Offset: int
+          Limit: int }
+
+    type private FieldCorrection =
+        { Field: string
+          Value: string }
+
+    type private CorrectionRequest =
+        { Corrections: FieldCorrection list
+          Note: string option }
+
+    let private missingResource resource id : IResult =
+        let name =
+            match resource with
+            | ApiResource.Document -> "Document"
+            | ApiResource.Suggestion -> "Suggestion"
+        Results.NotFound({| error = $"{name} {id} not found" |})
+
+    let private resourceQuery = function
+        | ApiResource.Document -> "SELECT id FROM documents WHERE id=@id"
+        | ApiResource.Suggestion ->
+            """SELECT s.id FROM suggestions s
+               JOIN documents d ON d.id=s.document_id WHERE s.id=@id"""
+
+    let private withResource (db: Algebra.Database) resource id work : Task<IResult> =
+        task {
+            let! rows = db.execReader (resourceQuery resource) [ "@id", Database.boxVal id ]
+            if List.isEmpty rows then return missingResource resource id
+            else return! work ()
+        }
+
+    let private withDocumentResource db id work =
+        withResource db ApiResource.Document id work
+
+    let private withSuggestionResource db id work =
+        withResource db ApiResource.Suggestion id work
+
+    let private validated
+        (work: 'request -> Task<IResult>)
+        (request: Result<'request, string>) : Task<IResult> =
+        request
+        |> Result.map work
+        |> Result.defaultWith (fun error ->
+            Task.FromResult(Results.BadRequest({| error = error |})))
+
+    let private queryNumber minimum fallback (name: string) (ctx: HttpContext) =
+        let values = ctx.Request.Query[name]
+        if not (ctx.Request.Query.ContainsKey(name)) then Ok fallback
+        elif values.Count <> 1 then Error $"{name} must occur exactly once"
+        else
+            match Int32.TryParse(values.ToString(), NumberStyles.None, CultureInfo.InvariantCulture) with
+            | true, value when value >= minimum -> Ok value
+            | _ -> Error $"{name} must be an integer between {minimum} and {Int32.MaxValue}"
+
+    let private documentPage (ctx: HttpContext) =
+        let minimum = if String.IsNullOrWhiteSpace(ctx.Request.Query["q"].ToString()) then 0 else 1
+        queryNumber 0 0 "offset" ctx
+        |> Result.bind (fun offset ->
+            queryNumber minimum 50 "limit" ctx
+            |> Result.map (fun limit -> { Offset = offset; Limit = limit }))
+
+    let private withLimit fallback ctx work =
+        queryNumber 0 fallback "limit" ctx |> validated work
+
+    let private stagedDocument row =
+        let reader = Prelude.RowReader(row)
+        {| id = reader.Int64 "id" 0L
+           originalName = reader.String "original_name" ""
+           category = reader.String "category" ""
+           extractedDate = reader.OptString "extracted_date"
+           extractedAmount = reader.OptFloat "extracted_amount"
+           sender = reader.OptString "sender"
+           vendor = reader.OptString "vendor"
+           sourceType = reader.OptString "source_type"
+           account = reader.OptString "account"
+           sourcePath = reader.OptString "source_path"
+           classificationTier = reader.OptString "classification_tier"
+           classificationConfidence = reader.OptFloat "classification_confidence"
+           stage = reader.OptString "stage"
+           extractionMethod = reader.OptString "extraction_method" |}
+
+    let private stageDocuments (db: Algebra.Database) stage (page: DocumentPage) : Task<IResult> =
+        task {
+            let! rows =
+                db.execReader
+                    """SELECT id, original_name, category, extracted_date, extracted_amount,
+                              sender, extracted_vendor AS vendor, source_type, account, source_path,
+                              classification_tier, classification_confidence, stage, extraction_method
+                       FROM documents WHERE stage=@stage ORDER BY id DESC LIMIT @lim OFFSET @off"""
+                    [ "@stage", Database.boxVal stage
+                      "@lim", Database.boxVal (int64 page.Limit)
+                      "@off", Database.boxVal (int64 page.Offset) ]
+            return rows |> List.map stagedDocument |> json
+        }
+
+    let private listDocuments db (ctx: HttpContext) (page: DocumentPage) : Task<IResult> =
+        task {
+            let category = ctx.Request.Query["category"].ToString()
+            let stage = ctx.Request.Query["stage"].ToString()
+            let query = ctx.Request.Query["q"].ToString()
+            if not (String.IsNullOrWhiteSpace query) then
+                return! KeywordApi.documents db category query (string page.Offset) (string page.Limit)
+            elif not (String.IsNullOrEmpty stage) then
+                return! stageDocuments db stage page
+            else
+                let! documents = DocumentBrowser.listDocuments db category page.Offset page.Limit
+                return json documents
+        }
+
+    let private activityEntry row =
+        let reader = Prelude.RowReader(row)
+        {| id = reader.Int64 "id" 0L
+           timestamp = reader.String "timestamp" ""
+           level = reader.String "level" "info"
+           category = reader.String "category" ""
+           message = reader.String "message" ""
+           documentId = reader.OptInt64 "document_id" |}
+
+    let private requiredString root name : Result<string, string> =
+        tryGetString root name
+        |> Result.bind (
+            Option.map Ok
+            >> Option.defaultValue (Error $"{name} is required"))
+
+    let private correctableFields =
+        set [ "category"; "extracted_amount"; "extracted_vendor"; "extracted_date" ]
+
+    let private readCorrection root : Result<FieldCorrection, string> =
+        requiredString root "field"
+        |> Result.bind (fun field ->
+            if not (Set.contains field correctableFields) then
+                Error $"Field '{field}' is not correctable"
+            else
+                requiredString root "value"
+                |> Result.map (fun value -> { Field = field; Value = value }))
+
+    let private readCorrectionItems (root: JsonElement) =
+        if root.ValueKind <> JsonValueKind.Object then
+            Error "Request body must be an object"
+        else
+            match root.TryGetProperty("corrections") with
+            | true, items when items.ValueKind = JsonValueKind.Array ->
+                items.EnumerateArray()
+                |> Seq.fold (fun state item ->
+                    state |> Result.bind (fun collected ->
+                        readCorrection item
+                        |> Result.map (fun correction -> correction :: collected))) (Ok [])
+                |> Result.map List.rev
+            | _ -> Error "corrections must be an array"
+
+    let private readCorrectionNote (root: JsonElement) =
+        match root.TryGetProperty("note") with
+        | true, value when value.ValueKind = JsonValueKind.Null -> Ok None
+        | _ -> tryGetString root "note"
+
+    let private parseCorrections (body: string) =
+        try
+            use document = JsonDocument.Parse(body)
+            readCorrectionItems document.RootElement
+            |> Result.bind (fun corrections ->
+                readCorrectionNote document.RootElement
+                |> Result.map (fun note -> { Corrections = corrections; Note = note }))
+        with :? JsonException ->
+            Error "Request body must be valid JSON"
+
+    let private writeCorrection db id note () (correction: FieldCorrection) =
+        DocumentManagement.correctField db id correction.Field correction.Value note
+
+    let private transactCorrections (db: Algebra.Database) id (request: CorrectionRequest) =
+        db.transaction.Run(fun scoped ->
+            scoped.inTransaction(fun _ ->
+                request.Corrections
+                |> Prelude.foldTaskResult (writeCorrection scoped id request.Note) ()))
+
+    let private applyCorrections db (logger: Algebra.Logger) id request : Task<IResult> =
+        task {
+            let! result = transactCorrections db id request
+            return
+                result
+                |> Result.map (fun () -> json {| corrected = true |})
+                |> Result.defaultWith (fun error ->
+                    logger.error $"Correction batch failed for document {id}: {error}"
+                    Results.Json(
+                        {| error = "correction_batch_failed"; message = "No corrections were applied" |},
+                        statusCode = 500))
+        }
+
+    let private correctRequest db logger id (ctx: HttpContext) =
+        withDocumentResource db id (fun () ->
+            task {
+                use reader = new StreamReader(ctx.Request.Body)
+                let! body = reader.ReadToEndAsync(ctx.RequestAborted)
+                return! parseCorrections body |> validated (applyCorrections db logger id)
+            })
 
     let private readCategory bodyText =
         try
@@ -195,45 +395,7 @@ module ApiServer =
                 PersistedApi.get db fs archiveDir id)) |> ignore
 
         app.MapGet("/api/documents", Func<HttpContext, Task<IResult>>(fun ctx ->
-            task {
-                let category = ctx.Request.Query["category"].ToString()
-                let stage = ctx.Request.Query["stage"].ToString()
-                let offset = ctx.Request.Query["offset"].ToString() |> fun s -> if String.IsNullOrEmpty s then "0" else s
-                let limit = ctx.Request.Query["limit"].ToString() |> fun s -> if String.IsNullOrEmpty s then "50" else s
-                let query = ctx.Request.Query["q"].ToString()
-                if not (String.IsNullOrWhiteSpace query) then
-                    return! KeywordApi.documents db category query offset limit
-                elif not (String.IsNullOrEmpty stage) then
-                    // Filter by pipeline stage
-                    let! rows =
-                        db.execReader
-                            """SELECT id, original_name, category, extracted_date, extracted_amount,
-                               sender, extracted_vendor AS vendor, source_type, account, source_path,
-                               classification_tier, classification_confidence, stage, extraction_method
-                               FROM documents WHERE stage = @stage ORDER BY id DESC LIMIT @lim OFFSET @off"""
-                            [ ("@stage", Database.boxVal stage); ("@lim", Database.boxVal (int64 limit)); ("@off", Database.boxVal (int64 offset)) ]
-                    let docs =
-                        rows |> List.map (fun row ->
-                            let r = Prelude.RowReader(row)
-                            {| id = r.Int64 "id" 0L
-                               originalName = r.String "original_name" ""
-                               category = r.String "category" ""
-                               extractedDate = r.OptString "extracted_date"
-                               extractedAmount = r.OptFloat "extracted_amount"
-                               sender = r.OptString "sender"
-                               vendor = r.OptString "vendor"
-                               sourceType = r.OptString "source_type"
-                               account = r.OptString "account"
-                               sourcePath = r.OptString "source_path"
-                               classificationTier = r.OptString "classification_tier"
-                               classificationConfidence = r.OptFloat "classification_confidence"
-                               stage = r.OptString "stage"
-                               extractionMethod = r.OptString "extraction_method" |})
-                    return json docs
-                else
-                    let! docs = DocumentBrowser.listDocuments db category (int offset) (int limit)
-                    return json docs
-            })) |> ignore
+            documentPage ctx |> validated (listDocuments db ctx))) |> ignore
 
         app.MapGet("/api/documents/{id:long}", Func<int64, Task<IResult>>(fun id ->
             task {
@@ -314,8 +476,8 @@ module ApiServer =
             task {
                 let! active = Reminders.getActive db (clock.utcNow ())
                 let mapped =
-                    active |> List.map (fun (r, vendor, fileName) ->
-                        {| id = r.Id; documentId = r.DocumentId; vendor = vendor
+                    active |> List.map (fun (r, _, fileName) ->
+                        {| id = r.Id; documentId = r.DocumentId; vendor = r.Vendor
                            amount = r.Amount; dueDate = r.DueDate; category = r.Category
                            status = r.Status.ToString(); fileName = fileName |})
                 return json mapped
@@ -413,23 +575,14 @@ module ApiServer =
 
         // ── Activity log ────────────────────────────────────────────
         app.MapGet("/api/activity", Func<HttpContext, Task<IResult>>(fun ctx ->
-            task {
-                let limit = ctx.Request.Query["limit"].ToString() |> fun s -> if System.String.IsNullOrEmpty s then 50 else int s
-                let! rows =
-                    db.execReader
-                        "SELECT id, timestamp, level, category, message, document_id FROM activity_log ORDER BY id DESC LIMIT @lim"
-                        [ ("@lim", Database.boxVal (int64 limit)) ]
-                let entries =
-                    rows |> List.map (fun r ->
-                        let rd = Prelude.RowReader(r)
-                        {| id = rd.Int64 "id" 0L
-                           timestamp = rd.String "timestamp" ""
-                           level = rd.String "level" "info"
-                           category = rd.String "category" ""
-                           message = rd.String "message" ""
-                           documentId = rd.OptInt64 "document_id" |})
-                return json entries
-            })) |> ignore
+            withLimit 50 ctx (fun limit ->
+                task {
+                    let! rows =
+                        db.execReader
+                            "SELECT id, timestamp, level, category, message, document_id FROM activity_log ORDER BY id DESC LIMIT @lim"
+                            [ "@lim", Database.boxVal (int64 limit) ]
+                    return rows |> List.map activityEntry |> json
+                }))) |> ignore
 
         // ── Reclassify document metadata ───────────────────────────
         let reclassifyHandler =
@@ -447,31 +600,7 @@ module ApiServer =
 
         // ── Correct document fields ──────────────────────────────────
         app.MapPost("/api/documents/{id:long}/correct", Func<int64, HttpContext, Task<IResult>>(fun id ctx ->
-            task {
-                use sr = new StreamReader(ctx.Request.Body)
-                let! bodyText = sr.ReadToEndAsync()
-                try
-                    let doc = JsonDocument.Parse(bodyText)
-                    let root = doc.RootElement
-                    let mutable noteEl = JsonElement()
-                    let note =
-                        if root.TryGetProperty("note", &noteEl) then
-                            noteEl.GetString() |> Option.ofObj
-                        else None
-                    let mutable errors = []
-                    let corrections = root.GetProperty("corrections")
-                    for item in corrections.EnumerateArray() do
-                        let field = item.GetProperty("field").GetString() |> Option.ofObj |> Option.defaultValue ""
-                        let value = item.GetProperty("value").GetString() |> Option.ofObj |> Option.defaultValue ""
-                        let! result = DocumentManagement.correctField db id field value note
-                        match result with
-                        | Error e -> errors <- e :: errors
-                        | Ok () -> ()
-                    if errors.IsEmpty then return json {| corrected = true |}
-                    else return json {| error = String.concat "; " errors |}
-                with ex ->
-                    return json {| error = ex.Message |}
-            })) |> ignore
+            correctRequest db logger id ctx)) |> ignore
 
         // ── Reflow operations ────────────────────────────────────────
         app.MapPost("/api/documents/{id:long}/reflow", Func<int64, HttpContext, Task<IResult>>(fun id ctx ->
@@ -508,23 +637,28 @@ module ApiServer =
 
         // ── List corrections (for prompt tuning) ─────────────────────
         app.MapGet("/api/corrections", Func<HttpContext, Task<IResult>>(fun ctx ->
-            task {
-                let limit = ctx.Request.Query["limit"].ToString() |> fun s -> if String.IsNullOrEmpty s then 100 else int s
-                let! corrections = DocumentManagement.listCorrections db limit
-                return json corrections
-            })) |> ignore
+            withLimit 100 ctx (fun limit ->
+                task {
+                    let! corrections = DocumentManagement.listCorrections db limit
+                    return json corrections
+                }))) |> ignore
 
         // ── Star/unstar ─────────────────────────────────────────────
         app.MapPost("/api/documents/{id:long}/star", Func<int64, Task<IResult>>(fun id ->
             task {
-                let! _ = db.execNonQuery "UPDATE documents SET starred = CASE WHEN starred = 1 THEN 0 ELSE 1 END WHERE id = @id" [ ("@id", Database.boxVal id) ]
-                let! obj = db.execScalar "SELECT starred FROM documents WHERE id = @id" [ ("@id", Database.boxVal id) ]
-                let starred = match obj with :? int64 as i -> i = 1L | _ -> false
-                return json {| starred = starred |}
+                let! rows =
+                    db.execReader
+                        "UPDATE documents SET starred=CASE WHEN starred=1 THEN 0 ELSE 1 END WHERE id=@id RETURNING starred"
+                        [ "@id", Database.boxVal id ]
+                return
+                    rows |> List.tryHead
+                    |> Option.map (fun row -> json {| starred = (Prelude.RowReader row).Int64 "starred" 0L = 1L |})
+                    |> Option.defaultWith (fun () -> missingResource ApiResource.Document id)
             })) |> ignore
 
         // ── Tags CRUD ───────────────────────────────────────────────
         app.MapGet("/api/documents/{id:long}/tags", Func<int64, Task<IResult>>(fun id ->
+            withDocumentResource db id (fun () ->
             task {
                 let! rows = db.execReader "SELECT tag, source, confidence FROM tags WHERE document_id = @id" [ ("@id", Database.boxVal id) ]
                 let tags =
@@ -532,9 +666,10 @@ module ApiServer =
                         let rd = Prelude.RowReader(r)
                         {| tag = rd.String "tag" ""; source = rd.String "source" ""; confidence = rd.OptFloat "confidence" |})
                 return json tags
-            })) |> ignore
+            }))) |> ignore
 
         app.MapPost("/api/documents/{id:long}/tags", Func<int64, HttpContext, Task<IResult>>(fun id ctx ->
+            withDocumentResource db id (fun () ->
             task {
                 use sr = new StreamReader(ctx.Request.Body)
                 let! bodyText = sr.ReadToEndAsync()
@@ -547,13 +682,14 @@ module ApiServer =
                     let! _ = db.execNonQuery "INSERT OR IGNORE INTO tags (document_id, tag, source) VALUES (@id, @tag, 'user')" [ ("@id", Database.boxVal id); ("@tag", Database.boxVal tag) ]
                     ()
                 return json {| added = tags |}
-            })) |> ignore
+            }))) |> ignore
 
         app.MapDelete("/api/documents/{id:long}/tags/{tag}", Func<int64, string, Task<IResult>>(fun id tag ->
+            withDocumentResource db id (fun () ->
             task {
                 let! _ = db.execNonQuery "DELETE FROM tags WHERE document_id = @id AND tag = @tag" [ ("@id", Database.boxVal id); ("@tag", Database.boxVal tag) ]
                 return json {| removed = tag |}
-            })) |> ignore
+            }))) |> ignore
 
         // ── Tag search ──────────────────────────────────────────────
         app.MapGet("/api/tags", Func<HttpContext, Task<IResult>>(fun ctx ->
@@ -759,20 +895,22 @@ module ApiServer =
             })) |> ignore
 
         app.MapPost("/api/suggestions/{id:long}/approve", Func<int64, Task<IResult>>(fun id ->
+            withSuggestionResource db id (fun () ->
             task {
                 let! result = Stages.approveSuggestion db id
                 match result with
                 | Ok () -> return json {| approved = true; id = id |}
                 | Error e -> return json {| error = e |}
-            })) |> ignore
+            }))) |> ignore
 
         app.MapPost("/api/suggestions/{id:long}/reject", Func<int64, Task<IResult>>(fun id ->
+            withSuggestionResource db id (fun () ->
             task {
                 let! result = Stages.rejectSuggestion db id
                 match result with
                 | Ok () -> return json {| rejected = true; id = id |}
                 | Error e -> return json {| error = e |}
-            })) |> ignore
+            }))) |> ignore
 
     /// Existing hosts do not silently acquire a pretend producer capability.
     let mapRoutesWithSearch queryEncoder app db reflowDb fs logger clock dag chatProvider archiveDir configDir =

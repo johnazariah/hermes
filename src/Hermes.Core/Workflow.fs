@@ -1,6 +1,4 @@
-namespace Hermes.Core
-
-#nowarn "3261"
+﻿namespace Hermes.Core
 
 open System
 open System.Threading
@@ -31,111 +29,143 @@ module Workflow =
           /// Maximum time to hold the resource lock before yielding.
           MaxHoldTime: TimeSpan }
 
-    /// Process a single document: idempotency check, process, write-aside, forward.
-    /// Returns true if the doc was actually processed (not skipped/passed-through).
-    let private processOne
-        (stage: StageDefinition)
-        (db: Algebra.Database)
-        (logger: Algebra.Logger)
-        (output: ChannelWriter<Document.T> option)
-        (ct: CancellationToken)
-        (doc: Document.T)
-        : Task<bool> =
+    let private forward (output: ChannelWriter<Document.T> option) (ct: CancellationToken) (document: Document.T) : Task =
+        output
+        |> Option.map (fun writer -> writer.WriteAsync(document, ct).AsTask())
+        |> Option.defaultValue Task.CompletedTask
+
+    let private failDocument (stage: StageDefinition) (db: Algebra.Database) (logger: Algebra.Logger)
+        (document: Document.T) (error: exn) : Task<unit> =
         task {
-            let docId = Document.id doc
-
-            // Idempotency: already done?
-            if Document.hasKey stage.OutputKey doc then
-                logger.debug $"Stage '{stage.Name}' skip doc {docId}: already has '{stage.OutputKey}'"
-                match output with
-                | Some w -> do! w.WriteAsync(doc, ct)
-                | None -> ()
-                return false
-
-            // Missing dependencies: pass through
-            elif stage.RequiredKeys |> List.exists (fun k -> not (Document.hasKey k doc)) then
-                let missing = stage.RequiredKeys |> List.filter (fun k -> not (Document.hasKey k doc))
-                logger.debug $"Stage '{stage.Name}' skip doc {docId}: missing keys {missing}"
-                match output with
-                | Some w -> do! w.WriteAsync(doc, ct)
-                | None -> ()
-                return false
-
-            else
-                // Process
-                try
-                    let! enriched = stage.Process doc
-                    do! Document.persist db enriched
-                    logger.debug $"Stage '{stage.Name}' processed doc {docId}"
-                    match output with
-                    | Some w -> do! w.WriteAsync(enriched, ct)
-                    | None -> ()
-                    return true
-                with ex ->
-                    let failed =
-                        doc
-                        |> Document.encode "stage" (box "failed")
-                        |> Document.encode "error" (box ex.Message)
-                    do! Document.persist db failed
-                    logger.warn $"Stage '{stage.Name}' failed doc {docId}: {ex.Message}"
-                    return false
+            let failed =
+                document
+                |> Document.encode "stage" ("failed" :> obj)
+                |> Document.encode "error" (error.Message :> obj)
+            do! Document.persist db failed
+            logger.warn $"Stage '{stage.Name}' failed doc {Document.id document}: {error.Message}"
         }
 
-    /// Run a single consumer loop for a stage.
-    /// If a ResourceLock is configured, acquires per-burst and holds until
-    /// the channel drains or MaxHoldTime elapses, then releases for the other stage.
-    let runStage
-        (stage: StageDefinition)
-        (db: Algebra.Database)
-        (logger: Algebra.Logger)
-        (input: ChannelReader<Document.T>)
-        (output: ChannelWriter<Document.T> option)
-        (ct: CancellationToken)
-        : Task<unit> =
+    let private enrichDocument (stage: StageDefinition) (db: Algebra.Database) (logger: Algebra.Logger)
+        (output: ChannelWriter<Document.T> option) (ct: CancellationToken) (document: Document.T) : Task<unit> =
+        task {
+            try
+                let! enriched = stage.Process document
+                do! Document.persist db enriched
+                logger.debug $"Stage '{stage.Name}' processed doc {Document.id document}"
+                do! forward output ct enriched
+            with
+            | :? OperationCanceledException as error when ct.IsCancellationRequested -> return raise error
+            | error -> return! failDocument stage db logger document error
+        }
+
+    /// Process one document, preserving idempotency and dependency pass-through.
+    let private processOne (stage: StageDefinition) (db: Algebra.Database) (logger: Algebra.Logger)
+        (output: ChannelWriter<Document.T> option) (ct: CancellationToken) (document: Document.T) : Task<unit> =
+        task {
+            let docId = Document.id document
+            let missing = stage.RequiredKeys |> List.filter (fun key -> not (Document.hasKey key document))
+            if Document.hasKey stage.OutputKey document then
+                logger.debug $"Stage '{stage.Name}' skip doc {docId}: already has '{stage.OutputKey}'"
+                do! forward output ct document
+            elif not missing.IsEmpty then
+                logger.debug $"Stage '{stage.Name}' skip doc {docId}: missing keys {missing}"
+                do! forward output ct document
+            else
+                do! enrichDocument stage db logger output ct document
+        }
+
+    /// Observe task failures before Async.AwaitTask can introduce an aggregate wrapper.
+    let private awaitTask (work: Task<'T>) : Async<'T> =
+        let observed: Task<Result<'T, exn>> =
+            task {
+                try
+                    let! value = work
+                    return Ok value
+                with error -> return Error error
+            }
+        async {
+            let! outcome = observed |> Async.AwaitTask
+            return outcome |> Result.defaultWith raise
+        }
+
+    let private waitForResource (ct: CancellationToken) (resource: SemaphoreSlim) : Task<unit> =
+        task { do! resource.WaitAsync(ct) }
+
+    let private processDocument (stage: StageDefinition) (db: Algebra.Database) (logger: Algebra.Logger)
+        (output: ChannelWriter<Document.T> option) (ct: CancellationToken) (document: Document.T) : Async<unit> =
+        async {
+            try
+                do! processOne stage db logger output ct document |> awaitTask
+            with
+            | :? OperationCanceledException as error when ct.IsCancellationRequested -> return raise error
+            | error -> logger.error $"Stage '{stage.Name}' loop error: {error.Message}"
+        }
+
+    let rec private processBurst (stage: StageDefinition) (db: Algebra.Database) (logger: Algebra.Logger)
+        (input: ChannelReader<Document.T>) (output: ChannelWriter<Document.T> option)
+        (ct: CancellationToken) (started: DateTime) : Async<unit> =
+        async {
+            if not ct.IsCancellationRequested then
+                match input.TryRead() with
+                | true, document ->
+                    do! processDocument stage db logger output ct document
+                    let expired =
+                        stage.ResourceLock.IsSome && DateTime.UtcNow - started > stage.MaxHoldTime
+                    if expired then
+                        logger.debug $"Stage '{stage.Name}' yielding resource lock after {stage.MaxHoldTime.TotalSeconds:F0}s burst"
+                    else
+                        return! processBurst stage db logger input output ct started
+                | false, _ -> ()
+        }
+
+    let private runBurst (stage: StageDefinition) (db: Algebra.Database) (logger: Algebra.Logger)
+        (input: ChannelReader<Document.T>) (output: ChannelWriter<Document.T> option)
+        (ct: CancellationToken) : Async<unit> =
+        async {
+            do!
+                stage.ResourceLock
+                |> Option.map (waitForResource ct >> awaitTask)
+                |> Option.defaultValue (async.Return ())
+            try
+                stage.ResourceLock
+                |> Option.iter (fun _ -> logger.debug $"Stage '{stage.Name}' acquired resource lock")
+                return! processBurst stage db logger input output ct DateTime.UtcNow
+            finally
+                stage.ResourceLock
+                |> Option.iter (fun resource ->
+                    resource.Release() |> ignore
+                    logger.debug $"Stage '{stage.Name}' released resource lock")
+        }
+
+    let rec private consume (stage: StageDefinition) (db: Algebra.Database) (logger: Algebra.Logger)
+        (input: ChannelReader<Document.T>) (output: ChannelWriter<Document.T> option)
+        (ct: CancellationToken) : Async<unit> =
+        async {
+            if not ct.IsCancellationRequested then
+                let! canRead = input.WaitToReadAsync(ct).AsTask() |> awaitTask
+                if canRead then
+                    do! runBurst stage db logger input output ct
+                    return! consume stage db logger input output ct
+        }
+
+    /// Stops when the input is completed and drained, or cancellation is requested.
+    /// Resource ownership is per burst; output completion remains the caller's responsibility.
+    let runStage (stage: StageDefinition) (db: Algebra.Database) (logger: Algebra.Logger)
+        (input: ChannelReader<Document.T>) (output: ChannelWriter<Document.T> option)
+        (ct: CancellationToken) : Task<unit> =
         task {
             logger.info $"Stage '{stage.Name}' consumer started"
             try
-                while not ct.IsCancellationRequested do
-                    let! canRead = input.WaitToReadAsync(ct)
-                    if canRead then
-                        // Acquire resource lock if configured (start of burst)
-                        let hasLock = ref false
-                        match stage.ResourceLock with
-                        | Some sem ->
-                            do! sem.WaitAsync(ct)
-                            hasLock.Value <- true
-                            logger.debug $"Stage '{stage.Name}' acquired resource lock"
-                        | None -> ()
-
-                        try
-                            let burstStart = DateTime.UtcNow
-                            let mutable item = Unchecked.defaultof<Document.T>
-
-                            // Process docs in a burst until channel empty or hold time exceeded
-                            let mutable keepGoing = true
-                            while keepGoing && not ct.IsCancellationRequested do
-                                if input.TryRead(&item) then
-                                    let! _ = processOne stage db logger output ct item
-                                    // Check hold time
-                                    match stage.ResourceLock with
-                                    | Some _ when (DateTime.UtcNow - burstStart) > stage.MaxHoldTime ->
-                                        logger.debug $"Stage '{stage.Name}' yielding resource lock after {stage.MaxHoldTime.TotalSeconds:F0}s burst"
-                                        keepGoing <- false
-                                    | _ -> ()
-                                else
-                                    keepGoing <- false
-                        finally
-                            // Release resource lock (end of burst)
-                            if hasLock.Value then
-                                match stage.ResourceLock with
-                                | Some sem ->
-                                    sem.Release() |> ignore
-                                    logger.debug $"Stage '{stage.Name}' released resource lock"
-                                | None -> ()
-            with
-            | :? OperationCanceledException -> ()
-            | ex -> logger.error $"Stage '{stage.Name}' loop error: {ex.Message}"
-            logger.info $"Stage '{stage.Name}' consumer stopped"
+                try
+                    do! Async.StartImmediateAsTask(
+                        consume stage db logger input output ct, cancellationToken = CancellationToken.None)
+                with
+                | :? OperationCanceledException when ct.IsCancellationRequested -> ()
+                | error ->
+                    logger.error $"Stage '{stage.Name}' loop error: {error.Message}"
+                    return raise error
+            finally
+                logger.info $"Stage '{stage.Name}' consumer stopped"
         }
 
     /// Create a ChannelWriter that routes documents to different writers based on a selector function.
@@ -148,15 +178,9 @@ module Workflow =
                 ValueTask<bool>(true) }
 
     /// Launch N consumers for a stage, all reading from the same channel.
-    let launchConsumers
-        (stage: StageDefinition)
-        (db: Algebra.Database)
-        (logger: Algebra.Logger)
-        (concurrency: int)
-        (input: ChannelReader<Document.T>)
-        (output: ChannelWriter<Document.T> option)
-        (ct: CancellationToken)
-        : Task<unit> list =
+    let launchConsumers (stage: StageDefinition) (db: Algebra.Database) (logger: Algebra.Logger)
+        (concurrency: int) (input: ChannelReader<Document.T>) (output: ChannelWriter<Document.T> option)
+        (ct: CancellationToken) : Task<unit> list =
         [ for i in 1..concurrency do
             task {
                 logger.info $"Stage '{stage.Name}' consumer {i}/{concurrency} starting"
@@ -164,11 +188,8 @@ module Workflow =
             } ]
 
     /// Hydrate a channel from the database (for recovery on startup).
-    let hydrate
-        (db: Algebra.Database)
-        (logger: Algebra.Logger)
-        (writer: ChannelWriter<Document.T>)
-        : Task<int> =
+    let hydrate (db: Algebra.Database) (logger: Algebra.Logger)
+        (writer: ChannelWriter<Document.T>) : Task<int> =
         task {
             let! docs = Document.hydrate db
             for doc in docs do
