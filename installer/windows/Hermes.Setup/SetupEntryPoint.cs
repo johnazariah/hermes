@@ -27,14 +27,18 @@ internal static class SetupEntryPoint
         {
             var created = factory.Create();
             if (created is not Effect<SetupApplication>.Success(var application))
-                return SetupExecution.Refused(Verb(command), created.FailureCode);
+                return SetupExecution.Refused(Verb(command), created.FailureCode,
+                    created.Evidence ?? new(SetupEvidenceStage.Composition, SetupEvidenceCause.Rejected));
             await using var ownedApplication = application;
             return await application.ExecuteAsync(command, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         { return SetupExecution.Unknown(Verb(command), SetupCode.Cancelled); }
         catch (SetupIoException error)
-        { return SetupExecution.Refused(Verb(command), error.Code); }
+        {
+            return SetupExecution.Refused(Verb(command), error.Code,
+                error.Evidence ?? new(SetupEvidenceStage.Entry, SetupEvidenceCause.Rejected));
+        }
         catch (Exception error) when (AggregateResult.Expected(error))
         { return SetupExecution.Unknown(Verb(command), SetupCode.Unavailable); }
     }
@@ -51,6 +55,18 @@ internal static class SetupEntryPoint
     {
         await output.WriteLineAsync(execution.Report.ToJson());
         await diagnostics.WriteLineAsync($"Hermes Setup: {execution.Code}.");
+        if (execution is { Code: SetupCode.InvalidEvidence, Evidence: { } evidence })
+        {
+            var line = evidence.ToDiagnosticLine();
+            try
+            {
+                await diagnostics.WriteLineAsync(line);
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                // Optional evidence cannot replace the refusal already reported above.
+            }
+        }
         return (int)execution.ExitCode;
     }
 

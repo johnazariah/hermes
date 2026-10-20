@@ -100,6 +100,22 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Diagnostic-only Setup refusal evidence receives source approval
+
+- **Changed:** Fixed numerical stage/cause/fault/native-error evidence now reaches the bounded acceptance report without paths, messages, identities or tokens. Install and subsequent recovery evidence remain distinct; the original report, refusal and readiness contract is unchanged.
+- **Review:** A fresh author closes an optional-writer failure that could mask the original refusal. Final independent review approves the diagnostic-only integration; prior author lockouts remain enforced.
+- **Validation:** Parent passes warning-free solution build, 2,182 Core and 667 Setup cases plus all static controls. The applier passes 53 focused, 48 Control and 297 Servicing cases. Parser controls cover 2,599 numerical combinations/boundaries, 57 adverse inputs, real synthetic child stderr and actual stage persistence.
+- **Blockers:** The native first-install origin remains unknown until fresh target evidence. No behavioural correction, successful installation or proof of absent MSI calls is claimed; PR #30 stays draft and main/distribution gated.
+- **Next:** Publish the bounded evidence integration and repeat dedicated hosted-Windows lifecycle acceptance.
+
+### 2026-10-21 - Both real MSI packages pass full validation; install evidence is refused
+
+- **Native progress:** Run `39479960150` at `4532cd7` passes native Windows 31/31 and actual copied-MSI mutation refusals. Baseline 0.1.0 and upgrade 0.1.1 both build and pass complete authenticated native ICE with 699 prerequisite-checked policy warnings each, zero build warnings/errors.
+- **Current failure:** The owner fixture is created, then SDK-free Setup Install returns 1603 / Refused / InvalidEvidence with no MSI exit code. Cleanup recovery reports the same refusal and cannot establish completed safe state. The bounded acceptance report preserves both outcomes.
+- **Ownership:** A fresh C# specialist traces the actual refusal origin or provides only the bounded evidence needed to locate it. No speculative guard/elevation/path relaxation is authorised.
+- **Blockers:** No successful installation, installed authentication, recovery or uninstall proof exists yet. PR #30 remains draft and main/distribution gated.
+- **Next:** Locate and correct the specific first-install refusal, then continue the full target-host lifecycle.
+
 ### 2026-10-21 - Real native ICE advances to a blank-line binding correction
 
 - **Evidence:** Run `39477575313` at `8c17a15` passes both supported jobs, Tray, native Windows 31/31 and actual copied-MSI filename/reparenting refusal. Authenticated full ICE emits one ICE61, one ICE63 and 697 ICE91 warnings, without the original ICE64/72 errors. The wrapper then refuses an empty `Lines` element before classification; no installation succeeds.

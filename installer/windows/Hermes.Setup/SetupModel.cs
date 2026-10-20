@@ -44,8 +44,12 @@ internal abstract record Effect<T>
     internal sealed record Success(T Value) : Effect<T>;
     internal sealed record Failure(SetupCode Code) : Effect<T>;
 
+    internal SetupRefusalEvidence? Evidence { get; init; }
+
     internal static Effect<T> Ok(T value) => new Success(value);
-    internal static Effect<T> Fail(SetupCode code) => new Failure(code);
+    internal static Effect<T> Fail(
+        SetupCode code, SetupRefusalEvidence? evidence = null) =>
+        new Failure(code) { Evidence = evidence };
 
     internal SetupCode FailureCode =>
         this is Failure(var code) && code != SetupCode.None
@@ -241,11 +245,13 @@ internal sealed record SetupExecution(
 {
     // Report.Ready is a positive completion claim, not proof of admission denial.
     internal SetupAdmissionState Admission { get; init; } = SetupAdmissionState.Unknown;
+    internal SetupRefusalEvidence? Evidence { get; init; }
 
-    internal static SetupExecution Refused(SetupVerb verb, SetupCode code) => new(
-        new(verb, SetupOutcome.Refused, false, null),
-        code == SetupCode.Busy ? SetupExitCode.Busy : SetupExitCode.ServicingFailed,
-        code);
+    internal static SetupExecution Refused(
+        SetupVerb verb, SetupCode code, SetupRefusalEvidence? evidence = null) => new(
+            new(verb, SetupOutcome.Refused, false, null),
+            code == SetupCode.Busy ? SetupExitCode.Busy : SetupExitCode.ServicingFailed,
+            code) { Evidence = evidence };
 
     internal static SetupExecution Unknown(
         SetupVerb verb, SetupCode code, EngineReceipt? receipt = null) => new(

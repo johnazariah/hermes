@@ -75,4 +75,5 @@ Require ($installerJob.Contains('Publish-Servicing.ps1') -and $installerJob.Cont
     -and $installerJob -notmatch '(?m)^    needs:' -and -not $installerJob.Contains('download-artifact')) 'Self-contained Windows acceptance must not wait on unrelated runner allocation or consume another job''s inputs.'
 $publishJob = [regex]::Match($ci, '(?ms)^  publish:\n(?<body>.*?)(?=^  [a-zA-Z0-9_-]+:|\z)').Groups['body'].Value
 Require ($publishJob.Contains('needs: [build-and-test, build-tray, installer]')) 'Publication must retain every supported platform, Tray and complete installer acceptance gate.'
+& (Join-Path $PSScriptRoot 'Test-SetupEvidence.ps1')
 Write-Output 'Coordinator contract controls passed without executing Setup, a guard DLL, MSI, or a Windows profile operation.'

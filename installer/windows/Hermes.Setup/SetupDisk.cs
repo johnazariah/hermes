@@ -30,17 +30,20 @@ internal interface IAtomicFileCommit
     void Commit(string temporary, string destination, bool overwrite);
 }
 
-internal sealed class SetupIoException(SetupCode code) : Exception(code.ToString())
+internal sealed class SetupIoException(
+    SetupCode code, SetupRefusalEvidence? evidence = null) : Exception(code.ToString())
 {
     internal SetupCode Code { get; } = code;
+    internal SetupRefusalEvidence? Evidence { get; } = evidence;
 }
 
 internal static class SetupIo
 {
-    internal static void Require(bool condition, SetupCode code)
+    internal static void Require(
+        bool condition, SetupCode code, SetupRefusalEvidence? evidence = null)
     {
         if (!condition)
-            throw new SetupIoException(code);
+            throw new SetupIoException(code, evidence);
     }
 
     internal static Task<Effect<T>> RunAsync<T>(
@@ -54,7 +57,7 @@ internal static class SetupIo
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         { return Task.FromResult(Effect<T>.Fail(SetupCode.Cancelled)); }
         catch (SetupIoException error)
-        { return Task.FromResult(Effect<T>.Fail(error.Code)); }
+        { return Task.FromResult(Effect<T>.Fail(error.Code, error.Evidence)); }
         catch (Exception error) when (Expected(error))
         { return Task.FromResult(Effect<T>.Fail(failure)); }
     }
@@ -229,7 +232,8 @@ internal sealed class FileAdmissionSource(
                 FileAccess.ReadWrite, FileShare.None);
             return Effect<ISetupLease>.Ok(new Lease(stream, scope.GatePath, codec));
         }
-        catch (SetupIoException error) { return Effect<ISetupLease>.Fail(error.Code); }
+        catch (SetupIoException error)
+        { return Effect<ISetupLease>.Fail(error.Code, error.Evidence); }
         catch (IOException error)
         {
             return Effect<ISetupLease>.Fail((error.HResult & 0xffff) is 32 or 33

@@ -37,17 +37,32 @@ internal sealed class SetupStateProof(
         SetupIo.Require(!msi.RelatedProducts.IsDefault && msi.RelatedProducts.Length <= 1 &&
             msi.RelatedProducts.All(product => Eligible(product, msi.InvokingSid)),
             SetupCode.OwnershipRefused);
-        SetupIo.Require(observed.Shortcut.State != ObservationState.Unknown &&
-            observed.Pending.Disposition is not (PendingDisposition.Unknown or PendingDisposition.Alias) &&
-            observed.ProductMetadata.Values.Concat(observed.ComponentMarkers.Values)
-                .Append(observed.Run).All(value => value.Kind != RegistryAtomKind.Unsupported),
-            SetupCode.InvalidEvidence);
+        RequireObservations(observed);
         return observed;
+    }
+
+    private static void RequireObservations(RegistrationInventory observed)
+    {
+        SetupIo.Require(observed.Shortcut.State != ObservationState.Unknown, SetupCode.InvalidEvidence,
+            new(SetupEvidenceStage.Unspecified, SetupEvidenceCause.ShortcutObservation,
+                observed.Shortcut.Fault, StartupEvidenceErrorKind.HResult, observed.Shortcut.NativeCode));
+        SetupIo.Require(observed.Pending.Disposition is not
+            (PendingDisposition.Unknown or PendingDisposition.Alias), SetupCode.InvalidEvidence,
+            new(SetupEvidenceStage.Unspecified,
+                observed.Pending.Disposition == PendingDisposition.Alias
+                    ? SetupEvidenceCause.PendingAlias : SetupEvidenceCause.PendingUnknown,
+                ErrorKind: StartupEvidenceErrorKind.Win32, ErrorCode: observed.Pending.NativeCode));
+        SetupIo.Require(observed.ProductMetadata.Values.Concat(observed.ComponentMarkers.Values)
+            .Append(observed.Run).All(value => value.Kind != RegistryAtomKind.Unsupported),
+            SetupCode.InvalidEvidence,
+            new(SetupEvidenceStage.Unspecified, SetupEvidenceCause.RegistryUnsupported));
     }
 
     internal static MsiRegistration Msi(RegistrationInventory inventory) =>
         inventory.Msi is { State: ObservationState.Known, Value: { } msi }
-            ? msi : throw new SetupIoException(SetupCode.InvalidEvidence);
+            ? msi : throw new SetupIoException(SetupCode.InvalidEvidence,
+                new(SetupEvidenceStage.Unspecified, SetupEvidenceCause.MsiObservation,
+                    inventory.Msi.Fault, StartupEvidenceErrorKind.Win32, inventory.Msi.NativeCode));
 
     internal bool Matches(
         SetupPackage? target, IReadOnlyList<SetupPackage> universe,
@@ -120,7 +135,8 @@ internal sealed class SetupStateProof(
     private static bool OwnerMatches(Guid code, SetupPackage? target, MsiRegistration msi)
     {
         SetupIo.Require(msi.ComponentClients.ContainsKey(code) &&
-            !msi.ComponentClients[code].IsDefault, SetupCode.InvalidEvidence);
+            !msi.ComponentClients[code].IsDefault, SetupCode.InvalidEvidence,
+            new(SetupEvidenceStage.Unspecified, SetupEvidenceCause.ComponentClientsIncomplete));
         var clients = msi.ComponentClients[code];
         var keyPath = target?.Resources.ComponentKeyPaths.GetValueOrDefault(code);
         if (keyPath is null)
@@ -262,22 +278,37 @@ internal sealed class InstallationInspection(
 
     private Inspection Inspect(SetupCommand command, ISetupLease lease)
     {
-        var gate = Snapshot(lease);
-        proof.RequirePlacement(coordinatorImages);
-        RefuseWrongMode(command, gate);
-        var record = journal.Read();
-        var recovery = Recovery(command, gate, record);
-        var initial = proof.Read([]);
-        var current = Current(initial, record);
-        var candidate = command is InstallCommand install
-            ? packages.Source(install.PackagePath, PackageAuthoringMode.CandidateSource) : null;
-        var universe = Combine(current, candidate, recovery);
-        var actual = proof.Read(universe);
-        RequireStableInventory(initial, actual);
-        RequireCurrent(command, gate, current, actual);
-        SetupIo.Require(proof.Owners(current, universe, SetupStateProof.Msi(actual)),
-            SetupCode.OwnershipRefused);
-        RequireCollisions(current, universe);
+        var gate = InspectionEvidence.Read(SetupEvidenceStage.Gate, () => Snapshot(lease));
+        InspectionEvidence.Check(SetupEvidenceStage.Placement,
+            () => proof.RequirePlacement(coordinatorImages));
+        InspectionEvidence.Check(SetupEvidenceStage.Gate, () => RefuseWrongMode(command, gate));
+        var record = InspectionEvidence.Read(SetupEvidenceStage.Journal, journal.Read);
+        var recovery = InspectionEvidence.Read(SetupEvidenceStage.Recovery,
+            () => Recovery(command, gate, record));
+        var initial = InspectionEvidence.Read(SetupEvidenceStage.InitialInventory, () => proof.Read([]));
+        var current = InspectionEvidence.Read(SetupEvidenceStage.CurrentPackage,
+            () => Current(initial, record));
+        var candidate = InspectionEvidence.Read(SetupEvidenceStage.CandidatePackage,
+            () => command is InstallCommand install
+                ? packages.Source(install.PackagePath, PackageAuthoringMode.CandidateSource) : null);
+        return InspectCandidate(command, gate, initial, current, candidate, recovery);
+    }
+
+    private Inspection InspectCandidate(
+        SetupCommand command, DiskGateSnapshot gate, RegistrationInventory initial,
+        SetupPackage? current, SetupPackage? candidate, InterruptedOperation? recovery)
+    {
+        var universe = InspectionEvidence.Read(SetupEvidenceStage.RecoveryPackages,
+            () => Combine(current, candidate, recovery));
+        var actual = InspectionEvidence.Read(SetupEvidenceStage.FinalInventory, () => proof.Read(universe));
+        InspectionEvidence.Check(SetupEvidenceStage.Ownership,
+            () => RequireStableInventory(initial, actual));
+        InspectionEvidence.Check(SetupEvidenceStage.Ownership,
+            () => RequireCurrent(command, gate, current, actual));
+        InspectionEvidence.Check(SetupEvidenceStage.Ownership,
+            () => SetupIo.Require(proof.Owners(current, universe, SetupStateProof.Msi(actual)),
+                SetupCode.OwnershipRefused));
+        InspectionEvidence.Check(SetupEvidenceStage.Collisions, () => RequireCollisions(current, universe));
         return new(scope, gate.Disposition, SetupStateProof.Target(current),
             candidate?.Evidence, recovery);
     }
@@ -328,7 +359,8 @@ internal sealed class InstallationInspection(
         SetupIo.Require(SetupStateProof.Msi(initial).InvokingSid ==
                 SetupStateProof.Msi(actual).InvokingSid &&
             SetupStateProof.Msi(initial).RelatedProducts.SequenceEqual(
-                SetupStateProof.Msi(actual).RelatedProducts), SetupCode.InvalidEvidence);
+                SetupStateProof.Msi(actual).RelatedProducts), SetupCode.InvalidEvidence,
+            new(SetupEvidenceStage.Unspecified, SetupEvidenceCause.InventoryChanged));
 
     private void RequireCurrent(
         SetupCommand command, DiskGateSnapshot gate,

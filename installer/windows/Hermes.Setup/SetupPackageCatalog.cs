@@ -9,7 +9,7 @@ internal static class AggregateResult
     internal static T Require<T>(Effect<T> effect) => effect switch
     {
         Effect<T>.Success(var value) => value,
-        _ => throw new SetupIoException(effect.FailureCode)
+        _ => throw new SetupIoException(effect.FailureCode, effect.Evidence)
     };
 
     internal static Task<Effect<T>> ReadAsync<T>(
@@ -23,7 +23,7 @@ internal static class AggregateResult
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         { return Task.FromResult(Effect<T>.Fail(SetupCode.Cancelled)); }
         catch (SetupIoException error)
-        { return Task.FromResult(Effect<T>.Fail(error.Code)); }
+        { return Task.FromResult(Effect<T>.Fail(error.Code, error.Evidence)); }
         catch (Exception error) when (Expected(error))
         { return Task.FromResult(Effect<T>.Fail(failure)); }
     }

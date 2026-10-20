@@ -2,6 +2,50 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Bounded first-install refusal evidence is source-approved
+
+The actual first-install `InvalidEvidence` report does not identify a unique
+origin. Diagnostic-only C# changes retain fixed stage/cause/observation-fault
+and numerical native-error evidence through entry, inspection and reporting.
+At most one bounded numerical stderr record reaches the wrapper and its
+corresponding acceptance stage; no raw messages, paths, identities or tokens
+are retained. Install, failure-Recover and cleanup outcomes stay separate.
+
+Independent review found that an optional evidence writer failure could mask
+the original refusal. A fresh C# author closes that path: only the additional
+write handles I/O/access failures, preserving the existing report, marker and
+1603 exit. Mandatory writes, cancellation and programming-fault propagation
+remain unchanged. Final review approves the integrated diagnostic-only source.
+
+Parent directly passes the warning-free solution build, **2,182 Core** and
+**667 Setup** cases plus the complete static gate. The applier also passes
+**53 focused**, **48 Control** and **297 Servicing** cases. The real parser
+controls exercise 2,599 numerical combinations/boundaries, 57 adverse inputs,
+redirected synthetic child stderr and separate coordinator-stage persistence.
+All reported suites have zero failures/skips.
+
+Fresh hosted evidence must still identify the actual refusal origin. Neither
+this source approval nor a null MSI result proves that no MSI call occurred,
+establishes a behavioural fix, or demonstrates successful installation.
+
+## Both native MSI builds validate; first coordinator install refuses evidence
+
+Run `39479960150` at `4532cd7` passes all 31 native Windows cases and real
+copied-MSI mutation refusals. Both baseline 0.1.0 and upgrade 0.1.1 build
+successfully with complete authenticated native ICE: each produces a verified
+receipt for 699 precisely matched, prerequisite-checked warnings. Neither ICE
+selection nor suppression is used.
+
+The synthetic owner fixture is then created successfully. The first SDK-free
+Setup Install returns 1603 with `Refused`, `ready=false`, `msiExitCode=null`
+and `InvalidEvidence`; no protocol error is reported. Failure recovery returns
+the same refusal and cannot establish a completed safe state. No successful
+installation or installed-native proof is claimed.
+
+The bounded 697-byte acceptance artefact records the original install failure
+and cleanup refusal. A fresh C# specialist owns the exact-origin trace or
+bounded diagnostic correction. The preflight contract is not relaxed.
+
 ## Native ICE output reaches a blank-line adapter correction
 
 Run `39477575313` at `8c17a15` passes both supported OS jobs, Tray and all

@@ -26,6 +26,49 @@ function ConvertFrom-HermesSetupResult {
     return $report
 }
 
+function ConvertFrom-HermesSetupProcessOutput {
+    param([string]$StandardOutput, [string]$StandardError, [int]$ExitCode,
+        [ValidateSet('install', 'repair', 'uninstall', 'recover')][string]$Operation)
+    $report = $null
+    $protocolError = $null
+    try { $report = ConvertFrom-HermesSetupResult -StandardOutput $StandardOutput -ExitCode $ExitCode -Operation $Operation }
+    catch { $protocolError = 'InvalidCoordinatorReport' }
+    $codes = @()
+    $refusalEvidence = $null
+    $diagnosticError = $null
+    if ($StandardError.Length -gt 4096) {
+        $diagnosticError = 'CoordinatorDiagnosticsTooLong'
+    } else {
+        $lines = @($StandardError -split '\r?\n')
+        $codes = @($lines | Where-Object { $_ -cmatch '^Hermes Setup: [A-Za-z]+\.$' } `
+            | ForEach-Object { $_.Substring(14).TrimEnd('.') })
+        $candidates = @($lines | Where-Object { $_.IndexOf('HERMES_SETUP', [StringComparison]::OrdinalIgnoreCase) -ge 0 })
+        if ($candidates.Count -gt 1) {
+            $diagnosticError = 'DuplicateCoordinatorEvidence'
+        } elseif ($candidates.Count -eq 1) {
+            $pattern = '\AHERMES_SETUP_EVIDENCE v=1 stage=(?<stage>[1-9]|1[0-6]) cause=(?<cause>[1-9]) fault=(?<fault>[0-5]) errorKind=(?<errorKind>[0-2]) error=(?<error>0|-?[1-9][0-9]{0,9})\z'
+            if ($candidates[0].Length -gt 192 -or $candidates[0] -cnotmatch $pattern) {
+                $diagnosticError = 'InvalidCoordinatorEvidence'
+            } else {
+                $errorCode = [long]$Matches.error
+                if ($errorCode -lt [int]::MinValue -or $errorCode -gt [uint32]::MaxValue) {
+                    $diagnosticError = 'InvalidCoordinatorEvidence'
+                } else {
+                    $refusalEvidence = [pscustomobject]@{
+                        v = 1; stage = [int]$Matches.stage; cause = [int]$Matches.cause
+                        fault = [int]$Matches.fault; errorKind = [int]$Matches.errorKind; error = $errorCode
+                    }
+                }
+            }
+        }
+    }
+    if ($null -ne $diagnosticError -and $null -eq $protocolError) { $protocolError = 'InvalidCoordinatorDiagnostics' }
+    [pscustomobject]@{
+        exitCode = $ExitCode; report = $report; diagnosticCodes = $codes; protocolError = $protocolError
+        refusalEvidence = $refusalEvidence; diagnosticError = $diagnosticError
+    }
+}
+
 function Invoke-HermesSetup {
     param(
         [Parameter(Mandatory = $true)][string]$SetupExecutable,
@@ -68,17 +111,8 @@ function Invoke-HermesSetup {
         $child.WaitForExit()
         $stdout = $output.GetAwaiter().GetResult()
         $stderr = $diagnostics.GetAwaiter().GetResult()
-        $report = $null
-        $protocolError = $null
-        try { $report = ConvertFrom-HermesSetupResult -StandardOutput $stdout -ExitCode $child.ExitCode -Operation $Operation }
-        catch { $protocolError = 'InvalidCoordinatorReport' }
-        $codes = @()
-        if ($stderr.Length -le 4096) {
-            $codes = @($stderr -split '\r?\n' | Where-Object { $_ -cmatch '^Hermes Setup: [A-Za-z]+\.$' } `
-                | ForEach-Object { $_.Substring(14).TrimEnd('.') })
-        }
-        [pscustomobject]@{ exitCode = $child.ExitCode; report = $report; diagnosticCodes = $codes; protocolError = $protocolError }
+        ConvertFrom-HermesSetupProcessOutput -StandardOutput $stdout -StandardError $stderr -ExitCode $child.ExitCode -Operation $Operation
     } finally { $child.Dispose() }
 }
 
-Export-ModuleMember -Function Invoke-HermesSetup, ConvertFrom-HermesSetupResult
+Export-ModuleMember -Function Invoke-HermesSetup, ConvertFrom-HermesSetupResult, ConvertFrom-HermesSetupProcessOutput

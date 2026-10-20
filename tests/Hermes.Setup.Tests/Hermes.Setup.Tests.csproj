@@ -9,6 +9,8 @@
     <ProjectReference Include="../../src/Hermes.Servicing/Hermes.Servicing.csproj" />
     <Compile Include="../../installer/windows/Hermes.Setup/SetupModel.cs"
              Link="Production/SetupModel.cs" />
+    <Compile Include="../../installer/windows/Hermes.Setup/SetupRefusalEvidence.cs"
+             Link="Production/SetupRefusalEvidence.cs" />
     <Compile Include="../../installer/windows/Hermes.Setup/SetupEffects.cs"
              Link="Production/SetupEffects.cs" />
     <Compile Include="../../installer/windows/Hermes.Setup/SetupPlanner.cs"

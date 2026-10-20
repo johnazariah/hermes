@@ -21,7 +21,8 @@ internal sealed class SetupOrchestrator(
             var acquired = admission.TryAcquire();
             return acquired is Effect<ISetupLease>.Success(var lease)
                 ? await ExecuteLeasedAsync(command, lease, cancellationToken)
-                : SetupExecution.Refused(verb, acquired.FailureCode);
+                : SetupExecution.Refused(verb, acquired.FailureCode,
+                    acquired.Evidence ?? new(SetupEvidenceStage.Admission, SetupEvidenceCause.Rejected));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         { return SetupExecution.Refused(verb, SetupCode.Cancelled); }
@@ -37,11 +38,13 @@ internal sealed class SetupOrchestrator(
         {
             var inspected = await inspection.InspectAsync(command, lease, cancellationToken);
             if (inspected is not Effect<Inspection>.Success(var facts))
-                return SetupExecution.Refused(Verb(command), inspected.FailureCode);
+                return SetupExecution.Refused(Verb(command), inspected.FailureCode,
+                    inspected.Evidence ?? new(SetupEvidenceStage.Entry, SetupEvidenceCause.Rejected));
             var planned = SetupPlanner.Create(command, facts);
             return planned is Effect<OperationPlan>.Success(var plan)
                 ? await ExecuteClosedAsync(plan, lease, cancellationToken)
-                : SetupExecution.Refused(Verb(command), planned.FailureCode);
+                : SetupExecution.Refused(Verb(command), planned.FailureCode,
+                    planned.Evidence ?? new(SetupEvidenceStage.Planning, SetupEvidenceCause.Rejected));
         }
     }
 
@@ -49,6 +52,11 @@ internal sealed class SetupOrchestrator(
         OperationPlan plan, ISetupLease lease, CancellationToken cancellationToken)
     {
         try { return await CloseAndRetainAsync(plan, lease, cancellationToken); }
+        catch (SetupIoException error)
+        {
+            throw new SetupIoException(error.Code, error.Evidence ??
+                new(SetupEvidenceStage.ClosedProcessing, SetupEvidenceCause.Rejected));
+        }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         { return ClosedOrUnknown(plan, lease, SetupCode.Cancelled); }
         catch (IOException) { return ClosedOrUnknown(plan, lease, SetupCode.Unavailable); }

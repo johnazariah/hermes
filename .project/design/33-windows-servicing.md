@@ -322,6 +322,28 @@ outstanding deferred file operations.
 
 No automatic application termination or reboot resolves an outcome.
 
+### Bounded refusal diagnostics
+
+An `InvalidEvidence` refusal may include one additional stderr line containing
+only a version, fixed stage/cause/fault identifiers, native error kind and
+numeric error code. It contains no exception messages, paths, process or owner
+identities, challenges or tokens. The public five-field result, exit status,
+readiness and refusal policy remain unchanged.
+
+The `HERMES_SETUP_EVIDENCE` version-1 line is limited to 192 characters within
+the existing 4096-character stderr bound. The wrapper accepts at most one
+strictly parsed record, validates numerical ranges and returns only structured
+values. Malformed diagnostics produce a fixed protocol error without returning
+raw stderr or partial evidence; the original exit and validated public report
+remain available.
+
+Acceptance records preserve each operation's evidence separately, including
+Install and subsequent failure-Recover. These diagnostics identify where
+evidence was refused; they grant no authority and cannot establish readiness
+or completed recovery. A null MSI result alone does not prove that no earlier
+MSI call occurred. Failure of the optional evidence I/O write must not replace
+the refusal already reported.
+
 ### Interrupted operation
 
 Recovery is another operation of the same coordinator, not a supervisor. It
