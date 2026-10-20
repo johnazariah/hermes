@@ -100,6 +100,22 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Shortcut absence correction is source-approved
+
+- **Changed:** The concrete shortcut observer proves physical absence before COM loading, using two physical identity and missing-metadata observations. Unsafe/unknown/reparse/collision states remain refusals; present-file loading failures retain numerical unreadable evidence.
+- **Review:** Fresh independent review approves only the five-file correction. It does not establish the original throwing call or installed success.
+- **Validation:** Parent passes warning-free solution build, 2,182 Core and 693 Setup cases and all static controls. The applier passes 26 focused, 48 Control and 297 Servicing cases plus the Windows-project cross-build, preserving BOM/LF and unrelated bytes.
+- **Blockers:** New native cases and actual SDK-free installation/recovery remain unexecuted for this candidate. PR #30 stays draft; main/distribution remain gated.
+- **Next:** Publish the correction and run the exact-head complete Windows project and installer lifecycle.
+
+### 2026-10-21 - Native numeric evidence locates initial shortcut observation
+
+- **Evidence:** Run `39486421130` at `82cbb13` again passes both real MSI validations and native/mutation controls. Install and failure-Recover both retain numeric evidence `8/4/5/2/2147942403`: initial inventory, shortcut observation, HRESULT `0x80070003`.
+- **Preserved outcome:** Original 1603 / Refused / ready=false / null MSI result and cleanup refusal remain explicit, with no report/diagnostic protocol error. No installed success is inferred.
+- **Ownership:** A fresh C# specialist traces the exact observer and physical-absence boundary. Missing-path errors must not hide inaccessible, redirected or dangling ancestors.
+- **Blockers:** Exact path/API classification and full installed lifecycle remain unaccepted; PR #30 is draft and main/distribution gated.
+- **Next:** Apply a proved shortcut-observation correction, then rerun the dedicated Windows lifecycle.
+
 ### 2026-10-21 - Diagnostic-only Setup refusal evidence receives source approval
 
 - **Changed:** Fixed numerical stage/cause/fault/native-error evidence now reaches the bounded acceptance report without paths, messages, identities or tokens. Install and subsequent recovery evidence remain distinct; the original report, refusal and readiness contract is unchanged.

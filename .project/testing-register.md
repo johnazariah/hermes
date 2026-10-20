@@ -2,6 +2,43 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Shortcut absence uses physical proof before COM loading
+
+Independent review approves the narrow five-file correction. The real
+shortcut adapter now requires physical identity, missing-entry metadata,
+another physical proof and another missing-entry observation before returning
+absence. Unknown/redirected identity, reparse metadata, collisions and metadata
+errors remain refusals. A present file's COM or managed loading failure stays
+`Unreadable` with its original numerical HRESULT.
+
+Parent passes the warning-free solution build, **2,182 Core** and **693 Setup**
+cases plus all static controls. The applier also passes **26 focused**,
+**48 Control** and **297 Servicing** cases and the Windows-project cross-build,
+with zero failures/skips or build warnings/errors.
+
+New native cases use the existing isolated sandbox and complete Windows
+project step. They have not executed locally; in particular the exact managed
+missing-path exception assertion must not be weakened after a native failure.
+Actual first-install/recovery success remains unproved.
+
+## Actual refusal evidence identifies initial shortcut observation
+
+Run `39486421130` at `82cbb13` again validates both real MSI versions and passes
+native Windows cases/mutation controls. The published numeric pipeline now
+preserves the same structured record for Install and failure-Recover:
+`stage=8`, `cause=4`, `fault=5`, `errorKind=2`, `error=2147942403`.
+
+The source maps this to initial inventory / shortcut observation with HRESULT
+`0x80070003` (`ERROR_PATH_NOT_FOUND`). Original exit 1603, `Refused`,
+`ready=false`, null MSI result and separate cleanup refusal remain visible;
+there is no report or diagnostic protocol error.
+
+A fresh C# specialist owns the exact observer/ancestor trace and safe
+classification correction. Genuine absence must be proved without treating
+inaccessible, redirected, reparse or dangling paths as absent. The evidence
+does not yet identify which path/API produced the error or establish a
+successful installation.
+
 ## Bounded first-install refusal evidence is source-approved
 
 The actual first-install `InvalidEvidence` report does not identify a unique

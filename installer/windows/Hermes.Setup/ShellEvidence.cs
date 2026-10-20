@@ -1,4 +1,6 @@
-﻿namespace Hermes.Setup;
+﻿using System.Runtime.InteropServices;
+
+namespace Hermes.Setup;
 
 internal sealed record ShortcutFields(string Target, string Arguments, string WorkingDirectory);
 internal sealed record RunCommand(string Executable, string Arguments);
@@ -10,6 +12,56 @@ internal enum ShortcutComparison
 internal interface IShellLinkQuery
 {
     ReadObservation<ShortcutFields> Read(string knownPath);
+}
+
+internal interface IShellLinkLoader
+{
+    ShortcutFields Load(string path);
+}
+
+internal sealed class ShellLinkReader(
+    IPathIdentityQuery paths,
+    ISetupFileSystem files,
+    IShellLinkLoader loader) : IShellLinkQuery
+{
+    public ReadObservation<ShortcutFields> Read(string knownPath)
+    {
+        try
+        {
+            return Stable(knownPath)
+                ? Observe(knownPath)
+                : ReadObservation<ShortcutFields>.Unknown(ObservationFault.Identity);
+        }
+        catch (Exception error) when (error is COMException or InvalidCastException or IOException or UnauthorizedAccessException)
+        {
+            return ReadObservation<ShortcutFields>.Unknown(
+                ObservationFault.Unreadable, unchecked((uint)error.HResult));
+        }
+        catch (FormatException)
+        { return ReadObservation<ShortcutFields>.Unknown(ObservationFault.Identity); }
+    }
+
+    private ReadObservation<ShortcutFields> Observe(string path) => files.Entry(path) switch
+    {
+        { ReparsePoint: true } or { Kind: DiskEntryKind.Directory } =>
+            ReadObservation<ShortcutFields>.Unknown(ObservationFault.Identity),
+        { Kind: DiskEntryKind.Missing } => ReadMissing(path),
+        { Kind: DiskEntryKind.File } =>
+            ReadObservation<ShortcutFields>.Known(loader.Load(path)),
+        _ => ReadObservation<ShortcutFields>.Unknown(ObservationFault.Identity)
+    };
+
+    private ReadObservation<ShortcutFields> ReadMissing(string path) =>
+        // The physical query checks nonfollowing entries and walks missing ancestors.
+        // Neither a metadata error nor a missing-path exception from COM proves absence.
+        Stable(path) && files.Entry(path) is
+            { Kind: DiskEntryKind.Missing, ReparsePoint: false }
+            ? ReadObservation<ShortcutFields>.Missing()
+            : ReadObservation<ShortcutFields>.Unknown(ObservationFault.Identity);
+
+    private bool Stable(string path) =>
+        paths.Read(path) is { State: ObservationState.Known, Value: { } identity } &&
+        WindowsEvidencePath.Same(path, identity.Path);
 }
 
 internal static class ShortcutClassifier

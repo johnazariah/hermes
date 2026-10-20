@@ -8,47 +8,36 @@ namespace Hermes.Setup;
 [SupportedOSPlatform("windows")]
 internal sealed class WindowsShellLinkQuery : IShellLinkQuery
 {
-    public ReadObservation<ShortcutFields> Read(string knownPath)
-    {
-        try
-        {
-            if (new WindowsPathIdentityQuery().Read(knownPath) is not
-                { State: ObservationState.Known, Value: { } identity } ||
-                !WindowsEvidencePath.Same(knownPath, identity.Path))
-                return ReadObservation<ShortcutFields>.Unknown(ObservationFault.Identity);
-            return Activate(knownPath);
-        }
-        catch (Exception error) when (error is COMException or InvalidCastException or IOException or UnauthorizedAccessException)
-        { return ReadObservation<ShortcutFields>.Unknown(ObservationFault.Unreadable, unchecked((uint)error.HResult)); }
-        catch (FormatException)
-        { return ReadObservation<ShortcutFields>.Unknown(ObservationFault.Identity); }
-    }
+    public ReadObservation<ShortcutFields> Read(string knownPath) =>
+        new ShellLinkReader(new WindowsPathIdentityQuery(),
+            new PhysicalSetupFileSystem(), new WindowsShellLinkLoader()).Read(knownPath);
+}
 
-    private static ReadObservation<ShortcutFields> Activate(string path)
+[SupportedOSPlatform("windows")]
+internal sealed class WindowsShellLinkLoader : IShellLinkLoader
+{
+    public ShortcutFields Load(string path)
     {
         var type = Type.GetTypeFromCLSID(new Guid("00021401-0000-0000-C000-000000000046"), true)
             ?? throw new COMException("ShellLink activation is unavailable.");
         var instance = Activator.CreateInstance(type)
             ?? throw new COMException("ShellLink activation returned no object.");
-        try { return Load(instance, path); }
+        try { return ReadFields(instance, path); }
         finally { Marshal.FinalReleaseComObject(instance); }
     }
 
-    private static ReadObservation<ShortcutFields> Load(object instance, string path)
+    private static ShortcutFields ReadFields(object instance, string path)
     {
         if (instance is not IWindowsShellLink link || instance is not IPersistFile file)
             throw new InvalidCastException("The ShellLink COM interfaces are unavailable.");
-        try { file.Load(path, 0); }
-        catch (COMException error) when (unchecked((uint)error.HResult) is 0x80070002 or 0x80070003)
-        { return ReadObservation<ShortcutFields>.Missing(); }
+        file.Load(path, 0);
         var target = new StringBuilder(32_768);
         var arguments = new StringBuilder(32_768);
         var directory = new StringBuilder(32_768);
         link.GetPath(target, target.Capacity, 0, 4); // SLGP_RAWPATH; never Resolve.
         link.GetArguments(arguments, arguments.Capacity);
         link.GetWorkingDirectory(directory, directory.Capacity);
-        return ReadObservation<ShortcutFields>.Known(new(
-            target.ToString(), arguments.ToString(), directory.ToString()));
+        return new(target.ToString(), arguments.ToString(), directory.ToString());
     }
 }
 

@@ -1,7 +1,9 @@
 ﻿using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
 using Hermes.Servicing;
+using Hermes.Setup;
 using Microsoft.Win32.SafeHandles;
 using Xunit;
 
@@ -13,6 +15,124 @@ public sealed class WindowsPlacementTests
     private static readonly Guid ImageMvid = new("11111111-1111-1111-1111-111111111111");
 
     public enum CasePlacement { Outside, InstalledAlias, MissingImage }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("Hermes")]
+    [InlineData("Programs/Hermes")]
+    public void Native_shortcut_missing_file_or_ancestors_are_proven_without_creation(
+        string relativeDirectory)
+    {
+        using var sandbox = new Sandbox();
+        Directory.CreateDirectory(sandbox.Source);
+        var path = Path.Combine(sandbox.Source, relativeDirectory, "Hermes.lnk");
+        Assert.Equal(ReadObservation<ShortcutFields>.Missing(),
+            new WindowsShellLinkQuery().Read(path));
+        Assert.Empty(Directory.GetFileSystemEntries(sandbox.Source));
+    }
+
+    [Fact]
+    public void Native_missing_ancestor_load_exposes_managed_path_not_found()
+    {
+        using var sandbox = new Sandbox();
+        Directory.CreateDirectory(sandbox.Source);
+        var path = Path.Combine(sandbox.Source, "Hermes", "Hermes.lnk");
+        var error = Record.Exception(() => new WindowsShellLinkLoader().Load(path));
+        Assert.True(error is DirectoryNotFoundException);
+        Assert.Equal(0x80070003u, unchecked((uint)(error?.HResult ?? 0)));
+        Assert.Equal(ReadObservation<ShortcutFields>.Missing(),
+            new WindowsShellLinkQuery().Read(path));
+        Assert.Empty(Directory.GetFileSystemEntries(sandbox.Source));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Native_redirected_or_dangling_shortcut_ancestor_is_not_absence(bool dangling)
+    {
+        using var sandbox = new Sandbox();
+        Directory.CreateDirectory(sandbox.Source);
+        sandbox.Junction(sandbox.Alias, sandbox.Source);
+        if (dangling)
+            Directory.Delete(sandbox.Source);
+        var path = Path.Combine(sandbox.Alias, "Hermes", "Hermes.lnk");
+        Assert.Equal(ReadObservation<ShortcutFields>.Unknown(ObservationFault.Identity),
+            new WindowsShellLinkQuery().Read(path));
+    }
+
+    [Fact]
+    public void Native_shortcut_directory_collision_is_not_absence()
+    {
+        using var sandbox = new Sandbox();
+        var path = Path.Combine(sandbox.Source, "Hermes.lnk");
+        Directory.CreateDirectory(path);
+        Assert.Equal(ReadObservation<ShortcutFields>.Unknown(ObservationFault.Identity),
+            new WindowsShellLinkQuery().Read(path));
+        Assert.Empty(Directory.GetFileSystemEntries(path));
+    }
+
+    [Fact]
+    public void Native_malformed_shortcut_is_not_absence()
+    {
+        using var sandbox = new Sandbox();
+        Directory.CreateDirectory(sandbox.Source);
+        var path = Path.Combine(sandbox.Source, "Hermes.lnk");
+        byte[] bytes = [0x01, 0x02, 0x03];
+        File.WriteAllBytes(path, bytes);
+        var observed = new WindowsShellLinkQuery().Read(path);
+        Assert.Equal(ObservationState.Unknown, observed.State);
+        Assert.Equal(ObservationFault.Unreadable, observed.Fault);
+        Assert.NotEqual(0u, observed.NativeCode);
+        Assert.Equal(bytes, File.ReadAllBytes(path));
+    }
+
+    [Fact]
+    public void Native_exclusively_held_shortcut_is_not_absence()
+    {
+        using var sandbox = new Sandbox();
+        Directory.CreateDirectory(sandbox.Source);
+        var path = Path.Combine(sandbox.Source, "Hermes.lnk");
+        using var held = new FileStream(path, FileMode.CreateNew,
+            FileAccess.ReadWrite, FileShare.None);
+        held.Write([0x01, 0x02, 0x03]);
+        held.Flush(flushToDisk: true);
+        var observed = new WindowsShellLinkQuery().Read(path);
+        Assert.Equal(ObservationState.Unknown, observed.State);
+        Assert.Contains(observed.Fault,
+            new[] { ObservationFault.Identity, ObservationFault.Unreadable });
+    }
+
+    [Fact]
+    public void Native_present_shortcut_retains_its_fields_without_resolving_or_running_target()
+    {
+        using var sandbox = new Sandbox();
+        Directory.CreateDirectory(sandbox.Source);
+        var target = Path.Combine(sandbox.Source, "tray.exe");
+        File.WriteAllText(target, "Synthetic target; never executed.");
+        var expected = new ShortcutFields(target, "--synthetic", sandbox.Source);
+        var path = Path.Combine(sandbox.Source, "Hermes.lnk");
+        SaveShellLink(path, expected);
+        Assert.Equal(ShortcutComparison.Matched, ShortcutClassifier.Compare(
+            new WindowsShellLinkQuery().Read(path), expected, new WindowsPathIdentityQuery()));
+    }
+
+    private static void SaveShellLink(string path, ShortcutFields fields)
+    {
+        var type = Type.GetTypeFromCLSID(new Guid("00021401-0000-0000-C000-000000000046"), true)
+            ?? throw new InvalidOperationException();
+        var instance = Activator.CreateInstance(type)
+            ?? throw new InvalidOperationException();
+        try
+        {
+            if (instance is not IWindowsShellLink link || instance is not IPersistFile file)
+                throw new InvalidOperationException();
+            link.SetPath(fields.Target);
+            link.SetArguments(fields.Arguments);
+            link.SetWorkingDirectory(fields.WorkingDirectory);
+            file.Save(path, true);
+        }
+        finally { Marshal.FinalReleaseComObject(instance); }
+    }
 
     [Fact]
     public void Production_current_user_composition_resolves_without_opening_profile_files()
