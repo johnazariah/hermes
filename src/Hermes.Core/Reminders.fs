@@ -104,11 +104,11 @@ module Reminders =
 
     // ─── Queries ─────────────────────────────────────────────────────
 
-    let private mapReminder (row: Map<string, obj>) : Domain.Reminder =
+    let private mapReminder (vendorColumn: string) (row: Map<string, obj>) : Domain.Reminder =
         let r = Prelude.RowReader(row)
         { Id = r.Int64 "id" 0L
           DocumentId = r.OptInt64 "document_id"
-          Vendor = r.OptString "vendor"
+          Vendor = r.OptString vendorColumn
           Amount = r.OptFloat "amount" |> Option.map decimal
           DueDate = r.OptDateTimeOffset "due_date"
           Category = r.String "category" ""
@@ -117,22 +117,23 @@ module Reminders =
           CreatedAt = r.OptDateTimeOffset "created_at" |> Option.defaultValue DateTimeOffset.MinValue
           CompletedAt = r.OptDateTimeOffset "completed_at" }
 
-    /// Get active + un-snoozed reminders with document info.
+    /// Get active + un-snoozed reminders with document info and the current linked-document vendor.
+    /// Unlinked reminders retain their stored vendor; no reminder data is updated.
     let getActive (db: Algebra.Database) (now: DateTimeOffset) : Task<(Domain.Reminder * string option * string option) list> =
         task {
             let! rows =
                 db.execReader
-                    """SELECT r.*, d.saved_path, d.original_name
+                    """SELECT r.*, d.saved_path, d.original_name,
+                              CASE WHEN d.id IS NOT NULL THEN d.extracted_vendor ELSE r.vendor END AS effective_vendor
                        FROM reminders r
                        LEFT JOIN documents d ON r.document_id = d.id
-                       WHERE (r.status = 'active'
-                              OR (r.status = 'snoozed' AND r.snoozed_until <= @now))
+                       WHERE (r.status = 'active' OR (r.status = 'snoozed' AND r.snoozed_until <= @now))
                        ORDER BY r.due_date ASC"""
                     [ ("@now", Database.boxVal (now.ToString("o"))) ]
             return
                 rows |> List.map (fun row ->
                     let rr = Prelude.RowReader(row)
-                    (mapReminder row, rr.OptString "saved_path", rr.OptString "original_name"))
+                    (mapReminder "effective_vendor" row, rr.OptString "saved_path", rr.OptString "original_name"))
         }
 
     /// Get recently completed reminders (last 7 days).
@@ -144,7 +145,7 @@ module Reminders =
                        WHERE status = 'completed' AND completed_at >= datetime('now', '-7 days')
                        ORDER BY completed_at DESC"""
                     []
-            return rows |> List.map mapReminder
+            return rows |> List.map (mapReminder "vendor")
         }
 
     /// Get summary for sidebar badge.

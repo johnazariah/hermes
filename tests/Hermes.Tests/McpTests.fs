@@ -783,11 +783,114 @@ let ``McpTools_IsPathSafe_AbsolutePath_ReturnsError`` () =
     | Error msg -> Assert.Contains("Absolute", msg)
     | _ -> ()
 
-[<Fact(Skip = "Windows-only: path resolution differs on macOS/Linux")>]
+[<Theory>]
+[<InlineData("C:\\Windows\\System32\\config")>]
+[<InlineData("C:/Windows/System32/config")>]
+[<InlineData("C:outside.txt")>]
+[<InlineData("\\\\server\\share\\outside.txt")>]
+[<InlineData("//server/share/outside.txt")>]
+[<InlineData("\\\\?\\C:\\Windows\\outside.txt")>]
+[<InlineData("\\\\.\\C:\\outside.txt")>]
+[<InlineData("\\Windows\\outside.txt")>]
 [<Trait("Category", "Unit")>]
-let ``McpTools_IsPathSafe_WindowsAbsolutePath_ReturnsError`` () =
-    let result = McpTools.isPathSafe "C:\\archive" "C:\\Windows\\System32\\config"
+let ``McpTools_IsPathSafe_WindowsAbsolutePath_ReturnsError`` (requested: string) =
+    let archive = IO.Path.GetFullPath("/archive")
+    let result = McpTools.isPathSafe archive requested
+    Assert.Equal<Result<string, string>>(Error "Absolute paths are not allowed", result)
+
+[<Theory>]
+[<InlineData("..\\outside.txt")>]
+[<InlineData("invoices\\..\\..\\outside.txt")>]
+[<InlineData("../outside.txt")>]
+[<InlineData("invoices/../../outside.txt")>]
+[<Trait("Category", "Unit")>]
+let ``McpTools_IsPathSafe_TraversalInEitherSyntax_ReturnsError`` (requested: string) =
+    let result = McpTools.isPathSafe "/archive" requested
+    Assert.Equal<Result<string, string>>(Error "Path traversal (..) is not allowed", result)
+
+[<Theory>]
+[<InlineData("\u2003")>]
+[<InlineData("\t\r\n")>]
+[<Trait("Category", "Unit")>]
+let ``McpTools_IsPathSafe_UnicodeWhitespace_ReturnsError`` (requested: string) =
+    let result = McpTools.isPathSafe "/archive" requested
+    Assert.Equal<Result<string, string>>(Error "Path must not be empty", result)
+
+[<Theory>]
+[<InlineData("invoices/SYNTHETIC.txt", "invoices/SYNTHETIC.txt")>]
+[<InlineData("invoices\\SYNTHETIC.txt", "invoices/SYNTHETIC.txt")>]
+[<InlineData("invoices/cafe\u0301.txt", "invoices/caf\u00e9.txt")>]
+[<InlineData("invoices/SYNTHETIC space.txt", "invoices/SYNTHETIC space.txt")>]
+[<Trait("Category", "Unit")>]
+let ``McpTools_IsPathSafe_LegalRelativePath_ReturnsCanonicalFile``
+    (requested: string, expectedRelative: string) =
+    let archive = IO.Path.GetFullPath("/archive")
+    let expected = IO.Path.Combine(archive, expectedRelative.Replace('/', IO.Path.DirectorySeparatorChar))
+    Assert.Equal<Result<string, string>>(Ok expected, McpTools.isPathSafe archive requested)
+
+[<Theory>]
+[<InlineData(".")>]
+[<InlineData("./")>]
+[<InlineData(".\\")>]
+[<Trait("Category", "Unit")>]
+let ``McpTools_IsPathSafe_ArchiveRoot_IsNotAFile`` (requested: string) =
+    let result = McpTools.isPathSafe "/archive" requested
+    Assert.Equal<Result<string, string>>(Error "Path resolves outside the archive directory", result)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``McpTools_IsPathSafe_ContainedAbsolutePath_StillRequiresRelativeInput`` () =
+    let archive = IO.Path.GetFullPath("/archive")
+    let requested = IO.Path.Combine(archive, "SYNTHETIC.txt")
+    Assert.Equal<Result<string, string>>(
+        Error "Absolute paths are not allowed", McpTools.isPathSafe archive requested)
+
+[<Theory>]
+[<InlineData("")>]
+[<InlineData(" ")>]
+[<Trait("Category", "Unit")>]
+let ``McpTools_IsPathSafe_InvalidArchive_ReturnsError`` (archive: string) =
+    let result = McpTools.isPathSafe archive "SYNTHETIC.txt"
+    Assert.Equal<Result<string, string>>(Error "Archive directory must not be empty", result)
+
+[<Fact>]
+[<Trait("Category", "Unit")>]
+let ``McpTools_IsPathSafe_MalformedPath_ReturnsErrorWithoutThrowing`` () =
+    let result = McpTools.isPathSafe "/archive" "invoices/\u0000.pdf"
     Assert.True(Result.isError result)
+
+[<Theory>]
+[<InlineData("C:\\Windows\\outside.txt")>]
+[<InlineData("\\\\server\\share\\outside.txt")>]
+[<InlineData("\\Windows\\outside.txt")>]
+[<Trait("Category", "Unit")>]
+let ``McpTools_ReadFile_ExternalWindowsPath_ReturnsError`` (requested: string) =
+    task {
+        let m = TestHelpers.memFs ()
+        let args = JsonObject()
+        args["path"] <- JsonValue.Create(requested)
+        let! result = McpTools.readFile m.Fs "/archive" (args :> JsonNode)
+        use parsed = JsonDocument.Parse(result.ToJsonString())
+        Assert.Equal("Absolute paths are not allowed", parsed.RootElement.GetProperty("error").GetString())
+        Assert.False(parsed.RootElement.TryGetProperty("content") |> fst)
+    }
+
+[<Theory>]
+[<InlineData("invoices/SYNTHETIC.txt")>]
+[<InlineData("invoices\\SYNTHETIC.txt")>]
+[<Trait("Category", "Unit")>]
+let ``McpTools_ReadFile_LegalRelativeSyntax_ReturnsContent`` (requested: string) =
+    task {
+        let m = TestHelpers.memFs ()
+        m.Put "/archive/invoices/SYNTHETIC.txt" "SYNTHETIC content"
+        let args = JsonObject()
+        args["path"] <- JsonValue.Create(requested)
+        let! result = McpTools.readFile m.Fs "/archive" (args :> JsonNode)
+        use parsed = JsonDocument.Parse(result.ToJsonString())
+        Assert.Equal("SYNTHETIC content", parsed.RootElement.GetProperty("content").GetString())
+        Assert.Equal(requested, parsed.RootElement.GetProperty("path").GetString())
+        Assert.False(parsed.RootElement.TryGetProperty("error") |> fst)
+    }
 
 [<Fact>]
 [<Trait("Category", "Unit")>]

@@ -117,28 +117,34 @@ module McpTools =
 
     // ─── Path sandboxing ─────────────────────────────────────────────
 
-    /// Validate that a relative path stays within the archive directory.
-    /// Rejects "..", absolute paths, and null/empty strings.
-    let isPathSafe (archiveDir: string) (requestedPath: string) : Result<string, string> =
-        let isAbsolute (p: string) =
-            Path.IsPathRooted(p)
-            || (p.Length >= 2 && Char.IsLetter(p.[0]) && p.[1] = ':')  // Windows drive letter
-            || p.StartsWith(@"\\")                                      // UNC path
+    let private isAbsoluteArchiveRequest (path: string) =
+        Path.IsPathRooted(path)
+        || (path.Length >= 2 && Char.IsLetter(path.[0]) && path.[1] = ':')
+        || path.StartsWith("\\", StringComparison.Ordinal)
 
+    let private resolveRelativeArchiveFile archiveDir requestedPath =
+        let requireFile (root: Database.CanonicalArchivePath) =
+            Database.canonicalArchivePath archiveDir requestedPath
+            |> Result.bind (fun path ->
+                if path.OwnershipKey = root.OwnershipKey then
+                    Error "Path resolves outside the archive directory"
+                else
+                    Ok path.FullPath)
+        Database.canonicalArchivePath archiveDir "."
+        |> Result.bind requireFile
+
+    /// Validate that a relative path stays within the archive directory.
+    /// Rejects "..", rooted paths in either OS syntax, and null/empty strings.
+    /// Reuses archive separator, Unicode, containment and ownership normalization.
+    let isPathSafe (archiveDir: string) (requestedPath: string) : Result<string, string> =
         if String.IsNullOrWhiteSpace(requestedPath) then
             Error "Path must not be empty"
         elif requestedPath.Contains("..") then
             Error "Path traversal (..) is not allowed"
-        elif isAbsolute requestedPath then
+        elif isAbsoluteArchiveRequest requestedPath then
             Error "Absolute paths are not allowed"
         else
-            let full = Path.GetFullPath(Path.Combine(archiveDir, requestedPath))
-            let normalised = Path.GetFullPath(archiveDir + string Path.DirectorySeparatorChar)
-
-            if full.StartsWith(normalised, StringComparison.OrdinalIgnoreCase) then
-                Ok full
-            else
-                Error "Path resolves outside the archive directory"
+            resolveRelativeArchiveFile archiveDir requestedPath
 
     // ─── Helper: row value extraction ────────────────────────────────
 
