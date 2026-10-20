@@ -63,7 +63,8 @@ try {
     & bash -n scripts/install.sh scripts/setup-mac.sh
     if ($LASTEXITCODE -ne 0) { throw 'Excluded macOS wrapper syntax failed.' }
     foreach ($path in @('Package.wxs', 'Hermes.Installer.wixproj', 'payload.mjs', 'payload.test.mjs',
-        'Read-PayloadMetadata.ps1', 'Write-BuildIdentity.ps1', 'Finalize-PackageIdentity.ps1', 'Test-PackageLayout.ps1')) {
+        'Read-PayloadMetadata.ps1', 'Write-BuildIdentity.ps1', 'Finalize-PackageIdentity.ps1', 'Test-PackageLayout.ps1',
+        'Package-Validation.psm1', 'Validate-PackageIce.ps1', 'Test-ValidationPolicy.ps1', 'Test-PackageIceInputs.ps1')) {
         $text = [IO.File]::ReadAllText((Join-Path $PSScriptRoot $path))
         if ($text.Contains("`r") -or $text -match '(?m)[ \t]+$') { throw 'Package source must use LF without trailing whitespace.' }
     }

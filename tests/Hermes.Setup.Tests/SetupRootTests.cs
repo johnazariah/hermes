@@ -49,6 +49,25 @@ public sealed class SetupRootTests
     }
 
     [Fact]
+    public async Task AncestorCleanupPreservesUnknownNestedUserDataUnread()
+    {
+        using var world = new RootFixture(
+            oldRelative: "tray/runtimes/win-x64/native/old.bin",
+            newRelative: "tray/runtimes/win-x64/native/new.bin");
+        var unknown = world.Owned("tray/runtimes/win-x64/native/owner.bin");
+        world.Files.Put(unknown, [7, 8, 9]);
+        await world.SeedAsync();
+        Assert.True((await world.RunAsync(world.Install)).Report.Ready);
+        var removed = await world.RunAsync(new MaintenanceCommand(SetupVerb.Uninstall, true));
+        Assert.Equal(SetupExitCode.Success, removed.ExitCode);
+        Assert.True(removed.Report.Ready);
+        Assert.Null(world.Admission.Snapshot.Ready?.Installation);
+        Assert.Equal(new byte[] { 7, 8, 9 }, world.Files.RawBytes(unknown));
+        Assert.DoesNotContain(world.Files.ReadPaths,
+            opened => WindowsEvidencePath.Same(opened, unknown));
+    }
+
+    [Fact]
     public async Task KnownUnregisteredNewComponentIsAllowedOnlyAtAnAbsentNewOwnedPath()
     {
         using var world = new RootFixture();
@@ -413,14 +432,16 @@ internal sealed class RootFixture : IDisposable
     private RootPackage? _current;
 
     internal RootFixture(
-        bool wrongMvid = false, bool badGuard = false, Version? newVersion = null)
+        bool wrongMvid = false, bool badGuard = false, Version? newVersion = null,
+        string? oldRelative = null, string? newRelative = null)
     {
         Files = new();
         Paths = new();
         Scope = UserInstallationScope.FromKnownFolder(LocalAppData);
         Disk = new(Files, Paths, Files);
-        Old = RootPackage.Create("old", OldRelative, false, false);
-        New = RootPackage.Create("new", NewRelative, wrongMvid, badGuard, newVersion);
+        Old = RootPackage.Create("old", oldRelative ?? OldRelative, false, false);
+        New = RootPackage.Create("new", newRelative ?? NewRelative,
+            wrongMvid, badGuard, newVersion);
         Database = new(Disk, [Old, New]);
         Media = new(Disk, Scope, Database);
         Admission = new(Scope);

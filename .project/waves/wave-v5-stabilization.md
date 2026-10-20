@@ -100,6 +100,38 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Complete ICE correction receives integrated source approval
+
+- **Changed:** Fresh authors close validator provenance, actual MSI file/path binding and C# target-name/resource consistency. Media, authoring and catalog consumers share strict bare/`short|long` interpretation; exact identities, fixed root, native guards and empty-directory-only cleanup remain enforced.
+- **Review:** Final independent source verdict approves the integrated correction and closes all three findings. Prior author lockouts remain respected; no target success is inferred.
+- **Validation:** Parent passes warning-free solution build, 2,182 Core and 614 Setup cases, all static/payload 22/adverse 28/provenance/path/policy controls and workflow lint. Mechanical application audit and 114 focused/48 Control passes also succeed. The AUX fixture is corrected without relaxing reserved-name refusal.
+- **Blockers:** Actual hosted MSI mutation controls, complete ICE, native readback/advertisement refusal and full installed lifecycle remain unaccepted. PR #30 stays draft; main/distribution remain gated.
+- **Next:** Publish this complete source-approved candidate and execute independent Windows acceptance alongside both supported platform gates.
+
+### 2026-10-21 - Validator provenance and path findings close; alias integration remains
+
+- **Source progress:** Independent cycle-2 review closes the fresh policy's pinned-validator provenance and complete actual MSI file/path binding findings. Exact default ICE execution, strict diagnostic handling and unchanged-input binding remain required.
+- **Remaining source blocker:** Legitimate MSI `short|long` names are accepted by the gate/media reader but still compared or propagated raw by C# consumers. A fresh language specialist owns the rejected target-name/resource-resolution scope; prior authors do not advise it.
+- **Validation:** Parent directly passes static/payload 22/adverse 28/policy/provenance/path controls, warning-free solution build, 2,182 Core, 537 Setup and 48 Control cases. Hosted actual mutation/ICE/install controls remain unexecuted for this tree.
+- **Blockers:** Final source integration approval and complete Windows lifecycle acceptance remain outstanding. PR #30 stays draft; main/distribution are unchanged.
+- **Next:** Integrate and review the fresh alias correction, then publish the complete candidate for actual Windows proof.
+
+### 2026-10-21 - C# authoring contract is source-approved; ICE policy needs fresh revision
+
+- **Changed:** The language specialist's nine-file patch is mechanically applied and independently source-approved: exact Type19 advertisement refusal with separate SQL-null observation, plus complete manifest-ancestor removal identities and preserved-order descendant ownership. Native guard/sequence, registry/keypath, media and rollback guarantees remain intact.
+- **Validation:** Setup Release builds pass with zero warnings/errors; 537 Setup and 48 Control tests pass with zero failures/skips. Byte-for-byte patch application is verified; only the required BOM is added to two new C# test files afterwards, preserving source payload.
+- **Review blocker:** Independent review rejects the separate Stage1 policy's executable provenance and actual filename/path binding. The original policy author is locked out; a fresh eligible author owns correction and its proof tests/documentation.
+- **Native boundary:** No new Windows/MSI/profile execution or complete installer success is claimed. PR #30 stays draft; main and distribution remain gated.
+- **Next:** Review the fresh Stage1 revision, then run the complete corrected native validation and installed lifecycle.
+
+### 2026-10-21 - Actual package identity passes and full ICE reaches authoring gaps
+
+- **Evidence:** Exact-head run `39467659071` at `cb020df` passes both supported OS jobs, all 61 browser journeys per OS, Tray and native Windows 31/31. Windows coverage is 85.9862% line / 61.5899% branch; macOS is 85.7118% / 61.2494%, retaining the complete denominator.
+- **Native progress:** The first MSI passes selected-GUID retention and fresh read-only persisted PackageCode verification. Full ICE now executes: ICE64 finds two missing profile ancestor cleanup rows; ICE72 rejects the advertised-sequence DLL. Elevated ICE61/63/91 warnings expose the removal-range, fence-placement and fixed-per-user authoring boundary.
+- **Ownership:** Fresh installer and C# specialists own the corrections and independent authored-table checks. The original installer-author lockout remains respected; no validation suppression, unknown-warning acceptance or weaker servicing contract is authorised.
+- **Blockers:** Complete ICE and actual installation/native recovery remain unaccepted. Main stays at the verified financial slice; PR #30 remains draft and distribution gated.
+- **Next:** Integrate the fresh reviewed authoring correction and rerun the independent native lifecycle.
+
 ### 2026-10-21 - Independent native acceptance no longer waits on Mac runner allocation
 
 - **Evidence:** Run `39464582678` passes Windows. The supported Mac job has zero executed steps and is cancelled by hosted-runner allocation failure; one unchanged failed-job retry is requested. MSI acceptance never starts.

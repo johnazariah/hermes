@@ -206,7 +206,7 @@ public sealed class PackageMediaCompressionTests
             var manifest = _io.Media(seed, []).Manifest;
             Manifest = manifest with
             {
-                Files = manifest.Files.Add(new("service/aux.dat", new string('b', 64), 3,
+                Files = manifest.Files.Add(new("service/auxiliary.dat", new string('b', 64), 3,
                     null, "AuxFile", "AuxComponent", Guid.NewGuid()))
             };
             Image = Snapshot(Manifest);

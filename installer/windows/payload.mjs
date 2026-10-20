@@ -199,9 +199,14 @@ export async function generate(payload, inventories, output, identity, canonical
   const components = files.map(file => {
     const { id, guid } = componentIdentity(file.path);
     const directory = normal(dirname(file.path));
-    const remove = removedDirectories.has(directory) ? ''
-      : `<RemoveFolder Id="Remove_${directoryId(directory)}" On="uninstall" />`;
-    removedDirectories.add(directory);
+    // Ancestors without direct files still need empty-folder-only MSI ownership (ICE64).
+    const parts = directory.split('/');
+    const remove = parts.map((_, index) => parts.slice(0, index + 1).join('/'))
+      .filter(path => !removedDirectories.has(path))
+      .map(path => {
+        removedDirectories.add(path);
+        return `<RemoveFolder Id="Remove_${directoryId(path)}" Directory="${directoryId(path)}" On="uninstall" />`;
+      }).join('\n');
     return `<Component Id="${id}" Guid="${guid}" Directory="${directoryId(normal(dirname(file.path)))}">
       <File Id="File_${id}" Name="${xml(basename(file.path))}" Source="${xml(resolve(payload, file.path))}" KeyPath="no" />
       <RegistryValue Root="HKCU" Key="Software\\Hermes\\Installer\\Components" Name="${id}" Type="integer" Value="1" KeyPath="yes" />

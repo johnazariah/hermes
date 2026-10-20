@@ -56,7 +56,8 @@ internal static partial class PackageAuthoringValidator
         Require(rows.Length == expected.Count + 3);
         foreach (var pair in expected)
             Require(rows.Count(row => row[0] == pair.Key &&
-                row[1] == pair.Value.Parent && row[2] == pair.Value.Name) == 1);
+                row[1] == pair.Value.Parent &&
+                MsiTargetName.Read(row[2]) == pair.Value.Name) == 1);
         Require(rows.Count(row => row.SequenceEqual(["TARGETDIR", "", "SourceDir"])) == 1);
         RequireStandardDirectory(rows, "LocalAppDataFolder",
             [".", "LocalApp", "LocalAppData", "LocalAppDataFolder"]);
@@ -164,26 +165,26 @@ internal static partial class PackageAuthoringValidator
 
     private static ImmutableDictionary<string, (string Directory, string Component)> RemovalSpecs(
         PayloadManifest manifest) =>
-        manifest.Files.Select(file => Parent(file.Path)).Distinct(StringComparer.Ordinal)
-            .ToImmutableDictionary(path => "Remove_" + DirectoryId(path),
-                path => (DirectoryId(path), ""), StringComparer.Ordinal)
+        manifest.Files.SelectMany(file => Ancestors(file.Path)
+                .Select(path => (Path: path, Component: file.ComponentId)))
+            .GroupBy(entry => entry.Path, StringComparer.Ordinal)
+            .ToImmutableDictionary(group => "Remove_" + DirectoryId(group.Key),
+                group => (DirectoryId(group.Key), group.First().Component),
+                StringComparer.Ordinal)
             .Add("RemoveMenuFolder", (MenuDirectory, ShortcutComponent))
             .Add("RemoveApplicationFolder", ("INSTALLFOLDER", RunComponent))
             .Add("RemoveCompanyFolder", ("HERMES_COMPANY", RunComponent));
 
     private static ImmutableArray<ProfileDirectoryRemoval> ReadRemovals(
         PackageAuthoringSnapshot snapshot,
-        PayloadManifest manifest,
-        ImmutableArray<ProfileComponent> components)
+        PayloadManifest manifest)
     {
         var expected = RemovalSpecs(manifest);
         var rows = snapshot.RequireTable("RemoveFile");
         Require(rows.Length == expected.Count);
         Require(rows.All(row => row[2] == "" && row[4] == "2" &&
             expected.TryGetValue(row[0], out var spec) && row[3] == spec.Directory &&
-            (spec.Component.Length > 0 ? row[1] == spec.Component :
-                components.Any(component => component.Id == row[1] &&
-                    component.File is not null && component.DirectoryId == spec.Directory))));
+            row[1] == spec.Component));
         return rows.Select(row => new ProfileDirectoryRemoval(row[0], row[1], row[3]))
             .ToImmutableArray();
     }

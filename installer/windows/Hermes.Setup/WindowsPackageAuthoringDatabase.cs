@@ -20,7 +20,27 @@ internal sealed partial class WindowsPackageDatabase
         RequireColumnDefinitions(definitions);
         var tables = ReadAuthoringTables(database.Value, names, definitions);
         return new(package, names, definitions,
-            package.Tables.SetItems(tables), ReadBinaries(database.Value, names));
+            package.Tables.SetItems(tables), ReadBinaries(database.Value, names))
+        {
+            NullCustomActionSources = ReadNullCustomActionSources(database.Value, names)
+        };
+    }
+
+    private static ImmutableHashSet<string> ReadNullCustomActionSources(
+        uint database, ImmutableHashSet<string> names)
+    {
+        if (!names.Contains("CustomAction"))
+            return ImmutableHashSet.Create<string>(StringComparer.Ordinal);
+        using var view = View(database,
+            "SELECT `Action` FROM `CustomAction` WHERE `Source` IS NULL");
+        var result = ImmutableHashSet.CreateBuilder<string>(StringComparer.Ordinal);
+        while (FetchRecord(view.Value) is { } record)
+        {
+            using (record)
+                SetupIo.Require(result.Add(Text(record.Value, 1)) &&
+                    result.Count <= 100_000, SetupCode.MediaInvalid);
+        }
+        return result.ToImmutable();
     }
 
     private static ImmutableHashSet<string> ReadTableNames(uint database)

@@ -28,7 +28,8 @@ internal sealed record AuthoringFixture(
         var names = tables.Keys.Append("Binary").ToImmutableHashSet(StringComparer.Ordinal);
         var snapshot = new PackageAuthoringSnapshot(package, names, Definitions(names),
             tables, ImmutableDictionary<string, ImmutableArray<byte>>.Empty
-                .Add("HermesPayloadManifest", bytes).Add("HermesServicingGuard", guard));
+                .Add("HermesPayloadManifest", bytes).Add("HermesServicingGuard", guard))
+        { NullCustomActionSources = ImmutableHashSet.Create("HermesRejectAdvertisement") };
         return new(snapshot, new(1, PackageMediaReader.RootToken,
             ImmutableHashSet.Create(PackageMediaReader.Hash(guard.ToArray()))));
     }
@@ -108,7 +109,29 @@ internal sealed record AuthoringFixture(
     private static string Hash(string path) =>
         Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(path.ToLowerInvariant())));
 
-    private static string Dir(string path) => "Dir_" + Hash(path)[..32];
+    internal static string Dir(string path) => "Dir_" + Hash(path)[..32];
+
+    private static string Parent(string path) => path[..path.LastIndexOf('/')];
+
+    private static IEnumerable<string> Ancestors(string file)
+    {
+        var parts = file.Split('/');
+        return Enumerable.Range(1, parts.Length - 1)
+            .Select(count => string.Join("/", parts.Take(count)));
+    }
+
+    private static ImmutableArray<ImmutableArray<string>> Directories(PayloadManifest manifest) =>
+        R(["TARGETDIR", "", "SourceDir"],
+          ["LocalAppDataFolder", "TARGETDIR", "LocalApp"],
+          ["ProgramMenuFolder", "TARGETDIR", "PMenu|Programs"],
+          ["HERMES_COMPANY", "LocalAppDataFolder", "Hermes"],
+          ["INSTALLFOLDER", "HERMES_COMPANY", "App"],
+          ["HermesMenuFolder", "ProgramMenuFolder", "Hermes"])
+        .AddRange(manifest.Files.SelectMany(file => Ancestors(file.Path))
+            .Distinct(StringComparer.Ordinal)
+            .Select(path => ImmutableArray.Create(Dir(path),
+                path.Contains('/') ? Dir(Parent(path)) : "INSTALLFOLDER",
+                path.Split('/')[^1])));
 
     private static ImmutableDictionary<string, ImmutableArray<ImmutableArray<string>>> Tables(
         PayloadManifest manifest)
@@ -118,10 +141,12 @@ internal sealed record AuthoringFixture(
         {
             ["CustomAction"] = R(
                 ["HermesPreflight", "1", "HermesServicingGuard", "HermesPreflight"],
-                ["HermesTransactionFence", "1", "HermesServicingGuard", "HermesTransactionFence"]),
+                ["HermesTransactionFence", "1", "HermesServicingGuard", "HermesTransactionFence"],
+                ["HermesRejectAdvertisement", "19", "",
+                 "Hermes advertisement is unsupported; use Hermes.Setup."]),
             ["InstallExecuteSequence"] = ExecuteSequence(),
             ["AdminExecuteSequence"] = R(["HermesPreflight", "", "1399"]),
-            ["AdvtExecuteSequence"] = R(["HermesPreflight", "", "1399"]),
+            ["AdvtExecuteSequence"] = R(["HermesRejectAdvertisement", "", "1399"]),
             ["InstallUISequence"] = [],
             ["AdminUISequence"] = [],
             ["Condition"] = [], ["RemoveRegistry"] = [], ["CreateFolder"] = [], ["Icon"] = [],
@@ -136,15 +161,7 @@ internal sealed record AuthoringFixture(
         new Dictionary<string, ImmutableArray<ImmutableArray<string>>>
         {
             ["Property"] = Properties(manifest),
-            ["Directory"] = R(
-                ["TARGETDIR", "", "SourceDir"],
-                ["LocalAppDataFolder", "TARGETDIR", "LocalApp"],
-                ["ProgramMenuFolder", "TARGETDIR", "PMenu|Programs"],
-                ["HERMES_COMPANY", "LocalAppDataFolder", "Hermes"],
-                ["INSTALLFOLDER", "HERMES_COMPANY", "App"],
-                ["HermesMenuFolder", "ProgramMenuFolder", "Hermes"],
-                [Dir("service"), "INSTALLFOLDER", "service"],
-                [Dir("tray"), "INSTALLFOLDER", "tray"]),
+            ["Directory"] = Directories(manifest),
             ["File"] = manifest.Files.Select((file, index) => ImmutableArray.Create(
                 file.FileId, file.ComponentId, file.Path.Split('/')[^1],
                 file.Length.ToString(CultureInfo.InvariantCulture), "", "", "512",
@@ -189,7 +206,7 @@ internal sealed record AuthoringFixture(
 
     private static ImmutableArray<ImmutableArray<string>> Components(PayloadManifest manifest) =>
         manifest.Files.Select(file => ImmutableArray.Create(file.ComponentId,
-            file.ComponentCode.ToString("B"), Dir(file.Path.Split('/')[0]), "260", "",
+            file.ComponentCode.ToString("B"), Dir(Parent(file.Path)), "260", "",
             "Reg_" + file.ComponentId)).Concat(R(
                 ["StartMenuShortcut", "{8B3E2F4D-5C6A-7D8E-9F0A-1B2C3D4E5F6B}",
                  "HermesMenuFolder", "260", "", "RegVersion"],
@@ -209,8 +226,10 @@ internal sealed record AuthoringFixture(
                  "\"[INSTALLFOLDER]tray\\Hermes.Tray.exe\"", "AutoStart"])).ToImmutableArray();
 
     private static ImmutableArray<ImmutableArray<string>> Removals(PayloadManifest manifest) =>
-        manifest.Files.GroupBy(file => file.Path.Split('/')[0]).Select(group =>
-            ImmutableArray.Create("Remove_" + Dir(group.Key), group.First().ComponentId,
+        manifest.Files.SelectMany(file => Ancestors(file.Path)
+                .Select(path => (Path: path, Component: file.ComponentId)))
+            .GroupBy(entry => entry.Path, StringComparer.Ordinal).Select(group =>
+            ImmutableArray.Create("Remove_" + Dir(group.Key), group.First().Component,
                 "", Dir(group.Key), "2")).Concat(R(
                     ["RemoveMenuFolder", "StartMenuShortcut", "", "HermesMenuFolder", "2"],
                     ["RemoveApplicationFolder", "AutoStart", "", "INSTALLFOLDER", "2"],

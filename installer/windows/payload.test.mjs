@@ -58,6 +58,7 @@ async function fixture(name) {
       'coreclr.dll', 'hostfxr.dll', 'hostpolicy.dll', 'System.Private.CoreLib.dll', 'Hermes.Servicing.dll',
       ...(part === 'Tray' ? ['System.Windows.Forms.dll', 'Microsoft.Web.WebView2.Core.dll', 'Microsoft.Web.WebView2.WinForms.dll']
         : ['Hermes.Core.dll', 'Microsoft.Data.Sqlite.dll', 'SQLitePCLRaw.core.dll',
+          'runtimes/win-x64/native/SyntheticNative.dll',
           'prompts/comprehension.md', 'prompts/triage.md', 'prompts/deep/agent-statement.md',
           'prompts/deep/bank-statement.md', 'prompts/deep/payslip.md']),
     ]) {
@@ -65,7 +66,7 @@ async function fixture(name) {
         : name === 'Hermes.Servicing.dll' ? resolve('src/Hermes.Servicing/obj', `${root.split(/[\\/]/).at(-1)}-${directory}-${randomUUID()}`, name)
           : resolve(root, 'sources', directory, name);
       if (!name.startsWith('prompts/')) {
-        const bytes = name.endsWith('.exe') || name === 'coreclr.dll' ? nativeBytes : name.endsWith('.dll') ? managedBytes : 'SYNTHETIC runtime fixture';
+        const bytes = name.endsWith('.exe') || name === 'coreclr.dll' || name.startsWith('runtimes/') ? nativeBytes : name.endsWith('.dll') ? managedBytes : 'SYNTHETIC runtime fixture';
         await put(source, bytes);
       }
       await put(resolve(payload, directory, name), await readFile(source));
@@ -196,7 +197,20 @@ test('generated WiX has an HKCU keypath for every payload component', async () =
   assert.equal([...wxs.matchAll(/Root="HKCU"[^>]*KeyPath="yes"/g)].length, files.length);
   assert.equal([...wxs.matchAll(/<File [^>]*KeyPath="no"/g)].length, files.length);
   assert.ok(!wxs.includes('<Files '));
-  assert.ok(wxs.includes('<RemoveFolder '));
+  const directories = [...wxs.matchAll(/<Directory Id="([^"]+)"/g)].map(match => match[1]).sort();
+  const removals = [...wxs.matchAll(/<RemoveFolder Id="Remove_([^"]+)" Directory="([^"]+)" On="uninstall" \/>/g)];
+  assert.deepEqual(removals.map(match => match[1]).sort(), directories);
+  assert.deepEqual(removals.map(match => match[2]).sort(), directories);
+  assert.ok(wxs.includes(`Name="prompts"`));
+  assert.ok(wxs.includes(`Name="wwwroot"`));
+  for (const ancestor of ['runtimes', 'runtimes/win-x64']) {
+    assert.ok(!files.some(file => file.path.startsWith(`service/${ancestor}/`)
+      && file.path.slice(`service/${ancestor}/`.length).indexOf('/') === -1),
+    'Regression fixture must include ancestors without direct payload files.');
+    const directoryId = `Dir_${hash(`service/${ancestor}`).slice(0, 32)}`;
+    assert.ok(removals.some(match => match[2] === directoryId));
+  }
+  assert.ok(!wxs.includes('<RemoveFile '), 'Only empty directories, never unknown files, may be removed.');
   assert.deepEqual(Object.keys(manifest).sort(), ['admissionAbi', 'files', 'packageCode', 'productCode', 'root', 'schemaVersion', 'scope', 'upgradeCode', 'version']);
   assert.equal(manifest.root, 'LocalApplicationData/Hermes/App');
   assert.equal(manifest.scope, 'perUser');

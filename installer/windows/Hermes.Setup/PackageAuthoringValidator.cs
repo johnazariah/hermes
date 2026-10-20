@@ -112,6 +112,9 @@ internal static partial class PackageAuthoringValidator
     private const string GuardBinary = "HermesServicingGuard";
     private const string Preflight = "HermesPreflight";
     private const string Fence = "HermesTransactionFence";
+    private const string RejectAdvertisement = "HermesRejectAdvertisement";
+    private const string AdvertisementMessage =
+        "Hermes advertisement is unsupported; use Hermes.Setup.";
     private const string Related = "HERMES_RELATED_PRODUCTS";
     private const string Newer = "HERMES_NEWER_PRODUCT";
     private const string Rollback = "HERMES_ALLOW_ROLLBACK";
@@ -153,7 +156,7 @@ internal static partial class PackageAuthoringValidator
         ValidateFeature(snapshot, components);
         return new(manifest, mode, ReadGuard(snapshot, approvedGuards),
             components, registry, ReadShortcut(snapshot, manifest),
-            ReadRemovals(snapshot, manifest, components));
+            ReadRemovals(snapshot, manifest));
     }
 
     private static void ValidateInputs(
@@ -327,7 +330,7 @@ internal static partial class PackageAuthoringValidator
             Require(file.ComponentId == identity.Id && file.ComponentCode == identity.Code &&
                 file.FileId == "File_" + identity.Id);
             var row = snapshot.RequireTable("File").Single(row => row[0] == file.FileId);
-            Require(row[2] == file.Path.Split('/')[^1] &&
+            Require(MsiTargetName.Read(row[2]) == file.Path.Split('/')[^1] &&
                 NumericParts(row[4], '.') && NumericParts(row[5], ','));
         }
         var sequences = snapshot.RequireTable("File").Select(row => Number(row[7])).ToArray();
@@ -410,11 +413,15 @@ internal static partial class PackageAuthoringValidator
     private static void ValidateActions(PackageAuthoringSnapshot snapshot)
     {
         var rows = snapshot.RequireTable("CustomAction");
-        Require(rows.Length == 2);
+        Require(rows.Length == 3);
         foreach (var action in new[] { Preflight, Fence })
             Require(rows.Count(row => row[0] == action && row[1] == "1" &&
                 row[2] == GuardBinary && row[3] == action &&
                 (row.Length == 4 || row[4] is "" or "0")) == 1);
+        Require(rows.Count(row => row[0] == RejectAdvertisement &&
+            row[1] == "19" && row[2] == "" && row[3] == AdvertisementMessage &&
+            (row.Length == 4 || row[4] is "" or "0")) == 1);
+        Require(snapshot.NullCustomActionSources.SetEquals([RejectAdvertisement]));
     }
 
     private static GuardImageObservation ReadGuard(
@@ -433,6 +440,7 @@ internal static partial class PackageAuthoringValidator
             ["FindRelatedProducts"] = 25, ["AppSearch"] = 50, ["LaunchConditions"] = 100,
             ["ValidateProductID"] = 700, ["CostInitialize"] = 800, ["FileCost"] = 900,
             ["CostFinalize"] = 1000, ["ExecuteAction"] = 1300,
+            [RejectAdvertisement] = 1399,
             [Preflight] = 1399, ["InstallValidate"] = 1400,
             ["InstallInitialize"] = 1500, [Fence] = 1501, ["RemoveExistingProducts"] = 1502,
             ["ProcessComponents"] = 1600, ["UnpublishFeatures"] = 1800,
@@ -465,10 +473,11 @@ internal static partial class PackageAuthoringValidator
             ReadOnlyActions.AddRange(ImmutableArray.Create(Preflight, "InstallValidate", "InstallInitialize",
                 "AdminPackage", "InstallFiles", "InstallFinalize")));
         ValidateSequence(snapshot, "AdvtExecuteSequence",
-            ReadOnlyActions.AddRange(ImmutableArray.Create(Preflight, "InstallValidate", "InstallInitialize",
-                "CreateShortcuts", "PublishFeatures", "PublishProduct", "InstallFinalize")));
+            ReadOnlyActions.AddRange(ImmutableArray.Create(RejectAdvertisement,
+                "InstallValidate", "InstallInitialize", "CreateShortcuts",
+                "PublishFeatures", "PublishProduct", "InstallFinalize")));
         RequireActions(snapshot, "AdminExecuteSequence", [Preflight]);
-        RequireActions(snapshot, "AdvtExecuteSequence", [Preflight]);
+        RequireActions(snapshot, "AdvtExecuteSequence", [RejectAdvertisement]);
         ValidateSequence(snapshot, "InstallUISequence", ReadOnlyActions.Add("ExecuteAction"));
         ValidateSequence(snapshot, "AdminUISequence", ReadOnlyActions.Add("ExecuteAction"));
     }

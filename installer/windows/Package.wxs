@@ -44,6 +44,9 @@
                   DllEntry="HermesPreflight" Execute="immediate" Impersonate="yes" Return="check" />
     <CustomAction Id="HermesTransactionFence" BinaryRef="HermesServicingGuard"
                   DllEntry="HermesTransactionFence" Execute="immediate" Impersonate="yes" Return="check" />
+    <!-- Advertising permits built-in actions only (ICE72); type 19 always fails. -->
+    <CustomAction Id="HermesRejectAdvertisement"
+                  Error="Hermes advertisement is unsupported; use Hermes.Setup." />
     <InstallExecuteSequence>
       <FindRelatedProducts Sequence="25" />
       <Custom Action="HermesPreflight" Sequence="1399" />
@@ -57,7 +60,7 @@
       <Custom Action="HermesPreflight" Sequence="1399" />
     </AdminExecuteSequence>
     <AdvertiseExecuteSequence>
-      <Custom Action="HermesPreflight" Sequence="1399" />
+      <Custom Action="HermesRejectAdvertisement" Sequence="1399" />
     </AdvertiseExecuteSequence>
 
     <!-- Install location -->

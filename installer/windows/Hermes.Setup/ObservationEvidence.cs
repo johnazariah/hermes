@@ -75,7 +75,7 @@ internal static class WindowsEvidencePath
         path.StartsWith(root.EndsWith('/') ? root : root + "/",
             StringComparison.OrdinalIgnoreCase);
 
-    private static bool ValidSegment(string segment) =>
+    internal static bool ValidSegment(string segment) =>
         segment.Length > 0 && segment[^1] is not ('.' or ' ') &&
         segment.All(character => character >= ' ' &&
             character is not ('<' or '>' or ':' or '"' or '|' or '?' or '*')) &&

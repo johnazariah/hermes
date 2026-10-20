@@ -213,9 +213,16 @@ payload owner and rollback engine.
 
 Both guards cover install, repair, uninstall and authorized nested removal,
 not merely first installation. Disabled rollback is refused before mutation.
-Administrative and advertisement execution paths also carry the preflight
-refusal; a UI-sequence-only guard is insufficient. Elevated/per-machine,
-patch and partial-feature servicing are unsupported.
+Administrative execution retains the native preflight refusal at 1399.
+Advertisement execution instead carries an unconditional built-in type-19
+`HermesRejectAdvertisement` action at 1399, before initialization or publication.
+Its Source is null and its literal Target is
+`Hermes advertisement is unsupported; use Hermes.Setup.` Type 19 terminates
+the operation with failure; it grants no coordinator exception.
+[ICE72](https://learn.microsoft.com/windows/win32/msi/ice72) forbids DLL actions
+in the advertisement sequence but permits this built-in refusal. A
+UI-sequence-only guard is insufficient. Elevated/per-machine, patch and
+partial-feature servicing are unsupported.
 
 Raw install, upgrade, repair and uninstall must refuse before application
 mutation, whether the application is running or stopped. Silent raw MSI must
@@ -229,6 +236,69 @@ coordinator-supplied `REBOOT=ReallySuppress` are separate safeguards. Restart
 suppression is not application-shutdown suppression. No application-close,
 process-kill, automatic launch, `ForceReboot` or `ScheduleReboot` action is
 part of servicing.
+
+### Package validation
+
+The WiX SDK 6.0.0 `msi validate` command executes its complete normal default ICE
+set. Its trust anchor is the source-pinned SHA-256
+`48ef1b10e6c0c06a40544ca0cabadfe1428bf2fe75b848857233467e2d9353a2`
+of the [public NuGet distribution](https://api.nuget.org/v3-flatcontainer/wixtoolset.sdk/6.0.0/wixtoolset.sdk.6.0.0.nupkg).
+The SDK cache path and `WixBinDir` are candidates, not authority. Before invoking
+the tool, the gate authenticates the archive, compares every file in its complete
+`tools/net6.0` execution tree against that archive, and verifies the SDK import
+metadata. Missing, additional, redirected or modified tool files refuse
+validation. Read-only handles deny write/delete sharing until the validator
+exits, retaining the authenticated CLI, managed dependencies, native helper and
+default ICE cubes. Runtime startup-hook, additional-dependency, shared-store and
+profiler injection settings are refused. The installed .NET host and Windows
+runner remain trusted build infrastructure.
+
+No ICE selection, ICE suppression or warning-suppression switches are accepted.
+Compiler warnings remain errors. Before validation, the selected PackageCode
+must be persisted and verified through a fresh read-only MSI open; validation
+must leave those package bytes and its manifest unchanged. A receipt binds the
+diagnostic log, full inventory, product/version/PackageCode and authenticated
+validator distribution to the final MSI SHA-256.
+
+Native validation requires exit zero. Its complete diagnostic output is
+retained with the package's generated inventory. A bounded policy accepts only
+these exact WiX 6 warning messages and cardinalities, after read-only checks of
+their actual MSI prerequisites:
+
+- **ICE61, once:** the no-Maximum warning for `HERMES_RELATED_PRODUCTS`.
+  The removal row has minimum `0.0.0`, inclusive-minimum attributes `256`,
+  null maximum and null Remove. This deliberately includes every related
+  version and removes the whole old product. The
+  [Upgrade table](https://learn.microsoft.com/windows/win32/msi/upgrade-table)
+  defines that range; separate newer-version detection and guarded explicit
+  downgrade permission remain mandatory.
+- **ICE63, once:** the warning that an action falls between initialization
+  and old-product removal. The intervening action must be the unconditional,
+  immediate type-1 native fence at 1501, with initialization at 1500 and removal
+  at 1502. [ICE63](https://learn.microsoft.com/windows/win32/msi/ice63)
+  permits this position when intervening actions do not generate script actions.
+- **ICE91, once per manifest file:** the per-user-directory warning must name
+  that exact File-table identity and its path-derived directory. Read-only
+  File/Component/Directory rows must independently agree with the complete
+  manifest: unique file and component identities, actual long target filenames,
+  file lengths, component GUIDs and each target-directory parent/name. MSI
+  short-name aliases are resolved to their long target names. A renamed file or
+  a component moved to another directory refuses the allowance even when IDs,
+  lengths and the warning transcript remain unchanged. The actual directory
+  chain must retain the fixed LocalAppData root; machine/dual-scope properties
+  and root overrides are excluded, and summary WordCount is `10`.
+  [ICE91](https://learn.microsoft.com/windows/win32/msi/ice91) expressly permits
+  this layout for packages used exclusively per-user.
+
+This is not an exemption for every message from those ICEs or for WIX1076.
+Unknown, changed, duplicate or missing diagnostics fail validation, as does any
+native error. Independent package inspection still enforces the complete
+authoring contract before servicing. Before the real native validation, the
+Windows build also mutates filename and component-directory columns in isolated
+copies of the finalised MSI and requires the actual gate to reject both before
+launching the validator. These controls never install either copy. Native ICE
+and installed-servicing evidence still require dedicated disposable hosted
+Windows execution.
 
 ## Completion and recovery
 
@@ -298,6 +368,13 @@ file refuses; that file must not be adopted into an uninstall manifest.
 Unknown files and directories survive. Uninstall removes only package-owned
 resources and empty package directories. Configuration and archive paths are
 neither MSI components nor recovery inputs.
+
+Every generated payload directory, including ancestors containing no direct
+files, has one uninstall-only RemoveFile row with a null filename and
+InstallMode `2`. Its deterministic key is `Remove_` plus the directory identity;
+the first descendant file in manifest order supplies its owning component.
+These rows remove only empty directories, never unknown files. The separately
+authored application-root and Start Menu cleanup rows retain their ownership.
 
 An actually detected ungated or incompatible installation refuses in-place
 servicing even when stopped. Its incompatibility is reported without

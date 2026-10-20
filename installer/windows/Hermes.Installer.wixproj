@@ -1,4 +1,5 @@
-<Project Sdk="WixToolset.Sdk/6.0.0">
+<Project>
+  <Import Project="Sdk.props" Sdk="WixToolset.Sdk" Version="6.0.0" />
 
   <PropertyGroup>
     <InstallerPlatform>x64</InstallerPlatform>
@@ -21,6 +22,8 @@
     <Error Condition="'$(OS)' != 'Windows_NT'" Text="The Windows installer must be built and validated on Windows." />
     <Error Condition="'$(SuppressValidation)' == 'true' Or '$(SuppressIces)' != '' Or '$(Ices)' != ''"
            Text="Hermes packaging requires the complete normal Windows Installer validation set without ICE suppression." />
+    <Error Condition="'$(SuppressAllWarnings)' == 'true' Or '$(SuppressSpecificWarnings)' != '' Or '$(TreatWarningsAsErrors)' != 'true' Or '$(ValidationAdditionalOptions)' != '' Or '$(AdditionalCub)' != ''"
+           Text="Compiler warnings must remain errors; native validation uses only its complete default ICE set and exact checked warning policy." />
     <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(HermesPackageVersion)', '^[0-9]+\.[0-9]+\.[0-9]+$'))"
            Text="HermesPackageVersion must be a three-part numeric MSI version." />
     <Error Condition="'$(HermesInventoryDir)' == ''"
@@ -40,6 +43,20 @@
   <Target Name="FinalizeHermesPackageCode" BeforeTargets="WindowsInstallerValidation" DependsOnTargets="CoreCompile">
     <Exec StandardOutputImportance="High" StandardErrorImportance="High"
           Command="pwsh -NoProfile -File &quot;$(MSBuildThisFileDirectory)Finalize-PackageIdentity.ps1&quot; -PackagePath &quot;$(IntermediateOutputPath)%(CultureGroup.OutputFolder)$(TargetFileName)&quot; -ManifestPath &quot;$(HermesManifestPath)&quot; -IdentityPath &quot;$(HermesIdentityPath)&quot;" />
+  </Target>
+
+  <Import Project="Sdk.targets" Sdk="WixToolset.Sdk" Version="6.0.0" />
+
+  <!-- Use the pinned SDK's complete normal validator, with no ICE or diagnostic
+       suppression. WixBinDir is only a candidate: the wrapper authenticates its
+       complete validator closure against the independently pinned SDK archive.
+       Compiler warnings still fail normally. -->
+  <Target Name="WindowsInstallerValidation" DependsOnTargets="CoreCompile">
+    <Exec StandardOutputImportance="High" StandardErrorImportance="High"
+          Command="pwsh -NoProfile -File &quot;$(MSBuildThisFileDirectory)Test-PackageIceInputs.ps1&quot; -PackagePath &quot;$(IntermediateOutputPath)%(CultureGroup.OutputFolder)$(TargetFileName)&quot; -ManifestPath &quot;$(HermesManifestPath)&quot; -WixPath &quot;$(WixBinDir)wix.dll&quot; -WixpdbPath &quot;$(IntermediateOutputPath)%(CultureGroup.OutputFolder)$(TargetPdbFileName)&quot; -IntermediateDirectory &quot;$(IntermediateOutputPath)%(CultureGroup.OutputFolder).&quot;" />
+    <Exec StandardOutputImportance="High" StandardErrorImportance="High"
+          IgnoreStandardErrorWarningFormat="true"
+          Command="pwsh -NoProfile -File &quot;$(MSBuildThisFileDirectory)Validate-PackageIce.ps1&quot; -PackagePath &quot;$(IntermediateOutputPath)%(CultureGroup.OutputFolder)$(TargetFileName)&quot; -ManifestPath &quot;$(HermesManifestPath)&quot; -WixPath &quot;$(WixBinDir)wix.dll&quot; -WixpdbPath &quot;$(IntermediateOutputPath)%(CultureGroup.OutputFolder)$(TargetPdbFileName)&quot; -IntermediateDirectory &quot;$(IntermediateOutputPath)%(CultureGroup.OutputFolder).&quot;" />
   </Target>
 
 </Project>

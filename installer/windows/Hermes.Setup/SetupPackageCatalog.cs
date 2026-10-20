@@ -84,10 +84,8 @@ internal sealed record SetupResources(
         SetupIo.Require(visited.Count < 64 && !visited.Contains(id) && rows.ContainsKey(id),
             SetupCode.MediaInvalid);
         var row = rows[id];
-        SetupIo.Require(row.Name.Length > 0 && row.Name is not "." and not ".." &&
-            row.Name.All(character => character is not ('\\' or '/' or ':' or '[' or ']')),
-            SetupCode.MediaInvalid);
-        return Path.Combine(ResolveDirectory(row.Parent, rows, known, visited.Add(id)), row.Name);
+        var name = MsiTargetName.Read(row.Name);
+        return Path.Combine(ResolveDirectory(row.Parent, rows, known, visited.Add(id)), name);
     }
 
     private static RegistryAtom ResolveValue(

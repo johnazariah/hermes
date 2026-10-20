@@ -2,6 +2,97 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Integrated MSI authoring and validation source is approved
+
+Final independent review closes all three source findings: pinned-validator
+provenance, actual MSI file/path binding, and consistent target-name handling.
+One shared C# reader now interprets bare or valid `short|long` names across
+media inspection, authoring validation and catalog/resource resolution.
+Exact long-target identity and all surrounding ownership/root checks remain.
+
+Alias integration tests exercise candidate, retention, registered-cache and
+retained-source discovery, including resolved resources and adverse names.
+The ordinary compression fixture uses `auxiliary.dat`; explicit reserved-AUX
+cases still fail even when the manifest agrees. No production rule is relaxed.
+
+Parent directly verifies the warning-free full solution build, **2,182 Core**
+and **614 Setup** passes, zero failures/skips, plus all static/payload 22,
+adverse 28, validator provenance/path/policy controls and workflow lint.
+The applier additionally verifies **114 focused** and **48 Control** passes,
+warning-free relevant builds and exact patch application.
+
+This is integrated source/managed proof only. Actual hosted renamed/reparented
+MSI controls, complete native ICE, SQL-null/table readback, advertisement
+refusal and the full installed lifecycle remain required on the exact
+published candidate before merge or distribution.
+
+## Revised validator trust and MSI path checks close their source findings
+
+Independent cycle-2 review closes both Stage1 findings: the source-fixed
+archive digest authenticates the complete SDK validator tree, with read
+leases retained through execution, and actual MSI file/component/directory
+facts are checked against the manifest. Synthetic controls reject substituted
+tools/dependencies/archive content and altered filenames, bindings and paths.
+The hosted-only script genuinely mutates isolated MSI copies; those Windows
+controls have not executed yet.
+
+Integrated review identifies one remaining consumer disagreement: Stage1 and
+the media reader recognise valid `short|long` MSI target names, while C#
+authoring/resource code still compares or propagates raw fields. A fresh C#
+specialist owns that target-name/resource-resolution correction; the previous
+author is locked out of this rejected scope. Unchanged Type19, SQL-null and
+ancestor-ownership contracts remain source-approved.
+
+Current local checks pass static/payload 22/adverse 28/policy/provenance/path
+controls, the warning-free full solution build, all 2,182 Core cases,
+537 Setup cases and 48 Control cases. No integrated-source approval or
+native install success is claimed until the alias contract is resolved.
+
+## Independent authoring contract covers advertisement and all ancestors
+
+The C# specialist's nine-file patch is applied mechanically and independently
+source-approved. It admits exactly the two unchanged native guards plus the
+unconditional built-in Type19 advertisement refusal at 1399. A separate
+read-only `CustomAction.Source IS NULL` query must observe only that refusal;
+normalised empty text is not sufficient authority.
+
+Removal validation now covers every manifest-derived ancestor with its exact
+canonical identity and first descendant owner in preserved manifest order.
+Empty-directory-only, uninstall-only mode 2 and all special owners remain
+strict. Adverse tests cover missing/extra/duplicate rows, altered owners,
+wildcards, modes, sequences, SQL-null observations and refusal semantics.
+
+Both Setup Release builds pass without warnings/errors; **537 Setup tests**
+and **48 Control tests** pass with zero failures/skips. The two new C# test
+files receive the required BOM without changing their source payload.
+These are managed/source results, not native SQL-null, advertisement or
+uninstall proof.
+
+The separate Stage1 validation policy is **rejected**: validator execution
+lacks independent pinned-SDK provenance, and actual MSI facts omit filename
+and File/Component/Directory path binding. A fresh author owns that revision;
+the rejected author cannot revise or advise it. No unapproved policy is
+published and complete Windows acceptance remains outstanding.
+
+## Committed identity passes; full native ICE finds authoring gaps
+
+Exact-head run `39467659071` at `cb020df` passes both supported jobs, all
+61 browser journeys per OS, Tray and all 31 native Windows servicing cases.
+Windows coverage is 14,726/17,126 lines (85.9862%) and 15,193/24,668 branches
+(61.5899%); macOS is 14,679/17,126 (85.7118%) and 15,109/24,668 (61.2494%).
+
+The first MSI now passes setter-retention and fresh read-only persisted
+PackageCode checks. Complete normal ICE executes and identifies real authoring
+errors: ICE64 for two user-profile ancestor directories absent from RemoveFile,
+and ICE72 for a DLL custom action in the advertised sequence. Elevated ICE61,
+ICE63 and ICE91 warnings also describe the all-version removal range,
+transaction-fence placement and fixed per-user payload respectively.
+
+Fresh non-C# and C# specialists own the authoring/independent-validation
+corrections. No ICE is suppressed or restricted, no unknown warning is accepted
+and no actual installation has succeeded. Full installed/native recovery
+acceptance remains required before merge or distribution.
+
 ## Self-contained Windows acceptance runs independently
 
 Run `39464582678` passes Windows but never executes a macOS supported step:

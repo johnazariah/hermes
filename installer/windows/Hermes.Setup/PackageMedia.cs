@@ -166,7 +166,8 @@ internal sealed class PackageMediaReader(
         var row = rows[0];
         var component = components[0];
         var relative = RelativeDirectory(image, component[2], []);
-        var name = relative.Length == 0 ? LongName(row[2]) : relative + "/" + LongName(row[2]);
+        var target = MsiTargetName.Read(row[2]);
+        var name = relative.Length == 0 ? target : relative + "/" + target;
         return row[1] == file.ComponentId && name == file.Path &&
             long.Parse(row[3], System.Globalization.CultureInfo.InvariantCulture) == file.Length &&
             Guid.Parse(component[1]) == file.ComponentCode &&
@@ -183,8 +184,7 @@ internal sealed class PackageMediaReader(
         var rows = image.Table("Directory").Where(row => row[0] == id).ToArray();
         SetupIo.Require(rows.Length == 1, SetupCode.MediaInvalid);
         var parent = RelativeDirectory(image, rows[0][1], visited.Add(id));
-        var name = LongName(rows[0][2].Split(':')[0]);
-        SetupIo.Require(name != "." && name.Length > 0, SetupCode.MediaInvalid);
+        var name = MsiTargetName.Read(rows[0][2]);
         return parent.Length == 0 ? name : parent + "/" + name;
     }
 
@@ -198,9 +198,7 @@ internal sealed class PackageMediaReader(
         PackageDatabaseImage image, string id, string parent, string name) =>
         SetupIo.Require(image.Table("Directory").Count(row =>
             row[0] == id && row[1] == parent &&
-            LongName(row[2].Split(':')[0]) == name) == 1, SetupCode.RootMismatch);
-
-    private static string LongName(string value) => value.Split('|')[^1];
+            MsiTargetName.Read(row[2]) == name) == 1, SetupCode.RootMismatch);
 
     internal static void ValidateMedia(PackageDatabaseImage image)
     {
@@ -235,4 +233,34 @@ internal sealed class PackageMediaReader(
 
     internal static string Hash(byte[] bytes) =>
         Convert.ToHexStringLower(SHA256.HashData(bytes));
+}
+
+// Hermes supports a bare target or one short|long pair, never a separate
+// DefaultDir source name. Callers must still compare the target exactly with
+// the manifest/profile identity; parsing a name does not authorize it.
+internal static class MsiTargetName
+{
+    internal static string Read(string value) => value.Split('|') switch
+    {
+        [var target] when IsSegment(target) => target,
+        [var shortName, var target] when IsShortName(shortName) && IsSegment(target) => target,
+        _ => throw new SetupIoException(SetupCode.MediaInvalid)
+    };
+
+    private static bool IsSegment(string value) =>
+        value.Length is > 0 and <= 255 &&
+        value.All(character => !char.IsControl(character) &&
+            character is not ('\\' or '/' or '[' or ']')) &&
+        WindowsEvidencePath.ValidSegment(value);
+
+    private static bool IsShortName(string value) =>
+        IsSegment(value) &&
+        value.All(character => !char.IsWhiteSpace(character) &&
+            character is not ('+' or ',' or ';' or '=')) &&
+        (value.Split('.') switch
+        {
+            [{ Length: > 0 and <= 8 }] => true,
+            [{ Length: > 0 and <= 8 }, { Length: > 0 and <= 3 }] => true,
+            _ => false
+        });
 }

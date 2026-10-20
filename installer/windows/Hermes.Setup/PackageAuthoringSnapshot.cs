@@ -12,6 +12,9 @@ internal sealed record PackageAuthoringSnapshot(
     ImmutableDictionary<string, ImmutableArray<ImmutableArray<string>>> Tables,
     ImmutableDictionary<string, ImmutableArray<byte>> Binaries)
 {
+    internal ImmutableHashSet<string> NullCustomActionSources { get; init; } =
+        ImmutableHashSet.Create<string>(StringComparer.Ordinal);
+
     internal bool HasTable(string name) => TableNames.Contains(name);
 
     internal ImmutableArray<ImmutableArray<string>> RequireTable(string name) =>

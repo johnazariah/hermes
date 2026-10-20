@@ -55,7 +55,7 @@ public sealed class PackageAuthoringValidatorTests
         var fixture = AuthoringFixture.Create();
         var index = fixture.Snapshot.RequireTable("CustomAction")
             .Select((row, position) => (row, position)).Single(pair => pair.row[0] == action).position;
-        foreach (var type in new[] { "0", "2", "17", "65", "129", "193", "257", "1025", "2049", "4097" })
+        foreach (var type in new[] { "0", "2", "17", "19", "65", "129", "193", "257", "1025", "2049", "4097" })
             Refused(fixture.Cell("CustomAction", index, 1, type));
     }
 
@@ -120,6 +120,7 @@ public sealed class PackageAuthoringValidatorTests
             .Select(row => row.Add("0")).ToImmutableArray());
         Assert.IsType<Effect<ValidatedPackageProfile>.Success>(fixture.Validate());
         Refused(fixture.Cell("CustomAction", 1, 4, "1"));
+        Refused(fixture.Cell("CustomAction", 2, 4, "1"));
     }
 
     [Theory]
