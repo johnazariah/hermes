@@ -21,6 +21,7 @@ $summary = $null
 
 function Get-RowValues([string]$Query, [int]$Columns) {
     $view = $database.OpenView($Query)
+    $phase = 'product-properties'
     try {
         [void]$view.Execute()
         while ($null -ne ($record = $view.Fetch())) {
@@ -48,10 +49,12 @@ try {
             throw "Bound MSI identity differs for $($property[0]): rows=$($rows.Count); expected=$($property[1]); actual=$actual; type=$kind."
         }
     }
+    $phase = 'scope-properties'
     foreach ($property in @('ALLUSERS', 'INSTALLFOLDER')) {
         $rows = @(Get-RowValues "SELECT ``Value`` FROM ``Property`` WHERE ``Property``='$property'" 1)
         if ($rows.Count -gt 0 -and $rows[0][0] -ne '') { throw 'MSI contains a machine scope or root override.' }
     }
+    $phase = 'file-component-inventory'
     $files = @(Get-RowValues 'SELECT `File`, `Component_`, `FileSize` FROM `File`' 3)
     $components = @(Get-RowValues 'SELECT `Component`, `ComponentId` FROM `Component`' 2)
     if ($files.Count -ne @($manifest.files).Count) { throw 'MSI File table and manifest inventory have different sizes.' }
@@ -63,15 +66,24 @@ try {
             throw 'Bound MSI file/component identity differs from the embedded manifest.'
         }
     }
+    $phase = 'summary-contract'
     $summary = $database.GetType().InvokeMember('SummaryInformation', [Reflection.BindingFlags]::GetProperty, $null, $database, @(1))
     $template = $summary.GetType().InvokeMember('Property', [Reflection.BindingFlags]::GetProperty, $null, $summary, @(7))
     $wordCount = $summary.GetType().InvokeMember('Property', [Reflection.BindingFlags]::GetProperty, $null, $summary, @(15))
     if ($template.Split(';')[0] -cne 'x64' -or [int]$wordCount -ne 10) { throw 'MSI summary platform or compressed per-user scope differs from the manifest contract.' }
+    $phase = 'summary-package-write'
     $summary.GetType().InvokeMember('Property', [Reflection.BindingFlags]::SetProperty, $null, $summary, @(9, ([Guid]$identity.packageCode).ToString('B').ToUpperInvariant())) | Out-Null
     $summary.Persist()
     $database.Commit()
+    $phase = 'summary-package-readback'
     $actual = $summary.GetType().InvokeMember('Property', [Reflection.BindingFlags]::GetProperty, $null, $summary, @(9))
     if ([Guid]$actual -ne [Guid]$identity.packageCode) { throw 'MSI summary PackageCode was not persisted.' }
+} catch {
+    [Console]::Error.WriteLine("MSI finalization failed during $phase; source line $($_.InvocationInfo.ScriptLineNumber).")
+    @($_.ScriptStackTrace -split '\r?\n' | Select-Object -First 4) | ForEach-Object {
+        [Console]::Error.WriteLine($_.Substring(0, [Math]::Min(512, $_.Length)))
+    }
+    throw
 } finally {
     foreach ($item in @($summary, $database, $installer)) {
         if ($null -ne $item) { [Runtime.InteropServices.Marshal]::FinalReleaseComObject($item) | Out-Null }

@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Supported platforms pass; finaliser failure gets explicit context
+
+- **Evidence:** Run `39456791213` passes both complete supported platform jobs, including all 61 browser journeys, plus all 31 Windows servicing cases. Normal error view still omits the native null-GUID conversion's source line; actual installation remains unstarted.
+- **Changed:** A failure-context catch records the fixed finalisation phase, invocation line and bounded stack frames, then rethrows. Identity/scope/inventory/summary checks, mutation ordering, complete ICE and lifecycle gates are unchanged.
+- **Validation:** The exact catch body reports a controlled phase and preserves the original exception object. All 22 payload and 28 adverse report controls pass; the solution builds with zero warnings/errors and all 2,182 F# cases pass.
+- **Blockers:** The actual native failing phase is still unknown. No package promotion, installed-runtime acceptance or main merge is claimed; strict legacy repair remains disabled.
+- **Next:** Capture explicit native phase/stack evidence and fix the demonstrated finalisation cause.
+
 ### 2026-10-21 - Browser evidence capture and native-message ordering are made causal
 
 - **Evidence:** Run `39452815857` first exposes a Windows native-navigation fixture racing Web Crypto. Both attempts fail macOS palette sync while Chromium's debugging protocol cannot retrieve the real response body; installer acceptance is skipped, so no new finaliser location is available.

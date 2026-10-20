@@ -2,6 +2,22 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Explicit finalisation phase and stack evidence
+
+Run `39456791213` passes both complete supported platform jobs, including all
+61 browser journeys, and all 31 Windows servicing cases. The finaliser still
+reports the null-GUID conversion; normal error view does not expose its source
+line on the actual Windows automation path.
+
+An explicit failure-context catch now records the fixed finalisation phase,
+invocation line and at most four stack frames of 512 characters each, then
+rethrows. The exact catch body is exercised by the package-layout controls:
+the original exception object must survive and its synthetic phase must be
+reported. No identity comparison, mutation order or acceptance rule changes.
+All 22 payload and 28 adverse report controls pass; the solution builds
+warning-free and all 2,182 F# cases pass. The native failing phase remains
+unknown until Windows executes this candidate.
+
 ## Native-message ordering and real sync-response capture
 
 Run `39452815857` first fails a Windows native-navigation unit assertion:

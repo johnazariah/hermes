@@ -66,6 +66,31 @@ $builder = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Build-Package.ps1'
 Require ($builder -match '\-v\s+minimal\b') 'The build wrapper must not suppress finalization diagnostics with quiet logging.'
 $finalizer = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Finalize-PackageIdentity.ps1') -Raw
 Require ($finalizer.Contains("`$ErrorView = 'NormalView'")) 'Finalization type-conversion failures must retain their source location.'
+Require ($finalizer.Contains('MSI finalization failed during $phase') -and $finalizer.Contains('$_.ScriptStackTrace')) 'Finalization failures must retain explicit phase and stack context independently of the error formatter.'
+$parseTokens = $null
+$parseErrors = $null
+$finalizerAst = [Management.Automation.Language.Parser]::ParseInput($finalizer, [ref]$parseTokens, [ref]$parseErrors)
+Require ($parseErrors.Count -eq 0) 'The finalizer diagnostic contract must parse.'
+$failureCatch = @($finalizerAst.FindAll({
+    param($node)
+    $node -is [Management.Automation.Language.CatchClauseAst]
+}, $true))
+Require ($failureCatch.Count -eq 1) 'The finalizer must have one failure-context catch.'
+$phase = 'synthetic-phase'
+$expectedFailure = [InvalidOperationException]::new('synthetic finalization failure')
+$failureProbe = [scriptblock]::Create('try { throw $expectedFailure } catch ' + $failureCatch[0].Body.Extent.Text)
+$diagnostics = [IO.StringWriter]::new()
+$savedError = [Console]::Error
+$contextFailed = $false
+try {
+    [Console]::SetError($diagnostics)
+    try { & $failureProbe }
+    catch {
+        Require ([object]::ReferenceEquals($_.Exception, $expectedFailure)) 'Diagnostic context must preserve the original exception identity.'
+        $contextFailed = $true
+    }
+} finally { [Console]::SetError($savedError) }
+Require ($contextFailed -and $diagnostics.ToString().Contains('MSI finalization failed during synthetic-phase; source line ')) 'Explicit finalization diagnostics must retain failure and identify its phase.'
 Require ($finalizer -match '\[void\]\$view\.Execute\(\)' -and $finalizer -match '\[void\]\$view\.Close\(\)') 'MSI row queries must not emit bookkeeping method results as rows.'
 $view = [pscustomobject]@{}
 $view | Add-Member ScriptMethod Execute { 'synthetic execute result' }
