@@ -22,9 +22,39 @@ function New-HermesStartupState {
         Timeout = 0; Error = 0; CleanupFault = 0
         TracePoint = 0; ToolRole = 0; TraceFaulted = $false
         TraceFaultPoint = 0; TraceFaultRole = 0
+        Observations = @{
+            Marker0 = 0; Marker1 = 0; Marker2 = 0; Marker3 = 0; Marker4 = 0
+            MarkerMalformed = 0; MarkerMalformedKind = 0; MarkerEcho = 0
+            LastEventSeen = 0; CreateEventSeen = 0; CreateEventAccepted = 0
+            ExitEventSeen = 0; ExitEventAccepted = 0
+            FlagsSeen = 0; FlagsAccepted = 0
+        }
         Out = (New-HermesStartupStream); Err = (New-HermesStartupStream)
         DebuggerSha256 = ''; HelperSha256 = ''; CommandSha256 = ''
     }
+}
+
+function Get-HermesStartupObservation {
+    param(
+        [hashtable]$State,
+        [ValidateSet('Marker0', 'Marker1', 'Marker2', 'Marker3', 'Marker4',
+            'MarkerMalformed', 'MarkerMalformedKind', 'MarkerEcho',
+            'LastEventSeen', 'CreateEventSeen', 'CreateEventAccepted',
+            'ExitEventSeen', 'ExitEventAccepted', 'FlagsSeen', 'FlagsAccepted')]
+        [string]$Name,
+        [int]$Maximum = 8388608
+    )
+    $value = $State.Observations[$Name]
+    if ($value -is [int] -and $value -ge 0 -and $value -le $Maximum) {
+        return $value
+    }
+    return 0
+}
+
+function Add-HermesStartupObservation {
+    param([hashtable]$State, [string]$Name)
+    $State.Observations[$Name] = [Math]::Min(
+        8388608, (Get-HermesStartupObservation $State $Name) + 1)
 }
 
 function Test-HermesStartupTracePoint {
@@ -232,6 +262,8 @@ function Add-HermesStartupLastEvent {
     if ($pidValue -ne $idValue) { $State.Unknown = 1; return }
     $block.EventPid = $pidValue
     $block.Event = 1
+    $accepted = if ($block.Kind -eq 1) { 'CreateEventAccepted' } else { 'ExitEventAccepted' }
+    Add-HermesStartupObservation $State $accepted
     if ($block.Kind -eq 3) { $block.Code = [Convert]::ToUInt32($Matches.code, 16) }
 }
 
@@ -297,22 +329,54 @@ function Add-HermesStartupLine {
     if ($Line -cmatch '\AHERMES_CDB v=1 kind=(?<kind>[0-4]) pid=(?<pid>[1-9][0-9]{0,9})\z') {
         $kind = [int]$Matches.kind
         $pidValue = [long]$Matches.pid
-        if ($pidValue -gt [uint32]::MaxValue) { $State.Protocol = 1; return }
+        Add-HermesStartupObservation $State "Marker$kind"
+        if ($pidValue -gt [uint32]::MaxValue) {
+            Add-HermesStartupObservation $State 'MarkerMalformed'
+            if ($State.Observations.MarkerMalformedKind -eq 0) {
+                $State.Observations.MarkerMalformedKind = 2
+            }
+            $State.Protocol = 1
+            return
+        }
         Add-HermesStartupMarker $State $kind ([uint32]$pidValue)
         return
     }
     if ($Line.Contains('HERMES_CDB', [StringComparison]::Ordinal) `
+        -and $Line.Contains('.printf', [StringComparison]::Ordinal)) {
+        Add-HermesStartupObservation $State 'MarkerEcho'
+    }
+    if ($Line.Contains('HERMES_CDB', [StringComparison]::Ordinal) `
         -and -not $Line.Contains('.printf', [StringComparison]::Ordinal)) {
+        Add-HermesStartupObservation $State 'MarkerMalformed'
+        if ($State.Observations.MarkerMalformedKind -eq 0) {
+            $State.Observations.MarkerMalformedKind = 1
+        }
         $State.Protocol = 1
         return
+    }
+    # Candidate labels are observations only; the strict parsers below still
+    # decide acceptance, including their original case and prefix requirements.
+    if ($Line.Contains('Last event:', [StringComparison]::OrdinalIgnoreCase)) {
+        Add-HermesStartupObservation $State 'LastEventSeen'
+        if ($Line.Contains('Create process', [StringComparison]::OrdinalIgnoreCase)) {
+            Add-HermesStartupObservation $State 'CreateEventSeen'
+        }
+        if ($Line.Contains('Exit process', [StringComparison]::OrdinalIgnoreCase)) {
+            Add-HermesStartupObservation $State 'ExitEventSeen'
+        }
     }
     if ($Line.StartsWith('Last event:', [StringComparison]::Ordinal)) {
         Add-HermesStartupLastEvent $State $Line
         return
     }
+    if ($Line.Contains(
+            'Current NtGlobalFlag contents:', [StringComparison]::OrdinalIgnoreCase)) {
+        Add-HermesStartupObservation $State 'FlagsSeen'
+    }
     if ($null -ne $State.Block -and $State.Block.Kind -eq 1 `
         -and $Line -cmatch '\A\s*Current NtGlobalFlag contents:\s*(?:0x)?(?<flags>[0-9a-fA-F]{1,8})\s*\z') {
         $State.Block.Flags = [Convert]::ToUInt32($Matches.flags, 16)
+        Add-HermesStartupObservation $State 'FlagsAccepted'
         return
     }
     if ($Line -match '\AModLoad:') { return }
@@ -359,6 +423,45 @@ function Add-HermesStartupText {
             $Stream.DiscardLine = $false
         }
     }
+}
+
+function New-HermesStartupObservations {
+    param([hashtable]$State)
+    $observations = [ordered]@{}
+    foreach ($name in @('Marker0', 'Marker1', 'Marker2', 'Marker3', 'Marker4',
+            'MarkerMalformed', 'MarkerEcho', 'LastEventSeen', 'CreateEventSeen',
+            'CreateEventAccepted', 'ExitEventSeen', 'ExitEventAccepted',
+            'FlagsSeen', 'FlagsAccepted')) {
+        $observations[$name] = Get-HermesStartupObservation $State $name
+    }
+    # First malformed marker: 0 = none/unknown, 1 = syntax, 2 = PID range.
+    $observations.MarkerMalformedKind = Get-HermesStartupObservation $State 'MarkerMalformedKind' 2
+    $observations.LastEventUnrecognized = [Math]::Max(0,
+        $observations.LastEventSeen - $observations.CreateEventAccepted - $observations.ExitEventAccepted)
+    foreach ($name in @('CreateEvent', 'ExitEvent', 'Flags')) {
+        $observations[$name + 'Unrecognized'] = [Math]::Max(0,
+            $observations[$name + 'Seen'] - $observations[$name + 'Accepted'])
+    }
+    # Parser acceptance is not target binding. These are current snapshots,
+    # not a reconstructed context for a previously rejected/cleared block.
+    foreach ($name in @('Arm', 'Block')) {
+        $binding = $State[$name]
+        $observations[$name + 'Present'] = [int]($null -ne $binding)
+        $observations[$name + 'Kind'] = if ($null -ne $binding `
+            -and $binding.Kind -is [int] -and $binding.Kind -in @(1, 3)) { $binding.Kind } else { 0 }
+        $observations[$name + 'CurrentMatchesTarget'] = [int]($null -ne $binding `
+            -and $null -ne $State.Target -and $binding.Pid -eq $State.Target.pid)
+        $observations[$name + 'EventMatchesTarget'] = [int]($null -ne $binding `
+            -and $null -ne $State.Target -and $binding.EventPid -eq $State.Target.pid)
+        $observations[$name + 'Flag2'] = [int]($null -ne $binding `
+            -and $binding.Flags -ge 0 -and $binding.Flags -le [uint32]::MaxValue `
+            -and ($binding.Flags -band 2) -eq 2)
+    }
+    $observations.TargetRowPresent = [int]($null -ne $State.Target)
+    $observations.FinalRowPresent = [int]($null -ne $State.Final)
+    $observations.ParserUnknown = [int]($State.Unknown -ne 0)
+    $observations.ParserProtocol = [int]($State.Protocol -ne 0)
+    return $observations
 }
 
 function New-HermesStartupReport {
@@ -428,6 +531,7 @@ function New-HermesStartupReport {
         outSha256 = $State.Out.Fingerprint; errSha256 = $State.Err.Fingerprint
         debuggerSha256 = $State.DebuggerSha256
         helperSha256 = $State.HelperSha256; commandSha256 = $State.CommandSha256
+        observations = (New-HermesStartupObservations $State)
     }
 }
 

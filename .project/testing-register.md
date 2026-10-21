@@ -2,6 +2,23 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Debugger event binding is observed without relaxing acceptance
+
+The first CDB run reaches the published helper and its actual debugged child,
+but cannot verify arming before the helper deadline. The report retains
+cleanup failure instead of declaring safe completion.
+
+Thirty-three bounded numeric observations now distinguish marker counts,
+malformed/echoed lines, recognized event and flag readbacks, current/event
+binding snapshots, helper rows and parser taints. These facts cannot authorize
+arming or promote a loader failure. No raw line, PID, path, address or command
+is added to the advisory report, which remains within 4,096 bytes.
+
+Twenty-six additional pure controls retain all prior 62 and pass 88/88;
+parent review, installer static controls, isolated root build and 2,182 Core
+cases pass. Windows discovery remains 457 and the original PowerShell exit-37
+failure stays blocking. Actual event-state observations remain pending.
+
 ## SDK extension discovery preserves pin/signature/load identity
 
 Actual preflight run 39628746029 identifies point 6, role 6: extension-file

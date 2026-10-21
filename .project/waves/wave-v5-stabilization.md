@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - CDB runs; strict child-arming failure becomes distinguishable
+
+- **Evidence:** Published `578af37` run `39631051470`, job `119329001632`, passes 62 pure controls and 456/457 native cases. SDK extension/source trust passes and CDB runs. The actual helper matches, but target/arming do not; after its deadline the report retains status 5, error 13, cleanup fault 5, unchanged parent and incomplete cleanup. No startup cause is claimed.
+- **Changed:** Bounded numeric observations distinguish real marker/event/flag readback counts, malformed lines and current/event-target snapshots without printing raw debugger data. They are advisory only and cannot satisfy the strict binding or loader-failure predicates.
+- **Validation:** Parent direct review and all 88 pure controls pass, including privacy, saturation, unknowns, byte-budget cutoff and report-size bounds. Isolated root build, 2,182 Core and installer static controls pass. No driver, CDB command, arming, timeout or cleanup condition is changed.
+- **Blockers:** The child correctly does not resume without a verified arming acknowledgement. The actual parser/context boundary remains unknown, and incomplete cleanup stays visible.
+- **Next:** Publish the structural observations and distinguish command execution, current-process mismatch and unrecognized event/readback grammar before changing the debugger protocol.
+
 ### 2026-10-22 - SDK extension location is bound through trust checks to CDB
 
 - **Evidence:** Published `dd23a3d` run `39628746029`, job `119320895584`, passes 49 pure controls and 456/457 native cases. Trace point 6/tool role 6 identifies extension-file pinning, before signature validation; helper and CDB execution remain unreached.

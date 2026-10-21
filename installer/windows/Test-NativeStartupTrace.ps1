@@ -56,6 +56,15 @@ function Get-ControlStreamSnapshot {
         ConvertTo-Json -Compress
 }
 
+function New-ControlOpenBlock {
+    param([int]$Current = 22, [int]$Kind = 1)
+    $state = New-HermesStartupState
+    Add-HermesStartupLine $state 'HERMES_CDB v=1 kind=0 pid=11'
+    Add-HermesStartupLine $state "HERMES_CDB v=1 kind=$Kind pid=$Current"
+    Update-HermesStartupRows $state ($targetRow + "`n")
+    return $state
+}
+
 function New-ControlReader {
     param([string]$Text)
     [IO.StreamReader]::new(
@@ -232,7 +241,7 @@ function Get-HermesSetupPublishFiles {
     }
 }
 
-$cases = 1..62
+$cases = 1..88
 $passed = 0
 foreach ($case in $cases) {
     $state = $null
@@ -842,6 +851,372 @@ foreach ($case in $cases) {
                 }
                 Assert-Control (($report | ConvertTo-Json -Compress) `
                     -notmatch 'private-preflight|CN=|S-1-|--command|exts\.dll|\.load')
+            }
+            63 {
+                $state = New-HermesStartupState
+                $report = New-HermesStartupReport $state $false $false
+                Assert-Control ($report.observations.Count -eq 33)
+                foreach ($value in $report.observations.Values) {
+                    Assert-Control ($value -is [int] -and $value -eq 0)
+                }
+                Assert-Control ($report.completed -eq 0 -and $report.armingVerified -eq 0 `
+                    -and $report.firstFailureKind -eq 0 -and $report.originalGatePassed -eq 0)
+            }
+            64 {
+                $state = New-ControlFixture
+                $report = New-HermesStartupReport $state $true $true
+                $observed = $report.observations
+                Assert-Control ($observed.Marker0 -eq 1 -and $observed.Marker1 -eq 1 `
+                    -and $observed.Marker2 -eq 1 -and $observed.Marker3 -eq 2 `
+                    -and $observed.Marker4 -eq 2 -and $observed.MarkerMalformed -eq 0 `
+                    -and $observed.MarkerEcho -eq 0 -and $observed.LastEventSeen -eq 3 `
+                    -and $observed.CreateEventSeen -eq 1 -and $observed.CreateEventAccepted -eq 1 `
+                    -and $observed.ExitEventSeen -eq 2 -and $observed.ExitEventAccepted -eq 2 `
+                    -and $observed.LastEventUnrecognized -eq 0 `
+                    -and $observed.FlagsSeen -eq 1 -and $observed.FlagsAccepted -eq 1 `
+                    -and $observed.ArmPresent -eq 1 -and $observed.ArmKind -eq 1 `
+                    -and $observed.ArmCurrentMatchesTarget -eq 1 `
+                    -and $observed.ArmEventMatchesTarget -eq 1 -and $observed.ArmFlag2 -eq 1 `
+                    -and $observed.BlockPresent -eq 0 -and $observed.BlockKind -eq 0 `
+                    -and $observed.TargetRowPresent -eq 1 -and $observed.FinalRowPresent -eq 1 `
+                    -and $observed.ParserUnknown -eq 0 -and $observed.ParserProtocol -eq 0 `
+                    -and $report.completed -eq 1 -and $report.armingVerified -eq 1)
+            }
+            65 {
+                $state = New-HermesStartupState
+                Add-HermesStartupLine $state '0:000> .printf "HERMES_CDB v=1 kind=0 pid=%u\n", @$tpid'
+                Add-HermesStartupLine $state 'HERMES_CDB v=1 kind=0 pid=11'
+                Add-HermesStartupLine $state 'ModLoad: 0000000012340000 0000000012350000 C:\private\child.dll'
+                $timedFinal = $finalRow.Replace('exit=3221225794', 'exit=0').Replace(
+                    'cleanup=1 fault=0 cleanupFault=0', 'cleanup=0 fault=1460 cleanupFault=5')
+                Update-HermesStartupRows $state ($targetRow + "`n" + $timedFinal + "`n")
+                Set-HermesStartupTracePoint $state 26
+                Set-HermesStartupTraceFault $state
+                $report = New-HermesStartupReport $state $true $true
+                $observed = $report.observations
+                Assert-Control ($observed.Marker0 -eq 1 -and $observed.MarkerEcho -eq 1 `
+                    -and $observed.Marker1 -eq 0 -and $observed.Marker2 -eq 0 `
+                    -and $observed.LastEventSeen -eq 0 -and $observed.FlagsSeen -eq 0 `
+                    -and $observed.ArmPresent -eq 0 -and $observed.BlockPresent -eq 0 `
+                    -and $observed.TargetRowPresent -eq 1 -and $observed.FinalRowPresent -eq 1 `
+                    -and $observed.ParserProtocol -eq 0 -and $observed.ParserUnknown -eq 0 `
+                    -and $report.helperMatched -eq 1 -and $report.targetMatched -eq 0 `
+                    -and $report.status -eq 5 -and $report.error -eq 13 `
+                    -and $report.cleanupFault -eq 5 -and $report.cleanupComplete -eq 0 `
+                    -and $report.tracePoint -eq 26 -and $report.completed -eq 0 `
+                    -and $report.armingVerified -eq 0 -and $report.firstFailureKind -eq 0)
+            }
+            66 {
+                $state = New-ControlOpenBlock -Current 23
+                Add-HermesStartupLine $state 'Last event: 17.1: Create process 1:17'
+                Add-HermesStartupLine $state 'Current NtGlobalFlag contents: 0x00000002'
+                Add-HermesStartupLine $state 'HERMES_CDB v=1 kind=2 pid=23'
+                $report = New-HermesStartupReport $state $false $false
+                $observed = $report.observations
+                Assert-Control ($observed.ArmPresent -eq 1 -and $observed.ArmKind -eq 1 `
+                    -and $observed.ArmCurrentMatchesTarget -eq 0 `
+                    -and $observed.ArmEventMatchesTarget -eq 0 -and $observed.ArmFlag2 -eq 1 `
+                    -and $observed.CreateEventAccepted -eq 1 -and $observed.ParserProtocol -eq 0 `
+                    -and $observed.ParserUnknown -eq 0 -and -not (Test-HermesStartupArm $state) `
+                    -and $report.armingVerified -eq 0 -and $report.completed -eq 0)
+            }
+            67 {
+                $state = New-ControlOpenBlock
+                Add-HermesStartupLine $state 'Last event: 17.1: Create process 1:17'
+                Add-HermesStartupLine $state 'Current NtGlobalFlag contents: 0x00000002'
+                Add-HermesStartupLine $state 'HERMES_CDB v=1 kind=2 pid=22'
+                $report = New-HermesStartupReport $state $false $false
+                $observed = $report.observations
+                Assert-Control ($observed.Marker1 -eq 1 -and $observed.Marker2 -eq 1 `
+                    -and $observed.CreateEventAccepted -eq 1 -and $observed.ArmPresent -eq 0 `
+                    -and $observed.BlockPresent -eq 0 -and $observed.ParserProtocol -eq 1 `
+                    -and $report.armingVerified -eq 0 -and $report.firstFailureKind -eq 0 `
+                    -and $report.completed -eq 0)
+            }
+            68 {
+                $state = New-ControlOpenBlock -Current 23
+                Add-HermesStartupLine $state 'Last event: 16.1: Create process 1:16'
+                Add-HermesStartupLine $state 'Current NtGlobalFlag contents: 0x00000000'
+                $report = New-HermesStartupReport $state $false $false
+                $observed = $report.observations
+                Assert-Control ($observed.BlockPresent -eq 1 -and $observed.BlockKind -eq 1 `
+                    -and $observed.BlockCurrentMatchesTarget -eq 0 `
+                    -and $observed.BlockEventMatchesTarget -eq 1 -and $observed.BlockFlag2 -eq 0 `
+                    -and $observed.FlagsSeen -eq 1 -and $observed.FlagsAccepted -eq 1 `
+                    -and $observed.ArmPresent -eq 0 -and $observed.ParserProtocol -eq 0 `
+                    -and $report.status -eq 4 -and $report.completed -eq 0)
+            }
+            69 {
+                $state = New-ControlOpenBlock
+                Add-HermesStartupLine $state 'Last event: 16.1: Create process 1:16 C:\private\secret S-1-5-21-123 --command'
+                $report = New-HermesStartupReport $state $false $false
+                $observed = $report.observations
+                Assert-Control ($observed.LastEventSeen -eq 1 -and $observed.CreateEventSeen -eq 1 `
+                    -and $observed.CreateEventAccepted -eq 0 -and $observed.CreateEventUnrecognized -eq 1 `
+                    -and $observed.LastEventUnrecognized -eq 1 -and $observed.ParserUnknown -eq 1 `
+                    -and $observed.BlockEventMatchesTarget -eq 0 -and $report.completed -eq 0 `
+                    -and $report.firstFailureKind -eq 0 `
+                    -and ($report | ConvertTo-Json -Depth 4 -Compress) `
+                        -notmatch 'private|secret|S-1-|--command|16\.1')
+            }
+            70 {
+                $state = New-ControlOpenBlock
+                Add-HermesStartupLine $state 'Last event: 16.1: Create process 1:16'
+                Add-HermesStartupLine $state 'Last event: 16.1: Create process 1:16'
+                $report = New-HermesStartupReport $state $false $false
+                $observed = $report.observations
+                Assert-Control ($observed.LastEventSeen -eq 2 -and $observed.CreateEventSeen -eq 2 `
+                    -and $observed.CreateEventAccepted -eq 1 -and $observed.CreateEventUnrecognized -eq 1 `
+                    -and $observed.LastEventUnrecognized -eq 1 -and $observed.ParserProtocol -eq 1 `
+                    -and $observed.ParserUnknown -eq 0 -and $report.completed -eq 0)
+            }
+            71 {
+                $state = New-ControlOpenBlock
+                Add-HermesStartupLine $state 'Last event: 16.1: Create process 1:17'
+                $report = New-HermesStartupReport $state $false $false
+                $observed = $report.observations
+                Assert-Control ($observed.CreateEventSeen -eq 1 -and $observed.CreateEventAccepted -eq 0 `
+                    -and $observed.CreateEventUnrecognized -eq 1 -and $observed.ParserUnknown -eq 1 `
+                    -and $observed.BlockEventMatchesTarget -eq 0 -and $report.armingVerified -eq 0)
+            }
+            72 {
+                $state = New-ControlOpenBlock -Kind 3
+                Add-HermesStartupLine $state 'Last event: 16.1: Exit process 1:16, code c0000142'
+                $report = New-HermesStartupReport $state $false $false
+                $observed = $report.observations
+                Assert-Control ($observed.BlockPresent -eq 1 -and $observed.BlockKind -eq 3 `
+                    -and $observed.BlockCurrentMatchesTarget -eq 1 `
+                    -and $observed.BlockEventMatchesTarget -eq 1 -and $observed.BlockFlag2 -eq 0 `
+                    -and $observed.ExitEventSeen -eq 1 -and $observed.ExitEventAccepted -eq 1 `
+                    -and $observed.ExitEventUnrecognized -eq 0 -and $report.exitObserved -eq 0)
+                Add-HermesStartupLine $state 'HERMES_CDB v=1 kind=4 pid=22'
+                $report = New-HermesStartupReport $state $false $false
+                Assert-Control ($report.exitObserved -eq 1 -and $report.exitCode -eq 3221225794 `
+                    -and $report.armingVerified -eq 0 -and $report.firstFailureKind -eq 0 `
+                    -and $report.completed -eq 0 -and $report.observations.BlockPresent -eq 0)
+            }
+            73 {
+                $state = New-ControlOpenBlock -Kind 3
+                Add-HermesStartupLine $state 'Last event: 16.1: Exit process 1:16, code unknown'
+                $report = New-HermesStartupReport $state $false $false
+                $observed = $report.observations
+                Assert-Control ($observed.LastEventSeen -eq 1 -and $observed.ExitEventSeen -eq 1 `
+                    -and $observed.ExitEventAccepted -eq 0 -and $observed.ExitEventUnrecognized -eq 1 `
+                    -and $observed.LastEventUnrecognized -eq 1 -and $observed.ParserUnknown -eq 1 `
+                    -and $report.exitObserved -eq 0 -and $report.completed -eq 0)
+            }
+            { $_ -in @(74, 75, 79) } {
+                $state = New-ControlOpenBlock
+                Add-HermesStartupLine $state 'Last event: 16.1: Create process 1:16'
+                if ($case -eq 75) {
+                    Add-HermesStartupLine $state 'Current NtGlobalFlag contents: 0xunknown C:\private\secret'
+                } elseif ($case -eq 79) {
+                    Add-HermesStartupLine $state 'Current NtGlobalFlag contents: 0x00000001'
+                }
+                Add-HermesStartupLine $state 'HERMES_CDB v=1 kind=2 pid=22'
+                $report = New-HermesStartupReport $state $false $false
+                $observed = $report.observations
+                Assert-Control ($observed.FlagsSeen -eq [int]($case -ne 74) `
+                    -and $observed.FlagsAccepted -eq [int]($case -eq 79) `
+                    -and $observed.FlagsUnrecognized -eq [int]($case -eq 75) `
+                    -and $observed.ArmPresent -eq 1 -and $observed.ArmFlag2 -eq 0 `
+                    -and $observed.ParserUnknown -eq 1 -and $observed.ParserProtocol -eq 0 `
+                    -and $report.armingVerified -eq 0 -and -not (Test-HermesStartupArm $state) `
+                    -and $report.firstFailureKind -eq 0 -and $report.completed -eq 0 `
+                    -and ($report | ConvertTo-Json -Depth 4 -Compress) -notmatch 'private|secret|0xunknown')
+            }
+            76 {
+                $state = New-HermesStartupState
+                Add-HermesStartupLine $state 'Current NtGlobalFlag contents: 0x00000002'
+                $report = New-HermesStartupReport $state $false $false
+                $observed = $report.observations
+                Assert-Control ($observed.FlagsSeen -eq 1 -and $observed.FlagsAccepted -eq 0 `
+                    -and $observed.FlagsUnrecognized -eq 1 -and $observed.ArmFlag2 -eq 0 `
+                    -and $observed.BlockFlag2 -eq 0 -and $observed.ParserUnknown -eq 0 `
+                    -and $observed.ParserProtocol -eq 0 -and $report.completed -eq 0)
+            }
+            77 {
+                $state = New-HermesStartupState
+                foreach ($line in @(
+                    'HERMES_CDB v=2 kind=1 pid=22',
+                    '0:000> HERMES_CDB v=1 kind=1 pid=22',
+                    'HERMES_CDB v=1 kind=9 pid=22 C:\private\secret S-1-5-21-123 --command',
+                    '0:000> .printf "HERMES_CDB v=1 kind=1 pid=%u\n", @$tpid'
+                )) { Add-HermesStartupLine $state $line }
+                $report = New-HermesStartupReport $state $false $false
+                $observed = $report.observations
+                Assert-Control ($observed.MarkerMalformed -eq 3 -and $observed.MarkerMalformedKind -eq 1 `
+                    -and $observed.MarkerEcho -eq 1 -and $observed.Marker1 -eq 0 `
+                    -and $observed.ParserProtocol -eq 1 -and $report.completed -eq 0 `
+                    -and $report.armingVerified -eq 0 -and $report.firstFailureKind -eq 0 `
+                    -and ($report | ConvertTo-Json -Depth 4 -Compress) `
+                        -notmatch 'private|secret|S-1-|--command|printf|tpid')
+            }
+            78 {
+                $state = New-HermesStartupState
+                Add-HermesStartupLine $state 'HERMES_CDB v=1 kind=1 pid=4294967296'
+                Add-HermesStartupLine $state 'HERMES_CDB v=1 kind=1 pid=0'
+                $report = New-HermesStartupReport $state $false $false
+                $observed = $report.observations
+                Assert-Control ($observed.Marker1 -eq 1 -and $observed.MarkerMalformed -eq 2 `
+                    -and $observed.MarkerMalformedKind -eq 2 -and $observed.ParserProtocol -eq 1 `
+                    -and $observed.ArmPresent -eq 0 -and $observed.BlockPresent -eq 0 `
+                    -and $report.completed -eq 0 -and $report.armingVerified -eq 0)
+            }
+            80 {
+                $state = New-HermesStartupState
+                $text = "0:000> .printf `"HERMES_CDB v=1 kind=0 pid=%u\n`", @`$tpid`r`n" +
+                    "HERMES_CDB v=1 kind=0 pid=11`r`nHERMES_CDB v=1 kind=1 pid=22`r`n" +
+                    "Last event: 16.1: Create process 1:16`r`n" +
+                    "Current NtGlobalFlag contents: 0x00000002`r`nHERMES_CDB v=1 kind=2 pid=22`r`n"
+                for ($index = 0; $index -lt $text.Length; $index += 7) {
+                    Add-HermesStartupText $state $state.Out (
+                        $text.Substring($index, [Math]::Min(7, $text.Length - $index))) $true
+                }
+                Add-HermesStartupText $state $state.Err (
+                    "HERMES_CDB v=1 kind=3 pid=22`nLast event: 16.1: Exit process 1:16, code 0`n" +
+                    "Syntax error C:\private\secret S-1-5-21-123 --command`n") $false
+                Update-HermesStartupRows $state ($targetRow + "`n")
+                $report = New-HermesStartupReport $state $false $false
+                $observed = $report.observations
+                Assert-Control ($observed.MarkerEcho -eq 1 -and $observed.Marker0 -eq 1 `
+                    -and $observed.Marker1 -eq 1 -and $observed.Marker2 -eq 1 `
+                    -and $observed.Marker3 -eq 0 -and $observed.ExitEventSeen -eq 0 `
+                    -and $observed.CreateEventAccepted -eq 1 -and $observed.FlagsAccepted -eq 1 `
+                    -and $observed.ArmCurrentMatchesTarget -eq 1 -and (Test-HermesStartupArm $state) `
+                    -and -not $state.Acked -and $report.armingVerified -eq 0 `
+                    -and $report.firstFailureKind -eq 0 -and $report.completed -eq 0 `
+                    -and ($report | ConvertTo-Json -Depth 4 -Compress) `
+                        -notmatch 'private|secret|S-1-|--command|Syntax error|printf|tpid')
+            }
+            81 {
+                $state = New-ControlOpenBlock
+                foreach ($name in @('Marker0', 'FlagsSeen', 'LastEventSeen', 'CreateEventSeen')) {
+                    $state.Observations[$name] = [int]8388607
+                }
+                foreach ($iteration in 1..3) {
+                    Add-HermesStartupLine $state 'HERMES_CDB v=1 kind=0 pid=11'
+                    Add-HermesStartupLine $state 'Current NtGlobalFlag contents: unknown'
+                    Add-HermesStartupLine $state 'Last event: unknown Create process'
+                }
+                $report = New-HermesStartupReport $state $false $false
+                foreach ($name in @('Marker0', 'FlagsSeen', 'LastEventSeen', 'CreateEventSeen')) {
+                    Assert-Control ($report.observations[$name] -is [int] `
+                        -and $report.observations[$name] -eq 8388608)
+                }
+                foreach ($value in $report.observations.Values) {
+                    Assert-Control ($value -is [int] -and $value -ge 0 -and $value -le 8388608)
+                }
+                Assert-Control ($report.completed -eq 0 -and $report.armingVerified -eq 0)
+            }
+            82 {
+                $state = New-HermesStartupState
+                $state.Protocol = 1
+                $state.Unknown = 1
+                $badValues = @('C:\private\secret S-1-5-21-123 --command', [long]::MaxValue,
+                    -1, 1.5, $true, @{ message = 'CN=secret' }, [int[]]@(1, 2), $null)
+                $names = @($state.Observations.Keys)
+                for ($index = 0; $index -lt $names.Count; $index++) {
+                    $state.Observations[$names[$index]] = $badValues[$index % $badValues.Count]
+                }
+                $state.Observations.MarkerMalformedKind = 3
+                $report = New-HermesStartupReport $state $false $false
+                foreach ($name in $names) {
+                    Assert-Control ($report.observations[$name] -is [int] `
+                        -and $report.observations[$name] -eq 0)
+                }
+                Assert-Control ($report.observations.ParserUnknown -eq 1 `
+                    -and $report.observations.ParserProtocol -eq 1 -and $report.completed -eq 0 `
+                    -and $report.armingVerified -eq 0 -and $report.firstFailureKind -eq 0 `
+                    -and ($report | ConvertTo-Json -Depth 4 -Compress) `
+                        -notmatch 'private|secret|S-1-|--command|CN=')
+            }
+            83 {
+                $state = New-ControlOpenBlock
+                $before = (New-HermesStartupReport $state $false $false).observations |
+                    ConvertTo-Json -Compress
+                $state.AcceptedUtf8Bytes = [long]8388607
+                $state.Out.Tail = 'HERMES_CDB v=1 kind=2 pid=22'
+                Add-HermesStartupText $state $state.Out "`n" $true
+                Add-HermesStartupText $state $state.Out "HERMES_CDB v=1 kind=3 pid=22`n" $true
+                Add-HermesStartupText $state $state.Err "Current NtGlobalFlag contents: 0x00000002`n" $false
+                $report = New-HermesStartupReport $state $false $false
+                Assert-Control ($state.Bounds -eq 1 -and $report.acceptedUtf8Bytes -eq 8388608 `
+                    -and $report.status -eq 7 -and $report.completed -eq 0 `
+                    -and ($report.observations | ConvertTo-Json -Compress) -ceq $before)
+            }
+            84 {
+                $state = New-ControlFixture
+                foreach ($name in @($state.Observations.Keys)) {
+                    $state.Observations[$name] = [int]8388608
+                }
+                $state.Observations.MarkerMalformedKind = 2
+                foreach ($name in @('DebuggerSha256', 'HelperSha256', 'CommandSha256')) {
+                    $state[$name] = 'a' * 64
+                }
+                foreach ($name in @('Out', 'Err')) {
+                    $state[$name].Fingerprint = 'b' * 64
+                    $state[$name].Count = [long]8388608
+                    $state[$name].Prefix = 'x' * 4096
+                }
+                $report = New-HermesStartupReport $state $true $true
+                $json = $report | ConvertTo-Json -Depth 4 -Compress
+                Assert-Control ([Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
+                    -and $json -notmatch 'xxxxxxxx|sample\.dll' `
+                    -and $report.originalGatePassed -eq 0 -and $report.nativeAcceptance -eq 0)
+                foreach ($value in $report.observations.Values) {
+                    Assert-Control ($value -is [int] -and $value -ge 0 -and $value -le 8388608)
+                }
+            }
+            85 {
+                $state = New-ControlOpenBlock
+                Add-HermesStartupLine $state 'Last event: 16.1: Exit process 1:16, code c0000142'
+                $report = New-HermesStartupReport $state $false $false
+                $observed = $report.observations
+                Assert-Control ($observed.LastEventSeen -eq 1 -and $observed.LastEventUnrecognized -eq 1 `
+                    -and $observed.ExitEventSeen -eq 1 -and $observed.ExitEventAccepted -eq 0 `
+                    -and $observed.ExitEventUnrecognized -eq 1 -and $observed.CreateEventSeen -eq 0 `
+                    -and $observed.ParserUnknown -eq 1 -and $report.exitObserved -eq 0 `
+                    -and $report.armingVerified -eq 0 -and $report.firstFailureKind -eq 0 `
+                    -and $report.completed -eq 0)
+            }
+            86 {
+                $state = New-ControlOpenBlock
+                Add-HermesStartupLine $state 'Last event: 16.1: Load module C:\private\secret.dll at 0000000012345678'
+                Add-HermesStartupLine $state 'ModLoad: 0000000012340000 0000000012350000 C:\private\secret.dll'
+                $report = New-HermesStartupReport $state $false $false
+                $observed = $report.observations
+                Assert-Control ($observed.LastEventSeen -eq 1 -and $observed.LastEventUnrecognized -eq 1 `
+                    -and $observed.CreateEventSeen -eq 0 -and $observed.ExitEventSeen -eq 0 `
+                    -and $observed.ParserUnknown -eq 1 -and $observed.ArmPresent -eq 0 `
+                    -and $report.firstFailureKind -eq 0 -and $report.completed -eq 0 `
+                    -and ($report | ConvertTo-Json -Depth 4 -Compress) -notmatch 'private|secret|12345678')
+            }
+            { $_ -in @(87, 88) } {
+                $state = New-ControlOpenBlock
+                $eventLine = if ($case -eq 87) {
+                    '1:001> Last event: 16.1: Create process 1:16'
+                } else { 'last event: 16.1: create process 1:16' }
+                $flagsLine = if ($case -eq 87) {
+                    '1:001> Current NtGlobalFlag contents: 0x00000002'
+                } else { 'current ntglobalflag contents: 0x00000002' }
+                Add-HermesStartupLine $state $eventLine
+                Add-HermesStartupLine $state $flagsLine
+                $report = New-HermesStartupReport $state $false $false
+                $observed = $report.observations
+                Assert-Control ($observed.LastEventSeen -eq 1 -and $observed.LastEventUnrecognized -eq 1 `
+                    -and $observed.CreateEventSeen -eq 1 -and $observed.CreateEventAccepted -eq 0 `
+                    -and $observed.CreateEventUnrecognized -eq 1 `
+                    -and $observed.FlagsSeen -eq 1 -and $observed.FlagsAccepted -eq 0 `
+                    -and $observed.FlagsUnrecognized -eq 1 -and $observed.BlockFlag2 -eq 0 `
+                    -and $observed.BlockEventMatchesTarget -eq 0 -and $observed.ParserUnknown -eq 0 `
+                    -and $observed.ParserProtocol -eq 0 -and $report.armingVerified -eq 0 `
+                    -and $report.firstFailureKind -eq 0 -and $report.completed -eq 0)
+                Add-HermesStartupLine $state 'HERMES_CDB v=1 kind=2 pid=22'
+                $report = New-HermesStartupReport $state $false $false
+                Assert-Control ($report.observations.ParserProtocol -eq 1 `
+                    -and $report.observations.ArmPresent -eq 0 -and $report.armingVerified -eq 0 `
+                    -and $report.firstFailureKind -eq 0 -and $report.completed -eq 0)
             }
         }
         $passed++
