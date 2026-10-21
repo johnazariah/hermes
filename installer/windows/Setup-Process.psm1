@@ -5,6 +5,11 @@ $ErrorActionPreference = 'Stop'
 function ConvertFrom-HermesSetupResult {
     param([string]$StandardOutput, [int]$ExitCode, [ValidateSet('install', 'repair', 'uninstall', 'recover')][string]$Operation)
     if ([Text.Encoding]::UTF8.GetByteCount($StandardOutput) -gt 4096) { throw 'Coordinator report exceeds its bound.' }
+    $field = '"(?<name>schemaVersion|operation|outcome|ready|msiExitCode)"[ \t]*:[ \t]*(?:"[A-Za-z]+"|true|false|null|0|[1-9][0-9]*)[ \t]*'
+    $frame = [regex]::Match($StandardOutput, '\A\{[ \t]*(?:' + $field + ',[ \t]*){4}' + $field + '\}(?:\r?\n)?\z')
+    if (-not $frame.Success -or @($frame.Groups['name'].Captures.Value | Sort-Object -Unique).Count -ne 5) {
+        throw 'Coordinator report must contain exactly one complete writer record.'
+    }
     $report = $StandardOutput | ConvertFrom-Json -ErrorAction Stop
     $names = @($report.PSObject.Properties.Name | Sort-Object)
     if (($names -join ',') -cne 'msiExitCode,operation,outcome,ready,schemaVersion' `
@@ -18,9 +23,10 @@ function ConvertFrom-HermesSetupResult {
     $valid = switch ($report.outcome) {
         'Completed' { $ExitCode -eq 0 -and $report.ready -and $report.msiExitCode -eq 0 }
         'RolledBack' { $ExitCode -eq 1603 -and $report.ready -and $null -ne $report.msiExitCode -and $report.msiExitCode -notin @(0, 1605, 1618, 3010, 1641) }
-        'RebootRequired' { $ExitCode -eq 3010 -and -not $report.ready -and $null -ne $report.msiExitCode }
+        'RebootRequired' { $ExitCode -eq 3010 -and -not $report.ready -and $null -ne $report.msiExitCode -and $report.msiExitCode -notin @(1605, 1618) }
         'Refused' { $ExitCode -in @(1603, 1618) -and -not $report.ready -and $null -eq $report.msiExitCode }
-        default { $ExitCode -in @(1603, 1618) -and -not $report.ready }
+        default { $ExitCode -in @(1603, 1618) -and -not $report.ready `
+            -and ($ExitCode -ne 1618 -or $null -eq $report.msiExitCode -or $report.msiExitCode -eq 1618) }
     }
     if (-not $valid) { throw 'Coordinator process status and readiness report disagree.' }
     return $report
@@ -125,9 +131,16 @@ function ConvertFrom-HermesSetupProcessOutput {
     if ($StandardError.Length -gt 4096) {
         $diagnosticError = 'CoordinatorDiagnosticsTooLong'
     } else {
-        $lines = @($StandardError -split '\r?\n')
+        $setupCodes = @('None', 'InvalidArguments', 'InvalidEvidence', 'Busy', 'Unavailable', 'Cancelled',
+            'OwnershipRefused', 'IncompatibleInstallation', 'RootMismatch', 'Collision', 'MediaInvalid',
+            'MediaIdentityMismatch', 'RecoveryMediaUnavailable', 'RollbackNotAllowed', 'UnsupportedPackageChange',
+            'NotInstalled', 'RecoveryRequired', 'NoRecoveryPending', 'JournalInvalid', 'ClosedPublicationFailed',
+            'JournalPublicationFailed', 'MsiPreparationFailed', 'MsiCallFailed', 'MsiDidNotComplete',
+            'TransactionFenceMissing', 'VerificationFailed', 'RebootRequired', 'ReadyPublicationFailed')
+        # WriteLine adds one optional final delimiter, not an extra record.
+        $lines = @(($StandardError -creplace '\r?\n\z', '') -split '\r?\n')
         $codes = @($lines | Where-Object { $_ -cmatch '^Hermes Setup: [A-Za-z]+\.$' } `
-            | ForEach-Object { $_.Substring(14).TrimEnd('.') })
+            | ForEach-Object { $_.Substring(14).TrimEnd('.') } | Where-Object { $_ -cin $setupCodes })
         $candidates = @($lines | Where-Object {
             $_.IndexOf('HERMES_SETUP', [StringComparison]::OrdinalIgnoreCase) -ge 0 `
                 -and $_.IndexOf('HERMES_SETUP_MSI', [StringComparison]::OrdinalIgnoreCase) -lt 0
@@ -210,7 +223,37 @@ function ConvertFrom-HermesSetupProcessOutput {
             if ($null -eq $diagnosticError) { $diagnosticError = 'MixedCoordinatorEvidence' }
         }
     }
+    if ($StandardError.Length -le 4096 -and $null -eq $diagnosticError) {
+        $consumed = $codes.Count + $candidates.Count + $msiCandidates.Count + $nativeCandidates.Count
+        $ordered = $lines.Count -gt 0 -and $lines[0] -cmatch '\AHermes Setup: [A-Za-z]+\.\z'
+        if ($null -ne $nativePreflightEvidence) {
+            $ordered = $ordered -and $lines.Count -eq 3 -and $lines[1] -clike 'HERMES_SETUP_MSI *' `
+                -and $lines[2] -clike 'HERMES_NATIVE_PREFLIGHT *'
+        }
+        if ($consumed -ne $lines.Count -or $codes.Count -ne 1 -or -not $ordered `
+            -or $codes[0] -cnotin $setupCodes) {
+            $diagnosticError = 'InvalidCoordinatorDiagnosticFrame'
+        } elseif ($null -ne $refusalEvidence -and ($null -eq $report -or $ExitCode -ne 1603 `
+            -or $report.outcome -cne 'Refused' -or $report.ready -or $null -ne $report.msiExitCode `
+            -or ($codes[0] -cnotin @('InvalidEvidence', 'Unavailable') -and ( `
+                $codes[0] -cne 'MediaInvalid' -or $refusalEvidence.stage -ne 10 -or $refusalEvidence.cause -lt 19)))) {
+            # SetupEntryPoint.WriteAsync emits refusal evidence only for these failures.
+            $diagnosticError = 'InvalidCoordinatorEvidence'
+        } elseif ($null -ne $report) {
+            $validCode = switch ($report.outcome) {
+                'Completed' { $codes[0] -ceq 'None' }
+                'RolledBack' { $codes[0] -ceq 'MsiCallFailed' -and $Operation -cne 'recover' }
+                'RebootRequired' { $codes[0] -ceq 'RebootRequired' }
+                default {
+                    $codes[0] -cnotin @('None', 'InvalidArguments', 'RebootRequired') `
+                        -and (($codes[0] -ceq 'Busy') -eq ($ExitCode -eq 1618))
+                }
+            }
+            if (-not $validCode) { $diagnosticError = 'InvalidCoordinatorDiagnosticCode' }
+        }
+    }
     if ($null -ne $diagnosticError) {
+        $refusalEvidence = $null
         $msiFailureEvidence = $null
         $nativePreflightEvidence = $null
         if ($null -eq $protocolError) { $protocolError = 'InvalidCoordinatorDiagnostics' }

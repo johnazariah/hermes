@@ -100,6 +100,21 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Setup status rejects impossible Busy and reboot combinations
+
+- **Changed:** The standalone reader rejects reboot reports carrying MSI 1618/1605 and Busy exits with contradictory non-null MSI results. Pre-call refusals, real MSI 1618 Busy and verification-triggered reboots with MSI 0/1603 remain valid.
+- **Validation:** Parent review, full installer static controls and 56 added operation/readiness negatives pass. Root build is warning-free and 2,182 Core cases pass.
+- **Review boundary:** The separate component candidate passes 1,179 portable cases, including 92 real-consumer cases, and both Windows-targeted builds. Fresh C# review nevertheless rejects incomplete pending-read cleanup and contradictory status admission. A fresh revision owner is assigned; that candidate stays uncommitted.
+- **Blockers:** Genuine PowerShell startup and Medium installed acceptance still block PR #30.
+- **Next:** Publish the approved standalone correction and bounded debugger derivation while the fresh C# owner fixes the rejected component candidate.
+
+### 2026-10-22 - Standalone Setup rejects incomplete or contradictory output frames
+
+- **Changed:** A fresh PowerShell owner tightens the real standalone reader against complete writer frames. All stdout/stderr records are consumed; duplicate fields/reports, noise, duplicate summaries and reordered records fail. Optional refusal evidence binds to a valid failure report, exit and permitted code.
+- **Validation:** Parent review and full installer static controls pass, including the actual synthetic child-pipe cases, valid outcome layouts, native-preflight/MSI-context parsers and final consumers. All 131 CDB pure controls also pass.
+- **Blockers:** The separate C# component consumer is still being corrected. Genuine restricted PowerShell execution and actual Medium installed acceptance remain unproved.
+- **Next:** Apply the C# author's component patch, verify the real source-linked portable path and obtain fresh C# review before publishing the consumer corrections.
+
 ### 2026-10-22 - Registered debugger filters still lack matching callback readback
 
 - **Evidence:** Published `c5955ee`, run `39645449224`, passes both supported OS jobs and Tray. Native execution passes 456/457 with zero skips; both event filters report break status but no exact immediate callback readback. The derived report still has no child event or verified arming.

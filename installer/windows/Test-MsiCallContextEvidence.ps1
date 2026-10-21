@@ -82,11 +82,23 @@ foreach ($line in $invalid) {
         'PRIVATE_SECRET|token=|sid=|C:.owner|HERMES_SETUP|HERMES_NATIVE') `
         'Rejected caller context leaked raw diagnostic content.'
 }
+foreach ($text in @(
+    "unknown PRIVATE_SECRET`n$code`n$core$high`n$hint",
+    "$code`n$core$high`n$hint`nunknown PRIVATE_SECRET",
+    "$code`n$core$high`n$hint`n$code", "$hint`n$code`n$core$high"
+)) {
+    $result = Read-Context $text
+    Require ($result.protocolError -ceq 'InvalidCoordinatorDiagnostics' `
+        -and $null -eq $result.msiFailureEvidence -and $null -eq $result.nativePreflightEvidence `
+        -and ($result | ConvertTo-Json -Depth 12 -Compress) -cnotmatch 'PRIVATE_SECRET|HERMES_SETUP|HERMES_NATIVE') `
+        'Unconsumed or reordered caller-context records must reject all optional metadata without leaking stderr.'
+}
 
 $limit = "$code`n$core$high`n$hint`n"
 $result = Read-Context ($limit + ('x' * (4096 - $limit.Length)))
-Require ($null -eq $result.protocolError -and $null -ne $result.msiFailureEvidence.context) `
-    'The inclusive stderr bound changed.'
+Require ($result.diagnosticError -ceq 'InvalidCoordinatorDiagnosticFrame' `
+    -and $null -eq $result.msiFailureEvidence -and $null -eq $result.nativePreflightEvidence) `
+    'Trailing noise at the inclusive stderr bound must not retain caller context.'
 $result = Read-Context ($limit + ('x' * (4097 - $limit.Length)))
 Require ($result.diagnosticError -ceq 'CoordinatorDiagnosticsTooLong' `
     -and $null -eq $result.msiFailureEvidence) 'Oversized stderr retained caller context.'
@@ -117,10 +129,10 @@ Require ($functions.Count -eq 2) 'Actual invoke/save helpers were not found.'
         $suffix = if ($Operation -eq 'install') { $high } else { $medium }
         ConvertFrom-HermesSetupProcessOutput `
             -StandardOutput $report.Replace('"Install"', '"' + $operationName + '"') `
-            -StandardError "$code`n$core$suffix`n$hint`nunknown PRIVATE_SECRET token=secret" `
+            -StandardError "$code`n$core$suffix`n$hint`n" `
             -ExitCode 1603 -Operation $Operation
     }
-    $destination = Join-Path ([IO.Path]::GetTempPath()) ('Hermes.Context.' + [Guid]::NewGuid().ToString('N'))
+    $destination = Join-Path $PSScriptRoot ('obj/Hermes.Context.' + [Guid]::NewGuid().ToString('N'))
     [IO.Directory]::CreateDirectory($destination) | Out-Null
     $savedSystemRoot = $env:SystemRoot
     $root = $destination

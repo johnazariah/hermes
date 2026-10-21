@@ -150,24 +150,33 @@ foreach ($stage in 1..16) {
     }
 }
 foreach ($code in @(-2147483648L, -1L, 0L, 1L, 2147483647L, 2147483648L, 4294967295L)) {
-    $result = Read-Output ($wire.Replace('4294967295', [string]$code))
+    $result = Read-Output ("$diagnostic`n" + $wire.Replace('4294967295', [string]$code))
     Require ($null -eq $result.protocolError -and $result.refusalEvidence.error -eq $code) 'A supported signed/unsigned 32-bit error code was lost.'
     Require-Refusal $result
     $positiveCount++
 }
-foreach ($text in @('', "$diagnostic`n", "unknown SYNTHETIC_SECRET C:\synthetic\owner token=synthetic`nHermes Setup: Busy.`n")) {
+foreach ($text in @($diagnostic, "$diagnostic`n", "$diagnostic`r`n")) {
     $result = Read-Output $text
     Require ($null -eq $result.protocolError -and $null -eq $result.diagnosticError `
-        -and $null -eq $result.refusalEvidence) 'Absent evidence and unknown stderr must keep existing handling.'
+        -and $null -eq $result.refusalEvidence) 'Optional evidence may be absent from a complete writer frame.'
     Require-Refusal $result
-    Require (($result | ConvertTo-Json -Depth 8 -Compress) -cnotmatch 'SYNTHETIC_SECRET|synthetic.owner|token=') 'Unknown stderr leaked into the structured result.'
 }
-$result = Read-Output "$diagnostic`n$wire`nunknown SYNTHETIC_SECRET"
-Require ($null -eq $result.protocolError -and $result.refusalEvidence.error -eq 4294967295L) 'Unknown stderr must not invalidate a genuine bounded evidence line.'
-Require (($result | ConvertTo-Json -Depth 8 -Compress) -cnotmatch 'SYNTHETIC_SECRET') 'A valid evidence result retained unknown stderr.'
+foreach ($text in @('', "`n$diagnostic", "$diagnostic`n`n", "$wire`n$diagnostic",
+    "$diagnostic`n$diagnostic", "$diagnostic`nHermes Setup: Unavailable.",
+    'Hermes Setup: Invented.', 'Hermes Setup: SYNTHETICSECRET.', "Hermes Setup: None.`n$wire",
+    "unknown SYNTHETIC_SECRET C:\synthetic\owner token=synthetic`n$diagnostic",
+    "$diagnostic`nunknown SYNTHETIC_SECRET", "$diagnostic`n$wire`nunknown SYNTHETIC_SECRET",
+    "$diagnostic`nunknown SYNTHETIC_SECRET`n$wire")) {
+    $result = Read-Output $text
+    Require-Refusal $result
+    Require ($result.protocolError -ceq 'InvalidCoordinatorDiagnostics' -and $null -ne $result.diagnosticError `
+        -and $null -eq $result.refusalEvidence -and $null -eq $result.msiFailureEvidence `
+        -and $null -eq $result.nativePreflightEvidence) 'Missing, reordered, duplicate or unconsumed stderr records must reject the entire diagnostic frame.'
+    Require (($result | ConvertTo-Json -Depth 8 -Compress) -cnotmatch 'SYNTHETIC_SECRET|SYNTHETICSECRET|synthetic.owner|token=|HERMES_SETUP|Invented') 'Rejected stderr leaked into the structured result.'
+}
 $atLimit = "$diagnostic`n$wire`n"
 $result = Read-Output ($atLimit + ('x' * (4096 - $atLimit.Length)))
-Require ($null -eq $result.protocolError -and $null -ne $result.refusalEvidence) 'The existing 4096-character stderr bound must remain inclusive.'
+Require ($result.diagnosticError -ceq 'InvalidCoordinatorDiagnosticFrame' -and $null -eq $result.refusalEvidence) 'At the inclusive stderr bound, trailing noise is a grammar error, not oversized or accepted evidence.'
 
 $invalid = @(
     $wire.Replace('v=1', 'v=0'), $wire.Replace('v=1', 'v=2'), $wire.Replace('v=1', 'v=01'),
@@ -212,9 +221,9 @@ foreach ($text in $invalid) {
 }
 Require ((Read-Output "$wire`n$wire").diagnosticError -ceq 'DuplicateCoordinatorEvidence') 'Duplicate evidence must be distinguishable from one malformed line.'
 foreach ($text in @('not-json', ('x' * 4097), $refusedReport.Replace('"ready":false', '"ready":true'), $refusedReport.Replace('"schemaVersion":1', '"schemaVersion":2'))) {
-    $result = Read-Output $wire $text
+    $result = Read-Output "$diagnostic`n$wire" $text
     Require ($result.exitCode -eq 1603 -and $null -eq $result.report -and $result.protocolError -ceq 'InvalidCoordinatorReport' `
-        -and $null -eq $result.diagnosticError -and $null -ne $result.refusalEvidence) 'Evidence must never repair an invalid report or status disagreement.'
+        -and $result.diagnosticError -ceq 'InvalidCoordinatorEvidence' -and $null -eq $result.refusalEvidence) 'Evidence must bind to a valid failure report without replacing its original validation error.'
     $result = Read-Output "$wire SYNTHETIC_SECRET" $text
     Require ($result.protocolError -ceq 'InvalidCoordinatorReport' -and $result.diagnosticError -ceq 'InvalidCoordinatorEvidence' `
         -and $null -eq $result.report -and $result.exitCode -eq 1603) 'A diagnostic error must not overwrite the original report-validation failure.'
@@ -222,10 +231,101 @@ foreach ($text in @('not-json', ('x' * 4097), $refusedReport.Replace('"ready":fa
 $completedReport = $refusedReport.Replace('"Refused"', '"Completed"').Replace('"ready":false', '"ready":true').Replace('"msiExitCode":null', '"msiExitCode":0')
 $result = Read-Output $wire $completedReport 1603
 Require ($result.protocolError -ceq 'InvalidCoordinatorReport' -and $null -eq $result.report) 'Evidence must not make an unsuccessful exit ready.'
-$result = Read-Output '' $completedReport 0
+$result = Read-Output 'Hermes Setup: None.' $completedReport 0
 Require ($null -eq $result.protocolError -and $result.report.ready -and $null -eq $result.refusalEvidence) 'Existing completed reports must remain unchanged.'
 $result = Read-Output 'Hermes Setup: Busy.' $refusedReport 1618
 Require ($null -eq $result.protocolError -and $result.exitCode -eq 1618 -and $result.diagnosticCodes[0] -ceq 'Busy') 'Existing permitted busy exits must remain unchanged.'
+
+$layouts = @(
+    @{ outcome = 'Completed'; ready = $true; native = 0; exit = 0; code = 'None' },
+    @{ outcome = 'Refused'; ready = $false; native = $null; exit = 1603; code = 'Unavailable' },
+    @{ outcome = 'Refused'; ready = $false; native = $null; exit = 1603; code = 'OwnershipRefused' },
+    @{ outcome = 'Refused'; ready = $false; native = $null; exit = 1603; code = 'NoRecoveryPending' },
+    @{ outcome = 'Refused'; ready = $false; native = $null; exit = 1618; code = 'Busy' },
+    @{ outcome = 'RecoveryRequired'; ready = $false; native = $null; exit = 1603; code = 'Unavailable' },
+    @{ outcome = 'RecoveryRequired'; ready = $false; native = $null; exit = 1603; code = 'Cancelled' },
+    @{ outcome = 'RecoveryRequired'; ready = $false; native = $null; exit = 1618; code = 'Busy' },
+    @{ outcome = 'RecoveryRequired'; ready = $false; native = 1618; exit = 1618; code = 'Busy' },
+    @{ outcome = 'RecoveryRequired'; ready = $false; native = 0; exit = 1603; code = 'ReadyPublicationFailed' },
+    @{ outcome = 'RecoveryRequired'; ready = $false; native = 1605; exit = 1603; code = 'MsiCallFailed' },
+    @{ outcome = 'RolledBack'; ready = $true; native = 1603; exit = 1603; code = 'MsiCallFailed' }
+    foreach ($native in @(0, 1603, 3010, 1641)) {
+        @{ outcome = 'RebootRequired'; ready = $false; native = $native; exit = 3010; code = 'RebootRequired' }
+    }
+)
+foreach ($operation in @('install', 'repair', 'uninstall', 'recover')) {
+    foreach ($layout in $layouts) {
+        $report = [ordered]@{
+            schemaVersion = 1; operation = $operation.Substring(0, 1).ToUpperInvariant() + $operation.Substring(1)
+            outcome = $layout.outcome; ready = $layout.ready; msiExitCode = $layout.native
+        } | ConvertTo-Json -Compress
+        $result = ConvertFrom-HermesSetupProcessOutput -StandardOutput "$report`r`n" `
+            -StandardError "Hermes Setup: $($layout.code).`r`n" -ExitCode $layout.exit -Operation $operation
+        if ($operation -eq 'recover' -and $layout.outcome -ceq 'RolledBack') {
+            Require ($result.diagnosticError -ceq 'InvalidCoordinatorDiagnosticCode') 'Recovery cannot publish an ordinary rollback.'
+        } else {
+            Require ($null -eq $result.protocolError -and $null -eq $result.diagnosticError `
+                -and $result.exitCode -eq $layout.exit -and $result.report.outcome -ceq $layout.outcome) 'A legitimate success, refusal, closed, rollback or reboot writer layout was rejected.'
+        }
+    }
+}
+$impossibleLayouts = @(
+    foreach ($native in @(1605, 1618)) {
+        @{ outcome = 'RebootRequired'; native = $native; exit = 3010; code = 'RebootRequired' }
+    }
+    foreach ($native in @(0, 1603, 1605, 3010, 1641)) {
+        @{ outcome = 'RecoveryRequired'; native = $native; exit = 1618; code = 'Busy' }
+    }
+)
+foreach ($operation in @('install', 'repair', 'uninstall', 'recover')) {
+    foreach ($layout in $impossibleLayouts) {
+        foreach ($ready in @($false, $true)) {
+            $report = [ordered]@{
+                schemaVersion = 1; operation = $operation.Substring(0, 1).ToUpperInvariant() + $operation.Substring(1)
+                outcome = $layout.outcome; ready = $ready; msiExitCode = $layout.native
+            } | ConvertTo-Json -Compress
+            $result = ConvertFrom-HermesSetupProcessOutput -StandardOutput "$report`r`n" `
+                -StandardError "Hermes Setup: $($layout.code).`r`n" -ExitCode $layout.exit -Operation $operation
+            Require ($result.protocolError -ceq 'InvalidCoordinatorReport' -and $null -eq $result.report `
+                -and $result.exitCode -eq $layout.exit -and $null -eq $result.refusalEvidence `
+                -and $null -eq $result.msiFailureEvidence -and $null -eq $result.nativePreflightEvidence) `
+                'Matching summaries cannot legitimise reboot MSI codes consumed before verification or a Busy exit carrying another MSI receipt.'
+        }
+    }
+}
+foreach ($text in @(
+    'unexpected SYNTHETIC_SECRET', "Hermes Setup: None.`nunexpected SYNTHETIC_SECRET",
+    "unexpected SYNTHETIC_SECRET`nHermes Setup: None.", "Hermes Setup: None.`nHermes Setup: None.",
+    "Hermes Setup: None.`n$wire", "Hermes Setup: InvalidEvidence.`n$wire",
+    "Hermes Setup: Unavailable.`n$wire", 'Hermes Setup: InvalidEvidence.', 'Hermes Setup: Busy.'
+)) {
+    $result = Read-Output $text $completedReport 0
+    Require ($result.protocolError -ceq 'InvalidCoordinatorDiagnostics' -and $result.report.ready `
+        -and $result.exitCode -eq 0 -and $null -eq $result.refusalEvidence `
+        -and ($result | ConvertTo-Json -Depth 8 -Compress) -cnotmatch 'SYNTHETIC_SECRET') 'Successful stdout/exit cannot hide stderr noise, duplicate summaries, failure codes or refusal evidence.'
+}
+foreach ($text in @('Hermes Setup: None.', 'Hermes Setup: RebootRequired.', 'Hermes Setup: InvalidArguments.', 'Hermes Setup: Busy.')) {
+    $result = Read-Output $text
+    Require ($result.diagnosticError -ceq 'InvalidCoordinatorDiagnosticCode' -and $null -eq $result.refusalEvidence) 'A refusal requires a consistent failure summary and exit.'
+}
+foreach ($text in @("Hermes Setup: MediaInvalid.`n$wire", "Hermes Setup: Cancelled.`n$wire",
+    "Hermes Setup: OwnershipRefused.`n$wire", "Hermes Setup: TransactionFenceMissing.`n$wire")) {
+    $result = Read-Output $text
+    Require ($result.diagnosticError -ceq 'InvalidCoordinatorEvidence' -and $null -eq $result.refusalEvidence) 'Only the actual writer failure conditions may carry optional refusal evidence.'
+}
+foreach ($context in @(
+    @{ report = $refusedReport; exit = 1618 },
+    @{ report = $refusedReport; exit = 0 },
+    @{ report = $refusedReport.Replace('"Install"', '"Repair"'); exit = 1603 },
+    @{ report = $msiReport; exit = 1603 },
+    @{ report = $msiReport.Replace('"msiExitCode":1603', '"msiExitCode":null'); exit = 1603 },
+    @{ report = $refusedReport.Replace('"Refused"', '"RolledBack"').Replace('"ready":false', '"ready":true').Replace('"msiExitCode":null', '"msiExitCode":1603'); exit = 1603 },
+    @{ report = $refusedReport.Replace('"Refused"', '"RebootRequired"').Replace('"msiExitCode":null', '"msiExitCode":3010'); exit = 3010 }
+)) {
+    $result = Read-Output "$diagnostic`n$wire" $context.report $context.exit
+    Require ($null -ne $result.protocolError -and $result.diagnosticError -ceq 'InvalidCoordinatorEvidence' `
+        -and $null -eq $result.refusalEvidence -and $result.exitCode -eq $context.exit) 'Refusal evidence must bind to the actual refused report, operation and servicing-failed status.'
+}
 
 $sourceLines = @(foreach ($cause in 10..18) {
     "HERMES_SETUP_EVIDENCE v=1 stage=1 cause=$cause fault=0 errorKind=0 error=0"
@@ -243,27 +343,32 @@ foreach ($line in $sourceLines) {
     foreach ($property in $value.PSObject.Properties) {
         Require ($property.Value -is [int] -or $property.Value -is [long]) 'Source-point fields must remain numerical.'
     }
-    foreach ($marker in @('', 'Hermes Setup: InvalidEvidence.', 'Hermes Setup: Busy.', 'Hermes Setup: None.')) {
+    foreach ($marker in @('Hermes Setup: Unavailable.', 'Hermes Setup: InvalidEvidence.')) {
         $independent = Read-Output "$marker`n$line"
-        Require ($null -eq $independent.protocolError -and $independent.refusalEvidence.cause -eq $value.cause) 'Source-point parsing must not depend on the diagnostic marker.'
+        Require ($null -eq $independent.protocolError -and $independent.refusalEvidence.cause -eq $value.cause) 'Both unconditional evidence-writing failure codes must retain bounded evidence.'
         Require-Refusal $independent
     }
+    foreach ($marker in @('', 'Hermes Setup: Busy.', 'Hermes Setup: None.', 'Hermes Setup: MediaInvalid.', 'Hermes Setup: Cancelled.')) {
+        $independent = Read-Output "$marker`n$line"
+        Require ($independent.protocolError -ceq 'InvalidCoordinatorDiagnostics' -and $null -eq $independent.refusalEvidence) 'A source-point line cannot authorise a missing or unsupported writer code.'
+    }
     foreach ($text in @('not-json', ('x' * 4097), $refusedReport.Replace('"ready":false', '"ready":true'), $refusedReport.Replace('"schemaVersion":1', '"schemaVersion":2'))) {
-        $independent = Read-Output $line $text
+        $independent = Read-Output "Hermes Setup: Unavailable.`n$line" $text
         Require ($independent.exitCode -eq 1603 -and $null -eq $independent.report `
-            -and $independent.protocolError -ceq 'InvalidCoordinatorReport' -and $null -eq $independent.diagnosticError `
-            -and $independent.refusalEvidence.cause -eq $value.cause) 'Source-point evidence must survive independently of report validation without repairing it.'
+            -and $independent.protocolError -ceq 'InvalidCoordinatorReport' -and $independent.diagnosticError -ceq 'InvalidCoordinatorEvidence' `
+            -and $null -eq $independent.refusalEvidence) 'Source-point evidence must bind to a valid refusal while preserving the original report error.'
         $independent = Read-Output ($line.Replace('fault=0', 'fault=1')) $text
         Require ($independent.exitCode -eq 1603 -and $null -eq $independent.report `
             -and $independent.protocolError -ceq 'InvalidCoordinatorReport' -and $null -eq $independent.refusalEvidence `
             -and $independent.diagnosticError -ceq 'InvalidCoordinatorEvidence') 'Invalid source-point evidence must not overwrite the original report-validation failure.'
     }
-    $independent = Read-Output $line $completedReport 1603
+    $independent = Read-Output "Hermes Setup: Unavailable.`n$line" $completedReport 1603
     Require ($independent.protocolError -ceq 'InvalidCoordinatorReport' -and $null -eq $independent.report `
-        -and $null -ne $independent.refusalEvidence) 'Source-point evidence must not make an unsuccessful exit ready.'
-    $independent = Read-Output $line $completedReport 0
-    Require ($null -eq $independent.protocolError -and $independent.report.ready `
-        -and $independent.report.outcome -ceq 'Completed' -and $independent.exitCode -eq 0) 'Diagnostic evidence must not override an independently valid public report.'
+        -and $null -eq $independent.refusalEvidence) 'Source-point evidence must not make an unsuccessful exit ready.'
+    $independent = Read-Output "Hermes Setup: Unavailable.`n$line" $completedReport 0
+    Require ($independent.protocolError -ceq 'InvalidCoordinatorDiagnostics' -and $independent.report.ready `
+        -and $independent.report.outcome -ceq 'Completed' -and $independent.exitCode -eq 0 `
+        -and $null -eq $independent.refusalEvidence) 'Source-point evidence must reject a success-shaped frame without changing the public report.'
     $independent = Read-Output $line $refusedReport 0
     Require ($independent.protocolError -ceq 'InvalidCoordinatorReport' -and $null -eq $independent.report `
         -and $independent.exitCode -eq 0) 'Source-point evidence must not repair a refusal/exit disagreement.'
@@ -324,10 +429,11 @@ foreach ($line in $candidateLines) {
     foreach ($property in $value.PSObject.Properties) {
         Require ($property.Value -is [int] -or $property.Value -is [long]) 'Candidate boundary fields must remain numerical.'
     }
-    $independent = Read-Output $line 'not-json'
+    $independent = Read-Output "Hermes Setup: MediaInvalid.`n$line" 'not-json'
     Require ($independent.exitCode -eq 1603 -and $null -eq $independent.report `
         -and $independent.protocolError -ceq 'InvalidCoordinatorReport' `
-        -and $independent.refusalEvidence.cause -eq $value.cause) 'Candidate evidence must not repair an invalid report.'
+        -and $independent.diagnosticError -ceq 'InvalidCoordinatorEvidence' `
+        -and $null -eq $independent.refusalEvidence) 'Candidate evidence must not survive an invalid report.'
 }
 $candidateInvalid = @(
     foreach ($line in $candidateLines) {
@@ -370,7 +476,7 @@ foreach ($text in $candidateInvalid) {
 $candidateAtLimit = "Hermes Setup: MediaInvalid.`n$($candidateLines[0])`n"
 $result = Read-Output ($candidateAtLimit + ('x' * (4096 - $candidateAtLimit.Length)))
 Require-Refusal $result
-Require ($null -eq $result.protocolError -and $result.refusalEvidence.cause -eq 19) 'Candidate evidence must preserve the inclusive 4096-character stderr bound.'
+Require ($result.diagnosticError -ceq 'InvalidCoordinatorDiagnosticFrame' -and $null -eq $result.refusalEvidence) 'Candidate trailing noise at the inclusive stderr bound must fail the grammar.'
 $result = Read-Output "$($candidateLines[0]) token=SYNTHETIC_SECRET" 'not-json'
 Require ($result.protocolError -ceq 'InvalidCoordinatorReport' -and $null -eq $result.report `
     -and $result.diagnosticError -ceq 'InvalidCoordinatorEvidence' -and $null -eq $result.refusalEvidence) 'Candidate diagnostic failure must not overwrite the original report failure.'
@@ -394,19 +500,49 @@ try {
     $stderr = $child.StandardError.ReadToEndAsync()
     Require ($child.WaitForExit(30000)) 'The synthetic stderr emitter exceeded its time bound.'
     $result = Read-Output $stderr.GetAwaiter().GetResult() $stdout.GetAwaiter().GetResult() $child.ExitCode
-    Require ($result.exitCode -eq $child.ExitCode -and $null -eq $result.diagnosticError `
-        -and $result.diagnosticCodes[0] -ceq 'InvalidEvidence' -and $result.refusalEvidence.stage -eq 8 `
-        -and $result.refusalEvidence.error -eq 4294967295L) 'Actual redirected child stderr did not reach the real bounded wrapper parser.'
+    Require ($result.exitCode -eq $child.ExitCode -and $result.diagnosticCodes[0] -ceq 'InvalidEvidence') 'Actual redirected child stderr did not reach the real bounded wrapper parser.'
     if ($IsWindows) {
         Require-Refusal $result
-        Require ($null -eq $result.protocolError) 'Windows child status must agree with its synthetic refusal report.'
+        Require ($null -eq $result.protocolError -and $null -eq $result.diagnosticError `
+            -and $result.refusalEvidence.stage -eq 8 -and $result.refusalEvidence.error -eq 4294967295L) 'Windows child status must agree with its synthetic refusal report.'
     } else {
         Require ($child.ExitCode -eq (1603 % 256) -and $result.protocolError -ceq 'InvalidCoordinatorReport' `
-            -and $null -eq $result.report) 'POSIX truncation of a Windows exit code must remain an explicit status disagreement, not simulated Windows acceptance.'
+            -and $null -eq $result.report -and $result.diagnosticError -ceq 'InvalidCoordinatorEvidence' `
+            -and $null -eq $result.refusalEvidence) 'POSIX truncation of a Windows exit code must remain an explicit status disagreement, not simulated Windows acceptance.'
     }
 } finally {
     if ($started -and -not $child.HasExited) { $child.Kill(); $child.WaitForExit() }
     $child.Dispose()
+}
+
+foreach ($noise in @('', 'unexpected SYNTHETIC_SECRET')) {
+    $start = [Diagnostics.ProcessStartInfo]::new()
+    $start.FileName = Join-Path $PSHOME $(if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' })
+    $start.UseShellExecute = $false
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    foreach ($argument in @('-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
+        "[Console]::Out.WriteLine('$completedReport'); [Console]::Error.WriteLine('Hermes Setup: None.'); [Console]::Error.Write('$noise'); exit 0")) {
+        $start.ArgumentList.Add($argument)
+    }
+    $child = [Diagnostics.Process]::new()
+    $child.StartInfo = $start
+    $started = $false
+    try {
+        $started = $child.Start()
+        Require $started 'The synthetic completion emitter did not start.'
+        $stdout = $child.StandardOutput.ReadToEndAsync()
+        $stderr = $child.StandardError.ReadToEndAsync()
+        Require ($child.WaitForExit(30000)) 'The synthetic completion emitter exceeded its time bound.'
+        $result = Read-Output $stderr.GetAwaiter().GetResult() $stdout.GetAwaiter().GetResult() $child.ExitCode
+        Require ($result.exitCode -eq 0 -and $result.report.ready `
+            -and (($null -eq $result.protocolError) -eq ($noise.Length -eq 0)) `
+            -and $null -eq $result.refusalEvidence `
+            -and ($result | ConvertTo-Json -Depth 8 -Compress) -cnotmatch 'SYNTHETIC_SECRET') 'Real redirected child output must accept a clean completion and reject the same completion with unconsumed stderr.'
+    } finally {
+        if ($started -and -not $child.HasExited) { $child.Kill(); $child.WaitForExit() }
+        $child.Dispose()
+    }
 }
 
 $tokens = $null
@@ -527,4 +663,4 @@ Require ($functions.Count -eq 2) 'Both actual coordinator evidence functions mus
         [IO.Directory]::Delete($destination)
     }
 }
-Write-Output "Setup evidence controls passed: $positiveCount legacy numerical combinations/boundaries, $($invalid.Count) legacy adverse diagnostics, $($sourceLines.Count) source-point lines, $($sourceInvalid.Count) source-point adverse diagnostics, real synthetic child stderr, report/marker independence and separate actual coordinator-stage persistence; synthetic only."
+Write-Output "Setup evidence controls passed: $positiveCount legacy numerical combinations/boundaries, $($invalid.Count) legacy adverse diagnostics, $($sourceLines.Count) source-point lines, $($sourceInvalid.Count) source-point adverse diagnostics, real synthetic child stderr, writer-bound frames and separate actual coordinator-stage persistence; synthetic only."

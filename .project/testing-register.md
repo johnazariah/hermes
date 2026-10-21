@@ -2,6 +2,27 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Standalone Setup consumes complete writer frames
+
+The standalone acceptance reader now requires one complete stdout report and
+consumes every stderr record. Duplicate JSON fields, extra reports, noise,
+duplicate summaries and reordered diagnostic records fail explicitly.
+Optional refusal evidence must match a valid refused report, its exit status
+and the writer's permitted failure codes. Reboot reports cannot carry Busy
+or not-installed MSI results; Busy exits cannot carry contradictory receipt
+results. Null-MSI pre-call refusals and verification-triggered reboots remain
+valid.
+
+The Setup contract/evidence, native-preflight and MSI-context suites cover
+these failures alongside valid completion, refusal, rollback, recovery and
+reboot layouts, with 56 added operation/readiness cross-field negatives.
+Real synthetic child pipes exercise both clean completion and the same
+report with stderr noise. All installer static controls and the
+131 pure CDB controls pass; no Windows native body runs on the Mac.
+
+The corresponding component transport correction is separately in progress.
+The original PowerShell startup and installed-lifecycle gates remain blocking.
+
 ## CDB callback readback distinguishes missing and unfamiliar command layouts
 
 Actual run 39645449224 at `c5955ee` reports both create/exit filters as

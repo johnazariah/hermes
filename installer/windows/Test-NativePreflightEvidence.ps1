@@ -35,7 +35,7 @@ $validLines = @(
     }
 )
 foreach ($line in $validLines) {
-    foreach ($text in @("$code`n$msi`n$line", "$line`n$code`n$msi")) {
+    foreach ($text in @("$code`n$msi`n$line", "$code`r`n$msi`r`n$line`r`n")) {
         $result = Read-Hint $text
         Require ($null -eq $result.protocolError -and $null -eq $result.diagnosticError `
             -and $null -eq $result.refusalEvidence -and $null -ne $result.nativePreflightEvidence `
@@ -76,6 +76,10 @@ foreach ($line in $invalidLines) {
 }
 foreach ($text in @(
     "$code`n$hint",
+    "$hint`n$code`n$msi", "$code`n$hint`n$msi",
+    "unknown SYNTHETIC_SECRET`n$code`n$msi`n$hint",
+    "$code`n$msi`n$hint`nunknown SYNTHETIC_SECRET",
+    "$code`n$msi`n$hint`n$code", "$code`n$msi`n$hint`n`n",
     "$code`n$($msi.Replace('preflight=0', 'preflight=1'))`n$hint",
     "$code`n$msi`n$hint`nHERMES_SETUP_EVIDENCE v=1 stage=8 cause=4 fault=0 errorKind=0 error=0"
 )) {
@@ -89,7 +93,8 @@ Require ($result.protocolError -ceq 'InvalidCoordinatorReport' -and $null -eq $r
     -and $null -eq $result.nativePreflightEvidence) 'A hint repaired an invalid public report.'
 $limit = "$code`n$msi`n$hint`n"
 $result = Read-Hint ($limit + ('x' * (4096 - $limit.Length)))
-Require ($null -eq $result.protocolError -and $null -ne $result.nativePreflightEvidence) 'Inclusive stderr bound changed.'
+Require ($result.diagnosticError -ceq 'InvalidCoordinatorDiagnosticFrame' `
+    -and $null -eq $result.nativePreflightEvidence -and $null -eq $result.msiFailureEvidence) 'Trailing noise at the inclusive stderr bound must not retain a hint.'
 $result = Read-Hint ($limit + ('x' * (4097 - $limit.Length)))
 Require ($result.diagnosticError -ceq 'CoordinatorDiagnosticsTooLong' `
     -and $null -eq $result.nativePreflightEvidence) 'Oversized stderr retained a hint.'
@@ -114,10 +119,10 @@ Require ($functions.Count -eq 2) 'Actual coordinator invoke/save functions were 
             else { $hint.Replace('point=2 reason=11', 'point=8 reason=2') }
         ConvertFrom-HermesSetupProcessOutput `
             -StandardOutput $report.Replace('"Install"', '"' + $operationName + '"') `
-            -StandardError "$code`n$msi`n$nativeHint`nunknown SYNTHETIC_SECRET token=secret" `
+            -StandardError "$code`n$msi`n$nativeHint`n" `
             -ExitCode 1603 -Operation $Operation
     }
-    $destination = [IO.Path]::Combine([IO.Path]::GetTempPath(), 'Hermes.NativeHint.' + [Guid]::NewGuid().ToString('N'))
+    $destination = Join-Path $PSScriptRoot ('obj/Hermes.NativeHint.' + [Guid]::NewGuid().ToString('N'))
     [IO.Directory]::CreateDirectory($destination) | Out-Null
     $savedSystemRoot = $env:SystemRoot
     $root = $destination

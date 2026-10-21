@@ -17,8 +17,13 @@ foreach ($operation in @('install', 'repair', 'uninstall', 'recover')) {
 }
 foreach ($case in @(
     @{ outcome = 'RolledBack'; ready = $true; native = 1603; exit = 1603 },
+    @{ outcome = 'RebootRequired'; ready = $false; native = 0; exit = 3010 },
+    @{ outcome = 'RebootRequired'; ready = $false; native = 1603; exit = 3010 },
     @{ outcome = 'RebootRequired'; ready = $false; native = 3010; exit = 3010 },
+    @{ outcome = 'RebootRequired'; ready = $false; native = 1641; exit = 3010 },
     @{ outcome = 'Refused'; ready = $false; native = $null; exit = 1618 },
+    @{ outcome = 'RecoveryRequired'; ready = $false; native = $null; exit = 1618 },
+    @{ outcome = 'RecoveryRequired'; ready = $false; native = 1618; exit = 1618 },
     @{ outcome = 'RecoveryRequired'; ready = $false; native = $null; exit = 1603 }
 )) {
     $text = [ordered]@{ schemaVersion = 1; operation = 'Install'; outcome = $case.outcome; ready = $case.ready; msiExitCode = $case.native } | ConvertTo-Json -Compress
@@ -28,6 +33,13 @@ foreach ($case in @(
     @{ patch = @{ ready = $false }; exit = 0 },
     @{ patch = @{ outcome = 'RolledBack'; msiExitCode = 1603 }; exit = 0 },
     @{ patch = @{ outcome = 'RebootRequired' }; exit = 3010 },
+    @{ patch = @{ outcome = 'RebootRequired'; ready = $false; msiExitCode = 1618 }; exit = 3010 },
+    @{ patch = @{ outcome = 'RebootRequired'; ready = $false; msiExitCode = 1605 }; exit = 3010 },
+    @{ patch = @{ outcome = 'RecoveryRequired'; ready = $false; msiExitCode = 0 }; exit = 1618 },
+    @{ patch = @{ outcome = 'RecoveryRequired'; ready = $false; msiExitCode = 1605 }; exit = 1618 },
+    @{ patch = @{ outcome = 'RecoveryRequired'; ready = $false; msiExitCode = 1603 }; exit = 1618 },
+    @{ patch = @{ outcome = 'RecoveryRequired'; ready = $false; msiExitCode = 3010 }; exit = 1618 },
+    @{ patch = @{ outcome = 'RecoveryRequired'; ready = $false; msiExitCode = 1641 }; exit = 1618 },
     @{ patch = @{ outcome = 'RolledBack'; msiExitCode = 3010 }; exit = 1603 },
     @{ patch = @{ schemaVersion = '1' }; exit = 0 },
     @{ patch = @{ operation = 'Repair' }; exit = 0 },
@@ -39,6 +51,27 @@ foreach ($case in @(
     $refused = $false
     try { $null = ConvertFrom-HermesSetupResult ($report | ConvertTo-Json -Compress) $case.exit 'install' } catch { $refused = $true }
     Require $refused 'Invalid readiness/process status must not become wrapper success.'
+}
+$completed = '{"schemaVersion":1,"operation":"Install","outcome":"Completed","ready":true,"msiExitCode":0}'
+foreach ($text in @($completed, "$completed`n", "$completed`r`n",
+    '{"operation":"Install", "outcome":"Completed", "ready":true, "msiExitCode":0, "schemaVersion":1}')) {
+    Require (ConvertFrom-HermesSetupResult $text 0 install).ready 'Exactly one complete report must remain accepted with either writer line ending or property order.'
+}
+foreach ($text in @(
+    "$completed`n$completed", "$completed`nunknown", "unknown`n$completed",
+    "`n$completed", "$completed`n`n", "[$completed]", "null", '{}',
+    $completed.Replace('"schemaVersion":1', '"schemaVersion":1,"schemaVersion":1'),
+    $completed.Replace('"ready":true', '"ready":false,"ready":true'),
+    $completed.Replace('"operation":"Install"', '"operation":"Repair","operation":"Install"'),
+    $completed.Replace('"schemaVersion":1', '"schema\u0056ersion":1'),
+    $completed.Replace('"schemaVersion":1,', '"schemaVersion":1,' + "`n"),
+    $completed.Replace('"msiExitCode":0}', '"msiExitCode":0,}'),
+    $completed.Replace('"schemaVersion":1', '"schemaVersion":1.0'),
+    $completed.Replace('"schemaVersion":1', '"schemaVersion":1e0')
+)) {
+    $refused = $false
+    try { $null = ConvertFrom-HermesSetupResult $text 0 install } catch { $refused = $true }
+    Require $refused 'Duplicate, extra, non-writer or trailing stdout records must not become a coordinator report.'
 }
 $current = 'a' * 64
 $previous = 'b' * 64
