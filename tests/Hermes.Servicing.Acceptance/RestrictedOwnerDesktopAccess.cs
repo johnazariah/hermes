@@ -77,6 +77,32 @@ internal interface IAcceptanceMandatoryLabelQuery
     AcceptanceLabelQueryReply Query(Span<byte> buffer);
 }
 
+internal readonly record struct AcceptanceDescriptorReply(
+    byte[]? Bytes, int Error, bool Invalid);
+
+// Shared bounded transport; decoding and descriptor scope remain caller-owned.
+internal static class AcceptanceDescriptorQuery
+{
+    private static AcceptanceDescriptorReply Invalid => new(null, 13, true);
+
+    internal static AcceptanceDescriptorReply Read(IAcceptanceMandatoryLabelQuery query)
+    {
+        var size = query.Query(Span<byte>.Empty);
+        if (size.Succeeded != 0 || size.Error != 122)
+            return size.Succeeded == 0 ? Failure(size.Error) : Invalid;
+        if (size.Bytes is < 20 or > AcceptanceDesktopDacl.DescriptorLimit)
+            return Invalid;
+        var bytes = new byte[checked((int)size.Bytes)];
+        var reply = query.Query(bytes);
+        if (reply.Succeeded == 0)
+            return Failure(reply.Error);
+        return reply.Bytes == (uint)bytes.Length ? new(bytes, 0, false) : Invalid;
+    }
+
+    private static AcceptanceDescriptorReply Failure(int error) =>
+        new(null, error > 0 ? error : 13, false);
+}
+
 internal static class AcceptanceDesktopMandatoryLabel
 {
     // LABEL_SECURITY_INFORMATION requires READ_CONTROL, not a full-SACL query.
@@ -91,16 +117,12 @@ internal static class AcceptanceDesktopMandatoryLabel
     internal static AcceptanceMandatoryLabelObservation Read(
         IAcceptanceMandatoryLabelQuery query)
     {
-        var size = query.Query(Span<byte>.Empty);
-        if (size.Succeeded != 0 || size.Error != 122)
-            return size.Succeeded == 0 ? Failure(size.Error) : Invalid;
-        if (size.Bytes is < 20 or > AcceptanceDesktopDacl.DescriptorLimit)
-            return Invalid;
-        var bytes = new byte[checked((int)size.Bytes)];
-        var reply = query.Query(bytes);
-        if (reply.Succeeded == 0)
-            return Failure(reply.Error);
-        return reply.Bytes == (uint)bytes.Length ? Decode(bytes) : Invalid;
+        return AcceptanceDescriptorQuery.Read(query) switch
+        {
+            { Bytes: { } bytes } => Decode(bytes),
+            { Invalid: true } => Invalid,
+            var failure => Failure(failure.Error)
+        };
     }
 
     internal static AcceptanceMandatoryLabelObservation Decode(ReadOnlySpan<byte> bytes)
@@ -216,7 +238,8 @@ internal static class AcceptanceDesktopDacl
     }
 
     internal static byte[] NormalizeDescriptor(
-        byte[] bytes, bool requireConcreteAccess = false)
+        byte[] bytes, bool requireConcreteAccess = false,
+        bool requireUnconditionalAccess = false)
     {
         RequireEnvelope(bytes);
         try
@@ -224,6 +247,7 @@ internal static class AcceptanceDesktopDacl
             var descriptor = new RawSecurityDescriptor(bytes, 0);
             if (requireConcreteAccess && HasGenericAccess(descriptor.DiscretionaryAcl))
                 throw RestrictedOwnerToken.Failure(50);
+            RequireUnconditionalAccess(descriptor.DiscretionaryAcl, requireUnconditionalAccess);
             return CopyDaclDescriptor(descriptor);
         }
         catch (Exception error) when (
@@ -244,6 +268,17 @@ internal static class AcceptanceDesktopDacl
         acl is { } present && present.Cast<GenericAce>().Any(ace =>
             ace is not KnownAce known ||
             (unchecked((uint)known.AccessMask) & 0xf0000000) != 0);
+
+    private static void RequireUnconditionalAccess(RawAcl? acl, bool required)
+    {
+        if (required && acl is { } present && present.Cast<GenericAce>().Any(ace =>
+            ace is not CommonAce
+            {
+                IsCallback: false,
+                AceQualifier: AceQualifier.AccessAllowed or AceQualifier.AccessDenied
+            }))
+            throw RestrictedOwnerToken.Failure(50);
+    }
 
     private static byte[] CopyDaclDescriptor(RawSecurityDescriptor descriptor)
     {

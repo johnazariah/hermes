@@ -14,6 +14,7 @@ internal interface IAcceptanceOwnedChild : IDisposable
     void AssignJob();
     RestrictedOwnerTokenFacts ReadPrimaryFacts();
     MsiContextRead ReadThreadToken();
+    AcceptanceChildAccessResult ReadObjectAccess();
     void Resume();
     uint Wait(CancellationToken cancellationToken);
 }
@@ -22,7 +23,11 @@ internal sealed record RestrictedOwnerChildResult(
     RestrictedOwnerTokenFacts Facts,
     MsiContextRead Thread,
     uint ExitCode,
-    bool CleanupCompleted);
+    bool CleanupCompleted)
+{
+    internal AcceptanceChildAccessResult Access { get; init; } =
+        AcceptanceChildAccessResult.Unknown;
+}
 
 internal sealed class AcceptanceChildCleanupException(IEnumerable<Exception> errors)
     : AggregateException("Acceptance child cleanup incomplete.", errors);
@@ -87,15 +92,25 @@ internal static class RestrictedOwnerChild
         cancellationToken.ThrowIfCancellationRequested();
         token.CreateSuspendedInertChild(child);
         child.AssignJob();
+        var (facts, thread) = VerifySuspended(child);
+        _ = token.Verify();
+        cancellationToken.ThrowIfCancellationRequested();
+        var access = child.ReadObjectAccess();
+        _ = token.Verify();
+        cancellationToken.ThrowIfCancellationRequested();
+        child.Resume();
+        var exit = child.Wait(cancellationToken);
+        return new(facts, thread, exit, false) { Access = access };
+    }
+
+    private static (RestrictedOwnerTokenFacts Facts, MsiContextRead Thread)
+        VerifySuspended(IAcceptanceOwnedChild child)
+    {
         var facts = child.ReadPrimaryFacts();
         facts.Require();
         var thread = child.ReadThreadToken();
         if (thread != MsiContextRead.Absent)
             throw new RestrictedOwnerTokenVerificationException(128);
-        _ = token.Verify();
-        cancellationToken.ThrowIfCancellationRequested();
-        child.Resume();
-        var exit = child.Wait(cancellationToken);
-        return new(facts, thread, exit, false);
+        return (facts, thread);
     }
 }

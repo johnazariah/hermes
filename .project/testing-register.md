@@ -2,6 +2,28 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Owned-child security inventory uses the actual child token
+
+Before resuming the existing inert child, the reviewed probe retains its
+verified primary token with TOKEN_QUERY only and creates a no-audit Authz
+context directly from that token. It reads the owned process/thread
+owner/group/DACL and labels separately, using bounded kernel-object queries
+and the existing descriptor/label helpers. No handle is reopened, token is
+assigned, privilege is acquired or ACL is changed.
+
+Authz avoids an unverified process/thread generic mapping. Generic, object
+and callback ACEs are unsupported rather than guessed. API failure, per-reply
+denial and malformed output remain distinct; unexpected faults propagate
+through checked cleanup. Numeric inventory and label results reach both
+existing failing A/B arms and the original genuine-child test. DACL inventory
+is not an effective kernel/MIC verdict or loader diagnosis.
+
+Thirty-five additional capability/lifetime cases require exactly 294 native
+cases, retaining all previous 259 cases and exit-37 requirements. Independent
+C# review approves the literal patch; parent root and Windows cross-builds
+pass without warnings, all 2,182 Core cases pass, and installer static controls
+pass. Actual owned-child access and successful initialisation remain pending.
+
 ## Parent USER-object mandatory labels are queried read-only
 
 The acceptance probe now requests only LABEL_SECURITY_INFORMATION (16) on
@@ -18,10 +40,12 @@ exit 37. Independent C# source review approves the literal patch; parent
 root and Windows cross-builds pass without warnings, all 2,182 Core tests
 pass, and installer static/transport/provenance controls pass.
 
-Actual Windows label observations remain pending. Earlier run 39575648958
-measured full DACL grants on both parent USER objects, but both children
-exited 0xC0000142. Neither that result nor label metadata alone identifies
-the loader failure or establishes effective MIC access.
+Actual Windows run 39578854205 passes all 65 new cases: 257 native passes,
+two unchanged startup failures and zero skips. Both parent USER objects
+have explicit Low labels (4096), NoWriteUp policy (1), no inheritance flags
+and error zero; the restricted subject is Medium (8192). DACL grants remain
+full, but both children still exit 0xC0000142. These are not higher-integrity
+write-up targets; overall kernel access and loader causation remain unresolved.
 
 ## Restricted-token desktop DACL decisions are observed without mutation
 

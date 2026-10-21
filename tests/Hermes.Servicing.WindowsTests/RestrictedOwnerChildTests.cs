@@ -13,7 +13,7 @@ namespace Hermes.Servicing.WindowsTests;
 
 [SupportedOSPlatform("windows")]
 [Collection(nameof(RestrictedOwnerNativeCollection))]
-public sealed class RestrictedOwnerChildTests(ITestOutputHelper output)
+public sealed partial class RestrictedOwnerChildTests(ITestOutputHelper output)
 {
     private static readonly ChildPoint[] CleanupPoints =
     [
@@ -31,7 +31,13 @@ public sealed class RestrictedOwnerChildTests(ITestOutputHelper output)
         Assert.Equal(MsiContextRead.Absent, result.Thread);
         Assert.Equal(37u, result.ExitCode);
         Assert.True(result.CleanupCompleted && fake.Child.IsClosed);
-        Assert.Equal(Enum.GetValues<ChildPoint>(), fake.Calls);
+        Assert.Equal(new[]
+        {
+            ChildPoint.Open, ChildPoint.Job, ChildPoint.Create, ChildPoint.Assign,
+            ChildPoint.Facts, ChildPoint.Thread, ChildPoint.Inventory,
+            ChildPoint.Resume, ChildPoint.Wait, ChildPoint.CloseJob,
+            ChildPoint.Stop, ChildPoint.Reap, ChildPoint.CloseThread, ChildPoint.CloseProcess
+        }, fake.Calls);
         Assert.Equal(1, fake.Resumes);
         fake.Child.Dispose();
         Assert.Equal(1, fake.Resumes);
@@ -417,6 +423,7 @@ public sealed class RestrictedOwnerChildTests(ITestOutputHelper output)
     private RestrictedOwnerChildResult WriteDesktopArm(
         RestrictedOwnerChildResult proof, IAcceptanceOwnedChild child, int arm)
     {
+        WriteChildAccess(proof.Access, arm);
         var verified = proof.Facts.FailedPredicates == 0 &&
             proof.Thread == MsiContextRead.Absent;
         var closed = child.IsClosed && ClosedUseRefused(child);
@@ -437,6 +444,21 @@ public sealed class RestrictedOwnerChildTests(ITestOutputHelper output)
             .Aggregate(0, (mask, value) => mask | value.FailedPredicates);
         output.WriteLine(
             $"HERMES_RESTRICTED_DESKTOP_AB v=1 arm={arm} completed=0 error={code} failed={failed} cleanupNotCompleted={(HasCleanupFailure(error) ? 1 : 0)}");
+    }
+
+    private void WriteChildAccess(AcceptanceChildAccessResult result, int arm)
+    {
+        WriteChildObjectAccess(result.Process, arm, result.ResourcesClosed);
+        WriteChildObjectAccess(result.Thread, arm, result.ResourcesClosed);
+    }
+
+    private void WriteChildObjectAccess(
+        AcceptanceChildObjectAccess value, int arm, bool resourcesClosed)
+    {
+        var authz = value.Authz;
+        var label = value.Label;
+        output.WriteLine(
+            $"HERMES_RESTRICTED_CHILD_AUTHZ v=1 arm={arm} object={(int)value.Object} subject={(int)value.Subject} descriptorScope=7 desired=33554432 micObserved=0 status={(int)authz.State} error={authz.Error} replyError={authz.ReplyError} grantedMask={authz.GrantedMask} labelScope=16 labelState={(int)label.State} rid={label.IntegrityRid} policy={label.Policy} aceFlags={label.AceFlags} labelError={label.Error} resourcesClosed={(resourcesClosed ? 1 : 0)}");
     }
 
     private sealed class FakeDesktopNames(string name, Exception? fault = null)
@@ -989,6 +1011,7 @@ public sealed class RestrictedOwnerChildTests(ITestOutputHelper output)
         var security = api.ReadParentSecurity();
         var children = new RecordingChildren(api);
         var proof = MeasureChild(api, children);
+        WriteChildAccess(proof.Access, 2);
         var parent = before == ReadParent() &&
             security.SameFinalState(api.ReadParentSecurity());
         var closed = children.Child.IsClosed && ClosedUseRefused(children.Child);
@@ -1048,7 +1071,7 @@ public sealed class RestrictedOwnerChildTests(ITestOutputHelper output)
     }
 
     private static IEnumerable<ChildPoint> CleanupCalls(FakeChildren fake) =>
-        fake.Calls.Where(point => point >= ChildPoint.CloseJob);
+        fake.Calls.Where(CleanupPoints.Contains);
 
     private static RestrictedOwnerTokenFacts Changed(int predicate, int value) =>
         predicate switch
@@ -1077,7 +1100,8 @@ public sealed class RestrictedOwnerChildTests(ITestOutputHelper output)
         Stop,
         Reap,
         CloseThread,
-        CloseProcess
+        CloseProcess,
+        Inventory
     }
 
     private sealed class RecordingChildren(IAcceptanceChildFactory native)
@@ -1114,6 +1138,8 @@ public sealed class RestrictedOwnerChildTests(ITestOutputHelper output)
 
         internal FakeTokens Tokens { get; } = new();
         internal FakeChild Child { get; }
+        internal AcceptanceChildAccessResult Access { get; init; } =
+            AcceptanceChildAccessResult.Unknown;
         internal IReadOnlyList<ChildPoint> Calls => _calls;
         internal int Resumes => _calls.Count(point => point == ChildPoint.Resume);
 
@@ -1161,6 +1187,12 @@ public sealed class RestrictedOwnerChildTests(ITestOutputHelper output)
             {
                 Call(ChildPoint.Thread);
                 return owner._thread;
+            }
+
+            public AcceptanceChildAccessResult ReadObjectAccess()
+            {
+                Call(ChildPoint.Inventory);
+                return owner.Access;
             }
 
             public void Resume() => Call(ChildPoint.Resume);

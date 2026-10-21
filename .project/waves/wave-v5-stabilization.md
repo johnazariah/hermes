@@ -100,6 +100,21 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Owned-child security inventory avoids guessed generic mappings
+
+- **Decision:** The process/thread AccessCheck approach stopped without code because the available primaries did not establish its generic mappings. A fresh specialist instead uses a documented no-audit Authz context from the actual verified child primary token, retaining TOKEN_QUERY only.
+- **Changed:** Before the existing resume, bounded read-only queries collect owned process/thread DACLs and labels. Generic/object/callback ACEs remain unsupported; native failure, per-reply denial and malformed output stay distinct. Both A/B arms emit numeric results while original exit-37, parent-preservation and cleanup requirements remain.
+- **Validation:** Independent C# source review approves the complete patch; mechanical application is byte-exact with BOM/LF preserved. Root/Windows cross-builds have zero warnings/errors; 2,182 Core cases and all installer static controls pass. Thirty-five new cases require exactly 294 native cases.
+- **Blockers:** Actual owned-object observations and successful child initialisation are pending. Last completed head `6605bd6` passes both supported OS jobs, Tray and measured 86.0% line / 61.46% branch coverage on the unchanged denominator, but retains two startup failures.
+- **Next:** Publish and read the actual child-token DACL inventory and object labels; no permission change or loader-root claim follows from source approval.
+
+### 2026-10-21 - Both parent USER objects carry explicit Low integrity labels
+
+- **Evidence:** Published `6605bd6` run `39578854205` returns a present label on both station and desktop: RID 4096 (Low), policy 1 (NoWriteUp), inheritance flags zero and error zero. The restricted subject is Medium (8192); these objects are not higher-integrity write-up targets. DACL grants remain full.
+- **Validation:** All 65 new cases pass; the native project records 257 passes, the same two startup failures and zero skips. NULL and explicit-parent children still exit 0xC0000142, with verified contexts, complete cleanup and unchanged parent security/connection. Portable Control 133 and Setup 1,087 also pass.
+- **Blockers:** Child initialisation still fails. No installed lifecycle follows the failed native gate, and the label observations do not establish overall kernel access or identify the failing DLL.
+- **Next:** A fresh C# specialist traces the documented default-security origin and a read-only self-access discriminator for the owned suspended process/thread objects.
+
 ### 2026-10-21 - Read-only parent USER labels reach the blocking startup experiment
 
 - **Changed:** A fresh C# specialist adds label-only queries on the existing parent station/desktop. Bounded numeric results distinguish present, missing, unsupported, failed and malformed labels while retaining policy and inheritance flags. No ACL, privilege, parent connection or child setting changes.

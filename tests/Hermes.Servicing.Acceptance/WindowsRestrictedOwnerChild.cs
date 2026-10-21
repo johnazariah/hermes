@@ -83,6 +83,7 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IAcceptanceC
         Assigned,
         PrimaryVerified,
         ThreadVerified,
+        AccessObserved,
         ResumeAttempted,
         Running,
         Exited
@@ -95,6 +96,7 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IAcceptanceC
         private SafeChildHandle? _job;
         private SafeChildHandle? _process;
         private SafeChildHandle? _thread;
+        private SafeChildHandle? _primary;
         private ChildState _state;
         private bool _disposed;
         private bool _cleanupCompleted;
@@ -162,7 +164,8 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IAcceptanceC
         public RestrictedOwnerTokenFacts ReadPrimaryFacts()
         {
             Require(ChildState.Assigned);
-            using var candidate = OpenChildPrimary();
+            _primary = OpenChildPrimary();
+            var candidate = Handle(_primary);
             using var source = Instance.OpenCurrentPrimary();
             var current = SourceHandle(source);
             var (enabled, denyOnly) = ReadAdministrator(candidate);
@@ -176,12 +179,16 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IAcceptanceC
             return facts;
         }
 
-        private SafeAccessTokenHandle OpenChildPrimary()
+        private SafeChildHandle OpenChildPrimary()
         {
             nint raw = 0;
             if (OpenChildProcessToken(Handle(_process), 0x0008, &raw) == 0)
                 throw NativeFailure();
-            return Own(raw);
+            var token = new SafeChildHandle(raw);
+            if (!token.IsInvalid)
+                return token;
+            token.CloseChecked();
+            throw RestrictedOwnerToken.Failure(13);
         }
 
         public MsiContextRead ReadThreadToken()
@@ -200,9 +207,18 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IAcceptanceC
             return MsiContextRead.Absent;
         }
 
-        public void Resume()
+        public AcceptanceChildAccessResult ReadObjectAccess()
         {
             Require(ChildState.ThreadVerified);
+            var result = AcceptanceChildAccess.Read(new ChildAuthzScope(
+                Handle(_primary), Handle(_process), Handle(_thread)));
+            _state = ChildState.AccessObserved;
+            return result;
+        }
+
+        public void Resume()
+        {
+            Require(ChildState.AccessObserved);
             // Set before the call: failure or an unexpected suspend count
             // cannot turn into a retry.
             _state = ChildState.ResumeAttempted;
@@ -248,6 +264,7 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IAcceptanceC
                 () => _job?.CloseChecked(),
                 StopOwnedProcess,
                 ReapOwnedProcess,
+                () => _primary?.CloseChecked(),
                 () => _thread?.CloseChecked(),
                 () => _process?.CloseChecked());
             _cleanupCompleted = true;
