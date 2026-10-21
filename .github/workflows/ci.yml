@@ -265,7 +265,11 @@ jobs:
           ./installer/windows/Test-PackageLayout.ps1
           dotnet publish tests/Hermes.Tray.Smoke/Hermes.Tray.Smoke.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o "$PWD/.artifacts/installer-smoke-host" -v q
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Test bounded native-startup diagnostic protocol without native execution
+        shell: pwsh
+        run: ./installer/windows/Test-NativeStartupTrace.ps1
       - name: Execute the complete Windows servicing test project
+        id: native-gate
         shell: pwsh
         run: |
           $servicing = Get-Content -LiteralPath "$PWD/.artifacts/servicing/servicing-build.json" -Raw | ConvertFrom-Json
@@ -274,20 +278,39 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           [xml]$tests = Get-Content -LiteralPath "$PWD/.artifacts/servicing-windows-tests/servicing-windows.trx" -Raw
           $counts = $tests.TestRun.ResultSummary.Counters
-          if ([int]$counts.total -ne 439 -or [int]$counts.executed -ne 439 -or [int]$counts.passed -ne 439 `
+          if ([int]$counts.total -ne 457 -or [int]$counts.executed -ne 457 -or [int]$counts.passed -ne 457 `
               -or [int]$counts.failed -ne 0 -or [int]$counts.notExecuted -ne 0) {
-            throw 'Expected all existing 411 Windows cases plus 28 actual-token object-security cases (439 total), with no skips. The genuine PowerShell case still requires exit 37 in all five arms.'
+            throw 'Expected all existing 439 Windows cases plus 18 finite startup-diagnostic cases (457 total), with no skips. The genuine PowerShell case still requires exit 37 in all five arms.'
+          }
+          $startup = @($tests.TestRun.Results.UnitTestResult | Where-Object {
+            $_.testName.StartsWith('Hermes.Servicing.WindowsTests.StartupDebugProbeTests.', [StringComparison]::Ordinal)
+          })
+          if ($startup.Count -ne 18 -or [int]$counts.total - $startup.Count -ne 439 `
+              -or @($startup | Where-Object outcome -NE 'Passed').Count -ne 0) {
+            throw 'The original 439 cases and the 18 new diagnostic cases must remain separately accounted for.'
           }
       - name: Inspect fixed native-debugger prerequisites
+        id: native-debugger
         if: always()
         shell: pwsh
         run: |
           $kits = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFilesX86)) 'Windows Kits/10/Debuggers/x64'
           $names = @('cdb.exe', 'gflags.exe', 'dbgeng.dll')
+          $available = $true
           for ($index = 0; $index -lt $names.Count; $index++) {
             $present = [int][IO.File]::Exists((Join-Path $kits $names[$index]))
+            $available = $available -and $present -eq 1
             Write-Output "HERMES_NATIVE_DEBUG_TOOLS v=1 role=$($index + 1) present=$present"
           }
+          $available = $available `
+            -and [IO.File]::Exists("$PWD/.artifacts/servicing-acceptance/acceptance/Hermes.Servicing.Acceptance.exe") `
+            -and [IO.File]::Exists("$PWD/.artifacts/servicing-acceptance/acceptance-build.json")
+          [IO.File]::AppendAllText($env:GITHUB_OUTPUT, "available=$([int]$available)`n")
+      - name: Diagnose one owned restricted PowerShell startup after the failed native gate
+        if: always() && steps.native-gate.outcome == 'failure' && steps.native-debugger.outputs.available == '1'
+        timeout-minutes: 5
+        shell: pwsh
+        run: ./installer/windows/Invoke-NativeStartupTrace.ps1
       - name: Coordinator install, repair, launch, upgrade, rollback and uninstall without SDK access
         shell: pwsh
         run: |
@@ -307,6 +330,7 @@ jobs:
             .artifacts/installer-evidence/acceptance.json
             .artifacts/installer-evidence/*-native.json
             .artifacts/installer-evidence/actual-servicing.json
+            .artifacts/installer-evidence/startup-debug.json
           if-no-files-found: warn
           retention-days: 3
 

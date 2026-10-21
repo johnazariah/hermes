@@ -4,6 +4,9 @@ internal static class Program
 {
     private static async Task<int> Main(string[] arguments)
     {
+        if (arguments.FirstOrDefault() == StartupDebugProbe.Command)
+            return StartupDebugProbe.Dispatch(arguments, new WindowsStartupDebugHost());
+
         using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(12));
         try
         {

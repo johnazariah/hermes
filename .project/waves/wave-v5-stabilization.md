@@ -100,6 +100,15 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Owned native-loader trace is wired behind the still-failing gate
+
+- **Changed:** A fixed debug-only helper creates one existing restricted PowerShell child. CDB child creation/exit events, actual debug-port/identity checks and a PID/creation-bound acknowledgement arm live per-process loader snaps before the owned single resume. No global IFEO flag, guessed offset, privilege override, token/ACL change or arbitrary target command is added.
+- **Boundary:** Native initialization text must have a recognized failure grammar and match historical arming before exit. Module loads/exit-only output cannot become root evidence. The normal PowerShell exit-37 gate remains strict and blocks servicing/publication even if diagnostics complete.
+- **Review:** Initial output-budget enforcement and its first exact-limit revision were independently rejected. Both authors are locked out; fresh owners implemented combined accepted UTF-8 byte accounting and immediate bounded cleanup at or above 8 MiB, including zero-remaining states. Final independent review approves source only.
+- **Validation:** Parent passes 37 pure protocol/driver controls, warning-free root and Windows cross-builds, 2,182 Core and installer static controls. Eighteen diagnostic cases require exact Windows discovery of 457 (old 439 retained); native debugger execution is still pending.
+- **Privacy:** Debugger/helper/source files are pinned; raw output is bounded and private. Only the numeric/hash advisory report is retained for three days, never raw trace, dumps or binaries. Missing binding, unknown text, timeout and incomplete cleanup remain failures.
+- **Next:** Run this wired diagnostic on the confirmed installed debugger and use the first genuine initialization failure to select the correction.
+
 ### 2026-10-22 - Native startup tracing replaces further permission variants
 
 - **Changed:** The disposable Windows installer job now reports only presence/absence for fixed SDK debugger prerequisites: CDB, GFlags and DbgEng. The read-only inventory runs even when the strict PowerShell test fails; no assertion, token, registry, privilege or artifact policy changes.

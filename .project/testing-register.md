@@ -2,6 +2,33 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Owned-process loader tracing remains advisory to the failing native gate
+
+The fixed `startup-debug-probe` CLI runs only under a debugger in the disposable
+installer job. It reuses the actual restricted PowerShell child, verifies
+identity/debug-port/context, then waits for a PID/creation-bound loader-arming
+acknowledgement before its single resume. Ordinary startup deadlines and
+exit-37 tests are unchanged.
+
+CDB child-process creation/exit events, current-process markers and live
+loader-flag readback must agree with the helper's held child identity before
+failure text counts. Historical arming survives normal exit but not a changed
+binding or tainted protocol. Only recognized initialization failures count;
+module loads and exit codes alone do not. Reports are bounded numeric/hash
+advisories and explicitly do not establish native acceptance.
+
+Eighteen finite-command/gate/arming/lifetime cases raise exact Windows discovery
+to 457, retaining all original 439. Thirty-seven pure PowerShell controls cover
+binding, ordering, first failure, output privacy, cleanup and combined accepted
+UTF-8 collection limits, including immediate cleanup at exact 8-MiB exhaustion.
+The original budget implementations were rejected and revised by fresh owners.
+
+Fresh independent review approves the final boundary. Parent passes all 37
+pure controls, installer static controls, warning-free root/Windows builds and
+2,182 Core cases. Only derived `startup-debug.json` is uploaded for three days;
+raw trace, binaries and dumps are not. Actual CDB behavior and root-cause data
+remain pending.
+
 ## Actual child-token object security is observed separately
 
 The actual retained child-primary token gains only READ_CONTROL alongside
