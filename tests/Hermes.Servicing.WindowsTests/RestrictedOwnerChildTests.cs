@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel;
+using System.Buffers.Binary;
 using System.Runtime.ExceptionServices;
 using System.Runtime.Versioning;
 using System.Security.AccessControl;
@@ -664,6 +665,7 @@ public sealed class RestrictedOwnerChildTests(ITestOutputHelper output)
             AcceptanceDesktopDacl.RequireProbe(result.ProbeFacts, result.ImpersonationLevel);
             WriteDesktopAccessObject(1, result.Station);
             WriteDesktopAccessObject(2, result.Desktop);
+            WriteDesktopLabels(result);
             output.WriteLine(
                 $"HERMES_RESTRICTED_DESKTOP_ACCESS_PROBE v=1 verified=1 type={result.ProbeFacts.TokenType} level={result.ImpersonationLevel} stationFlags={result.StationFlags} closed={(result.ProbeClosed ? 1 : 0)}");
             Assert.True(result.ProbeClosed &&
@@ -676,6 +678,21 @@ public sealed class RestrictedOwnerChildTests(ITestOutputHelper output)
     private void WriteDesktopAccessObject(int target, AcceptanceDaclObservation value) =>
         output.WriteLine(
             $"HERMES_RESTRICTED_DESKTOP_ACCESS v=1 object={target} descriptorScope=7 desired=33554432 micObserved=0 observed={value.Observed} allowed={value.Allowed} grantedMask={value.GrantedMask} error={value.Error}");
+
+    private void WriteDesktopLabels(AcceptanceDesktopAccessResult result)
+    {
+        WriteDesktopLabel(1, result.ProbeFacts.Integrity, result.StationLabel);
+        WriteDesktopLabel(2, result.ProbeFacts.Integrity, result.DesktopLabel);
+        // A classified query failure is visible evidence, not an access denial.
+        // Do not prevent either child arm merely because a label query failed.
+        Assert.NotEqual(AcceptanceMandatoryLabelState.Unknown, result.StationLabel.State);
+        Assert.NotEqual(AcceptanceMandatoryLabelState.Unknown, result.DesktopLabel.State);
+    }
+
+    private void WriteDesktopLabel(
+        int target, int tokenIntegrity, AcceptanceMandatoryLabelObservation value) =>
+        output.WriteLine(
+            $"HERMES_RESTRICTED_PARENT_USER_LABEL v=1 object={target} descriptorScope=16 tokenIntegrity={tokenIntegrity} state={(int)value.State} rid={value.IntegrityRid} policy={value.Policy} aceFlags={value.AceFlags} error={value.Error}");
 
     private void WriteDesktopAccessFailure(Exception error)
     {
@@ -713,6 +730,253 @@ public sealed class RestrictedOwnerChildTests(ITestOutputHelper output)
                 throw error;
             return new(new(1, 1, 0x00020001, 0), new(1, 1, 0x00020001, 0),
                 RestrictedOwnerTokenFacts.Required with { TokenType = 2 }, 2, 0, true);
+        }
+    }
+
+    [Fact]
+    public void Unprovided_label_metadata_is_unknown_and_closed_tokens_remain_refused()
+    {
+        var tokens = new FakeTokens();
+        using var token = RestrictedOwnerToken.Create(tokens);
+        var access = new FakeDesktopAccess(tokens);
+        var result = token.ReadExistingParentDesktopAccess(access);
+        var unknown = new AcceptanceMandatoryLabelObservation(
+            AcceptanceMandatoryLabelState.Unknown, -1, -1, -1, 0);
+        Assert.Equal(unknown, result.StationLabel);
+        Assert.Equal(unknown, result.DesktopLabel);
+        token.Dispose();
+        var error = Assert.Throws<Win32Exception>(() =>
+            token.ReadExistingParentDesktopAccess(access));
+        Assert.Equal(6, error.NativeErrorCode);
+        Assert.Equal(1, access.Reads);
+    }
+
+    [Theory]
+    [InlineData(0u, 0u, 0)]
+    [InlineData(4096u, 1u, 0)]
+    [InlineData(8192u, 2u, 0)]
+    [InlineData(8448u, 3u, 16)]
+    [InlineData(12288u, 4u, 3)]
+    [InlineData(16384u, 5u, 0)]
+    [InlineData(uint.MaxValue, 6u, 0)]
+    [InlineData(8192u, 7u, 31)]
+    public void Label_queries_report_the_numeric_ace_without_inferring_access(
+        uint rid, uint policy, int flags)
+    {
+        var query = new FakeMandatoryLabelQuery(
+            SyntheticMandatoryLabel(rid, policy, checked((byte)flags)));
+        var result = AcceptanceDesktopMandatoryLabel.Read(query);
+        Assert.Equal(new AcceptanceMandatoryLabelObservation(
+            AcceptanceMandatoryLabelState.Present, rid, checked((int)policy), flags, 0),
+            result);
+        Assert.Equal(new[] { 0, 48 }, query.Sizes);
+        Assert.Equal(16u, AcceptanceDesktopMandatoryLabel.DescriptorScope);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void Missing_labels_do_not_fabricate_a_measured_medium_rid_or_policy(int kind)
+    {
+        var bytes = SyntheticMandatoryLabel();
+        bytes[2] = kind == 0 ? (byte)0 : (byte)0x10;
+        bytes[12] = kind < 2 ? (byte)0 : (byte)20;
+        bytes[20] = kind == 3 ? (byte)4 : (byte)2;
+        bytes[22] = 8;
+        bytes[24] = 0;
+        var query = new FakeMandatoryLabelQuery(bytes);
+        Assert.Equal(new AcceptanceMandatoryLabelObservation(
+            AcceptanceMandatoryLabelState.Missing, -1, -1, -1, 0),
+            AcceptanceDesktopMandatoryLabel.Read(query));
+        Assert.Equal(new[] { 0, 48 }, query.Sizes);
+    }
+
+    [Theory]
+    [InlineData(0, 2)]
+    [InlineData(3, 0)]
+    [InlineData(4, 20)]
+    [InlineData(8, 20)]
+    [InlineData(16, 20)]
+    [InlineData(2, 0)]
+    [InlineData(12, 19)]
+    [InlineData(12, 21)]
+    [InlineData(12, 48)]
+    [InlineData(15, 255)]
+    [InlineData(20, 1)]
+    [InlineData(21, 1)]
+    [InlineData(22, 7)]
+    [InlineData(22, 24)]
+    [InlineData(22, 29)]
+    [InlineData(22, 32)]
+    [InlineData(24, 2)]
+    [InlineData(26, 1)]
+    [InlineData(28, 0)]
+    [InlineData(29, 32)]
+    [InlineData(30, 19)]
+    [InlineData(31, 1)]
+    [InlineData(32, 8)]
+    [InlineData(36, 2)]
+    [InlineData(37, 2)]
+    [InlineData(38, 1)]
+    [InlineData(43, 5)]
+    public void Adverse_label_descriptor_metadata_is_not_missing_or_denied(
+        int offset, int value)
+    {
+        var bytes = SyntheticMandatoryLabel();
+        bytes[offset] = checked((byte)value);
+        RequireInvalidMandatoryLabel(AcceptanceDesktopMandatoryLabel.Decode(bytes));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(19)]
+    [InlineData(27)]
+    [InlineData(47)]
+    [InlineData(65537)]
+    public void Label_descriptor_envelopes_are_bounded_before_decoding(int length)
+    {
+        var source = SyntheticMandatoryLabel();
+        var bytes = new byte[length];
+        source.AsSpan(0, Math.Min(source.Length, length)).CopyTo(bytes);
+        RequireInvalidMandatoryLabel(AcceptanceDesktopMandatoryLabel.Decode(bytes));
+    }
+
+    [Theory]
+    [InlineData(0, 4, 13)]
+    [InlineData(5, 4, 5)]
+    [InlineData(50, 3, 50)]
+    [InlineData(120, 3, 120)]
+    [InlineData(87, 4, 87)]
+    [InlineData(1314, 4, 1314)]
+    public void Failed_label_queries_ignore_poisoned_outputs_without_denial_inference(
+        int error, int state, int code)
+    {
+        var failure = new AcceptanceLabelQueryReply(0, uint.MaxValue, error);
+        var first = new FakeMandatoryLabelQuery(
+            SyntheticMandatoryLabel(), measure: failure);
+        var second = new FakeMandatoryLabelQuery(
+            SyntheticMandatoryLabel(), read: failure);
+        var expected = new AcceptanceMandatoryLabelObservation(
+            (AcceptanceMandatoryLabelState)state, -1, -1, -1, code);
+        Assert.Equal(expected, AcceptanceDesktopMandatoryLabel.Read(first));
+        Assert.Equal(expected, AcceptanceDesktopMandatoryLabel.Read(second));
+        Assert.Equal(new[] { 0 }, first.Sizes);
+        Assert.Equal(new[] { 0, 48 }, second.Sizes);
+    }
+
+    [Theory]
+    [InlineData(1, 48u, 0)]
+    [InlineData(1, 48u, 122)]
+    [InlineData(0, 0u, 122)]
+    [InlineData(0, 19u, 122)]
+    [InlineData(0, 65537u, 122)]
+    public void Invalid_label_measurements_never_allocate_or_issue_a_second_query(
+        int succeeded, uint bytes, int error)
+    {
+        var query = new FakeMandatoryLabelQuery(SyntheticMandatoryLabel(),
+            measure: new AcceptanceLabelQueryReply(succeeded, bytes, error));
+        RequireInvalidMandatoryLabel(AcceptanceDesktopMandatoryLabel.Read(query));
+        Assert.Equal(new[] { 0 }, query.Sizes);
+    }
+
+    [Fact]
+    public void A_growing_label_descriptor_is_reported_without_an_unbounded_retry()
+    {
+        var query = new FakeMandatoryLabelQuery(SyntheticMandatoryLabel(),
+            read: new AcceptanceLabelQueryReply(0, 49, 122));
+        Assert.Equal(new AcceptanceMandatoryLabelObservation(
+            AcceptanceMandatoryLabelState.QueryFailed, -1, -1, -1, 122),
+            AcceptanceDesktopMandatoryLabel.Read(query));
+        Assert.Equal(new[] { 0, 48 }, query.Sizes);
+    }
+
+    [Theory]
+    [InlineData(0u)]
+    [InlineData(19u)]
+    [InlineData(47u)]
+    [InlineData(49u)]
+    [InlineData(uint.MaxValue)]
+    public void Successful_label_reads_require_exact_returned_buffer_metadata(uint actual)
+    {
+        var query = new FakeMandatoryLabelQuery(SyntheticMandatoryLabel(),
+            read: new AcceptanceLabelQueryReply(1, actual, 1314));
+        RequireInvalidMandatoryLabel(AcceptanceDesktopMandatoryLabel.Read(query));
+        Assert.Equal(new[] { 0, 48 }, query.Sizes);
+    }
+
+    [Fact]
+    public void Maximum_bounded_label_buffer_accepts_revision_four_and_unused_acl_space()
+    {
+        var bytes = new byte[AcceptanceDesktopDacl.DescriptorLimit];
+        SyntheticMandatoryLabel().AsSpan().CopyTo(bytes);
+        bytes[20] = 4;
+        bytes[22] = 32;
+        var query = new FakeMandatoryLabelQuery(bytes);
+        Assert.Equal(new AcceptanceMandatoryLabelObservation(
+            AcceptanceMandatoryLabelState.Present, 8192, 1, 0, 0),
+            AcceptanceDesktopMandatoryLabel.Read(query));
+        Assert.Equal(new[] { 0, AcceptanceDesktopDacl.DescriptorLimit }, query.Sizes);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void Label_capability_exceptions_are_preserved_without_fabricated_results(int point)
+    {
+        var fault = new InvalidOperationException("Synthetic query fault.");
+        var query = new FakeMandatoryLabelQuery(
+            SyntheticMandatoryLabel(), faultAt: point, fault: fault);
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            AcceptanceDesktopMandatoryLabel.Read(query));
+        Assert.Same(fault, error);
+        Assert.Equal(point, query.Sizes.Count);
+    }
+
+    private static void RequireInvalidMandatoryLabel(
+        AcceptanceMandatoryLabelObservation value) =>
+        Assert.Equal(new AcceptanceMandatoryLabelObservation(
+            AcceptanceMandatoryLabelState.InvalidData, -1, -1, -1, 13), value);
+
+    private static byte[] SyntheticMandatoryLabel(
+        uint rid = 8192, uint policy = 1, byte flags = 0)
+    {
+        // Synthetic label-only self-relative SD, ACL, and mandatory-label ACE.
+        byte[] bytes =
+        [
+            1, 0, 0x10, 0x80, 0, 0, 0, 0, 0, 0, 0, 0,
+            20, 0, 0, 0, 0, 0, 0, 0,
+            2, 0, 28, 0, 1, 0, 0, 0,
+            17, 0, 20, 0, 0, 0, 0, 0,
+            1, 1, 0, 0, 0, 0, 0, 16, 0, 0, 0, 0
+        ];
+        bytes[29] = flags;
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(32), policy);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(44), rid);
+        return bytes;
+    }
+
+    private sealed class FakeMandatoryLabelQuery(
+        byte[] descriptor,
+        AcceptanceLabelQueryReply? measure = null,
+        AcceptanceLabelQueryReply? read = null,
+        int faultAt = 0,
+        Exception? fault = null) : IAcceptanceMandatoryLabelQuery
+    {
+        private readonly List<int> _sizes = [];
+        internal IReadOnlyList<int> Sizes => _sizes;
+
+        public AcceptanceLabelQueryReply Query(Span<byte> buffer)
+        {
+            _sizes.Add(buffer.Length);
+            if (_sizes.Count == faultAt && fault is { } error)
+                throw error;
+            buffer.Fill(0xff);
+            descriptor.AsSpan(0, Math.Min(buffer.Length, descriptor.Length)).CopyTo(buffer);
+            return buffer.IsEmpty
+                ? measure ?? new AcceptanceLabelQueryReply(0, (uint)descriptor.Length, 122)
+                : read ?? new AcceptanceLabelQueryReply(1, (uint)descriptor.Length, 1314);
         }
     }
 

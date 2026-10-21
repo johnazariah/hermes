@@ -27,7 +27,14 @@ internal sealed record AcceptanceDesktopAccessResult(
     RestrictedOwnerTokenFacts ProbeFacts,
     int ImpersonationLevel,
     uint StationFlags,
-    bool ProbeClosed);
+    bool ProbeClosed)
+{
+    internal AcceptanceMandatoryLabelObservation StationLabel { get; init; } =
+        AcceptanceMandatoryLabelObservation.Unknown;
+
+    internal AcceptanceMandatoryLabelObservation DesktopLabel { get; init; } =
+        AcceptanceMandatoryLabelObservation.Unknown;
+}
 
 internal readonly record struct AcceptanceAccessReply(
     int Succeeded, int Status, uint GrantedMask, int Error,
@@ -36,6 +43,122 @@ internal readonly record struct AcceptanceAccessReply(
 [StructLayout(LayoutKind.Sequential)]
 internal readonly record struct AcceptanceDesktopGenericMapping(
     uint Read, uint Write, uint Execute, uint All);
+
+internal enum AcceptanceMandatoryLabelState
+{
+    Unknown = 0,
+    Present = 1,
+    Missing = 2,
+    Unsupported = 3,
+    QueryFailed = 4,
+    InvalidData = 5
+}
+
+// Present means one label ACE was returned, not that MIC granted access.
+// ACE flags are retained: an inherit-only ACE is not an effective object label.
+// Missing never manufactures a measured RID, policy, or effective-access result.
+internal sealed record AcceptanceMandatoryLabelObservation(
+    AcceptanceMandatoryLabelState State,
+    long IntegrityRid,
+    int Policy,
+    int AceFlags,
+    int Error)
+{
+    internal static AcceptanceMandatoryLabelObservation Unknown { get; } =
+        new(AcceptanceMandatoryLabelState.Unknown, -1, -1, -1, 0);
+}
+
+internal readonly record struct AcceptanceLabelQueryReply(
+    int Succeeded, uint Bytes, int Error);
+
+// The implementation captures one borrowed object privately. No handle escapes.
+internal interface IAcceptanceMandatoryLabelQuery
+{
+    AcceptanceLabelQueryReply Query(Span<byte> buffer);
+}
+
+internal static class AcceptanceDesktopMandatoryLabel
+{
+    // LABEL_SECURITY_INFORMATION requires READ_CONTROL, not a full-SACL query.
+    internal const uint DescriptorScope = 0x00000010;
+
+    private static AcceptanceMandatoryLabelObservation Invalid { get; } =
+        new(AcceptanceMandatoryLabelState.InvalidData, -1, -1, -1, 13);
+
+    private static AcceptanceMandatoryLabelObservation Missing { get; } =
+        new(AcceptanceMandatoryLabelState.Missing, -1, -1, -1, 0);
+
+    internal static AcceptanceMandatoryLabelObservation Read(
+        IAcceptanceMandatoryLabelQuery query)
+    {
+        var size = query.Query(Span<byte>.Empty);
+        if (size.Succeeded != 0 || size.Error != 122)
+            return size.Succeeded == 0 ? Failure(size.Error) : Invalid;
+        if (size.Bytes is < 20 or > AcceptanceDesktopDacl.DescriptorLimit)
+            return Invalid;
+        var bytes = new byte[checked((int)size.Bytes)];
+        var reply = query.Query(bytes);
+        if (reply.Succeeded == 0)
+            return Failure(reply.Error);
+        return reply.Bytes == (uint)bytes.Length ? Decode(bytes) : Invalid;
+    }
+
+    internal static AcceptanceMandatoryLabelObservation Decode(ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.Length is < 20 or > AcceptanceDesktopDacl.DescriptorLimit ||
+            bytes[0] != 1 ||
+            (BinaryPrimitives.ReadUInt16LittleEndian(bytes[2..]) & 0x8000) == 0 ||
+            BinaryPrimitives.ReadUInt32LittleEndian(bytes[4..]) != 0 ||
+            BinaryPrimitives.ReadUInt32LittleEndian(bytes[8..]) != 0 ||
+            BinaryPrimitives.ReadUInt32LittleEndian(bytes[16..]) != 0)
+            return Invalid;
+        var offset = BinaryPrimitives.ReadUInt32LittleEndian(bytes[12..]);
+        if (offset == 0)
+            return Missing;
+        if ((bytes[2] & 0x10) == 0 || offset < 20 || (offset & 3) != 0 ||
+            offset > (uint)(bytes.Length - 8))
+            return Invalid;
+        return DecodeAcl(bytes[checked((int)offset)..]);
+    }
+
+    private static AcceptanceMandatoryLabelObservation DecodeAcl(ReadOnlySpan<byte> acl)
+    {
+        var length = BinaryPrimitives.ReadUInt16LittleEndian(acl[2..]);
+        if (acl[0] is not (2 or 4) || acl[1] != 0 ||
+            BinaryPrimitives.ReadUInt16LittleEndian(acl[6..]) != 0 ||
+            length < 8 || (length & 3) != 0 || length > acl.Length)
+            return Invalid;
+        return BinaryPrimitives.ReadUInt16LittleEndian(acl[4..]) switch
+        {
+            0 => Missing,
+            1 when length >= 28 => DecodeAce(acl.Slice(8, length - 8)),
+            _ => Invalid
+        };
+    }
+
+    private static AcceptanceMandatoryLabelObservation DecodeAce(ReadOnlySpan<byte> ace)
+    {
+        if (ace[0] != 0x11 || (ace[1] & ~0x1f) != 0 ||
+            BinaryPrimitives.ReadUInt16LittleEndian(ace[2..]) != 20 ||
+            BinaryPrimitives.ReadUInt32LittleEndian(ace[4..]) > 7 ||
+            !ace.Slice(8, 8).SequenceEqual(
+                new byte[] { 1, 1, 0, 0, 0, 0, 0, 16 }))
+            return Invalid;
+        return new(AcceptanceMandatoryLabelState.Present,
+            BinaryPrimitives.ReadUInt32LittleEndian(ace[16..]),
+            checked((int)BinaryPrimitives.ReadUInt32LittleEndian(ace[4..])),
+            ace[1], 0);
+    }
+
+    private static AcceptanceMandatoryLabelObservation Failure(int error)
+    {
+        var code = error > 0 ? error : 13;
+        var state = code is 50 or 120
+            ? AcceptanceMandatoryLabelState.Unsupported
+            : AcceptanceMandatoryLabelState.QueryFailed;
+        return new(state, -1, -1, -1, code);
+    }
+}
 
 internal static class AcceptanceDesktopDacl
 {

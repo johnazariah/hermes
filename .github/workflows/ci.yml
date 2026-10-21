@@ -274,9 +274,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           [xml]$tests = Get-Content -LiteralPath "$PWD/.artifacts/servicing-windows-tests/servicing-windows.trx" -Raw
           $counts = $tests.TestRun.ResultSummary.Counters
-          if ([int]$counts.total -ne 194 -or [int]$counts.executed -ne 194 -or [int]$counts.passed -ne 194 `
+          if ([int]$counts.total -ne 259 -or [int]$counts.executed -ne 259 -or [int]$counts.passed -ne 259 `
               -or [int]$counts.failed -ne 0 -or [int]$counts.notExecuted -ne 0) {
-            throw 'Expected all existing 158 Windows tests plus 35 desktop-access capability/parser cases and one genuine read-only access observation, with no skips.'
+            throw 'Expected all existing 194 Windows tests plus 65 mandatory-label capability/parser cases; genuine parent USER-label observations also execute in the existing read-only and A/B tests, with no skips.'
           }
       - name: Coordinator install, repair, launch, upgrade, rollback and uninstall without SDK access
         shell: pwsh

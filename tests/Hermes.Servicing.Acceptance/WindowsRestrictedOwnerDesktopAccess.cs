@@ -66,11 +66,24 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens
         if (desktop == 0)
             throw NativeFailure();
         var flags = ReadDesktopStationFlags(station);
+        return ObserveDesktopObjects(probe, station, desktop, facts, level, flags);
+    }
+
+    private static AcceptanceDesktopAccessResult ObserveDesktopObjects(
+        SafeDesktopProbeToken probe, nint station, nint desktop,
+        RestrictedOwnerTokenFacts facts, int level, uint flags)
+    {
         var interactive = (flags & 1) != 0;
         return new(
             CheckDesktopObject(probe, station, AcceptanceDesktopObject.Station, interactive),
             CheckDesktopObject(probe, desktop, AcceptanceDesktopObject.Desktop, interactive),
-            facts, level, flags, false);
+            facts, level, flags, false)
+        {
+            StationLabel = AcceptanceDesktopMandatoryLabel.Read(
+                new BorrowedMandatoryLabelQuery(station)),
+            DesktopLabel = AcceptanceDesktopMandatoryLabel.Read(
+                new BorrowedMandatoryLabelQuery(desktop))
+        };
     }
 
     private static RestrictedOwnerTokenFacts ReadDesktopProbeFacts(
@@ -161,6 +174,27 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens
             var reply = new AcceptanceAccessReply(success, status, granted, error,
                 bytes, BinaryPrimitives.ReadUInt32LittleEndian(privileges));
             return AcceptanceDesktopDacl.Decide(reply, AcceptanceDesktopDacl.ValidMask(target));
+        }
+    }
+
+    // These remain existing parent USER objects, not child process/thread objects.
+    // Query under the existing caller context; never assign the probe token.
+    // The borrowed handle is neither reopened nor closed.
+    private sealed class BorrowedMandatoryLabelQuery(nint borrowed)
+        : IAcceptanceMandatoryLabelQuery
+    {
+        public AcceptanceLabelQueryReply Query(Span<byte> buffer)
+        {
+            Instance.RequireDisposableJob();
+            uint information = AcceptanceDesktopMandatoryLabel.DescriptorScope;
+            uint needed = 0;
+            fixed (byte* address = buffer)
+            {
+                var succeeded = GetDesktopObjectSecurity(
+                    borrowed, &information, address, (uint)buffer.Length, &needed);
+                var error = Marshal.GetLastPInvokeError();
+                return new(succeeded, needed, error);
+            }
         }
     }
 

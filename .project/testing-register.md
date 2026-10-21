@@ -2,6 +2,27 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Parent USER-object mandatory labels are queried read-only
+
+The acceptance probe now requests only LABEL_SECURITY_INFORMATION (16) on
+the existing parent window station and desktop. It records the returned
+mandatory-label RID, policy and inheritance flags as numeric metadata.
+Missing, unsupported, failed and malformed results remain distinct; an
+absent label does not manufacture a measured Medium RID or an access verdict.
+No privilege is acquired and no ACL, token, connection or child setting changes.
+
+Sixty-five bounded decoder/query cases raise the exact native gate from 194
+to 259. The existing genuine read-only and failing A/B cases emit the labels,
+so minimal logging cannot hide them. Both child startup paths still require
+exit 37. Independent C# source review approves the literal patch; parent
+root and Windows cross-builds pass without warnings, all 2,182 Core tests
+pass, and installer static/transport/provenance controls pass.
+
+Actual Windows label observations remain pending. Earlier run 39575648958
+measured full DACL grants on both parent USER objects, but both children
+exited 0xC0000142. Neither that result nor label metadata alone identifies
+the loader failure or establishes effective MIC access.
+
 ## Restricted-token desktop DACL decisions are observed without mutation
 
 The reviewed read-only probe borrows the verified restricted token, creates a

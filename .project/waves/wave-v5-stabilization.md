@@ -100,6 +100,21 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Read-only parent USER labels reach the blocking startup experiment
+
+- **Changed:** A fresh C# specialist adds label-only queries on the existing parent station/desktop. Bounded numeric results distinguish present, missing, unsupported, failed and malformed labels while retaining policy and inheritance flags. No ACL, privilege, parent connection or child setting changes.
+- **Evidence:** Independent source review approves the exact four-file patch; the mechanical audit confirms unchanged non-target files and preserved BOM/LF. Sixty-five new cases require exactly 259 native tests, retaining the original exit-37 assertions and failing A/B visibility.
+- **Validation:** Root build and Windows cross-build pass with zero warnings/errors; all 2,182 Core tests and installer static/transport/provenance/workflow controls pass. Native bodies were not executed on the Mac.
+- **Blockers:** Actual label observations and successful restricted-child startup remain pending. The last Windows run still has two blocking 0xC0000142 outcomes despite full DACL grants; effective MIC access and loader causation are unresolved.
+- **Next:** Publish the reviewed observation and inspect the actual label state before choosing the startup correction.
+
+### 2026-10-21 - Actual restricted token receives full DACL rights on parent USER objects
+
+- **Evidence:** Published `ca94274` run `39575648958` observes full owner/group/DACL grants: station mask 0xF037F and desktop mask 0xF01FF, both known decisions/error zero. The query-only restricted duplicate is verified and closed; the station is interactive.
+- **Boundary:** MIC is unmeasured. DACL grants do not establish full kernel access, child connection, DLL cause or successful startup. NULL and explicit-existing-parent children still exit 0xC0000142 with verified contexts, successful cleanup and unchanged parent.
+- **Validation:** 192 of 194 native cases pass; the original genuine and A/B success assertions remain failing, with zero skips. No installer operation follows the failed gate.
+- **Next:** A fresh specialist owns only the remaining startup-object integrity/default-security or causal read-only loader fact; no existing ACL, host policy or success requirement changes.
+
 ### 2026-10-21 - Actual restricted-token DACL access is queried without host changes
 
 - **Changed:** The source-approved read-only observation queries existing parent station/desktop owner/group/DACL access using an owned query-only impersonation duplicate. It assigns no token, launches no extra child and changes no ACL or parent connection; MIC remains explicitly unmeasured.
