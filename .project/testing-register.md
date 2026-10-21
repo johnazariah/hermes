@@ -2,6 +2,21 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Windows owned-child adapter has four mandatory real-process cases
+
+Four hosted-High cases now exercise the real `OwnedChild` and component
+consumer using a fixed System32 cmd image and a pinned, constant fixture:
+clean completion, trailing stdout, trailing stderr and deadline cleanup.
+They require exited identity, closed pipes and settled actual drains before
+fixture cleanup can rescue anything.
+
+Fresh C# review approves. Windows-targeted build and discovery pass with
+461 cases: the original 457 plus exactly four adapter cases. CI separately
+requires those groups and retains the original 18 startup/439 accounting.
+All 1,216 portable Setup cases and installer static controls pass.
+No Windows body executes on the Mac; actual hosted execution is pending.
+This is adapter proof, not Medium-owner, MSI or installed-product acceptance.
+
 ## Independent MCP drain setup avoids unused HTTP pairing
 
 The Windows `/mcp` drain test failed during an HTTP approval whose credential

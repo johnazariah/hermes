@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Four real Windows adapter cases join the unchanged native baseline
+
+- **Changed:** A fresh C# owner adds controlled real-process completion/noise/deadline cases through the actual owned-child adapter. Pinned constant scripts, source image/PID identity, closed streams, settled drains and parent preservation are required; only the owned child can be terminated.
+- **Validation:** Fresh C# review approves. Cross-build is warning-free after the author's analyzer-compatible equality correction; discovery is exactly 461: original 457 plus four adapter cases. All 1,216 portable Setup cases and installer static controls pass.
+- **Preserved:** CI separately requires all original cases and all four new cases, plus the existing 18 startup/439 split. The original PowerShell exit-37 failure remains blocking.
+- **Blockers:** No Windows native body ran on the Mac. Actual hosted execution and installed Medium acceptance remain outstanding.
+- **Next:** Publish the exact-count gate and require the four actual adapter cases to pass on disposable public Windows.
+
 ### 2026-10-22 - MCP drain setup no longer depends on discarded HTTP approval
 
 - **Evidence:** Supported Windows run `39652529830` fails the `/mcp` drain case during initial owner approval. Source shows that credential was immediately discarded; the actual drain assertion had not started.

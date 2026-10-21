@@ -90,6 +90,8 @@ internal sealed class OwnedChild : IDisposable, ISetupChild
         await _process.StandardInput.FlushAsync(cancellationToken);
     }
 
+    internal void CloseInput() => _process.StandardInput.Dispose();
+
     internal async Task<int> WaitAsync(CancellationToken cancellationToken)
     {
         await _process.WaitForExitAsync(cancellationToken);

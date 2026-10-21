@@ -58,21 +58,29 @@ internal static partial class MsiCases
 {
     internal const int SetupOutputBytes = 4096;
 
-    private sealed record SetupDrains(
+    internal sealed record SetupDrains(
         Task<string> Output, Task<string> Error, Task<int> Exit)
     {
         internal IReadOnlyList<Task> Tasks => [Output, Error, Exit];
     }
 
     // This is the consumer called by the real context-based MainAsync.
+    internal static Task<SetupChildResult> MainAsync(
+        ISetupChild child, SetupVerb operation, SetupChildBudget budget,
+        CancellationToken cancellationToken) =>
+        MainAsync(child, operation, budget, null, cancellationToken);
+
+    // Test-only observation publishes the actual operations, never substitutes I/O.
     internal static async Task<SetupChildResult> MainAsync(
         ISetupChild child, SetupVerb operation, SetupChildBudget budget,
+        TaskCompletionSource<SetupDrains>? observedDrains,
         CancellationToken cancellationToken)
     {
         using var deadline = new CancellationTokenSource(budget.Run, budget.Clock);
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken, deadline.Token);
         var drains = StartSetupDrains(child, lifetime.Token);
+        observedDrains?.TrySetResult(drains);
         return await RunSetupAsync(child, operation, budget, drains, lifetime,
             cancellationToken, deadline.Token);
     }
