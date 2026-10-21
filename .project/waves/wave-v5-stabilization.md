@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Native debugger preflight exposes its exact closed refusal point
+
+- **Evidence:** Published `b4e15a0` run `39626230554`, job `119312097915`, passes 37 pure controls and 456/457 native cases, with only the original PowerShell assertion failing. Tools remain present. The advisory trace refuses before any debugger output: debugger hash present, helper/command hashes absent, no target/arming/exit evidence, status 8/error 13 and cleanup fault zero.
+- **Changed:** Numeric preflight point/tool-role fields precede each SDK trust and publication operation. The first fault location is latched separately from cleanup faults; malformed markers cannot leak raw exception, certificate, path or command content. No trust condition is loosened.
+- **Validation:** Parent direct review covers the PowerShell-only delta. All 49 pure controls, installer static controls, isolated root build and 2,182 Core cases pass. The 457-case native discovery contract is unchanged.
+- **Blockers:** CDB has not yet reached the owned child, so this is not an initialization trace or a PowerShell correction.
+- **Next:** Publish the closed preflight markers and identify the actual refused tool or source operation before repairing that boundary.
+
 ### 2026-10-22 - Owned native-loader trace is wired behind the still-failing gate
 
 - **Changed:** A fixed debug-only helper creates one existing restricted PowerShell child. CDB child creation/exit events, actual debug-port/identity checks and a PID/creation-bound acknowledgement arm live per-process loader snaps before the owned single resume. No global IFEO flag, guessed offset, privilege override, token/ACL change or arbitrary target command is added.

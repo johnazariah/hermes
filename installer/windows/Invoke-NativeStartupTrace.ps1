@@ -8,7 +8,7 @@ $ErrorActionPreference = 'Stop'
 if ($env:OS -ne 'Windows_NT' -or $env:GITHUB_ACTIONS -cne 'true' `
     -or $env:RUNNER_OS -cne 'Windows' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted' `
     -or $env:GITHUB_JOB -cne 'installer') {
-    Write-Output 'HERMES_STARTUP_TRACE v=1 completed=0 status=8 error=5 cleanupFault=0'
+    Write-Output 'HERMES_STARTUP_TRACE v=1 completed=0 status=8 error=5 cleanupFault=0 tracePoint=0 toolRole=0'
     exit 1
 }
 
@@ -48,6 +48,81 @@ function Get-TraceHash {
         $Stream.Position = 0
         return $result
     } finally { $hasher.Dispose() }
+}
+
+function Confirm-TraceTools {
+    param([string]$Kits)
+    # Roles 1..6: cdb, gflags, dbgeng, dbghelp, symsrv, exts; 0 = no SDK tool.
+    $role = 0
+    foreach ($relative in @('cdb.exe', 'gflags.exe', 'dbgeng.dll', 'dbghelp.dll',
+            'symsrv.dll', 'winext/exts.dll')) {
+        $role++
+        Set-HermesStartupTracePoint $state 6 $role # Pin.
+        $path = Join-Path $Kits $relative
+        $pin = Open-TracePin $path
+        Set-HermesStartupTracePoint $state 7 $role # Query signature.
+        $signature = Get-AuthenticodeSignature -LiteralPath $path
+        Set-HermesStartupTracePoint $state 8 $role # Validate signature status.
+        if ($signature.Status -ne [Management.Automation.SignatureStatus]::Valid) {
+            throw 'Microsoft debugger trust refused.'
+        }
+        Set-HermesStartupTracePoint $state 9 $role # Validate signer.
+        if ($null -eq $signature.SignerCertificate `
+            -or $signature.SignerCertificate.Subject -notmatch '(?:^|,\s*)O=Microsoft Corporation(?:,|$)') {
+            throw 'Microsoft debugger trust refused.'
+        }
+        if ($relative -ceq 'cdb.exe') {
+            Set-HermesStartupTracePoint $state 10 $role # Hash pinned debugger.
+            $state.DebuggerSha256 = Get-TraceHash $pin
+        }
+    }
+}
+
+function Confirm-TracePublication {
+    param([string]$Workspace)
+    $publication = Join-Path $Workspace '.artifacts/servicing-acceptance'
+    $bundle = Join-Path $publication 'acceptance'
+    $helper = Join-Path $bundle 'Hermes.Servicing.Acceptance.exe'
+    $manifestPath = Join-Path $publication 'acceptance-build.json'
+    $inventoryPath = Join-Path $publication 'acceptance.publish.txt'
+    Set-HermesStartupTracePoint $state 11 # Pin receipt.
+    $manifestPin = Open-TracePin $manifestPath
+    Set-HermesStartupTracePoint $state 12 # Pin inventory.
+    $inventoryPin = Open-TracePin $inventoryPath
+    Set-HermesStartupTracePoint $state 13 # Bound provenance.
+    if ($manifestPin.Length -gt 4096 -or $inventoryPin.Length -gt 524288) {
+        throw 'Publication provenance exceeds its bound.'
+    }
+    Set-HermesStartupTracePoint $state 14 # Read receipt.
+    $manifestBytes = [byte[]]::new([int]$manifestPin.Length)
+    $manifestPin.ReadExactly($manifestBytes)
+    Set-HermesStartupTracePoint $state 15 # Parse receipt.
+    $manifest = [Text.Encoding]::UTF8.GetString($manifestBytes) | ConvertFrom-Json
+    Set-HermesStartupTracePoint $state 16 # Bind fixed helper.
+    if ($manifest.acceptanceExecutable -cne $helper) {
+        throw 'Fixed published helper required.'
+    }
+    Set-HermesStartupTracePoint $state 17 # Read declared inventory.
+    $files = @(Get-HermesSetupPublishFiles -Directory $bundle `
+        -InventoryPath $inventoryPath -AcceptanceHelpers)
+    Set-HermesStartupTracePoint $state 18 # Bound inventory.
+    if ($files.Count -lt 4 -or $files.Count -gt 1024) {
+        throw 'Published helper inventory bound refused.'
+    }
+    foreach ($file in $files) {
+        Set-HermesStartupTracePoint $state 19 # Pin published file.
+        $pin = Open-TracePin (Join-Path $bundle $file.path)
+        Set-HermesStartupTracePoint $state 20 # Hash pinned file.
+        $hash = Get-TraceHash $pin
+        Set-HermesStartupTracePoint $state 21 # Compare declared hash.
+        if ($hash -cne $file.sha256) { throw 'Pinned helper source changed.' }
+        if ($file.path -ceq 'Hermes.Servicing.Acceptance.exe') {
+            $state.HelperSha256 = $hash
+        }
+    }
+    Set-HermesStartupTracePoint $state 22 # Require apphost provenance.
+    if ($state.HelperSha256 -ceq '') { throw 'Published apphost provenance absent.' }
+    return $helper
 }
 
 function New-TraceRoot {
@@ -187,67 +262,33 @@ $root = ''
 $reportPath = ''
 
 try {
+    Set-HermesStartupTracePoint $state 1 # Workspace path.
     $workspace = Assert-TracePath ([IO.Path]::GetFullPath($env:GITHUB_WORKSPACE))
+    Set-HermesStartupTracePoint $state 2 # Temporary root path.
     $temporary = Assert-TracePath ([IO.Path]::GetFullPath($env:RUNNER_TEMP))
     $root = Join-Path $temporary 'hermes-native-startup-trace'
+    Set-HermesStartupTracePoint $state 3 # Fresh report destination.
     $reportDirectory = Join-Path $workspace '.artifacts/installer-evidence'
     $reportPath = Join-Path $reportDirectory 'startup-debug.json'
     $null = [IO.Directory]::CreateDirectory($reportDirectory)
     $null = Assert-TracePath $reportDirectory
     if ([IO.File]::Exists($reportPath)) { throw 'Stale trace report refused.' }
+    Set-HermesStartupTracePoint $state 4 # Owned private root.
     New-TraceRoot $root
     $rootCreated = $true
 
+    Set-HermesStartupTracePoint $state 5 # Fixed SDK directory.
     $kits = Join-Path ([Environment]::GetFolderPath(
         [Environment+SpecialFolder]::ProgramFilesX86)) 'Windows Kits/10/Debuggers/x64'
     $kits = Assert-TracePath ([IO.Path]::GetFullPath($kits))
-    foreach ($relative in @('cdb.exe', 'gflags.exe', 'dbgeng.dll', 'dbghelp.dll',
-            'symsrv.dll', 'winext/exts.dll')) {
-        $path = Join-Path $kits $relative
-        $pin = Open-TracePin $path
-        $signature = Get-AuthenticodeSignature -LiteralPath $path
-        if ($signature.Status -ne [Management.Automation.SignatureStatus]::Valid `
-            -or $null -eq $signature.SignerCertificate `
-            -or $signature.SignerCertificate.Subject -notmatch '(?:^|,\s*)O=Microsoft Corporation(?:,|$)') {
-            throw 'Microsoft debugger trust refused.'
-        }
-        if ($relative -ceq 'cdb.exe') { $state.DebuggerSha256 = Get-TraceHash $pin }
-    }
-
-    $publication = Join-Path $workspace '.artifacts/servicing-acceptance'
-    $bundle = Join-Path $publication 'acceptance'
-    $helper = Join-Path $bundle 'Hermes.Servicing.Acceptance.exe'
-    $manifestPath = Join-Path $publication 'acceptance-build.json'
-    $inventoryPath = Join-Path $publication 'acceptance.publish.txt'
-    $manifestPin = Open-TracePin $manifestPath
-    $inventoryPin = Open-TracePin $inventoryPath
-    if ($manifestPin.Length -gt 4096 -or $inventoryPin.Length -gt 524288) {
-        throw 'Publication provenance exceeds its bound.'
-    }
-    $manifestBytes = [byte[]]::new([int]$manifestPin.Length)
-    $manifestPin.ReadExactly($manifestBytes)
-    $manifest = [Text.Encoding]::UTF8.GetString($manifestBytes) | ConvertFrom-Json
-    if ($manifest.acceptanceExecutable -cne $helper) {
-        throw 'Fixed published helper required.'
-    }
-    $files = @(Get-HermesSetupPublishFiles -Directory $bundle `
-        -InventoryPath $inventoryPath -AcceptanceHelpers)
-    if ($files.Count -lt 4 -or $files.Count -gt 1024) {
-        throw 'Published helper inventory bound refused.'
-    }
-    foreach ($file in $files) {
-        $pin = Open-TracePin (Join-Path $bundle $file.path)
-        $hash = Get-TraceHash $pin
-        if ($hash -cne $file.sha256) { throw 'Pinned helper source changed.' }
-        if ($file.path -ceq 'Hermes.Servicing.Acceptance.exe') {
-            $state.HelperSha256 = $hash
-        }
-    }
-    if ($state.HelperSha256 -ceq '') { throw 'Published apphost provenance absent.' }
+    Confirm-TraceTools $kits
+    $helper = Confirm-TracePublication $workspace
+    Set-HermesStartupTracePoint $state 23 # Pin diagnostic sources.
     foreach ($source in @($PSCommandPath, (Join-Path $PSScriptRoot 'Native-StartupTrace.psm1'))) {
         $null = Open-TracePin $source
     }
 
+    Set-HermesStartupTracePoint $state 24 # Fixed command and symbol setup.
     $extension = Join-Path $kits 'winext/exts.dll'
     $cpr = '.printf \"HERMES_CDB v=1 kind=1 pid=%u\n\", @$tpid;.lastevent;|.;!gflag +sls;!gflag;.printf \"HERMES_CDB v=1 kind=2 pid=%u\n\", @$tpid;g'
     $epr = '.printf \"HERMES_CDB v=1 kind=3 pid=%u\n\", @$tpid;.lastevent;.printf \"HERMES_CDB v=1 kind=4 pid=%u\n\", @$tpid;g'
@@ -270,6 +311,7 @@ try {
     $symbols = Join-Path $root 'symbols'
     $null = [IO.Directory]::CreateDirectory($symbols)
 
+    Set-HermesStartupTracePoint $state 25 # Owned debugger setup and start.
     $start = [Diagnostics.ProcessStartInfo]::new()
     $start.FileName = Join-Path $kits 'cdb.exe'
     $start.WorkingDirectory = $kits
@@ -292,12 +334,13 @@ try {
     $started = $true
     $heldDebuggerHandle = $debugger.SafeHandle
     $debugger.StandardInput.Close()
+    Set-HermesStartupTracePoint $state 26 # Owned output collection.
     Start-TraceRead $state.Out $debugger.StandardOutput
     Start-TraceRead $state.Err $debugger.StandardError
     Invoke-TraceCollection
 } catch {
     # Never print debugger output, exception text, paths, identities, or commands.
-    $state.Error = 13
+    Set-HermesStartupTraceFault $state
 } finally {
     try {
         Stop-TraceDebugger
@@ -361,10 +404,12 @@ try {
     try { $stream.Write($bytes, 0, $bytes.Length) }
     finally { $stream.Dispose() }
 } catch {
-    Write-Output 'HERMES_STARTUP_TRACE v=1 completed=0 status=8 error=13 cleanupFault=13'
+    Write-Output ("HERMES_STARTUP_TRACE v=1 completed=0 status=8 error=13 cleanupFault=13 tracePoint={0} toolRole={1}" `
+        -f $report.tracePoint, $report.toolRole)
     exit 1
 }
-Write-Output ("HERMES_STARTUP_TRACE v=1 completed={0} status={1} error={2} cleanupFault={3}" `
-    -f $report.completed, $report.status, $report.error, $report.cleanupFault)
+Write-Output ("HERMES_STARTUP_TRACE v=1 completed={0} status={1} error={2} cleanupFault={3} tracePoint={4} toolRole={5}" `
+    -f $report.completed, $report.status, $report.error, $report.cleanupFault,
+        $report.tracePoint, $report.toolRole)
 if ($report.completed -ne 1) { exit 1 }
 exit 0

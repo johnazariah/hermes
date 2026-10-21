@@ -2,6 +2,24 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Native startup preflight reports a closed failure boundary
+
+The first actual diagnostic run passed all 37 pure controls and 456/457
+Windows cases, retaining the original PowerShell failure. Its derived report
+refused before debugger output: the debugger hash was present, helper and
+command hashes absent, and no target or arming match was claimed.
+
+Closed numeric `tracePoint` and `toolRole` fields now precede SDK pin/signature
+checks and publication receipt/inventory operations. The first fault's origin
+survives cleanup failures; malformed fields fail closed without raw messages,
+paths, certificate subjects or commands. All trust predicates remain unchanged.
+
+Twelve added pure controls exercise the real preflight functions and catch/
+finally path. Parent review, 49/49 pure controls, installer static controls,
+warning-free isolated root build and all 2,182 Core cases pass. Windows
+discovery remains 457; the actual refusal point and native loader trace remain
+pending.
+
 ## Owned-process loader tracing remains advisory to the failing native gate
 
 The fixed `startup-debug-probe` CLI runs only under a debugger in the disposable

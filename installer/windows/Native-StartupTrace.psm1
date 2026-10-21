@@ -20,9 +20,40 @@ function New-HermesStartupState {
         Failure = $null; Unknown = 0; Protocol = 0
         Bounds = 0; AcceptedUtf8Bytes = [long]0
         Timeout = 0; Error = 0; CleanupFault = 0
+        TracePoint = 0; ToolRole = 0; TraceFaulted = $false
+        TraceFaultPoint = 0; TraceFaultRole = 0
         Out = (New-HermesStartupStream); Err = (New-HermesStartupStream)
         DebuggerSha256 = ''; HelperSha256 = ''; CommandSha256 = ''
     }
+}
+
+function Test-HermesStartupTracePoint {
+    param($Point, $ToolRole)
+    return $Point -is [int] -and $ToolRole -is [int] `
+        -and $Point -ge 0 -and $Point -le 26 `
+        -and (($Point -ge 6 -and $Point -le 10 `
+            -and $ToolRole -ge 1 -and $ToolRole -le 6 `
+            -and ($Point -ne 10 -or $ToolRole -eq 1)) `
+        -or (($Point -lt 6 -or $Point -gt 10) -and $ToolRole -eq 0))
+}
+
+function Set-HermesStartupTracePoint {
+    param([hashtable]$State, $Point, $ToolRole = 0)
+    if (-not (Test-HermesStartupTracePoint $Point $ToolRole)) {
+        throw 'Trace point refused.'
+    }
+    $State.TracePoint = $Point
+    $State.ToolRole = $ToolRole
+}
+
+function Set-HermesStartupTraceFault {
+    param([hashtable]$State)
+    if (-not $State.TraceFaulted) {
+        $State.TraceFaultPoint = $State.TracePoint
+        $State.TraceFaultRole = $State.ToolRole
+        $State.TraceFaulted = $true
+    }
+    if ($State.Error -eq 0) { $State.Error = 13 }
 }
 
 function ConvertFrom-HermesStartupRow {
@@ -332,6 +363,9 @@ function Add-HermesStartupText {
 
 function New-HermesStartupReport {
     param([hashtable]$State, [bool]$DebuggerEnded, [bool]$DrainsEnded)
+    $point = if ($State.TraceFaulted) { $State.TraceFaultPoint } else { $State.TracePoint }
+    $role = if ($State.TraceFaulted) { $State.TraceFaultRole } else { $State.ToolRole }
+    $traceValid = Test-HermesStartupTracePoint $point $role
     $target = $State.Target
     $final = $State.Final
     $armed = Test-HermesStartupArmed $State
@@ -357,7 +391,7 @@ function New-HermesStartupReport {
         -and $null -ne $State.Failure
     $status = if ($State.Bounds -ne 0) { 7 } `
         elseif ($State.Timeout -ne 0 -or $fault -in @(1223, 1460)) { 5 } `
-        elseif ($State.Error -ne 0 -or $fault -ne 0) { 8 } `
+        elseif ($State.Error -ne 0 -or $fault -ne 0 -or -not $traceValid) { 8 } `
         elseif ($protocol) { 4 } `
         elseif (-not $armed -or $State.Unknown -ne 0) { 3 } `
         elseif (-not $cleanup -or -not $parent) { 6 } `
@@ -368,6 +402,8 @@ function New-HermesStartupReport {
     [ordered]@{
         v = 1; advisory = 1; nativeAcceptance = 0; originalGatePassed = 0
         completed = [int]($status -eq 1); status = $status
+        tracePoint = $(if ($traceValid) { $point } else { 0 })
+        toolRole = $(if ($traceValid) { $role } else { 0 })
         helperMatched = [int]($null -ne $target -and $State.Initial -eq $target.helper)
         targetMatched = [int]($null -ne $target -and $null -ne $State.Arm `
             -and $State.Arm.Pid -eq $target.pid)
@@ -379,7 +415,8 @@ function New-HermesStartupReport {
         powershellExit37 = [int]($null -ne $targetExit -and $targetExit -eq 37)
         debuggerChangedFailure = [int]($null -ne $targetExit -and $targetExit -ne 3221225794)
         parentUnchanged = [int]$parent; cleanupComplete = [int]$cleanup
-        error = $(if ($State.Error -ne 0) { $State.Error } else { $fault })
+        error = $(if ($State.Error -ne 0) { $State.Error } `
+            elseif (-not $traceValid) { 13 } else { $fault })
         cleanupFault = $cleanupFault
         outputBudgetBytes = 8388608; acceptedUtf8Bytes = $State.AcceptedUtf8Bytes
         # Chars are accepted UTF-16 code units, not bytes or rejected output.

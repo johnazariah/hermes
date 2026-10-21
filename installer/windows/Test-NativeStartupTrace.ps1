@@ -91,7 +91,8 @@ $driverAst = [Management.Automation.Language.Parser]::ParseFile(
     (Join-Path $PSScriptRoot 'Invoke-NativeStartupTrace.ps1'),
     [ref]$tokens, [ref]$parseErrors)
 Assert-Control ($parseErrors.Count -eq 0)
-foreach ($name in @('Start-TraceRead', 'Receive-TraceRead', 'Invoke-TraceCollection')) {
+foreach ($name in @('Confirm-TraceTools', 'Confirm-TracePublication',
+        'Start-TraceRead', 'Receive-TraceRead', 'Invoke-TraceCollection')) {
     $definitions = @($driverAst.FindAll({
         param($node)
         $node -is [Management.Automation.Language.FunctionDefinitionAst] `
@@ -118,6 +119,10 @@ Assert-Control ($stopCalls.Count -eq 1)
 $controlDriver = [scriptblock]::Create(
     'try { ' + $entries[0].Parent.Extent.Text + ' } finally ' +
     $driverTry.Finally.Extent.Text)
+Assert-Control ($driverTry.CatchClauses.Count -eq 1)
+$controlPreflight = [scriptblock]::Create(
+    'try { Confirm-TraceTools $root; $null = Confirm-TracePublication $root } ' +
+    $driverTry.CatchClauses[0].Extent.Text + ' finally ' + $driverTry.Finally.Extent.Text)
 
 function Read-TraceControl {
     param([string]$Path)
@@ -137,7 +142,65 @@ function Stop-TraceDebugger {
     if ($script:controlStopFault) { throw 'Synthetic owned cleanup failure.' }
 }
 
-$cases = 1..37
+function Open-TracePin {
+    param([string]$Path)
+    Assert-Control ($state.TracePoint -in @(6, 11, 12, 19))
+    Assert-Control (($state.TracePoint -eq 6 -and $state.ToolRole -in 1..6) `
+        -or ($state.TracePoint -ne 6 -and $state.ToolRole -eq 0))
+    if ($case -eq 38 -and $state.ToolRole -eq 2) {
+        throw 'C:\private-preflight S-1-5-21-123 CN=secret --command'
+    }
+    $text = if ($state.TracePoint -eq 11) { $script:controlManifest } else { '' }
+    $pin = [IO.MemoryStream]::new([Text.Encoding]::UTF8.GetBytes($text))
+    $pins.Add($pin)
+    return $pin
+}
+
+function Get-AuthenticodeSignature {
+    param([string]$LiteralPath)
+    Assert-Control ($state.TracePoint -eq 7 -and $state.ToolRole -in 1..6)
+    $script:controlToolRoles.Add($state.ToolRole)
+    if (($case -eq 39 -and $state.ToolRole -eq 3) `
+        -or ($case -eq 47 -and $state.ToolRole -eq 2)) {
+        throw 'C:\private-preflight CN=secret --command'
+    }
+    [pscustomobject]@{
+        Status = $(if ($case -eq 40 -and $state.ToolRole -eq 4) {
+            [Management.Automation.SignatureStatus]::NotSigned
+        } else { [Management.Automation.SignatureStatus]::Valid })
+        SignerCertificate = [pscustomobject]@{
+            Subject = $(if ($case -eq 41 -and $state.ToolRole -eq 5) {
+                'CN=private-preflight'
+            } else { 'CN=private-preflight, O=Microsoft Corporation, C=US' })
+        }
+    }
+}
+
+function Get-TraceHash {
+    param([IO.Stream]$Stream)
+    Assert-Control (($state.TracePoint -eq 10 -and $state.ToolRole -eq 1) `
+        -or ($state.TracePoint -eq 20 -and $state.ToolRole -eq 0))
+    if ($case -eq 42 -and $state.TracePoint -eq 10) {
+        throw 'C:\private-preflight --command'
+    }
+    if ($state.TracePoint -eq 10) { return 'a' * 64 }
+    return 'b' * 64
+}
+
+function Get-HermesSetupPublishFiles {
+    param([string]$Directory, [string]$InventoryPath, [switch]$AcceptanceHelpers)
+    Assert-Control ($state.TracePoint -eq 17 -and $state.ToolRole -eq 0 `
+        -and $AcceptanceHelpers)
+    if ($case -eq 45) { throw 'C:\private-preflight --command' }
+    foreach ($path in @('Hermes.Servicing.Acceptance.exe', 'one', 'two', 'three')) {
+        [pscustomobject]@{
+            path = $path
+            sha256 = $(if ($case -eq 46) { 'c' * 64 } else { 'b' * 64 })
+        }
+    }
+}
+
+$cases = 1..49
 $passed = 0
 foreach ($case in $cases) {
     $state = $null
@@ -576,6 +639,102 @@ foreach ($case in $cases) {
                         -and $state[$name].Prefix.Length -eq [Math]::Min(4096, $text.Length) `
                         -and $state[$name].Fingerprint -ceq $expectedHash)
                 }
+            }
+            { $_ -in (38..47 + 49) } {
+                $state = New-HermesStartupState
+                $root = $PSScriptRoot
+                $expectedHelper = Join-Path $root `
+                    '.artifacts/servicing-acceptance/acceptance/Hermes.Servicing.Acceptance.exe'
+                $script:controlManifest = if ($case -eq 43) {
+                    '{"acceptanceExecutable":'
+                } else {
+                    @{ acceptanceExecutable = $(if ($case -eq 44) {
+                        'C:\private-preflight'
+                    } else { $expectedHelper }) } | ConvertTo-Json -Compress
+                }
+                $script:controlToolRoles = [Collections.Generic.List[int]]::new()
+                $script:controlStops = 0
+                $script:controlDisposed = 0
+                $script:controlStopFault = $case -eq 47
+                $debugger = [pscustomobject]@{}
+                $debugger | Add-Member ScriptMethod Dispose { $script:controlDisposed++ }
+                $started = $false
+                $debuggerEnded = $false
+                $drainsEnded = $false
+                $rootCreated = $false
+                $pins = [Collections.Generic.List[IO.Stream]]::new()
+                if ($case -eq 47) { $state.Error = 5 }
+                . $controlPreflight
+                if ($case -eq 47) {
+                    # Later diagnostics and cleanup must not replace first-fault origin.
+                    Set-HermesStartupTracePoint $state 24
+                    Set-HermesStartupTraceFault $state
+                }
+                $report = New-HermesStartupReport $state $debuggerEnded $drainsEnded
+                $expectedPoint = switch ($case) {
+                    38 { 6 }; 39 { 7 }; 40 { 8 }; 41 { 9 }; 42 { 10 }
+                    43 { 15 }; 44 { 16 }; 45 { 17 }; 46 { 21 }; 47 { 7 }; 49 { 22 }
+                }
+                $expectedRole = switch ($case) {
+                    38 { 2 }; 39 { 3 }; 40 { 4 }; 41 { 5 }; 42 { 1 }; 47 { 2 }
+                    default { 0 }
+                }
+                Assert-Control ($report.tracePoint -eq $expectedPoint `
+                    -and $report.toolRole -eq $expectedRole `
+                    -and $report.tracePoint -is [int] -and $report.toolRole -is [int] `
+                    -and $script:controlStops -eq 1 -and $script:controlDisposed -eq 1 `
+                    -and $report.completed -eq 0 -and $report.nativeAcceptance -eq 0 `
+                    -and $report.originalGatePassed -eq 0 -and $report.cleanupComplete -eq 0 `
+                    -and $report.acceptedUtf8Bytes -eq 0 `
+                    -and $report.outChars -eq 0 -and $report.errChars -eq 0 `
+                    -and $report.commandSha256 -ceq '')
+                if ($case -eq 49) {
+                    Assert-Control ($report.status -eq 3 -and $report.error -eq 0 `
+                        -and -not $state.TraceFaulted -and $report.cleanupFault -eq 0 `
+                        -and $report.debuggerSha256 -ceq ('a' * 64) `
+                        -and $report.helperSha256 -ceq ('b' * 64) `
+                        -and ($script:controlToolRoles -join ',') -ceq '1,2,3,4,5,6')
+                } else {
+                    $expectedError = if ($case -eq 47) { 5 } else { 13 }
+                    $expectedCleanupFault = if ($case -eq 47) { 13 } else { 0 }
+                    Assert-Control ($report.status -eq 8 -and $state.TraceFaulted `
+                        -and $report.error -eq $expectedError `
+                        -and $report.cleanupFault -eq $expectedCleanupFault `
+                        -and $report.helperSha256 -ceq '')
+                }
+                $json = $report | ConvertTo-Json -Compress
+                Assert-Control ($json -notmatch 'private-preflight|S-1-|CN=|--command|Microsoft|gflags|dbgeng')
+            }
+            48 {
+                $state = New-ControlFixture
+                Set-HermesStartupTracePoint $state 7 2
+                foreach ($invalid in @(
+                    @{ Point = -1; Role = 0 }, @{ Point = 27; Role = 0 },
+                    @{ Point = '7'; Role = 2 }, @{ Point = 7.0; Role = 2 },
+                    @{ Point = 7; Role = 'C:\private-preflight' },
+                    @{ Point = 7; Role = -1 }, @{ Point = 7; Role = 7 },
+                    @{ Point = 7; Role = 0 }, @{ Point = 11; Role = 2 },
+                    @{ Point = 10; Role = 2 }
+                )) {
+                    $refused = $false
+                    try { Set-HermesStartupTracePoint $state $invalid.Point $invalid.Role }
+                    catch { $refused = $true }
+                    Assert-Control ($refused -and $state.TracePoint -eq 7 -and $state.ToolRole -eq 2)
+                }
+                $state.TracePoint = 'C:\private-preflight --command'
+                $state.ToolRole = @{ Subject = 'CN=secret S-1-5-21-123' }
+                $report = New-HermesStartupReport $state $true $true
+                Assert-Control ($report.tracePoint -eq 0 -and $report.toolRole -eq 0 `
+                    -and $report.status -eq 8 -and $report.error -eq 13 `
+                    -and $report.completed -eq 0 `
+                    -and ($report | ConvertTo-Json -Compress) -notmatch 'private-preflight|CN=|S-1-|--command')
+                Set-HermesStartupTracePoint $state 7 2
+                Set-HermesStartupTraceFault $state
+                $state.TraceFaultPoint = [long]::MaxValue
+                $state.TraceFaultRole = '3'
+                $report = New-HermesStartupReport $state $true $true
+                Assert-Control ($report.tracePoint -eq 0 -and $report.toolRole -eq 0 `
+                    -and $report.status -eq 8 -and $report.error -eq 13 -and $report.completed -eq 0)
             }
         }
         $passed++
