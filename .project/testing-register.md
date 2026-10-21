@@ -2,6 +2,23 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Temporary producer observation returns one closed-profile bit
+
+The source-reviewed build-only probe tests one complete candidate profile:
+two named executable callbacks plus the exact source-defined runtime data
+entry, including name/ordinal/target correlation, section roles, bytes and
+bounds. It emits only a fixed zero/one marker before native loading or hash
+selection; zero stops publication. It does not change C# admission or prove
+an embedded MSI identity/hash. Remove or replace it after the single actual
+observation.
+
+Synthetic positive/permuted and adverse images exercise the actual probe.
+Expected malformed-image/I/O failures return false; programming, strict-mode,
+disposal and cancellation failures propagate. Explicit reflected header
+access preserves getter exceptions rather than masking them as null.
+Parent passes all static controls, 2,182 Core, unchanged 959 Setup cases and
+warning-free root build. No actual three-entry profile is yet claimed.
+
 ## Exact guard PE predicates preserve the pre-instrumentation policy
 
 The reviewed refinement identifies the first existing PE predicate or read

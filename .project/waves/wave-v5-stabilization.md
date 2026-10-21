@@ -100,6 +100,20 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - One closed producer-profile observation precedes native loading
+
+- **Changed:** The source-approved temporary build probe emits only a zero/one match for a complete candidate callback/runtime-data profile before native loading or hash selection. A negative result fails publication; C# admission remains unchanged.
+- **Validation:** Parent passes all static controls, warning-free root build, 2,182 Core and unchanged 959 Setup cases. Synthetic image and exception-boundary controls distinguish expected negatives from programming/cancellation failures. The specialist corrects PowerShell getter access without broadening the catch filter.
+- **Boundary:** No actual profile, export count/name set, embedded Binary equality or approved hash is claimed yet. The source-defined runtime object does not alone prove Windows export selection.
+- **Next:** Publish one actual observation, then remove or replace the temporary parser as part of the evidence-led strict compatibility correction.
+
+### 2026-10-21 - Actual export function count fails the two-entry contract
+
+- **Evidence:** Published `a085bfd` run `39539351996` returns stage 10/cause 55 with zero auxiliary fields and no protocol/diagnostic error. NumberOfFunctions was successfully read and differs from two; this is not a count-read exception. The count value, names and approved-hash outcome remain unobserved.
+- **Validation:** All 57 native cases, both compiled language/admin-row checks, both complete 699-warning validations, both supported OS jobs and Tray pass. First SDK-free Install still refuses and publication is skipped.
+- **Producer:** The actual SDK is 9.0.319; official release metadata maps it to runtime 9.0.21. Unchanged pinned NativeAOT export-writer, unmanaged-entry-root and debug-header primaries are available to a fresh specialist.
+- **Next:** Establish a closed producer-compatible export profile or one precise missing actual predicate, preserving callback authority and exact hash approval.
+
 ### 2026-10-21 - Guard PE inspection retains exact rejection-site evidence
 
 - **Changed:** The independently source-approved instrumentation reports only the first existing PE predicate/read site. Count mismatches remain distinct from count-read exceptions; original policy, exception identity/type/message and privacy limits remain.
