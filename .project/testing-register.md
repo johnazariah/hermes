@@ -2,6 +2,26 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Acceptance-only restricted-owner token factory awaits kernel proof
+
+The source-reviewed primitive creates only an owned restricted primary token:
+documented DisableMaxPrivilege/Lua flags, Administrator deny-only and medium
+integrity. It verifies primary/non-elevated/medium/Admin-disabled/deny-only/
+same-owner/same-session facts and actual thread-token absence before transfer
+and before use. Source and filtered handles have separate roles; failures
+close owned handles and never fall back.
+
+No process, MSI, account, profile, impersonation, current-token adjustment or
+ordinary harness reroute is introduced. The genuine test compares parent
+context and internal token identity/modification stamps before and after;
+only numeric predicates/error codes can be emitted.
+
+There are 33 new Windows-project cases: 32 fake boundary cases plus one real
+kernel case. CI requires all 92 cases, preserving the previous 59 definitions
+and zero skips. Parent passes warning-free root/Windows cross-builds, 2,182
+Core and all static controls. No new native body ran on the Mac; actual
+kernel filtering success remains pending.
+
 ## Read-only MSI caller context distinguishes privilege from authoring
 
 The reviewed observation samples the actual Setup process-primary token and

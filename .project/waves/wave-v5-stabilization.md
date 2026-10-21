@@ -100,6 +100,20 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Restricted-owner token creation is isolated from process launch
+
+- **Changed:** The source-approved acceptance-only factory creates and verifies an owned restricted primary token without changing the parent or launching anything. It checks every required owner/session/elevation/integrity/group predicate and fails closed on unknowns.
+- **Validation:** Parent passes warning-free root/Windows cross-builds, 2,182 Core and all static controls. The 33 new fake/kernel cases raise the exact Windows gate to 92, preserving all prior 59 definitions. Native bodies were not run on the Mac.
+- **Boundary:** Actual LUA filtering on the observed high/default/no-linked host is not yet established. Ordinary Setup acceptance still uses the original context; no production guard, property, package, account, ACL or UAC policy changes.
+- **Next:** Publish and require the genuine numeric kernel proof, parent-unchanged result and disposal checks before implementing child execution.
+
+### 2026-10-21 - Actual Setup caller is high-integrity enabled Administrator
+
+- **Evidence:** Published `aebbae9` run `39558881956` measures both original Install and separate Recover callers before MSI: process observed, elevated one, elevation type Default, integrity RID 12288, Administrator enabled, thread token absent and linked token absent. No limited linked token is inferred or available in that observation.
+- **Validation:** All 59 native cases execute/pass with zero skips; both compiled LUA/language/admin-row checks, both complete 699-warning validations, both supported OS jobs and Tray pass.
+- **Boundary:** The LUA package does not demote a high caller. The guard remains strict; RecoveryRequired/1603/Ready-false and unsafe-completed-cleanup reporting remain. Token measurements authorize no servicing or recovery state.
+- **Next:** A fresh specialist owns a test-only same-owner non-elevated execution context, keeping privileged provider bootstrap separate and proving child context before effects rather than relaxing production checks.
+
 ### 2026-10-21 - MSI caller privilege context is measured without mutation
 
 - **Changed:** The source-approved read-only observation samples actual Setup process/thread token context immediately before the MSI API. Numeric status distinguishes absent, failed and unobserved; identity comparisons stay internal and no token/privilege/property is changed.

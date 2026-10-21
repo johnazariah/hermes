@@ -274,9 +274,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           [xml]$tests = Get-Content -LiteralPath "$PWD/.artifacts/servicing-windows-tests/servicing-windows.trx" -Raw
           $counts = $tests.TestRun.ResultSummary.Counters
-          if ([int]$counts.total -ne 59 -or [int]$counts.executed -ne 59 -or [int]$counts.passed -ne 59 `
+          if ([int]$counts.total -ne 92 -or [int]$counts.executed -ne 92 -or [int]$counts.passed -ne 92 `
               -or [int]$counts.failed -ne 0 -or [int]$counts.notExecuted -ne 0) {
-            throw 'Expected all original 58 Windows tests plus the real calling-thread token-context observation test, with no skips.'
+            throw 'Expected all existing 59 Windows tests plus 33 restricted-owner-token cases, with no skips.'
           }
       - name: Coordinator install, repair, launch, upgrade, rollback and uninstall without SDK access
         shell: pwsh

@@ -16,6 +16,9 @@
     <AssemblyAttribute Include="System.Runtime.Versioning.SupportedOSPlatformAttribute">
       <_Parameter1>windows</_Parameter1>
     </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>Hermes.Servicing.WindowsTests</_Parameter1>
+    </AssemblyAttribute>
     <ProjectReference Include="../../src/Hermes.Servicing/Hermes.Servicing.csproj" />
     <ProjectReference Include="../../installer/windows/Hermes.Installer.Control/Hermes.Installer.Control.csproj" />
     <ProjectReference Include="../../installer/windows/Hermes.Setup/Hermes.Setup.csproj" />
