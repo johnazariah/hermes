@@ -112,6 +112,13 @@ internal sealed class RestrictedOwnerToken : IDisposable
         return ReadVerified(_tokens, _token, source);
     }
 
+    // Test-only, synchronous borrow. No token or native handle is returned.
+    internal void CreateSuspendedInertChild(IAcceptanceOwnedChild child)
+    {
+        _ = Verify();
+        child.CreateSuspended(_token);
+    }
+
     private static RestrictedOwnerTokenFacts ReadVerified(
         IRestrictedOwnerTokens tokens, IAcceptanceRestrictedToken token,
         IAcceptanceSourceToken source)
@@ -136,8 +143,10 @@ internal sealed class RestrictedOwnerToken : IDisposable
     public void Dispose() => _token.Dispose();
 }
 
-// Deliberately test-only. There are no process-launch, token-assignment,
-// impersonation, privilege-adjustment, account, profile, or ACL APIs here.
+// Deliberately test-only. This file only creates and verifies tokens.
+// The separate inert-child partial contains the bounded process-launch API.
+// Neither partial acquires privileges, impersonates, or changes accounts,
+// profiles, desktop ACLs, or host policy.
 internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IRestrictedOwnerTokens
 {
     private const uint SourceAccess = 0x0001 | 0x0002 | 0x0008 | 0x0080;

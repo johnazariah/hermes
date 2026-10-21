@@ -2,6 +2,27 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Inert restricted-child supervision awaits actual Windows execution
+
+The reviewed acceptance-only primitive supports one fixed System32 cmd exit
+command, not installer routing. It creates the child suspended, assigns an
+owned kill-on-close job and verifies actual child primary/thread token facts
+before one resume. Token/owner/session/group/integrity failure prevents resume;
+wait, cancellation and cleanup target only owned handles. Incomplete cleanup
+preserves original plus cleanup failures instead of claiming completion.
+
+Forty-five new cases cover fake policy/lifetime failures and one genuine
+inert-child proof. Parent security comparison retains identity, context,
+groups and exact final privilege attributes but not ModifiedId, which the
+documented process API may legitimately advance. Factory/child classes share
+a nonparallel collection to protect the existing factory stamp assertion.
+
+CI requires all 137 cases, preserving the old 92 assertions and zero skips.
+Parent passes warning-free root/Windows cross-builds, 2,182 Core and all static
+controls. No native child ran on the Mac; actual restricted child creation,
+verification, exit 37 and cleanup remain pending. Stdio/environment frameworks
+and ordinary MSI harness integration remain outside this primitive.
+
 ## Acceptance-only restricted-owner token factory awaits kernel proof
 
 The source-reviewed primitive creates only an owned restricted primary token:

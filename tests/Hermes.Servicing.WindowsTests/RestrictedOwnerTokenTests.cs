@@ -9,6 +9,7 @@ using Xunit.Sdk;
 namespace Hermes.Servicing.WindowsTests;
 
 [SupportedOSPlatform("windows")]
+[Collection(nameof(RestrictedOwnerNativeCollection))]
 public sealed class RestrictedOwnerTokenTests(ITestOutputHelper output)
 {
     [Fact]

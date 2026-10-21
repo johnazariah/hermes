@@ -100,6 +100,21 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Inert restricted-child lifetime is bounded before harness integration
+
+- **Changed:** The source-approved acceptance primitive creates only a fixed inert child suspended, assigns its owned job, verifies actual child token context before one resume and tracks exit/cleanup. No MSI, owner-profile or installer routing is added.
+- **Validation:** Parent passes warning-free root/Windows cross-builds, 2,182 Core and all static controls. Forty-five fake/kernel cases raise the exact Windows gate to 137 while preserving all old 92 assertions. Native bodies were not executed on the Mac.
+- **Isolation:** Token-sensitive classes share a nonparallel xUnit collection. The new parent-security check compares final privilege state rather than the documented API's mutable ModifiedId; the old factory assertion remains unchanged.
+- **Boundary:** Restricted child creation, verified token, native exit 37 and owned cleanup are not claimed before Windows execution. Ordinary acceptance still runs in its old context and remains blocked.
+- **Next:** Publish and obtain genuine child proof before adding ordinary acceptance environment/stdio routing and separating administrative provider bootstrap.
+
+### 2026-10-21 - Kernel proves the restricted-owner primary token works
+
+- **Evidence:** Published `9665a3b` run `39563793563` executes/passes all 92 native cases with zero skips, including the genuine high/default/no-linked filtering case. The filtered primary is non-elevated, medium, Administrator-disabled/deny-only and same owner/session; the caller thread remains unimpersonated.
+- **Preservation:** The genuine case verifies unchanged parent context/token identity/modification, owned-token disposal and refused closed-token reuse. No process, profile or MSI operation is performed by the factory.
+- **Boundary:** Ordinary acceptance still uses its original high context and remains RecoveryRequired/1603; both complete 699-warning MSI validations pass. A verified token alone is not a verified child process or installation.
+- **Next:** A fresh specialist owns only suspended restricted-child creation, actual child-context verification before resume, owned lifetime/exit/cleanup and an inert Windows proof before harness integration.
+
 ### 2026-10-21 - Restricted-owner token creation is isolated from process launch
 
 - **Changed:** The source-approved acceptance-only factory creates and verifies an owned restricted primary token without changing the parent or launching anything. It checks every required owner/session/elevation/integrity/group predicate and fails closed on unknowns.
