@@ -174,8 +174,7 @@ let startRequest (server: Server) (pending: Pending) (path: string)
     : Task<Task<Reply>> =
     task {
         do! Host.becomeReady server
-        let! credential = Session.issue server
-        let authority = if path = pendingPath then Some credential else None
+        let! authority = Session.credentialForPath pendingPath (fun () -> Session.issue server) path
         let request = post server path authority "{}"
         let! invocation = wait pending.Invocation.Task
         Assert.False(invocation.IsCompleted)

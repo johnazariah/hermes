@@ -92,3 +92,17 @@ let issue (server: Server) : Task<string> =
         Assert.Equal(201, exchanged.Status)
         return json exchanged |> field "accessToken"
     }
+
+/// Independent routes must not depend on unused HTTP-session setup.
+let credentialForPath
+    (protectedPath: string)
+    (issueCredential: unit -> Task<string>)
+    (path: string)
+    : Task<string option> =
+    task {
+        if path = protectedPath then
+            let! credential = issueCredential ()
+            return Some credential
+        else
+            return None
+    }

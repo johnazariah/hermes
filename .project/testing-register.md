@@ -2,6 +2,19 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Independent MCP drain setup avoids unused HTTP pairing
+
+The Windows `/mcp` drain test failed during an HTTP approval whose credential
+the fixture then discarded. The shared request helper now issues HTTP
+authority only for `/api/host/pending`; MCP retains its independent route
+policy, readiness check and actual request admission.
+
+Two regression cases exercise the same selector: one real issuance path for
+the protected API and no issuance for MCP. All real Kestrel drain, abort,
+database and quiescence assertions remain. Fresh F# review approves; 12 host
+cases and all 2,184 Core cases pass with a warning-free root build.
+The underlying owner-pipe timeout is not attributed or weakened.
+
 ## Fixed CDB callbacks preserve literal Windows path separators
 
 Actual run 39652529830 at `21f3ad2` reports transform 9 for both callbacks:

@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - MCP drain setup no longer depends on discarded HTTP approval
+
+- **Evidence:** Supported Windows run `39652529830` fails the `/mcp` drain case during initial owner approval. Source shows that credential was immediately discarded; the actual drain assertion had not started.
+- **Changed:** A fresh F# owner makes the real request helper issue HTTP authority only for the protected API route. MCP keeps its independent policy, readiness and admission. Production authorization, deadlines and drain behavior are unchanged.
+- **Validation:** Fresh F# source review approves; 12 host cases and all 2,184 Core cases pass. Root build has zero warnings/errors. Two added cases verify one API issuance and zero MCP issuance through the shared helper.
+- **Blockers:** The underlying pipe timeout remains unattributed; API tests still require genuine owner approval and Windows current-head validation remains pending.
+- **Next:** Publish this fixture correction with the next bounded native diagnostic and require the supported Windows suite to pass.
+
 ### 2026-10-22 - Measured callback path mutation selects literal backslash escaping
 
 - **Evidence:** Published `21f3ad2`, run `39652529830`, job `119404282439`, passes 143 pure controls and 456/457 native cases. Both callbacks report transform 9: quoted source with all four path separators removed. No callback event, loader flag or arming is observed.

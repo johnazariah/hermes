@@ -10,6 +10,8 @@ open Hermes.Service
 open Hermes.Tests.ServiceAccessHostTestSupport
 open Hermes.Tests.ServiceAccessHostDrainSupport
 
+module Session = Hermes.Tests.ServiceAccessHostSessionSupport
+
 let private databasePath root = Path.Combine(root, "db.sqlite")
 
 let private clearFixturePool root =
@@ -62,6 +64,28 @@ let private verifyAbandoned (root: string) (path: string) : Task<unit> =
 [<InlineData("/mcp")>]
 let ``Kestrel stop cannot quiesce an admitted noncancelable database user`` (path: string) =
     withDirectory (fun root -> verifyAbandoned root path)
+
+let private verifyCredentialSelection
+    (path: string) (requiresSession: bool) : Task<unit> =
+    let calls = System.Collections.Concurrent.ConcurrentQueue<unit>()
+    let credential = "synthetic-fixture-session"
+    let issueCredential () =
+        calls.Enqueue(())
+        Task.FromResult(credential)
+    task {
+        let! selected =
+            Session.credentialForPath pendingPath issueCredential path
+        let expected = if requiresSession then Some credential else None
+        Assert.Equal<string option>(expected, selected)
+        Assert.Equal((if requiresSession then 1 else 0), calls.Count)
+    }
+
+[<Theory>]
+[<InlineData("/api/host/pending", true)>]
+[<InlineData("/mcp", false)>]
+let ``drain setup issues HTTP authority only for the protected API route``
+    (path: string) (requiresSession: bool) =
+    verifyCredentialSelection path requiresSession
 
 let private quiesce (owner: Hermes.Service.Program.DatabaseScope)
     (pending: Pending) (server: Server) : Task<unit> =
