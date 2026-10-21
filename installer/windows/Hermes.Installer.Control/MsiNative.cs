@@ -80,6 +80,19 @@ internal static unsafe partial class MsiNative
         finally { CloseHandle(record); }
     }
 
+    internal static bool TryMessage(uint session, uint kind, string text)
+    {
+        var record = CreateRecord(0);
+        if (record == 0)
+            return false;
+        try
+        {
+            return SetRecordString(record, 0, text) == 0 &&
+                ProcessMessage(session, kind, record) >= 0;
+        }
+        finally { CloseHandle(record); }
+    }
+
     [LibraryImport(Library, EntryPoint = "MsiGetPropertyW", StringMarshalling = StringMarshalling.Utf16)]
     private static partial uint GetProperty(uint session, string name, char* value, uint* length);
 

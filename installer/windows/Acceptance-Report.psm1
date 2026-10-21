@@ -80,11 +80,13 @@ function Assert-HermesCoordinatorStages {
         $coordinator = $null -ne $entry.PSObject.Properties['kind'] -and $entry.kind -ceq 'coordinator'
         if (-not $coordinator) {
             Require ($null -eq $entry.PSObject.Properties['msiFailureEvidence']) 'MSI observations must belong only to coordinator stages.'
+            Require ($null -eq $entry.PSObject.Properties['nativePreflightEvidence']) 'Native-preflight observations must belong only to coordinator stages.'
             continue
         }
         $names = @($entry.PSObject.Properties.Name | Sort-Object)
-        Require (($names -join ',') -ceq 'action,diagnosticCodes,diagnosticError,exitCode,kind,msiFailureEvidence,protocolError,refusalEvidence,report,sdkPathAbsent') 'Unexpected coordinator stage fields.'
+        Require (($names -join ',') -ceq 'action,diagnosticCodes,diagnosticError,exitCode,kind,msiFailureEvidence,nativePreflightEvidence,protocolError,refusalEvidence,report,sdkPathAbsent') 'Unexpected coordinator stage fields.'
         Assert-HermesCoordinatorMsiEvidence $entry
+        Assert-HermesCoordinatorNativePreflightEvidence $entry
     }
 }
 

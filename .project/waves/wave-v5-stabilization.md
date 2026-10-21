@@ -100,6 +100,21 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Native preflight context hints have a complete evidence thread
+
+- **Changed:** The source-approved numeric observation precedes session reading and distinguishes context/private-exchange points without becoming a fence or native-provenance claim. Original criteria and private signal/permit behaviour remain; the hint is explicitly untrusted active-call data.
+- **Integration:** Setup conversion, bounded parser, separate Install/recovery stage saving and final publication validation consume the hint. Invalid or mixed input preserves the original native result without raw stderr or accepted partial metadata.
+- **Validation:** Parent passes 111 Control, 1,084 Setup, 2,182 Core, warning-free root/Windows cross-builds and all static controls. The new real-MSI invalid-handle fact raises the required Windows count to 58 without changing the original 57 definitions; it is not published-DLL entry proof.
+- **Boundary:** No native refusal reason or successful installed chain is claimed before actual Windows execution. Ready and recovery barriers remain unchanged.
+- **Next:** Publish and read the original Install's bounded native hint to select the exact preflight correction.
+
+### 2026-10-21 - Actual MSI observation ends at preflight without an own receipt
+
+- **Evidence:** Published `6804016` run `39549903525` preserves original Install observation action 1399/error 0/readFailed 0/preflight 0/fence 0, separately from an equal failure-Recover observation. Protocol and diagnostic validation succeed.
+- **Boundary:** ActionStart identifies the last recognised action, not guard entry/completion. Error zero means no numeric MSI error observed, not success or a proved load failure. Neither own receipt exists; RecoveryRequired/1603/Ready-false and unsafe-completed-cleanup reporting remain.
+- **Validation:** All 57 native cases, both compiled language/admin-row checks and both complete 699-warning validations pass. No readiness or native barrier is inferred.
+- **Next:** A fresh specialist traces only native preflight entry, context reading and private exchange to establish a strict root correction or one bounded native refusal reason.
+
 ### 2026-10-21 - Bounded native MSI evidence preserves callback and recovery semantics
 
 - **Changed:** The source-approved observer retains only first numeric MSI error/action and actual own-fence flags, freezes before cleanup and stores Install/recovery separately. Public schema, native outcomes, private INFO authority and recovery barriers remain unchanged.

@@ -61,8 +61,12 @@ internal sealed unsafe class ExternalUiScope : IDisposable
                 return 0;
             authority.ObserveMsiFailure(message, record, records);
             if ((message & 0xff000000) == InfoMessage)
-                return FenceSignal.Decode(readText(record)) is { } signal &&
+            {
+                var text = readText(record);
+                authority.ObserveNativePreflight(text);
+                return FenceSignal.Decode(text) is { } signal &&
                     authority.Observe(signal) ? 1 : 0;
+            }
             observeMsi(authority, message, record);
             return 0;
         }

@@ -139,6 +139,7 @@ $nativeRow = [pscustomobject][ordered]@{
     diagnosticCodes = @('TransactionFenceMissing'); protocolError = $null
     refusalEvidence = $null; diagnosticError = $null; sdkPathAbsent = $true
     msiFailureEvidence = [pscustomobject]@{ v = 1; action = 1399; error = 1723; readFailed = 0; preflight = 1; fence = 0 }
+    nativePreflightEvidence = $null
 }
 $nativeJson = $nativeRow | ConvertTo-Json -Depth 8 -Compress
 Assert-HermesCoordinatorStages @($nativeRow)
@@ -184,4 +185,42 @@ $row.report.msiExitCode = 0
 $row.exitCode = 0
 $row.diagnosticCodes = @('None')
 Assert-HermesCoordinatorStages @($row)
+
+$hintRow = $nativeJson | ConvertFrom-Json
+$hintRow.msiFailureEvidence.preflight = 0
+$hintRow.nativePreflightEvidence = [pscustomobject]@{
+    v = 1; source = 1; observed = 1; point = 2; reason = 11
+}
+$hintJson = $hintRow | ConvertTo-Json -Depth 8 -Compress
+Assert-HermesCoordinatorStages @($hintRow)
+$hintControls = @(
+    { param($r) $r.nativePreflightEvidence.v = 2 },
+    { param($r) $r.nativePreflightEvidence.source = 2 },
+    { param($r) $r.nativePreflightEvidence.observed = 0 },
+    { param($r) $r.nativePreflightEvidence.observed = $true },
+    { param($r) $r.nativePreflightEvidence.point = '2' },
+    { param($r) $r.nativePreflightEvidence.point = 0 },
+    { param($r) $r.nativePreflightEvidence.point = 10 },
+    { param($r) $r.nativePreflightEvidence.reason = 3 },
+    { param($r) $r.nativePreflightEvidence.reason = 23 },
+    { param($r) $r.nativePreflightEvidence.point = 6 },
+    { param($r) $r.nativePreflightEvidence | Add-Member -NotePropertyName token -NotePropertyValue 'SYNTHETIC_SECRET' },
+    { param($r) $r.nativePreflightEvidence.PSObject.Properties.Remove('reason') },
+    { param($r) $r.PSObject.Properties.Remove('nativePreflightEvidence') },
+    { param($r) $r.msiFailureEvidence = $null },
+    { param($r) $r.msiFailureEvidence.preflight = 1 },
+    { param($r) $r.report.ready = $true },
+    { param($r) $r.diagnosticError = 'InvalidCoordinatorDiagnostics' }
+)
+foreach ($mutate in $hintControls) {
+    $row = $hintJson | ConvertFrom-Json
+    & $mutate $row
+    $beforeValidation = $row | ConvertTo-Json -Depth 8 -Compress
+    $rejected = $false
+    try { Assert-HermesCoordinatorStages @($row) } catch { $rejected = $true }
+    if (-not $rejected) { throw 'Invalid or unbound native-preflight data reached the publication consumer.' }
+    if (($row | ConvertTo-Json -Depth 8 -Compress) -cne $beforeValidation) {
+        throw 'Native-preflight validation mutated coordinator evidence.'
+    }
+}
 Write-Output "Synthetic report-parser controls passed: valid shape plus $($controls.Count + 1) adverse/incomplete/blocked controls. These are not Windows evidence."

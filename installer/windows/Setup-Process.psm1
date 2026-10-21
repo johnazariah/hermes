@@ -26,6 +26,25 @@ function ConvertFrom-HermesSetupResult {
     return $report
 }
 
+function ConvertFrom-HermesNativePreflightLine {
+    param([string]$Line)
+    $pattern = '\AHERMES_NATIVE_PREFLIGHT v=1 source=1 observed=(?<observed>[01]) point=(?<point>[0-9]) reason=(?<reason>0|1|2|4|1[0-9]|2[0-2])\z'
+    if ($Line.Length -gt 112 -or $Line -cnotmatch $pattern) { return $null }
+    $observed = [int]$Matches.observed
+    $point = [int]$Matches.point
+    $reason = [int]$Matches.reason
+    $valid = ($observed -eq 0 -and $point -eq 0 -and $reason -eq 0) `
+        -or ($observed -eq 1 -and $point -ge 1 -and $point -le 9 -and ( `
+            $reason -in @(0, 1, 4) `
+            -or ($reason -eq 2 -and $point -ge 2) `
+            -or ($point -eq 2 -and $reason -ge 10 -and $reason -le 22)))
+    if (-not $valid) { return $null }
+    # source=1 means UNTRUSTED active-MSI-callback data, never native provenance.
+    return [pscustomobject]@{
+        v = 1; source = 1; observed = $observed; point = $point; reason = $reason
+    }
+}
+
 function ConvertFrom-HermesSetupProcessOutput {
     param([string]$StandardOutput, [string]$StandardError, [int]$ExitCode,
         [ValidateSet('install', 'repair', 'uninstall', 'recover')][string]$Operation)
@@ -36,6 +55,7 @@ function ConvertFrom-HermesSetupProcessOutput {
     $codes = @()
     $refusalEvidence = $null
     $msiFailureEvidence = $null
+    $nativePreflightEvidence = $null
     $diagnosticError = $null
     if ($StandardError.Length -gt 4096) {
         $diagnosticError = 'CoordinatorDiagnosticsTooLong'
@@ -106,14 +126,39 @@ function ConvertFrom-HermesSetupProcessOutput {
             if ($null -eq $diagnosticError) { $diagnosticError = 'MixedCoordinatorEvidence' }
         }
     }
+    if ($StandardError.Length -le 4096) {
+        $nativeCandidates = @($lines | Where-Object {
+            $_.IndexOf('HERMES_NATIVE', [StringComparison]::OrdinalIgnoreCase) -ge 0
+        })
+        if ($nativeCandidates.Count -gt 1) {
+            if ($null -eq $diagnosticError) { $diagnosticError = 'DuplicateCoordinatorNativePreflightEvidence' }
+        } elseif ($nativeCandidates.Count -eq 1) {
+            $value = ConvertFrom-HermesNativePreflightLine $nativeCandidates[0]
+            if ($null -eq $value -or $null -eq $msiFailureEvidence `
+                -or $msiFailureEvidence.preflight -ne 0 -or $msiFailureEvidence.fence -ne 0 `
+                -or $null -ne $refusalEvidence) {
+                if ($null -eq $diagnosticError) { $diagnosticError = 'InvalidCoordinatorNativePreflightEvidence' }
+            } else {
+                $nativePreflightEvidence = $value
+            }
+        }
+        if ($nativeCandidates.Count -gt 0 -and $candidates.Count -gt 0) {
+            $refusalEvidence = $null
+            $msiFailureEvidence = $null
+            $nativePreflightEvidence = $null
+            if ($null -eq $diagnosticError) { $diagnosticError = 'MixedCoordinatorEvidence' }
+        }
+    }
     if ($null -ne $diagnosticError) {
         $msiFailureEvidence = $null
+        $nativePreflightEvidence = $null
         if ($null -eq $protocolError) { $protocolError = 'InvalidCoordinatorDiagnostics' }
     }
     [pscustomobject]@{
         exitCode = $ExitCode; report = $report; diagnosticCodes = $codes; protocolError = $protocolError
         refusalEvidence = $refusalEvidence; diagnosticError = $diagnosticError
         msiFailureEvidence = $msiFailureEvidence
+        nativePreflightEvidence = $nativePreflightEvidence
     }
 }
 
@@ -152,6 +197,29 @@ function Assert-HermesCoordinatorMsiEvidence {
         -ExitCode $Result.exitCode -Operation ($Result.report.operation.ToLowerInvariant())
     if ($null -ne $parsed.protocolError -or $null -ne $parsed.diagnosticError `
         -or $null -eq $parsed.msiFailureEvidence) { throw $invalid }
+}
+
+function Assert-HermesCoordinatorNativePreflightEvidence {
+    param($Result)
+    $invalid = 'Invalid coordinator native-preflight observation.'
+    if ($Result -isnot [pscustomobject] -or $null -eq $Result.PSObject.Properties['nativePreflightEvidence']) {
+        throw $invalid
+    }
+    $value = $Result.nativePreflightEvidence
+    if ($null -eq $value) { return }
+    if ($value -isnot [pscustomobject]) { throw $invalid }
+    $names = @($value.PSObject.Properties.Name | Sort-Object)
+    if (($names -join ',') -cne 'observed,point,reason,source,v') { throw $invalid }
+    foreach ($name in @('v', 'source', 'observed', 'point', 'reason')) {
+        if ($value.$name -isnot [int] -and $value.$name -isnot [long]) { throw $invalid }
+    }
+    Assert-HermesCoordinatorMsiEvidence $Result
+    if ($null -eq $Result.msiFailureEvidence -or $Result.msiFailureEvidence.preflight -ne 0 `
+        -or $Result.msiFailureEvidence.fence -ne 0) { throw $invalid }
+    $line = [string]::Format([Globalization.CultureInfo]::InvariantCulture,
+        'HERMES_NATIVE_PREFLIGHT v={0} source={1} observed={2} point={3} reason={4}',
+        [object[]]@($value.v, $value.source, $value.observed, $value.point, $value.reason))
+    if ($null -eq (ConvertFrom-HermesNativePreflightLine $line)) { throw $invalid }
 }
 
 function Invoke-HermesSetup {
@@ -200,4 +268,4 @@ function Invoke-HermesSetup {
     } finally { $child.Dispose() }
 }
 
-Export-ModuleMember -Function Invoke-HermesSetup, ConvertFrom-HermesSetupResult, ConvertFrom-HermesSetupProcessOutput, Assert-HermesCoordinatorMsiEvidence
+Export-ModuleMember -Function Invoke-HermesSetup, ConvertFrom-HermesSetupResult, ConvertFrom-HermesSetupProcessOutput, Assert-HermesCoordinatorMsiEvidence, Assert-HermesCoordinatorNativePreflightEvidence

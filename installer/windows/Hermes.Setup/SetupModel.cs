@@ -188,6 +188,7 @@ internal sealed record EngineReceipt(
 {
     // Ephemeral observation, never a completion-policy or journal input.
     internal MsiFailureEvidence? MsiFailure { get; init; }
+    internal NativePreflightEvidence? NativePreflight { get; init; }
 
     internal bool CompletedApi =>
         ApiEntered && ApiReturned && MsiExitCode is not null && !ControlFaulted;
@@ -206,6 +207,39 @@ internal sealed record MsiFailureEvidence(
     internal string ToDiagnosticLine() => string.Create(
         System.Globalization.CultureInfo.InvariantCulture,
         $"HERMES_SETUP_MSI v=1 action={Action} error={ErrorId} readFailed={(RecordReadFailed ? 1 : 0)} preflight={(OwnPreflight ? 1 : 0)} fence={(OwnTransaction ? 1 : 0)}");
+}
+
+// Source 1 is UNTRUSTED active-MSI-callback data, not native writer provenance.
+// Internal properties keep this out of the public report and persisted journal.
+internal sealed record NativePreflightEvidence(int Point, int Reason)
+{
+    internal static NativePreflightEvidence FromValues(int point, int reason)
+    {
+        var value = new NativePreflightEvidence(point, reason);
+        value.RequireValid();
+        return value;
+    }
+
+    internal string ToDiagnosticLine()
+    {
+        RequireValid();
+        return string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"HERMES_NATIVE_PREFLIGHT v=1 source=1 observed={(Point == 0 ? 0 : 1)} point={Point} reason={Reason}");
+    }
+
+    private void RequireValid()
+    {
+        var valid = (Point, Reason) switch
+        {
+            (0, 0) => true,
+            (>= 1 and <= 9, 0 or 1 or 4) => true,
+            (>= 2 and <= 9, 2) => true,
+            (2, >= 10 and <= 22) => true,
+            _ => false
+        };
+        if (!valid)
+            throw new ArgumentOutOfRangeException(nameof(Point));
+    }
 }
 
 internal sealed record OperationJournal(
@@ -262,6 +296,7 @@ internal sealed record SetupExecution(
     internal SetupAdmissionState Admission { get; init; } = SetupAdmissionState.Unknown;
     internal SetupRefusalEvidence? Evidence { get; init; }
     internal MsiFailureEvidence? MsiFailure { get; init; }
+    internal NativePreflightEvidence? NativePreflight { get; init; }
 
     internal static SetupExecution Refused(
         SetupVerb verb, SetupCode code, SetupRefusalEvidence? evidence = null) => new(
@@ -280,7 +315,8 @@ internal sealed record SetupExecution(
             decision.ExitCode, decision.Code)
         {
             Admission = SetupAdmissionState.Closed,
-            MsiFailure = receipt?.MsiFailure
+            MsiFailure = receipt?.MsiFailure,
+            NativePreflight = receipt?.NativePreflight
         };
 
     internal static SetupExecution Published(

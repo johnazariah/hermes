@@ -59,6 +59,7 @@ internal static class SetupEntryPoint
         await output.WriteLineAsync(execution.Report.ToJson());
         await diagnostics.WriteLineAsync($"Hermes Setup: {execution.Code}.");
         await WriteMsiFailureAsync(execution, diagnostics);
+        await WriteNativePreflightAsync(execution, diagnostics, CancellationToken.None);
         if (execution.Evidence is { } evidence &&
             (execution.Code is SetupCode.InvalidEvidence or SetupCode.Unavailable ||
              execution.Code == SetupCode.MediaInvalid && evidence.IsCandidateMedia))
@@ -92,6 +93,24 @@ internal static class SetupEntryPoint
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {
             // An unavailable optional diagnostic cannot replace the original closed result.
+        }
+    }
+
+    private static async Task WriteNativePreflightAsync(
+        SetupExecution execution, TextWriter diagnostics, CancellationToken cancellationToken)
+    {
+        if (execution is not
+            { Code: SetupCode.TransactionFenceMissing, ExitCode: SetupExitCode.ServicingFailed,
+              Evidence: null,
+              Report: { Outcome: SetupOutcome.RecoveryRequired, Ready: false, MsiExitCode: not null },
+              MsiFailure: { OwnPreflight: false, OwnTransaction: false },
+              NativePreflight: { } evidence })
+            return;
+        var line = evidence.ToDiagnosticLine();
+        try { await diagnostics.WriteLineAsync(line).WaitAsync(cancellationToken); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            // Optional output cannot replace the completed, closed Setup result.
         }
     }
 

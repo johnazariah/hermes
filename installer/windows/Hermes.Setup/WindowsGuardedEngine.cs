@@ -82,7 +82,9 @@ internal sealed class WindowsGuardedEngine : IGuardedEngine
                 MsiFailure = receipt.MsiFailure is { } observed
                     ? new((int)observed.Action, observed.ErrorId ?? 0,
                         observed.RecordReadFailed, preflight, transaction)
-                    : null
+                    : null,
+                NativePreflight = NativePreflightEvidence.FromValues(
+                    (int)receipt.NativePreflight.Point, (int)receipt.NativePreflight.Reason)
             };
         }
 

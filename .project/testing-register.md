@@ -2,6 +2,26 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Native preflight hints reach saved evidence without becoming authority
+
+The source-reviewed numeric INFO observation begins before session reading
+and identifies entry/context/private-exchange points and closed refusal
+reasons. Source 1 explicitly means an untrusted active-callback hint, not
+native writer provenance or a fence. Existing context checks and private
+signal/permit semantics remain unchanged; numeric mode labels distinguish
+Scheduled/Rollback, Commit and RollbackEnabled correctly.
+
+The complete thread carries receipt metadata through Setup, strict parsing,
+ordinary-stage saving and the final consumer. Original Install and recovery
+remain separate; malformed, mixed or unbound hints retain no accepted partial
+metadata or raw stderr. Optional diagnostic failures do not promote success.
+
+Parent passes 111 Control, 1,084 Setup, 2,182 Core, warning-free root/Windows
+cross-builds and all static controls, including actual invoke/save/final
+consumer tests. A new Windows invalid-MSI-handle fact adds no installation or
+published-DLL claim. CI now requires exactly 58 native cases, preserving all
+original 57 definitions and zero skips; actual Windows execution is pending.
+
 ## Native MSI failure evidence remains separate from completion authority
 
 The reviewed observation captures only the first numeric MSI error ID, last

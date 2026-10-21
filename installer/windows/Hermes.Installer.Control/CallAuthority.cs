@@ -24,6 +24,7 @@ internal sealed class CallAuthority(
     private readonly Dictionary<Guid, PendingFence> _pending = [];
     private readonly List<FenceReceipt> _receipts = [];
     private readonly MsiFailureTrace _msiFailure = new();
+    private NativePreflightObservation _nativePreflight = NativePreflightObservation.Missing;
     private ExceptionDispatchInfo? _msiFailureFault;
     private bool _active;
     private bool _finished;
@@ -35,6 +36,20 @@ internal sealed class CallAuthority(
     internal uint ObservationFilters =>
         MsiFailureTrace.Filters |
         (observer is IMsiMessageObserver ? ControlObservation.MsiMessageFilters : 0);
+
+    internal void ObserveNativePreflight(string text)
+    {
+        lock (_sync)
+        {
+            if (!_active || _finished ||
+                _nativePreflight.Reason != NativePreflightReason.None ||
+                _receipts.Any(receipt => receipt.OwnSession &&
+                    receipt.Phase == GuardPhase.Preflight))
+                return;
+            if (NativePreflightObservation.Decode(text) is { } value)
+                _nativePreflight = value;
+        }
+    }
 
     internal void ObserveMsiFailure(
         uint message, uint record, IMsiFailureRecords records)
@@ -225,7 +240,8 @@ internal sealed class CallAuthority(
                 _receipts.ToImmutableArray())
             {
                 ObservationFaults = Volatile.Read(ref _observationFaults),
-                MsiFailure = _msiFailure.Snapshot
+                MsiFailure = _msiFailure.Snapshot,
+                NativePreflight = _nativePreflight
             };
         }
     }

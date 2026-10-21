@@ -65,6 +65,8 @@ internal sealed record InstallerCallReceipt(
 
     // Ephemeral diagnostics only: not part of the serialized control receipt.
     internal MsiFailureObservation? MsiFailure { get; init; }
+    internal NativePreflightObservation NativePreflight { get; init; } =
+        NativePreflightObservation.Missing;
 
     internal bool MayEvaluateRecovery =>
         ApiEntered && ApiReturned && MsiExitCode == 0 && !ControlFaulted &&

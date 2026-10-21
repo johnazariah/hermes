@@ -111,7 +111,8 @@ function Invoke-Coordinator([string]$Operation, [string]$Name, [string]$PackageP
     $evidence.Add([ordered]@{ action = $Name; kind = 'coordinator'; exitCode = $result.exitCode
         report = $result.report; diagnosticCodes = $result.diagnosticCodes; protocolError = $result.protocolError
         refusalEvidence = $result.refusalEvidence; diagnosticError = $result.diagnosticError
-        msiFailureEvidence = $result.msiFailureEvidence; sdkPathAbsent = $true })
+        msiFailureEvidence = $result.msiFailureEvidence
+        nativePreflightEvidence = $result.nativePreflightEvidence; sdkPathAbsent = $true })
     Save-Evidence
     if ($null -ne $result.protocolError -or $null -eq $result.report) { throw "Coordinator report failed validation: $Name" }
     $permitted = if ($AcceptedExits.Count -gt 0) { $AcceptedExits } else { @($ExpectedExit) }

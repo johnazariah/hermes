@@ -270,8 +270,14 @@ jobs:
         run: |
           $servicing = Get-Content -LiteralPath "$PWD/.artifacts/servicing/servicing-build.json" -Raw | ConvertFrom-Json
           $trust = $servicing.approvedGuardSha256.Replace(';', '%3B')
-          dotnet test tests/Hermes.Servicing.WindowsTests/Hermes.Servicing.WindowsTests.csproj -c Release "-p:HermesApprovedGuardSha256=$trust"
+          dotnet test tests/Hermes.Servicing.WindowsTests/Hermes.Servicing.WindowsTests.csproj -c Release "-p:HermesApprovedGuardSha256=$trust" --logger "trx;LogFileName=servicing-windows.trx" --results-directory "$PWD/.artifacts/servicing-windows-tests"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          [xml]$tests = Get-Content -LiteralPath "$PWD/.artifacts/servicing-windows-tests/servicing-windows.trx" -Raw
+          $counts = $tests.TestRun.ResultSummary.Counters
+          if ([int]$counts.total -ne 58 -or [int]$counts.executed -ne 58 -or [int]$counts.passed -ne 58 `
+              -or [int]$counts.failed -ne 0 -or [int]$counts.notExecuted -ne 0) {
+            throw 'Expected all original 57 Windows tests plus the real MSI invalid-handle refusal test, with no skips.'
+          }
       - name: Coordinator install, repair, launch, upgrade, rollback and uninstall without SDK access
         shell: pwsh
         run: |
