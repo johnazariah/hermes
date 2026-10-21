@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Fixed event files remove nested CDB callback quoting
+
+- **Evidence:** Published `722b636` run `39635220944`, job `119343742443`, passes 88 pure controls and 456/457 native cases. CDB observes one valid initial helper marker, five malformed marker lines and four echoes; child callback/event/flag counts are zero. Target resume remains withheld and cleanup fault 5 remains visible.
+- **Changed:** Each fixed callback now invokes an owned script file containing plain commands. Root/create/exit files are create-new/read-only and all length/hash verified under retained read pins before CDB launch. The fixed command generator uses the same selected SDK extension; no arbitrary file or command selector is introduced.
+- **Preserved:** PID/creation/event/flag binding, historical arming, budgets, timeout, cleanup, token authority and the original PowerShell exit-37 requirement remain strict. This changes command transport, not acceptance or a claimed initialization cause.
+- **Validation:** Parent direct review, 110 pure controls and installer static controls pass. Local root build first encounters a Roslyn MissingMethodException; isolated serial IL-only build passes warning-free, then 2,182 Core cases pass. No source workaround was made.
+- **Next:** Publish and require actual create/exit markers and loader-flag readback from the pinned event files before authorizing the child's resume.
+
 ### 2026-10-22 - CDB runs; strict child-arming failure becomes distinguishable
 
 - **Evidence:** Published `578af37` run `39631051470`, job `119329001632`, passes 62 pure controls and 456/457 native cases. SDK extension/source trust passes and CDB runs. The actual helper matches, but target/arming do not; after its deadline the report retains status 5, error 13, cleanup fault 5, unchanged parent and incomplete cleanup. No startup cause is claimed.

@@ -96,16 +96,30 @@ function Confirm-TraceTools {
     return $path
 }
 
+function Assert-TraceCommandPath {
+    param([string]$Path)
+    if (-not [IO.Path]::IsPathFullyQualified($Path) `
+        -or [IO.Path]::GetFullPath($Path) -ine $Path -or $Path.Length -gt 240 `
+        -or $Path -cmatch '[";\x00-\x1f\x7f-\uffff]') {
+        throw 'Debugger command path refused.'
+    }
+    return $Path
+}
+
 function New-TraceCommands {
     param([string]$Extension)
-    $cpr = '.printf \"HERMES_CDB v=1 kind=1 pid=%u\n\", @$tpid;.lastevent;|.;!gflag +sls;!gflag;.printf \"HERMES_CDB v=1 kind=2 pid=%u\n\", @$tpid;g'
-    $epr = '.printf \"HERMES_CDB v=1 kind=3 pid=%u\n\", @$tpid;.lastevent;.printf \"HERMES_CDB v=1 kind=4 pid=%u\n\", @$tpid;g'
+    $null = Assert-TraceCommandPath $Extension
+    $cpr = Assert-TraceCommandPath (Join-Path $root 'startup-cpr.cdb')
+    $epr = Assert-TraceCommandPath (Join-Path $root 'startup-epr.cdb')
+    # $$>< takes a filename (spaces permitted), not script arguments. Refuse
+    # its semicolon separator and the enclosing -c quote delimiter in paths.
+    # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/-----------------------a---run-script-file-
     $commands = @(
         ('.load "' + $Extension + '"'),
         '.printf "HERMES_CDB v=1 kind=0 pid=%u\n", @$tpid',
         'sxd ibp',
-        ('sx- -c "' + $cpr + '" cpr'),
-        ('sx- -c "' + $epr + '" epr'),
+        ('sx- -c "$$><' + $cpr + '" cpr'),
+        ('sx- -c "$$><' + $epr + '" epr'),
         'g'
     ) -join "`n"
     $commands += "`n"
@@ -113,6 +127,57 @@ function New-TraceCommands {
         throw 'Debugger command encoding refused.'
     }
     return $commands
+}
+
+function New-TraceEventCommands {
+    [ordered]@{
+        'startup-cpr.cdb' = (@(
+            '.printf "HERMES_CDB v=1 kind=1 pid=%u\n", @$tpid',
+            '.lastevent', '|.', '!gflag +sls', '!gflag',
+            '.printf "HERMES_CDB v=1 kind=2 pid=%u\n", @$tpid', 'g'
+        ) -join "`r`n") + "`r`n"
+        'startup-epr.cdb' = (@(
+            '.printf "HERMES_CDB v=1 kind=3 pid=%u\n", @$tpid',
+            '.lastevent',
+            '.printf "HERMES_CDB v=1 kind=4 pid=%u\n", @$tpid', 'g'
+        ) -join "`r`n") + "`r`n"
+    }
+}
+
+function Write-TraceCommandFile {
+    param([string]$Path, [byte[]]$Bytes)
+    $stream = [IO.File]::Open($Path, [IO.FileMode]::CreateNew,
+        [IO.FileAccess]::Write, [IO.FileShare]::None)
+    try { $stream.Write($Bytes, 0, $Bytes.Length); $stream.Flush($true) }
+    finally { $stream.Dispose() }
+    [IO.File]::SetAttributes($Path, [IO.FileAttributes]::ReadOnly)
+}
+
+function Publish-TraceCommands {
+    param([string]$Extension)
+    $sources = New-TraceEventCommands
+    $sources['startup.cdb'] = New-TraceCommands $Extension
+    foreach ($source in $sources.GetEnumerator()) {
+        $path = Assert-TraceCommandPath (Join-Path $root $source.Key)
+        $bytes = [Text.Encoding]::ASCII.GetBytes($source.Value)
+        Write-TraceCommandFile $path $bytes
+    }
+    $hashes = @{}
+    foreach ($source in $sources.GetEnumerator()) {
+        $path = Join-Path $root $source.Key
+        $bytes = [Text.Encoding]::ASCII.GetBytes($source.Value)
+        $pin = Open-TracePin $path
+        if ($pin.Length -ne $bytes.Length) { throw 'Debugger command source length changed.' }
+        $hash = Get-TraceHash $pin
+        $expected = [Convert]::ToHexString(
+            [Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+        if ($hash -cne $expected) { throw 'Debugger command source changed.' }
+        $hashes[$source.Key] = $hash
+    }
+    $state.CommandSha256 = $hashes['startup.cdb']
+    $state.CreateCommandSha256 = $hashes['startup-cpr.cdb']
+    $state.ExitCommandSha256 = $hashes['startup-epr.cdb']
+    return Join-Path $root 'startup.cdb'
 }
 
 function Confirm-TracePublication {
@@ -326,11 +391,7 @@ try {
     }
 
     Set-HermesStartupTracePoint $state 24 # Fixed command and symbol setup.
-    $commands = New-TraceCommands $extension
-    $commandPath = Join-Path $root 'startup.cdb'
-    [IO.File]::WriteAllText($commandPath, $commands, [Text.Encoding]::ASCII)
-    [IO.File]::SetAttributes($commandPath, [IO.FileAttributes]::ReadOnly)
-    $state.CommandSha256 = Get-TraceHash (Open-TracePin $commandPath)
+    $commandPath = Publish-TraceCommands $extension
     $symbols = Join-Path $root 'symbols'
     $null = [IO.Directory]::CreateDirectory($symbols)
 

@@ -2,6 +2,26 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Debugger callbacks use pinned command files without nested quoting
+
+Actual CDB observations recorded the initial helper marker, five malformed
+markers and four command echoes, but no accepted child callback/event/flag
+readbacks. The helper correctly withheld resume and reported incomplete
+cleanup; no loader cause was inferred.
+
+Create/exit callbacks now invoke fixed SDK-documented script files. Their
+plain printf/event/loader-flag commands retain existing semantics. All three
+generated files are create-new, read-only, pinned and length/hash verified
+before launch, and their hashes enter the bounded advisory report. Callback
+registration remains one physical line without nested printf quoting.
+
+Twenty-two new source/transport controls retain all prior 88 and pass 110/110.
+Parent review and installer static controls pass. Root initially hit another
+local Roslyn MissingMethodException; serial isolated IL-only compilation
+(`DOTNET_ReadyToRun=0`, shared compilation disabled) then passes warning-free,
+followed by 2,182 Core cases. No project-source workaround was introduced.
+Actual callback execution and strict target arming remain pending.
+
 ## Debugger event binding is observed without relaxing acceptance
 
 The first CDB run reaches the published helper and its actual debugged child,

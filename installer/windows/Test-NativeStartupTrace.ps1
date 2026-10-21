@@ -100,7 +100,9 @@ $driverAst = [Management.Automation.Language.Parser]::ParseFile(
     (Join-Path $PSScriptRoot 'Invoke-NativeStartupTrace.ps1'),
     [ref]$tokens, [ref]$parseErrors)
 Assert-Control ($parseErrors.Count -eq 0)
-foreach ($name in @('Resolve-TraceExtension', 'Confirm-TraceTools', 'New-TraceCommands',
+foreach ($name in @('Resolve-TraceExtension', 'Confirm-TraceTools',
+        'Assert-TraceCommandPath', 'New-TraceCommands', 'New-TraceEventCommands',
+        'Publish-TraceCommands',
         'Confirm-TracePublication',
         'Start-TraceRead', 'Receive-TraceRead', 'Invoke-TraceCollection')) {
     $definitions = @($driverAst.FindAll({
@@ -139,13 +141,40 @@ $toolBinding = @($driverTry.Body.Statements | Where-Object {
 })
 $commandBinding = @($driverTry.Body.Statements | Where-Object {
     $_ -is [Management.Automation.Language.AssignmentStatementAst] `
-        -and $_.Left.Extent.Text -ceq '$commands'
+        -and $_.Left.Extent.Text -ceq '$commandPath'
 })
 Assert-Control ($toolBinding.Count -eq 1 -and $commandBinding.Count -eq 1)
 Assert-Control ($toolBinding[0].Extent.Text -ceq '$extension = Confirm-TraceTools $kits' `
-    -and $commandBinding[0].Extent.Text -ceq '$commands = New-TraceCommands $extension')
+    -and $commandBinding[0].Extent.Text -ceq '$commandPath = Publish-TraceCommands $extension')
+# Extension-layout controls do not publish files. The real publication and
+# launch-argument bindings are exercised below with retained memory pins.
 $controlExtensionDriver = [scriptblock]::Create(
-    'try { ' + $toolBinding[0].Extent.Text + '; ' + $commandBinding[0].Extent.Text +
+    'try { ' + $toolBinding[0].Extent.Text + '; $commands = New-TraceCommands $extension' +
+    ' } ' + $driverTry.CatchClauses[0].Extent.Text + ' finally ' + $driverTry.Finally.Extent.Text)
+$hashDefinition = @($driverAst.FindAll({
+    param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] `
+        -and $node.Name -ceq 'Get-TraceHash'
+}, $true))
+Assert-Control ($hashDefinition.Count -eq 1)
+. ([scriptblock]::Create($hashDefinition[0].Extent.Text.Replace(
+    'function Get-TraceHash', 'function Get-ControlCommandHash')))
+$startBinding = @($driverTry.Body.Statements | Where-Object {
+    $_ -is [Management.Automation.Language.AssignmentStatementAst] `
+        -and $_.Left.Extent.Text -ceq '$start'
+})
+$launchBinding = @($driverTry.Body.Statements | Where-Object {
+    $_ -is [Management.Automation.Language.AssignmentStatementAst] `
+        -and $_.Left.Extent.Text -ceq '$debugger.StartInfo'
+})
+Assert-Control ($startBinding.Count -eq 1 -and $launchBinding.Count -eq 1)
+$launchSetup = @($driverTry.Body.Statements | Where-Object {
+    $_.Extent.StartOffset -ge $startBinding[0].Extent.StartOffset `
+        -and $_.Extent.EndOffset -le $launchBinding[0].Extent.EndOffset
+} | ForEach-Object { $_.Extent.Text }) -join "`n"
+$controlCommandDriver = [scriptblock]::Create(
+    'try { Set-HermesStartupTracePoint $state 24; ' + $commandBinding[0].Extent.Text +
+    '; Set-HermesStartupTracePoint $state 25; ' + $launchSetup +
     ' } ' + $driverTry.CatchClauses[0].Extent.Text + ' finally ' + $driverTry.Finally.Extent.Text)
 
 function Read-TraceControl {
@@ -168,6 +197,14 @@ function Stop-TraceDebugger {
 
 function Open-TracePin {
     param([string]$Path)
+    if ($state.TracePoint -eq 24) {
+        Assert-Control ($state.ToolRole -eq 0 -and $script:controlCommandFiles.ContainsKey($Path) `
+            -and $script:controlCommandReadOnly[$Path])
+        $script:controlCommandPins.Add($Path)
+        $pin = [IO.MemoryStream]::new($script:controlCommandFiles[$Path], $false)
+        $pins.Add($pin)
+        return $pin
+    }
     Assert-Control ($state.TracePoint -in @(6, 11, 12, 19))
     Assert-Control (($state.TracePoint -eq 6 -and $state.ToolRole -in 1..6) `
         -or ($state.TracePoint -ne 6 -and $state.ToolRole -eq 0))
@@ -219,6 +256,11 @@ function Test-TraceExtensionFile {
 
 function Get-TraceHash {
     param([IO.Stream]$Stream)
+    if ($state.TracePoint -eq 24) {
+        Assert-Control ($state.ToolRole -eq 0 -and $Stream.CanRead -and -not $Stream.CanWrite)
+        $script:controlCommandHashes++
+        return Get-ControlCommandHash $Stream
+    }
     Assert-Control (($state.TracePoint -eq 10 -and $state.ToolRole -eq 1) `
         -or ($state.TracePoint -eq 20 -and $state.ToolRole -eq 0))
     if ($case -eq 42 -and $state.TracePoint -eq 10) {
@@ -226,6 +268,27 @@ function Get-TraceHash {
     }
     if ($state.TracePoint -eq 10) { return 'a' * 64 }
     return 'b' * 64
+}
+
+function Write-TraceCommandFile {
+    param([string]$Path, [byte[]]$Bytes)
+    Assert-Control ($state.TracePoint -eq 24 -and $state.ToolRole -eq 0 `
+        -and $Path -cin @('startup-cpr.cdb', 'startup-epr.cdb', 'startup.cdb' |
+            ForEach-Object { Join-Path $root $_ }) `
+        -and -not $script:controlCommandFiles.ContainsKey($Path))
+    $script:controlCommandWrites.Add($Path)
+    $name = [IO.Path]::GetFileName($Path)
+    if ($script:controlCommandFaultName -ceq $name -and $script:controlCommandFault -eq 1) { return }
+    $copy = [byte[]]$Bytes.Clone()
+    if ($script:controlCommandFaultName -ceq $name) {
+        switch ($script:controlCommandFault) {
+            2 { $copy[0] = $copy[0] -bxor 1 }
+            3 { $copy = [byte[]]($copy + [byte]0) }
+            4 { throw 'C:\private-command S-1-5-21-123 --command readonly failure' }
+        }
+    }
+    $script:controlCommandFiles[$Path] = $copy
+    $script:controlCommandReadOnly[$Path] = $true
 }
 
 function Get-HermesSetupPublishFiles {
@@ -241,7 +304,7 @@ function Get-HermesSetupPublishFiles {
     }
 }
 
-$cases = 1..88
+$cases = 1..110
 $passed = 0
 foreach ($case in $cases) {
     $state = $null
@@ -250,6 +313,45 @@ foreach ($case in $cases) {
     $script:controlExtensionPins = [Collections.Generic.List[string]]::new()
     $script:controlExtensionSignatures = [Collections.Generic.List[string]]::new()
     try {
+        if ($case -ge 89) {
+            $state = New-HermesStartupState
+            $root = Join-Path $PSScriptRoot $(if ($case -eq 90) { 'command root' } else { 'command-root' })
+            $kits = Join-Path $PSScriptRoot $(if ($case -eq 90) { 'selected sdk' } else { 'selected-sdk' })
+            $extension = Join-Path $kits 'winxp/exts.dll'
+            $helper = Join-Path $PSScriptRoot 'fixed-published-helper.exe'
+            $symbols = Join-Path $root 'symbols'
+            $script:controlCommandFiles = @{}
+            $script:controlCommandReadOnly = @{}
+            $script:controlCommandWrites = [Collections.Generic.List[string]]::new()
+            $script:controlCommandPins = [Collections.Generic.List[string]]::new()
+            $script:controlCommandHashes = 0
+            $script:controlCommandFault = 0
+            $script:controlCommandFaultName = ''
+            $script:controlLaunchBindings = 0
+            $script:controlStartInfo = $null
+            $script:controlStops = 0
+            $script:controlDisposed = 0
+            $script:controlStopFault = $false
+            $started = $false
+            $debuggerEnded = $false
+            $drainsEnded = $false
+            $rootCreated = $false
+            $pins = [Collections.Generic.List[IO.Stream]]::new()
+            $debugger = [pscustomobject]@{}
+            $debugger | Add-Member ScriptMethod Dispose { $script:controlDisposed++ }
+            $debugger | Add-Member ScriptProperty StartInfo { $script:controlStartInfo } {
+                param($value)
+                Assert-Control ($pins.Count -eq 3 -and $script:controlCommandHashes -eq 3 `
+                    -and $state.CommandSha256 -cmatch '\A[0-9a-f]{64}\z' `
+                    -and $state.CreateCommandSha256 -cmatch '\A[0-9a-f]{64}\z' `
+                    -and $state.ExitCommandSha256 -cmatch '\A[0-9a-f]{64}\z')
+                foreach ($pin in $pins) {
+                    Assert-Control ($pin.CanRead -and -not $pin.CanWrite -and $pin.Position -eq 0)
+                }
+                $script:controlLaunchBindings++
+                $script:controlStartInfo = $value
+            }
+        }
         switch ($case) {
             1 {
                 $state = New-ControlFixture
@@ -783,6 +885,7 @@ foreach ($case in $cases) {
             }
             { $_ -in 50..62 } {
                 $state = New-HermesStartupState
+                $root = $PSScriptRoot
                 $kits = $PSScriptRoot
                 $candidates = @('winxp/exts.dll', 'winext/exts.dll', 'exts.dll') |
                     ForEach-Object { Join-Path $kits $_ }
@@ -1151,7 +1254,8 @@ foreach ($case in $cases) {
                     $state.Observations[$name] = [int]8388608
                 }
                 $state.Observations.MarkerMalformedKind = 2
-                foreach ($name in @('DebuggerSha256', 'HelperSha256', 'CommandSha256')) {
+                foreach ($name in @('DebuggerSha256', 'HelperSha256', 'CommandSha256',
+                        'CreateCommandSha256', 'ExitCommandSha256')) {
                     $state[$name] = 'a' * 64
                 }
                 foreach ($name in @('Out', 'Err')) {
@@ -1218,9 +1322,191 @@ foreach ($case in $cases) {
                     -and $report.observations.ArmPresent -eq 0 -and $report.armingVerified -eq 0 `
                     -and $report.firstFailureKind -eq 0 -and $report.completed -eq 0)
             }
+            { $_ -in @(89, 90) } {
+                . $controlCommandDriver
+                $report = New-HermesStartupReport $state $debuggerEnded $drainsEnded
+                $sources = New-TraceEventCommands
+                $sources['startup.cdb'] = New-TraceCommands $extension
+                $hashFields = @{
+                    'startup.cdb' = 'commandSha256'
+                    'startup-cpr.cdb' = 'createCommandSha256'
+                    'startup-epr.cdb' = 'exitCommandSha256'
+                }
+                Assert-Control ($script:controlCommandWrites.Count -eq 3 `
+                    -and $script:controlCommandPins.Count -eq 3 `
+                    -and $script:controlCommandHashes -eq 3 -and $script:controlLaunchBindings -eq 1 `
+                    -and $script:controlStops -eq 1 -and $script:controlDisposed -eq 1 `
+                    -and $report.tracePoint -eq 25 -and $report.toolRole -eq 0 `
+                    -and $report.error -eq 0 -and $report.cleanupFault -eq 0 `
+                    -and -not $state.TraceFaulted -and $report.completed -eq 0 `
+                    -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0)
+                foreach ($source in $sources.GetEnumerator()) {
+                    $path = Join-Path $root $source.Key
+                    $bytes = [Text.Encoding]::ASCII.GetBytes($source.Value)
+                    $expected = [Convert]::ToHexString(
+                        [Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+                    Assert-Control ($script:controlCommandWrites -ccontains $path `
+                        -and $script:controlCommandPins -ccontains $path `
+                        -and $script:controlCommandReadOnly[$path] `
+                        -and [Text.Encoding]::ASCII.GetString($script:controlCommandFiles[$path]) `
+                            -ceq $source.Value -and $report[$hashFields[$source.Key]] -ceq $expected)
+                }
+                $arguments = $script:controlStartInfo.ArgumentList
+                Assert-Control ($arguments.Count -eq 7 -and $arguments[0] -ceq '-o' `
+                    -and $arguments[1] -ceq '-cf' -and $arguments[2] -ceq (Join-Path $root 'startup.cdb') `
+                    -and $arguments[3] -ceq '-y' -and $arguments[5] -ceq $helper `
+                    -and $arguments[6] -ceq 'startup-debug-probe' `
+                    -and $script:controlStartInfo.FileName -ceq (Join-Path $kits 'cdb.exe') `
+                    -and $script:controlStartInfo.WorkingDirectory -ceq $kits `
+                    -and -not $script:controlStartInfo.UseShellExecute `
+                    -and $arguments -cnotcontains '-g' -and $arguments -cnotcontains '-G')
+                $lines = @($sources['startup.cdb'] -split "`n")
+                Assert-Control ($lines.Count -eq 7 -and $lines[0] -ceq ('.load "' + $extension + '"') `
+                    -and $lines[1] -ceq '.printf "HERMES_CDB v=1 kind=0 pid=%u\n", @$tpid' `
+                    -and $lines[2] -ceq 'sxd ibp' -and $lines[5] -ceq 'g' -and $lines[6] -ceq '')
+                foreach ($line in $lines[3..4]) {
+                    Assert-Control ($line -cmatch '\Asx- -c "\$\$><[^";\r\n]+" (?:cpr|epr)\z' `
+                        -and @($line.ToCharArray() | Where-Object { $_ -eq '"' }).Count -eq 2 `
+                        -and $line -notmatch '\.printf|\.lastevent|!gflag|\\"')
+                }
+                $json = $report | ConvertTo-Json -Depth 4 -Compress
+                Assert-Control ([Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
+                    -and $json -notmatch 'command-root|command root|selected.sdk|fixed-published|startup-cpr|startup-epr|\$\$><|HERMES_CDB')
+            }
+            91 {
+                $sources = New-TraceEventCommands
+                $expectedCreate = @(
+                    '.printf "HERMES_CDB v=1 kind=1 pid=%u\n", @$tpid',
+                    '.lastevent', '|.', '!gflag +sls', '!gflag',
+                    '.printf "HERMES_CDB v=1 kind=2 pid=%u\n", @$tpid', 'g'
+                )
+                $expectedExit = @(
+                    '.printf "HERMES_CDB v=1 kind=3 pid=%u\n", @$tpid', '.lastevent',
+                    '.printf "HERMES_CDB v=1 kind=4 pid=%u\n", @$tpid', 'g'
+                )
+                Assert-Control ($sources.Count -eq 2 `
+                    -and $sources['startup-cpr.cdb'] -ceq (($expectedCreate -join "`r`n") + "`r`n") `
+                    -and $sources['startup-epr.cdb'] -ceq (($expectedExit -join "`r`n") + "`r`n"))
+                foreach ($text in $sources.Values) {
+                    Assert-Control (-not $text.Contains('\"', [StringComparison]::Ordinal) `
+                        -and $text -notmatch '(?<!\r)\n|sx-|sxe|sxd|\.load|\$\$><')
+                }
+            }
+            { $_ -in 92..100 } {
+                $script:controlCommandFault = [int][Math]::Floor(($case - 92) / 3) + 1
+                $sourceIndex = ($case - 92) % 3
+                $script:controlCommandFaultName = @('startup-cpr.cdb', 'startup-epr.cdb', 'startup.cdb')[$sourceIndex]
+                . $controlCommandDriver
+                $report = New-HermesStartupReport $state $debuggerEnded $drainsEnded
+                $expectedPins = $sourceIndex + [int]($script:controlCommandFault -ne 1)
+                $expectedHashes = $sourceIndex + [int]($script:controlCommandFault -eq 2)
+                Assert-Control ($script:controlCommandWrites.Count -eq 3 `
+                    -and $script:controlCommandPins.Count -eq $expectedPins `
+                    -and $script:controlCommandHashes -eq $expectedHashes `
+                    -and $script:controlLaunchBindings -eq 0 -and $null -eq $script:controlStartInfo `
+                    -and $script:controlStops -eq 1 -and $script:controlDisposed -eq 1 `
+                    -and $state.TraceFaulted -and $report.tracePoint -eq 24 -and $report.toolRole -eq 0 `
+                    -and $report.status -eq 8 -and $report.error -eq 13 -and $report.cleanupFault -eq 0 `
+                    -and $report.commandSha256 -ceq '' -and $report.createCommandSha256 -ceq '' `
+                    -and $report.exitCommandSha256 -ceq '' -and $report.completed -eq 0 `
+                    -and $report.armingVerified -eq 0 -and $report.firstFailureKind -eq 0 `
+                    -and $report.originalGatePassed -eq 0 -and $report.nativeAcceptance -eq 0)
+                Assert-Control (($report | ConvertTo-Json -Depth 4 -Compress) `
+                    -notmatch 'command-root|selected-sdk|fixed-published|startup-cpr|startup-epr|HERMES_CDB')
+            }
+            101 {
+                $script:controlCommandFault = 4
+                $script:controlCommandFaultName = 'startup-epr.cdb'
+                . $controlCommandDriver
+                $report = New-HermesStartupReport $state $debuggerEnded $drainsEnded
+                Assert-Control ($script:controlCommandWrites.Count -eq 2 `
+                    -and $script:controlCommandPins.Count -eq 0 -and $script:controlCommandHashes -eq 0 `
+                    -and $script:controlLaunchBindings -eq 0 -and $report.tracePoint -eq 24 `
+                    -and $report.status -eq 8 -and $report.error -eq 13 -and $report.completed -eq 0 `
+                    -and $report.commandSha256 -ceq '' -and $report.createCommandSha256 -ceq '' `
+                    -and $report.exitCommandSha256 -ceq '' `
+                    -and ($report | ConvertTo-Json -Depth 4 -Compress) `
+                        -notmatch 'private-command|S-1-|--command|readonly failure')
+            }
+            { $_ -in (102..107 + 110) } {
+                switch ($case) {
+                    102 { $root += '"' }
+                    103 { $root += "`r`n`t" + [char]0 + [char]127 }
+                    104 { $root += ';.echo injected' }
+                    105 { $root += [char]0x00e9 }
+                    106 { $root = Join-Path $root '../other' }
+                    107 { $root = 'relative-command-root' }
+                    110 { $extension += "`"`r`n;.echo injected" }
+                }
+                . $controlCommandDriver
+                $report = New-HermesStartupReport $state $debuggerEnded $drainsEnded
+                Assert-Control ($script:controlCommandWrites.Count -eq 0 `
+                    -and $script:controlCommandPins.Count -eq 0 -and $script:controlCommandHashes -eq 0 `
+                    -and $script:controlLaunchBindings -eq 0 -and $null -eq $script:controlStartInfo `
+                    -and $state.TraceFaulted -and $report.tracePoint -eq 24 -and $report.status -eq 8 `
+                    -and $report.error -eq 13 -and $report.completed -eq 0 `
+                    -and $report.commandSha256 -ceq '' -and $report.createCommandSha256 -ceq '' `
+                    -and $report.exitCommandSha256 -ceq '' `
+                    -and ($report | ConvertTo-Json -Depth 4 -Compress) `
+                        -notmatch 'injected|command-root|selected-sdk|fixed-published')
+            }
+            108 {
+                Assert-Control ($driverAst.ParamBlock.Parameters.Count -eq 0)
+                foreach ($name in @('New-TraceCommands', 'Publish-TraceCommands')) {
+                    $definitions = @($driverAst.FindAll({
+                        param($node)
+                        $node -is [Management.Automation.Language.FunctionDefinitionAst] `
+                            -and $node.Name -ceq $name
+                    }, $true))
+                    Assert-Control ($definitions.Count -eq 1 `
+                        -and $definitions[0].Body.ParamBlock.Parameters.Count -eq 1 `
+                        -and $definitions[0].Body.ParamBlock.Parameters[0].Name.VariablePath.UserPath -ceq 'Extension')
+                }
+                $writer = @($driverAst.FindAll({
+                    param($node)
+                    $node -is [Management.Automation.Language.FunctionDefinitionAst] `
+                        -and $node.Name -ceq 'Write-TraceCommandFile'
+                }, $true))
+                $pinDefinition = @($driverAst.FindAll({
+                    param($node)
+                    $node -is [Management.Automation.Language.FunctionDefinitionAst] `
+                        -and $node.Name -ceq 'Open-TracePin'
+                }, $true))
+                Assert-Control ($writer.Count -eq 1 -and $pinDefinition.Count -eq 1 `
+                    -and $writer[0].Extent.Text.Contains('[IO.FileMode]::CreateNew') `
+                    -and $writer[0].Extent.Text.Contains('[IO.FileShare]::None') `
+                    -and $writer[0].Extent.Text.Contains('[IO.FileAttributes]::ReadOnly') `
+                    -and $writer[0].Extent.Text.Contains('$stream.Flush($true)') `
+                    -and $pinDefinition[0].Extent.Text.Contains('Assert-TracePath $Path') `
+                    -and $pinDefinition[0].Extent.Text.Contains('[IO.FileAccess]::Read, [IO.FileShare]::Read') `
+                    -and $pinDefinition[0].Extent.Text.Contains('$pins.Add($pin)'))
+                Assert-Control ($commandBinding[0].Extent.EndOffset -lt $launchBinding[0].Extent.StartOffset `
+                    -and $launchBinding[0].Extent.EndOffset -lt $entries[0].Extent.StartOffset)
+            }
+            109 {
+                $state.Out.Hash.Dispose()
+                $state.Err.Hash.Dispose()
+                $state = New-ControlFixture -BeforeExitLines @(
+                    '1:001> $$><C:\private\startup-cpr.cdb',
+                    '1:001> .printf "HERMES_CDB v=1 kind=3 pid=%u\n", @$tpid',
+                    '1:001> $$><C:\private\startup-epr.cdb',
+                    '1:001> .printf "HERMES_CDB v=1 kind=4 pid=%u\n", @$tpid'
+                )
+                $report = New-HermesStartupReport $state $true $true
+                Assert-Control ($report.observations.MarkerEcho -eq 2 `
+                    -and $report.observations.MarkerMalformed -eq 0 `
+                    -and $report.observations.ParserProtocol -eq 0 `
+                    -and $report.observations.ParserUnknown -eq 0 `
+                    -and $report.armingVerified -eq 1 -and $report.completed -eq 1 `
+                    -and $report.firstFailureKind -eq 1 `
+                    -and ($report | ConvertTo-Json -Depth 4 -Compress) -notmatch 'private|\$\$><|printf')
+            }
         }
         $passed++
     } finally {
+        if ($case -ge 89) {
+            foreach ($pin in $pins) { $pin.Dispose() }
+        }
         if ($null -ne $state) {
             $state.Out.Hash.Dispose()
             $state.Err.Hash.Dispose()

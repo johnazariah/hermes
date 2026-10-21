@@ -31,6 +31,7 @@ function New-HermesStartupState {
         }
         Out = (New-HermesStartupStream); Err = (New-HermesStartupStream)
         DebuggerSha256 = ''; HelperSha256 = ''; CommandSha256 = ''
+        CreateCommandSha256 = ''; ExitCommandSha256 = ''
     }
 }
 
@@ -531,6 +532,8 @@ function New-HermesStartupReport {
         outSha256 = $State.Out.Fingerprint; errSha256 = $State.Err.Fingerprint
         debuggerSha256 = $State.DebuggerSha256
         helperSha256 = $State.HelperSha256; commandSha256 = $State.CommandSha256
+        createCommandSha256 = $State.CreateCommandSha256
+        exitCommandSha256 = $State.ExitCommandSha256
         observations = (New-HermesStartupObservations $State)
     }
 }
