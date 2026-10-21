@@ -2,6 +2,23 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Native Import reports format error 2216; capture only its line number
+
+Run `39517899783` at `b86d1ee` makes the associated xUnit channel visible:
+all twelve failing fixture imports report exactly native MSI error 2216.
+Microsoft defines this as an import-file format error with the failing line
+number in record field 4; it does not prove duplicate keys or a file-open
+failure.
+
+The source-approved one-file continuation reads integer field 4 only after
+confirming 2216, from the same record before release. Only decimal ID/line or
+fixed unknowns are emitted; fields 2/3 and physical line contents are not read.
+Original Import failures and all 57 cases remain unchanged.
+
+Parent passes warning-free root/Windows cross-builds, 2,182 Core and static
+controls. One actual Windows line number remains necessary before choosing
+the fixture correction.
+
 ## Native import identifier uses xUnit-associated failure output
 
 Run `39516442512` at `3648771` repeats the same common Import failure but

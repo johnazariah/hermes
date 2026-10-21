@@ -100,6 +100,13 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Actual MSI 2216 narrows the missing fact to its line-number field
+
+- **Actual result:** Run `39517899783` at `b86d1ee` emits numeric 2216 for all twelve common Import failures. Primary Microsoft documentation defines format error/Line field 4, not a file-open or duplicate-key diagnosis.
+- **Changed:** The reviewed one-file continuation captures only that integer from the same record after confirming 2216, retaining original exceptions, associated xUnit output and fixed unknown handling.
+- **Validation:** Parent passes warning-free root/cross-build, 2,182 Core and static controls. Production schema, assertions and all 57 cases are unchanged.
+- **Next:** Publish, read only the failing native line number, and select the fixture-only correction from actual evidence.
+
 ### 2026-10-21 - Scalar native Import diagnostic is wired to xUnit output
 
 - **Evidence:** Run `39516442512` at `3648771` repeats the common Import failure without any scalar/unknown diagnostic in the job log. No numeric error was inferred.

@@ -178,24 +178,35 @@ internal sealed class ScratchSignatureMsi : IDisposable
 
     private void ReportImportError(object installer)
     {
-        string id;
-        try { id = ReadImportErrorId(installer); }
-        catch { id = "unknown:capture-failed"; }
-        try { _writeDiagnostic("MSI_IMPORT_ERROR_ID=" + id); }
+        (string Id, string Line) diagnostic;
+        try { diagnostic = ReadImportError(installer); }
+        catch { diagnostic = ("unknown:capture-failed", "unknown"); }
+        try
+        {
+            _writeDiagnostic("MSI_IMPORT_ERROR_ID=" + diagnostic.Id);
+            _writeDiagnostic("MSI_IMPORT_ERROR_LINE=" + diagnostic.Line);
+        }
         catch { /* Optional diagnostics must not replace the Import exception. */ }
     }
 
-    private static string ReadImportErrorId(object installer)
+    private static (string Id, string Line) ReadImportError(object installer)
     {
         if (((dynamic)installer).LastErrorRecord is not object error)
-            return "unknown:no-last-error-record";
+            return ("unknown:no-last-error-record", "unknown");
         using var record = new ComObject(error);
         var id = (int)record.Value.IntegerData[1];
-        return id switch
-        {
-            int.MinValue => "unknown:no-integer-error-id",
-            _ => id.ToString(CultureInfo.InvariantCulture)
-        };
+        var line = id == 2216 ? (int)record.Value.IntegerData[4] : int.MinValue;
+        return (
+            id switch
+            {
+                int.MinValue => "unknown:no-integer-error-id",
+                _ => id.ToString(CultureInfo.InvariantCulture)
+            },
+            line switch
+            {
+                int.MinValue => "unknown",
+                _ => line.ToString(CultureInfo.InvariantCulture)
+            });
     }
 
     private void WriteCabinet(object installer, object database)
