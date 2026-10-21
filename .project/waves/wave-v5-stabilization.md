@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Contain typed-query errors without acknowledging missing flags
+
+- **Evidence:** Published `569577c`, run `39673160539`, job `119476024112`, passes 210 pure controls and 460/461 native cases. The target create event binds, but the typed query produces no value or closing marker; no unavailable result is treated as zero.
+- **Changed:** Only the typed query is wrapped in documented debugger `.catch`. The fixed closing marker and debugger continuation stay outside; actual Win32 suspension and flag-2 acknowledgement remain unchanged.
+- **Validation:** Parent review, all 212 pure controls and installer static controls pass. The pinned create script is 322 bytes; negative modelling preserves unavailable flags, no arming and explicit failure.
+- **Blockers:** Native query-error containment and symbol/type/memory availability remain unproved. A blocking symbol-server operation is still controlled by the existing outer deadline and owned cleanup.
+- **Next:** Publish and distinguish a contained unavailable query from actual target-bound flag readback on Windows.
+
 ### 2026-10-22 - Query the typed child flag instead of relying on extension text
 
 - **Evidence:** Published `c1fcd22`, run `39669489732`, job `119463254848`, passes 190 pure controls and 460/461 native cases. The quoted-load correction clears every known library-load error; actual target-bound flag text still does not appear.

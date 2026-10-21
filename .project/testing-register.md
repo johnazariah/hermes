@@ -2,6 +2,20 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Unavailable typed queries cannot abort callback closure
+
+The fixed typed read is now inside the debugger's documented `.catch`
+command. Its closing marker and debugger continuation remain outside.
+An unavailable type/memory query emits no invented value and cannot arm;
+continuing the debugger does not release the helper's Win32 suspension.
+
+All 212 pure controls pass, including exact containment boundaries, command
+publication hashes and the unarmed-query cleanup model. The pinned create
+script is 322 bytes with SHA-256
+`63583985b0a09497590613a74f8d97f45d1c117981ff8492888d516b2ad6a17a`.
+Actual Windows callback closure and field availability remain pending;
+`.catch` does not bound a blocking symbol-server operation.
+
 ## Typed loader-flag readback is bound to the held target
 
 Version-2 create callbacks add a read-only, public-symbol-resolved

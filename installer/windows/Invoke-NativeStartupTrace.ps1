@@ -147,11 +147,14 @@ function New-TraceEventCommands {
     # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/pseudo-register-syntax
     # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/-printf
     # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/-if
+    # $$>< condenses this file into a command program. Contain query errors,
+    # not its closing marker or debugger g; neither releases Win32 suspension.
+    # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/-catch
     [ordered]@{
         'startup-cpr.cdb' = (@(
             '.printf "HERMES_CDB v=2 kind=1 pid=%u\n", @$tpid',
             '.lastevent', '|.', '!gflag +sls', '!gflag',
-            '.if (@@c++(sizeof(((ntdll!_PEB*)@$peb)->NtGlobalFlag)) == 4) { .printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(((ntdll!_PEB*)@$peb)->NtGlobalFlag) }',
+            '.catch { .if (@@c++(sizeof(((ntdll!_PEB*)@$peb)->NtGlobalFlag)) == 4) { .printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(((ntdll!_PEB*)@$peb)->NtGlobalFlag) } }',
             '.printf "HERMES_CDB v=2 kind=2 pid=%u\n", @$tpid', 'g'
         ) -join "`r`n") + "`r`n"
         'startup-epr.cdb' = (@(

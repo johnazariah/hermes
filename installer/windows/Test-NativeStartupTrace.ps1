@@ -329,7 +329,7 @@ function Get-HermesSetupPublishFiles {
     }
 }
 
-$cases = 1..210 # Original 190 plus typed, PID-bound NtGlobalFlag readback controls.
+$cases = 1..212 # Original 210 plus fixed-query containment and unavailable cleanup controls.
 $passed = 0
 foreach ($case in $cases) {
     $state = $null
@@ -1405,7 +1405,7 @@ foreach ($case in $cases) {
                 $expectedCreate = @(
                     '.printf "HERMES_CDB v=2 kind=1 pid=%u\n", @$tpid',
                     '.lastevent', '|.', '!gflag +sls', '!gflag',
-                    '.if (@@c++(sizeof(((ntdll!_PEB*)@$peb)->NtGlobalFlag)) == 4) { .printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(((ntdll!_PEB*)@$peb)->NtGlobalFlag) }',
+                    '.catch { .if (@@c++(sizeof(((ntdll!_PEB*)@$peb)->NtGlobalFlag)) == 4) { .printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(((ntdll!_PEB*)@$peb)->NtGlobalFlag) } }',
                     '.printf "HERMES_CDB v=2 kind=2 pid=%u\n", @$tpid', 'g'
                 )
                 $expectedExit = @(
@@ -3258,8 +3258,8 @@ foreach ($case in $cases) {
                 . $controlCommandDriver
                 $report = New-HermesStartupReport $state $debuggerEnded $drainsEnded
                 $bytes = $script:controlCommandFiles[(Join-Path $root 'startup-cpr.cdb')]
-                Assert-Control ($bytes.Length -eq 311 `
-                    -and $report.createCommandSha256 -ceq 'ed53082705ecdca0ed5250a8dcf95dc1bf831a6a90eea3e1146eb3c3064c47af' `
+                Assert-Control ($bytes.Length -eq 322 `
+                    -and $report.createCommandSha256 -ceq '63583985b0a09497590613a74f8d97f45d1c117981ff8492888d516b2ad6a17a' `
                     -and $script:controlCommandPins.Count -eq 3 -and $script:controlCommandHashes -eq 3 `
                     -and $script:controlLaunchBindings -eq 1 -and $script:controlStops -eq 1 `
                     -and $script:controlDisposed -eq 1 -and $report.armingVerified -eq 0)
@@ -3303,6 +3303,54 @@ foreach ($case in $cases) {
                     -and -not (Test-HermesStartupArm $state))
                 Add-HermesStartupLine $state ($readback.TrimEnd("`n") + ('x' * 4096))
                 Assert-Control ($state.Bounds -eq 1 -and $state.Block.Flags -eq -1)
+            }
+            211 {
+                $source = (New-TraceEventCommands)['startup-cpr.cdb']
+                $lines = $source -split "`r`n"
+                Assert-Control ($lines.Count -eq 9 -and $lines[5].StartsWith('.catch { .if (') `
+                    -and $lines[5].EndsWith(') } }') `
+                    -and @($lines | Where-Object { $_ -cmatch '\.catch' }).Count -eq 1 `
+                    -and @($lines[5].ToCharArray() | Where-Object { $_ -eq '{' }).Count -eq 2 `
+                    -and @($lines[5].ToCharArray() | Where-Object { $_ -eq '}' }).Count -eq 2 `
+                    -and $lines[5] -notmatch 'HERMES_CDB|;|\b(?:g|r|ed|ew|eb|eq|ep)\b' `
+                    -and $lines[6] -ceq '.printf "HERMES_CDB v=2 kind=2 pid=%u\n", @$tpid' `
+                    -and $lines[7] -ceq 'g' -and $lines[8] -ceq '')
+                $condensed = $source.Replace("`r", ';').Replace("`n", '')
+                Assert-Control ($condensed.Contains(') } };.printf "HERMES_CDB v=2 kind=2 pid=%u\n", @$tpid;g;'))
+            }
+            212 {
+                # Model .catch returning after a query error, not native CDB
+                # execution. The helper's held-thread acknowledgement stays absent.
+                $state = New-ControlTypedBlock
+                Add-HermesStartupLine $state 'Current NtGlobalFlag contents: 0x00000002'
+                Add-HermesStartupLine $state 'Memory access error at private-query-address'
+                Add-HermesStartupLine $state 'HERMES_CDB v=2 kind=2 pid=22'
+                Assert-Control ($null -eq $state.Block -and $state.Arm.Flags -eq -1 `
+                    -and -not (Test-HermesStartupArm $state) -and -not $state.Acked)
+                foreach ($line in @(
+                    'HERMES_CDB v=1 kind=3 pid=22',
+                    'Last event: 16.1: Exit process 1:16, code 0',
+                    'HERMES_CDB v=1 kind=4 pid=22',
+                    'HERMES_CDB v=1 kind=3 pid=11',
+                    'Last event: b.1: Exit process 0:b, code 0',
+                    'HERMES_CDB v=1 kind=4 pid=11'
+                )) { Add-HermesStartupLine $state $line }
+                $unarmedFinal = $finalRow.Replace('exit=3221225794', 'exit=0').Replace(
+                    'cleanup=1 fault=0', 'cleanup=1 fault=1460')
+                Update-HermesStartupRows $state ($targetRow + "`n" + $unarmedFinal + "`n")
+                $report = New-HermesStartupReport $state $true $true
+                $json = $report | ConvertTo-Json -Depth 4 -Compress
+                Assert-Control ($report.observations.Marker2 -eq 1 `
+                    -and $report.observations.Marker3 -eq 2 -and $report.observations.Marker4 -eq 2 `
+                    -and $report.observations.BlockPresent -eq 0 -and $report.observations.FinalRowPresent -eq 1 `
+                    -and $report.observations.TypedFlagsAvailable -eq 0 -and $report.observations.TypedFlagsValue -eq 0 `
+                    -and $report.observations.ParserUnknown -eq 1 -and $report.observations.ParserProtocol -eq 0 `
+                    -and $report.armingVerified -eq 0 -and $report.completed -eq 0 -and $report.status -eq 5 `
+                    -and $report.cleanupComplete -eq 1 -and $report.parentUnchanged -eq 1 `
+                    -and $report.exitObserved -eq 1 -and $report.exitCode -eq 0 -and $report.powershellExit37 -eq 0 `
+                    -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0 `
+                    -and [Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
+                    -and $json -notmatch 'private|query-address|Memory access|ntdll|_PEB')
             }
         }
         $passed++
