@@ -1,4 +1,5 @@
 ﻿using System.Collections.Immutable;
+using System.Runtime.ExceptionServices;
 using System.Runtime.Versioning;
 using Hermes.Servicing;
 
@@ -22,6 +23,8 @@ internal sealed class CallAuthority(
     private readonly object _sync = new();
     private readonly Dictionary<Guid, PendingFence> _pending = [];
     private readonly List<FenceReceipt> _receipts = [];
+    private readonly MsiFailureTrace _msiFailure = new();
+    private ExceptionDispatchInfo? _msiFailureFault;
     private bool _active;
     private bool _finished;
     private bool _faulted;
@@ -30,7 +33,24 @@ internal sealed class CallAuthority(
     internal ControlEndpoint Endpoint { get; } = endpoint;
     internal ControlPlan Plan { get; } = root.Bind(plan);
     internal uint ObservationFilters =>
-        observer is IMsiMessageObserver ? ControlObservation.MsiMessageFilters : 0;
+        MsiFailureTrace.Filters |
+        (observer is IMsiMessageObserver ? ControlObservation.MsiMessageFilters : 0);
+
+    internal void ObserveMsiFailure(
+        uint message, uint record, IMsiFailureRecords records)
+    {
+        lock (_sync)
+        {
+            if (!_active || _finished || _msiFailureFault is not null)
+                return;
+            try { _msiFailure.Observe(message, record, records); }
+            catch (Exception error)
+            {
+                // Retain only the first new diagnostic fault; never cross the native boundary.
+                _msiFailureFault = ExceptionDispatchInfo.Capture(error);
+            }
+        }
+    }
 
     [SupportedOSPlatform("windows")]
     internal void ObserveMsi(uint message, uint record)
@@ -58,6 +78,33 @@ internal sealed class CallAuthority(
     }
 
     private bool Live => _active && !_finished && !_faulted && gate.IsHeldAndClosed;
+
+    internal InstallerCallReceipt Execute(
+        Func<IDisposable> openUi, Func<uint> invoke,
+        Action<InstallerCallReceipt> publish)
+    {
+        Begin();
+        var entered = false;
+        uint? code = null;
+        try
+        {
+            using var ui = openUi();
+            entered = true;
+            code = invoke();
+        }
+        catch { Fault(); }
+        var receipt = End(entered, code);
+        publish(receipt);
+        if (!receipt.ControlFaulted)
+            ThrowMsiFailure();
+        return receipt;
+    }
+
+    private void ThrowMsiFailure()
+    {
+        lock (_sync)
+            _msiFailureFault?.Throw();
+    }
 
     internal void Begin()
     {
@@ -177,7 +224,8 @@ internal sealed class CallAuthority(
             return new(Endpoint.RunId, entered, code.HasValue, code, _faulted,
                 _receipts.ToImmutableArray())
             {
-                ObservationFaults = Volatile.Read(ref _observationFaults)
+                ObservationFaults = Volatile.Read(ref _observationFaults),
+                MsiFailure = _msiFailure.Snapshot
             };
         }
     }

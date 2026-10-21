@@ -72,11 +72,19 @@ internal sealed class WindowsGuardedEngine : IGuardedEngine
             { return Effect<EngineReceipt>.Fail(SetupCode.MsiCallFailed); }
         }
 
-        private EngineReceipt Convert(InstallerCallReceipt receipt) => new(
-            receipt.RunId, receipt.ApiEntered, receipt.ApiReturned,
-            receipt.MsiExitCode, receipt.ControlFaulted,
-            HasFence(receipt, GuardPhase.Preflight),
-            HasFence(receipt, GuardPhase.Transaction));
+        private EngineReceipt Convert(InstallerCallReceipt receipt)
+        {
+            var preflight = HasFence(receipt, GuardPhase.Preflight);
+            var transaction = HasFence(receipt, GuardPhase.Transaction);
+            return new(receipt.RunId, receipt.ApiEntered, receipt.ApiReturned,
+                receipt.MsiExitCode, receipt.ControlFaulted, preflight, transaction)
+            {
+                MsiFailure = receipt.MsiFailure is { } observed
+                    ? new((int)observed.Action, observed.ErrorId ?? 0,
+                        observed.RecordReadFailed, preflight, transaction)
+                    : null
+            };
+        }
 
         private bool HasFence(InstallerCallReceipt receipt, GuardPhase phase) =>
             receipt.Fences.Any(fence =>

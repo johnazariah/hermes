@@ -5,17 +5,19 @@ using System.Runtime.Versioning;
 
 namespace Hermes.Installer.Control;
 
-[SupportedOSPlatform("windows")]
 internal sealed unsafe class ExternalUiScope : IDisposable
 {
+    private const uint InfoMessage = 0x04000000;
     private readonly CallAuthority _authority;
     private readonly GCHandle _context;
     private readonly uint _previousUi;
     private int _disposed;
 
+    [SupportedOSPlatform("windows")]
     private ExternalUiScope(CallAuthority authority, GCHandle context, uint previousUi) =>
         (_authority, _context, _previousUi) = (authority, context, previousUi);
 
+    [SupportedOSPlatform("windows")]
     internal static ExternalUiScope Open(CallAuthority authority, bool quiet)
     {
         var context = GCHandle.Alloc(authority);
@@ -34,22 +36,40 @@ internal sealed unsafe class ExternalUiScope : IDisposable
         throw new Win32Exception(checked((int)(result == 0 ? 1603u : result)));
     }
 
+    [SupportedOSPlatform("windows")]
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
     private static int Callback(nint context, uint message, uint record)
     {
         try
         {
+            return Dispatch(context, message, record,
+                WindowsMsiFailureRecords.Instance, MsiNative.RecordText,
+                static (authority, kind, value) => authority.ObserveMsi(kind, value));
+        }
+        catch { return 0; }
+    }
+
+    // Shared with boundary tests: context resolution, dispatch and catch are identical.
+    internal static int Dispatch(
+        nint context, uint message, uint record, IMsiFailureRecords records,
+        Func<uint, string> readText,
+        Action<CallAuthority, uint, uint> observeMsi)
+    {
+        try
+        {
             if (GCHandle.FromIntPtr(context).Target is not CallAuthority authority)
                 return 0;
-            if ((message & 0xff000000) == MsiNative.InfoMessage)
-                return FenceSignal.Decode(MsiNative.RecordText(record)) is { } signal &&
+            authority.ObserveMsiFailure(message, record, records);
+            if ((message & 0xff000000) == InfoMessage)
+                return FenceSignal.Decode(readText(record)) is { } signal &&
                     authority.Observe(signal) ? 1 : 0;
-            authority.ObserveMsi(message, record);
+            observeMsi(authority, message, record);
             return 0;
         }
         catch { return 0; }
     }
 
+    [SupportedOSPlatform("windows")]
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)

@@ -186,11 +186,26 @@ internal sealed record EngineReceipt(
     bool OwnPreflightOccurred,
     bool OwnTransactionFenceOccurred)
 {
+    // Ephemeral observation, never a completion-policy or journal input.
+    internal MsiFailureEvidence? MsiFailure { get; init; }
+
     internal bool CompletedApi =>
         ApiEntered && ApiReturned && MsiExitCode is not null && !ControlFaulted;
 
     internal int? NativeCode =>
         MsiExitCode is { } code && code <= int.MaxValue ? (int)code : null;
+}
+
+internal sealed record MsiFailureEvidence(
+    int Action,
+    int ErrorId,
+    bool RecordReadFailed,
+    bool OwnPreflight,
+    bool OwnTransaction)
+{
+    internal string ToDiagnosticLine() => string.Create(
+        System.Globalization.CultureInfo.InvariantCulture,
+        $"HERMES_SETUP_MSI v=1 action={Action} error={ErrorId} readFailed={(RecordReadFailed ? 1 : 0)} preflight={(OwnPreflight ? 1 : 0)} fence={(OwnTransaction ? 1 : 0)}");
 }
 
 internal sealed record OperationJournal(
@@ -246,6 +261,7 @@ internal sealed record SetupExecution(
     // Report.Ready is a positive completion claim, not proof of admission denial.
     internal SetupAdmissionState Admission { get; init; } = SetupAdmissionState.Unknown;
     internal SetupRefusalEvidence? Evidence { get; init; }
+    internal MsiFailureEvidence? MsiFailure { get; init; }
 
     internal static SetupExecution Refused(
         SetupVerb verb, SetupCode code, SetupRefusalEvidence? evidence = null) => new(
@@ -261,7 +277,11 @@ internal sealed record SetupExecution(
     internal static SetupExecution Closed(
         SetupVerb verb, LeaveClosed decision, EngineReceipt? receipt = null) => new(
             new(verb, decision.Outcome, false, receipt?.NativeCode),
-            decision.ExitCode, decision.Code) { Admission = SetupAdmissionState.Closed };
+            decision.ExitCode, decision.Code)
+        {
+            Admission = SetupAdmissionState.Closed,
+            MsiFailure = receipt?.MsiFailure
+        };
 
     internal static SetupExecution Published(
         SetupVerb verb, PublishInstallation decision, EngineReceipt receipt) => new(

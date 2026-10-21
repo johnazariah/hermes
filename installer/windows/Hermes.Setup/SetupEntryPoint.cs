@@ -58,6 +58,7 @@ internal static class SetupEntryPoint
     {
         await output.WriteLineAsync(execution.Report.ToJson());
         await diagnostics.WriteLineAsync($"Hermes Setup: {execution.Code}.");
+        await WriteMsiFailureAsync(execution, diagnostics);
         if (execution.Evidence is { } evidence &&
             (execution.Code is SetupCode.InvalidEvidence or SetupCode.Unavailable ||
              execution.Code == SetupCode.MediaInvalid && evidence.IsCandidateMedia))
@@ -73,6 +74,25 @@ internal static class SetupEntryPoint
             }
         }
         return (int)execution.ExitCode;
+    }
+
+    private static async Task WriteMsiFailureAsync(
+        SetupExecution execution, TextWriter diagnostics)
+    {
+        if (execution is not
+            { Code: SetupCode.TransactionFenceMissing, ExitCode: SetupExitCode.ServicingFailed,
+              Evidence: null,
+              Report: { Outcome: SetupOutcome.RecoveryRequired, Ready: false, MsiExitCode: not null },
+              MsiFailure: { OwnTransaction: false } evidence })
+            return;
+        try
+        {
+            await diagnostics.WriteLineAsync(evidence.ToDiagnosticLine());
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            // An unavailable optional diagnostic cannot replace the original closed result.
+        }
     }
 
     private static SetupVerb Verb(SetupCommand command) => command switch

@@ -57,6 +57,13 @@ internal static unsafe partial class MsiNative
             ? value : throw new InvalidDataException("Missing MSI integer field.");
     }
 
+    internal static int? RecordNullableInteger(uint record, uint field) =>
+        GetRecordInteger(record, field) switch
+        {
+            int.MinValue => null,
+            var value => value
+        };
+
     [LibraryImport(Library, EntryPoint = "MsiRecordGetInteger")]
     private static partial int GetRecordInteger(uint record, uint field);
 

@@ -63,6 +63,9 @@ internal sealed record InstallerCallReceipt(
     public int SchemaVersion => 1;
     public int ObservationFaults { get; init; }
 
+    // Ephemeral diagnostics only: not part of the serialized control receipt.
+    internal MsiFailureObservation? MsiFailure { get; init; }
+
     internal bool MayEvaluateRecovery =>
         ApiEntered && ApiReturned && MsiExitCode == 0 && !ControlFaulted &&
         Fences.Any(fence => fence.OwnSession && fence.Phase == GuardPhase.Preflight) &&

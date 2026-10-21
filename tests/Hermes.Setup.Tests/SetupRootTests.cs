@@ -948,7 +948,7 @@ internal sealed class RootAdmission(UserInstallationScope scope) : IAdmissionSou
 
 internal sealed record RootMsiResult(
     uint Code, RootPackage? Installed, RootDefect Defect = RootDefect.None,
-    bool Fence = true);
+    bool Fence = true, MsiFailureEvidence? Failure = null);
 
 internal sealed class RootEngine(RootFixture world) : IGuardedEngine
 {
@@ -982,7 +982,10 @@ internal sealed class RootEngine(RootFixture world) : IGuardedEngine
             _results = _results.Dequeue();
         if (result.Code is not (1605 or 1618) && result.Fence)
             world.Apply(result);
-        return new(run, true, true, result.Code, false, true, result.Fence);
+        return new(run, true, true, result.Code, false, true, result.Fence)
+        {
+            MsiFailure = result.Failure
+        };
     }
 
     private sealed class Call(

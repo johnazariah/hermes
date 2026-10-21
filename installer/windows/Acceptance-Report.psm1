@@ -1,6 +1,7 @@
 #Requires -Version 7.0
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+Import-Module (Join-Path $PSScriptRoot 'Setup-Process.psm1')
 $script:RequiredCases = [ordered]@{
     'windows-kernel-admission' = 'production-component'
     'interrupted-install' = 'actual-msi-root-composition'
@@ -70,6 +71,21 @@ function Get-OldGuardHost($Case) {
     }
     Require ($fences.Count -eq 1) 'Old CA-host observation is absent or ambiguous.'
     return $fences[0].caHost
+}
+
+function Assert-HermesCoordinatorStages {
+    param($Stages)
+    foreach ($entry in $Stages) {
+        Require ($entry -is [pscustomobject]) 'Coordinator stage validation requires structured rows.'
+        $coordinator = $null -ne $entry.PSObject.Properties['kind'] -and $entry.kind -ceq 'coordinator'
+        if (-not $coordinator) {
+            Require ($null -eq $entry.PSObject.Properties['msiFailureEvidence']) 'MSI observations must belong only to coordinator stages.'
+            continue
+        }
+        $names = @($entry.PSObject.Properties.Name | Sort-Object)
+        Require (($names -join ',') -ceq 'action,diagnosticCodes,diagnosticError,exitCode,kind,msiFailureEvidence,protocolError,refusalEvidence,report,sdkPathAbsent') 'Unexpected coordinator stage fields.'
+        Assert-HermesCoordinatorMsiEvidence $entry
+    }
 }
 
 function Assert-HermesComponentEnvelope {
@@ -254,4 +270,4 @@ function Assert-IndependentCase($Case, $Expectation) {
     }
 }
 
-Export-ModuleMember -Function Assert-HermesComponentEnvelope, Assert-HermesServicingComponentReport
+Export-ModuleMember -Function Assert-HermesComponentEnvelope, Assert-HermesServicingComponentReport, Assert-HermesCoordinatorStages

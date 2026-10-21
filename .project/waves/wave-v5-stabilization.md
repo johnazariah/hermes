@@ -100,6 +100,21 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Bounded native MSI evidence preserves callback and recovery semantics
+
+- **Changed:** The source-approved observer retains only first numeric MSI error/action and actual own-fence flags, freezes before cleanup and stores Install/recovery separately. Public schema, native outcomes, private INFO authority and recovery barriers remain unchanged.
+- **Review closure:** A fresh C# revision fixes swallowed diagnostic programming faults at the real callback dispatch/catch boundary. Managed handoff follows disposal, End and receipt publication; pre-existing native/open/dispose failures retain their faulted-receipt contract. The rejected author remains locked out.
+- **Validation:** Parent passes 77 Control, 1,061 Setup, 2,182 Core, warning-free root/Windows cross-builds and all static controls. Strict paired-frame, save-time and publication consumers reject contradictions or mixed metadata without changing the original native failure.
+- **Boundary:** This is observation, not a fence or native failure correction. RecoveryRequired/1603 remains the current actual result and publication stays blocked.
+- **Next:** Publish and obtain the original Install's bounded MSI action/error/fence record from normal Windows execution before selecting a native bridge correction.
+
+### 2026-10-21 - Real MSI execution reaches an unestablished transaction fence
+
+- **Progress:** Published `8bdf0dc` run `39544546936` passes media/guard admission and invokes the real MSI engine. First Install now returns RecoveryRequired with MSI exit 1603 and TransactionFenceMissing, rather than a pre-engine media refusal.
+- **Evidence:** Failure Recover also returns RecoveryRequired/1603/TransactionFenceMissing; Ready remains false. Coordinator cleanup explicitly cannot establish a safe completed state. No successful installed or native-barrier outcome is inferred.
+- **Validation:** All 57 native cases, both compiled language/admin-row checks, both complete 699-warning validations, both supported OS jobs and Tray pass. The temporary observation seam is removed; publication remains blocked.
+- **Next:** A fresh C# specialist traces only the real MSI/native preflight-fence/private-callback path and obtains the first bounded failure reason without weakening recovery barriers.
+
 ### 2026-10-21 - Strict NativeAOT compatibility replaces the temporary observation
 
 - **Changed:** The source-approved C# correction retains legacy strict-two support and recognises only the observed closed three-entry callback/runtime-DATA profile. Names, ordinals, targets, backing, roles and exact object layout remain checked; callback authority and whole-image SHA approval are unchanged.

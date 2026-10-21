@@ -35,6 +35,7 @@ function ConvertFrom-HermesSetupProcessOutput {
     catch { $protocolError = 'InvalidCoordinatorReport' }
     $codes = @()
     $refusalEvidence = $null
+    $msiFailureEvidence = $null
     $diagnosticError = $null
     if ($StandardError.Length -gt 4096) {
         $diagnosticError = 'CoordinatorDiagnosticsTooLong'
@@ -42,7 +43,10 @@ function ConvertFrom-HermesSetupProcessOutput {
         $lines = @($StandardError -split '\r?\n')
         $codes = @($lines | Where-Object { $_ -cmatch '^Hermes Setup: [A-Za-z]+\.$' } `
             | ForEach-Object { $_.Substring(14).TrimEnd('.') })
-        $candidates = @($lines | Where-Object { $_.IndexOf('HERMES_SETUP', [StringComparison]::OrdinalIgnoreCase) -ge 0 })
+        $candidates = @($lines | Where-Object {
+            $_.IndexOf('HERMES_SETUP', [StringComparison]::OrdinalIgnoreCase) -ge 0 `
+                -and $_.IndexOf('HERMES_SETUP_MSI', [StringComparison]::OrdinalIgnoreCase) -lt 0
+        })
         if ($candidates.Count -gt 1) {
             $diagnosticError = 'DuplicateCoordinatorEvidence'
         } elseif ($candidates.Count -eq 1) {
@@ -66,11 +70,88 @@ function ConvertFrom-HermesSetupProcessOutput {
             }
         }
     }
-    if ($null -ne $diagnosticError -and $null -eq $protocolError) { $protocolError = 'InvalidCoordinatorDiagnostics' }
+    if ($StandardError.Length -le 4096) {
+        $msiCandidates = @($lines | Where-Object {
+            $_.IndexOf('HERMES_SETUP_MSI', [StringComparison]::OrdinalIgnoreCase) -ge 0
+        })
+        if ($msiCandidates.Count -gt 1) {
+            if ($null -eq $diagnosticError) { $diagnosticError = 'DuplicateCoordinatorMsiEvidence' }
+        } elseif ($msiCandidates.Count -eq 1) {
+            $pattern = '\AHERMES_SETUP_MSI v=1 action=(?<action>0|[1-9][0-9]{0,3}) error=(?<error>0|[1-9][0-9]{0,4}) readFailed=(?<readFailed>[01]) preflight=(?<preflight>[01]) fence=(?<fence>[01])\z'
+            if ($msiCandidates[0].Length -gt 160 -or $msiCandidates[0] -cnotmatch $pattern) {
+                if ($null -eq $diagnosticError) { $diagnosticError = 'InvalidCoordinatorMsiEvidence' }
+            } else {
+                $allowedActions = @(0, 25, 50, 100, 700, 800, 900, 1000, 1300, 1399, 1400, 1500, 1501, 1502,
+                    1600, 1800, 2600, 3200, 3500, 3600, 3700, 3900, 4000, 4500, 5000, 6000, 6100, 6300, 6400, 6600)
+                if ([int]$Matches.action -notin $allowedActions -or [int]$Matches.error -gt 65535 `
+                    -or $null -eq $report -or $report.outcome -cne 'RecoveryRequired' -or $report.ready `
+                    -or $null -eq $report.msiExitCode -or $ExitCode -ne 1603 `
+                    -or $report.msiExitCode -in @(1605, 1618, 3010, 1641) `
+                    -or $codes.Count -ne 1 -or $codes[0] -cne 'TransactionFenceMissing' `
+                    -or [int]$Matches.fence -ne 0) {
+                    if ($null -eq $diagnosticError) { $diagnosticError = 'InvalidCoordinatorMsiEvidence' }
+                } else {
+                    $msiFailureEvidence = [pscustomobject]@{
+                        v = 1; action = [int]$Matches.action; error = [int]$Matches.error
+                        readFailed = [int]$Matches.readFailed
+                        preflight = [int]$Matches.preflight; fence = [int]$Matches.fence
+                    }
+                }
+            }
+        }
+        if ($msiCandidates.Count -gt 0 -and $candidates.Count -gt 0) {
+            # Neither family is accepted from a mixed frame, even if one parsed first.
+            $refusalEvidence = $null
+            $msiFailureEvidence = $null
+            if ($null -eq $diagnosticError) { $diagnosticError = 'MixedCoordinatorEvidence' }
+        }
+    }
+    if ($null -ne $diagnosticError) {
+        $msiFailureEvidence = $null
+        if ($null -eq $protocolError) { $protocolError = 'InvalidCoordinatorDiagnostics' }
+    }
     [pscustomobject]@{
         exitCode = $ExitCode; report = $report; diagnosticCodes = $codes; protocolError = $protocolError
         refusalEvidence = $refusalEvidence; diagnosticError = $diagnosticError
+        msiFailureEvidence = $msiFailureEvidence
     }
+}
+
+function Assert-HermesCoordinatorMsiEvidence {
+    param($Result)
+    $invalid = 'Invalid coordinator MSI observation.'
+    if ($Result -isnot [pscustomobject] -or $null -eq $Result.PSObject.Properties['msiFailureEvidence']) {
+        throw $invalid
+    }
+    $value = $Result.msiFailureEvidence
+    if ($null -eq $value) { return }
+    if ($value -isnot [pscustomobject]) { throw $invalid }
+    $names = @($value.PSObject.Properties.Name | Sort-Object)
+    if (($names -join ',') -cne 'action,error,fence,preflight,readFailed,v') { throw $invalid }
+    foreach ($name in @('v', 'action', 'error', 'readFailed', 'preflight', 'fence')) {
+        if ($value.$name -isnot [int] -and $value.$name -isnot [long]) { throw $invalid }
+    }
+    foreach ($name in @('exitCode', 'report', 'diagnosticCodes', 'protocolError', 'diagnosticError', 'refusalEvidence')) {
+        if ($null -eq $Result.PSObject.Properties[$name]) { throw $invalid }
+    }
+    if (($Result.exitCode -isnot [int] -and $Result.exitCode -isnot [long]) `
+        -or $Result.exitCode -ne 1603 -or $null -ne $Result.protocolError `
+        -or $null -ne $Result.diagnosticError -or $null -ne $Result.refusalEvidence `
+        -or $Result.diagnosticCodes -isnot [array] -or $Result.diagnosticCodes.Count -ne 1 `
+        -or $Result.diagnosticCodes[0] -cne 'TransactionFenceMissing') { throw $invalid }
+    if ($Result.report -isnot [pscustomobject] `
+        -or $null -eq $Result.report.PSObject.Properties['operation'] `
+        -or $Result.report.operation -isnot [string] `
+        -or $Result.report.operation -cnotin @('Install', 'Repair', 'Uninstall', 'Recover')) { throw $invalid }
+    $line = [string]::Format([Globalization.CultureInfo]::InvariantCulture,
+        'HERMES_SETUP_MSI v={0} action={1} error={2} readFailed={3} preflight={4} fence={5}',
+        [object[]]@($value.v, $value.action, $value.error, $value.readFailed, $value.preflight, $value.fence))
+    $parsed = ConvertFrom-HermesSetupProcessOutput `
+        -StandardOutput ($Result.report | ConvertTo-Json -Depth 8 -Compress) `
+        -StandardError ("Hermes Setup: TransactionFenceMissing.`n" + $line) `
+        -ExitCode $Result.exitCode -Operation ($Result.report.operation.ToLowerInvariant())
+    if ($null -ne $parsed.protocolError -or $null -ne $parsed.diagnosticError `
+        -or $null -eq $parsed.msiFailureEvidence) { throw $invalid }
 }
 
 function Invoke-HermesSetup {
@@ -119,4 +200,4 @@ function Invoke-HermesSetup {
     } finally { $child.Dispose() }
 }
 
-Export-ModuleMember -Function Invoke-HermesSetup, ConvertFrom-HermesSetupResult, ConvertFrom-HermesSetupProcessOutput
+Export-ModuleMember -Function Invoke-HermesSetup, ConvertFrom-HermesSetupResult, ConvertFrom-HermesSetupProcessOutput, Assert-HermesCoordinatorMsiEvidence

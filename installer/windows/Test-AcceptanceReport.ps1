@@ -132,4 +132,56 @@ foreach ($mutate in $controls) {
 $refused = $false
 try { Assert-HermesServicingComponentReport $validReport $expectation 3 } catch { $refused = $true }
 if (-not $refused) { throw 'Exit 3 must never authorize publication even with claimed success flags.' }
+
+$nativeRow = [pscustomobject][ordered]@{
+    action = 'install'; kind = 'coordinator'; exitCode = 1603
+    report = [pscustomobject]@{ schemaVersion = 1; operation = 'Install'; outcome = 'RecoveryRequired'; ready = $false; msiExitCode = 1603 }
+    diagnosticCodes = @('TransactionFenceMissing'); protocolError = $null
+    refusalEvidence = $null; diagnosticError = $null; sdkPathAbsent = $true
+    msiFailureEvidence = [pscustomobject]@{ v = 1; action = 1399; error = 1723; readFailed = 0; preflight = 1; fence = 0 }
+}
+$nativeJson = $nativeRow | ConvertTo-Json -Depth 8 -Compress
+Assert-HermesCoordinatorStages @($nativeRow)
+$nativeControls = @(
+    { param($r) $r.msiFailureEvidence.fence = 1 },
+    { param($r) $r.msiFailureEvidence.preflight = 0; $r.msiFailureEvidence.fence = 1 },
+    { param($r) $r.msiFailureEvidence.action = 9999 },
+    { param($r) $r.msiFailureEvidence.error = 65536 },
+    { param($r) $r.msiFailureEvidence.error = '1723' },
+    { param($r) $r.msiFailureEvidence.readFailed = $true },
+    { param($r) $r.msiFailureEvidence | Add-Member -NotePropertyName source -NotePropertyValue 'SYNTHETIC_SECRET' },
+    { param($r) $r.msiFailureEvidence.PSObject.Properties.Remove('error') },
+    { param($r) $r.PSObject.Properties.Remove('msiFailureEvidence') },
+    { param($r) $r | Add-Member -NotePropertyName source -NotePropertyValue 'SYNTHETIC_SECRET' },
+    { param($r) $r.kind = 'raw-msi-negative' },
+    { param($r) $r.refusalEvidence = [pscustomobject]@{ v = 1; stage = 8; cause = 4; fault = 0; errorKind = 0; error = 0 } },
+    { param($r) $r.protocolError = 'InvalidCoordinatorDiagnostics' },
+    { param($r) $r.diagnosticError = 'MixedCoordinatorEvidence' },
+    { param($r) $r.diagnosticCodes = @('TransactionFenceMissing', 'None') },
+    { param($r) $r.report.msiExitCode = $null },
+    { param($r) $r.report.outcome = 'Refused'; $r.report.msiExitCode = $null },
+    { param($r) $r.report.outcome = 'Completed'; $r.report.ready = $true; $r.report.msiExitCode = 0; $r.exitCode = 0 },
+    { param($r) $r.report.outcome = 'RolledBack'; $r.report.ready = $true },
+    { param($r) $r.report.outcome = 'RebootRequired'; $r.report.msiExitCode = 3010; $r.exitCode = 3010 },
+    { param($r) $r.exitCode = 1618 }
+)
+foreach ($mutate in $nativeControls) {
+    $row = $nativeJson | ConvertFrom-Json
+    & $mutate $row
+    $beforeValidation = $row | ConvertTo-Json -Depth 8 -Compress
+    $refused = $false
+    try { Assert-HermesCoordinatorStages @($row) } catch { $refused = $true }
+    if (-not $refused) { throw 'A contradictory or unbound coordinator MSI observation passed the publication consumer.' }
+    if (($row | ConvertTo-Json -Depth 8 -Compress) -cne $beforeValidation) {
+        throw 'Coordinator MSI validation mutated the original report, exit or evidence.'
+    }
+}
+$row = $nativeJson | ConvertFrom-Json
+$row.msiFailureEvidence = $null
+$row.report.outcome = 'Completed'
+$row.report.ready = $true
+$row.report.msiExitCode = 0
+$row.exitCode = 0
+$row.diagnosticCodes = @('None')
+Assert-HermesCoordinatorStages @($row)
 Write-Output "Synthetic report-parser controls passed: valid shape plus $($controls.Count + 1) adverse/incomplete/blocked controls. These are not Windows evidence."

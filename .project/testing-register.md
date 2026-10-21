@@ -2,6 +2,31 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Native MSI failure evidence remains separate from completion authority
+
+The reviewed observation captures only the first numeric MSI error ID, last
+allow-listed action, record-read status and actual own-fence flags through
+the existing external-UI record callback. It freezes at the first error/end,
+retains no native handle or raw record, and leaves the five-field public
+report, native outcome, barriers and readiness policy unchanged.
+
+The actual callback-boundary regression now verifies deferred diagnostic
+exception identity after UI disposal, End and receipt publication. Existing
+native/open/dispose failures still publish and return their canonical faulted
+receipts. The rejected direct-authority-only test does not stand in for this
+boundary.
+
+Strict bounded numeric parsing rejects contradictory contexts and mixed
+metadata atomically. Real save helpers and final acceptance consumers retain
+original Install and recovery observations separately without promoting
+cleanup. Error zero means no numeric error observed, not native success.
+
+Parent passes 77 Control, 1,061 Setup and 2,182 Core cases, warning-free
+root/Windows cross-builds and all static controls. The fresh callback
+revision receives full independent source approval; the original author
+lockout remains scoped and enforced. Actual MSI error/action evidence still
+requires normal exact-head Windows execution.
+
 ## Closed NativeAOT runtime DATA profile preserves callback authority
 
 Actual pre-load profile-match bit one establishes the selected producer's

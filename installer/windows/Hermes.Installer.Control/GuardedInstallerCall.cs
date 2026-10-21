@@ -60,22 +60,10 @@ internal sealed class GuardedInstallerCall : IAsyncDisposable
         }
     }
 
-    internal InstallerCallReceipt Execute()
-    {
-        _authority.Begin();
-        var entered = false;
-        uint? code = null;
-        try
-        {
-            using var ui = ExternalUiScope.Open(_authority, _authority.Plan.Quiet);
-            entered = true;
-            code = Invoke(_authority.Plan, RunId);
-        }
-        catch { _authority.Fault(); }
-        var receipt = _authority.End(entered, code);
-        ControlFiles.PublishReceipt(_paths.ReceiptPath, receipt);
-        return receipt;
-    }
+    internal InstallerCallReceipt Execute() => _authority.Execute(
+        () => ExternalUiScope.Open(_authority, _authority.Plan.Quiet),
+        () => Invoke(_authority.Plan, RunId),
+        receipt => ControlFiles.PublishReceipt(_paths.ReceiptPath, receipt));
 
     private static uint Invoke(ControlPlan plan, Guid run)
     {

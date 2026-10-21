@@ -4,6 +4,7 @@ param()
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'Setup-Process.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'Acceptance-Report.psm1') -Force
 
 function Require([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw $Message }
@@ -22,6 +23,110 @@ function Require-Refusal($Result) {
         -and $Result.report.outcome -ceq 'Refused' -and -not $Result.report.ready `
         -and $null -eq $Result.report.msiExitCode) 'Diagnostics changed the original public refusal.'
 }
+
+$msiReport = '{"schemaVersion":1,"operation":"Install","outcome":"RecoveryRequired","ready":false,"msiExitCode":1603}'
+$msiCode = 'Hermes Setup: TransactionFenceMissing.'
+$msiWire = 'HERMES_SETUP_MSI v=1 action=1399 error=1723 readFailed=0 preflight=1 fence=0'
+$msiResult = Read-Output "$msiCode`n$msiWire" $msiReport
+Require ($null -eq $msiResult.protocolError -and $null -eq $msiResult.diagnosticError `
+    -and $null -eq $msiResult.refusalEvidence) 'Native MSI observation must not become refusal evidence or change the public protocol.'
+Require ($msiResult.report.outcome -ceq 'RecoveryRequired' -and -not $msiResult.report.ready `
+    -and $msiResult.report.msiExitCode -eq 1603) 'Native MSI observation changed the original closed result.'
+Require (($msiResult.msiFailureEvidence.PSObject.Properties.Name -join ',') `
+    -ceq 'v,action,error,readFailed,preflight,fence') 'MSI observation must contain only its six fixed numeric fields.'
+Require ($msiResult.msiFailureEvidence.action -eq 1399 -and $msiResult.msiFailureEvidence.error -eq 1723 `
+    -and $msiResult.msiFailureEvidence.preflight -eq 1 -and $msiResult.msiFailureEvidence.fence -eq 0) 'MSI observation lost the original action/error/fence boundary.'
+foreach ($errorId in @(0, 1, 65535)) {
+    $result = Read-Output "$msiCode`n$($msiWire.Replace('error=1723', "error=$errorId"))" $msiReport
+    Require ($null -eq $result.protocolError -and $result.msiFailureEvidence.error -eq $errorId `
+        -and $result.report.msiExitCode -eq 1603 -and -not $result.report.ready) 'A bounded MSI error must remain separate from the native exit code.'
+}
+$invalidMsi = @(
+    $msiWire.Replace('v=1', 'v=2'), $msiWire.Replace('action=1399', 'action=9999'),
+    $msiWire.Replace('action=1399', 'action=01399'), $msiWire.Replace('action=1399', 'action=-1'),
+    $msiWire.Replace('action=1399', 'action=HermesPreflight'),
+    $msiWire.Replace('error=1723', 'error=65536'), $msiWire.Replace('error=1723', 'error=-1'),
+    $msiWire.Replace('error=1723', 'error=01723'), $msiWire.Replace('error=1723', 'error=1e3'),
+    $msiWire.Replace('readFailed=0', 'readFailed=2'), $msiWire.Replace('preflight=1', 'preflight=true'),
+    $msiWire.Replace('fence=0', 'fence=2'), $msiWire.Replace('HERMES_SETUP_MSI', 'hermes_setup_msi'),
+    "$msiWire token=SYNTHETIC_SECRET", " $msiWire", "$msiWire ", "$msiWire`0",
+    "$msiWire`n$msiWire", "$msiWire`nHERMES_SETUP_MSI SYNTHETIC_SECRET",
+    $msiWire.Replace('error=1723', 'error=C:\owner\SYNTHETIC_SECRET')
+)
+foreach ($text in $invalidMsi) {
+    $result = Read-Output "$msiCode`n$text" $msiReport
+    Require ($result.protocolError -ceq 'InvalidCoordinatorDiagnostics' `
+        -and $null -eq $result.msiFailureEvidence -and $null -eq $result.refusalEvidence) 'Malformed MSI observations must not yield partial evidence.'
+    Require ($result.report.msiExitCode -eq 1603 -and -not $result.report.ready) 'Malformed diagnostics replaced the original native result.'
+    Require (($result | ConvertTo-Json -Depth 8 -Compress) -cnotmatch 'SYNTHETIC_SECRET|C:.owner|token=|HERMES_SETUP') 'Malformed MSI observation leaked raw diagnostic content.'
+}
+$result = Read-Output "$msiCode`n$msiWire" $refusedReport
+Require ($null -eq $result.msiFailureEvidence -and $null -ne $result.diagnosticError) 'MSI observation cannot be attached to a refused-before-engine result.'
+$result = Read-Output "$diagnostic`n$msiWire" $msiReport
+Require ($null -eq $result.msiFailureEvidence -and $null -ne $result.diagnosticError) 'MSI observation requires the actual missing-fence diagnostic.'
+foreach ($text in @(
+    $msiWire.Replace('fence=0', 'fence=1'),
+    $msiWire.Replace('preflight=1', 'preflight=0').Replace('fence=0', 'fence=1')
+)) {
+    $result = Read-Output "$msiCode`n$text" $msiReport
+    Require ($result.protocolError -ceq 'InvalidCoordinatorDiagnostics' `
+        -and $result.diagnosticError -ceq 'InvalidCoordinatorMsiEvidence' `
+        -and $null -eq $result.msiFailureEvidence -and $null -eq $result.refusalEvidence `
+        -and $result.exitCode -eq 1603 -and $result.report.msiExitCode -eq 1603 `
+        -and -not $result.report.ready) 'Impossible own-fence combinations must not yield accepted metadata or alter the original result.'
+}
+foreach ($legacyFrame in @($wire, "$wire token=SYNTHETIC_SECRET")) {
+    foreach ($nativeFrame in @($msiWire, "$msiWire token=SYNTHETIC_SECRET")) {
+        $expectedError = if ($legacyFrame -cne $wire) { 'InvalidCoordinatorEvidence' } `
+            elseif ($nativeFrame -cne $msiWire) { 'InvalidCoordinatorMsiEvidence' } `
+            else { 'MixedCoordinatorEvidence' }
+        foreach ($text in @("$legacyFrame`n$nativeFrame", "$nativeFrame`n$legacyFrame")) {
+            $result = Read-Output "$msiCode`n$text" $msiReport
+            Require ($result.protocolError -ceq 'InvalidCoordinatorDiagnostics' `
+                -and $result.diagnosticError -ceq $expectedError `
+                -and $null -eq $result.refusalEvidence -and $null -eq $result.msiFailureEvidence `
+                -and $result.exitCode -eq 1603 -and $result.report.msiExitCode -eq 1603 `
+                -and -not $result.report.ready) 'Mixed frames in either order must reject both metadata families while preserving the original result and earlier diagnostic error.'
+            Require (($result | ConvertTo-Json -Depth 8 -Compress) -cnotmatch 'SYNTHETIC_SECRET|token=|HERMES_SETUP') 'Mixed frames leaked raw diagnostic content.'
+        }
+    }
+}
+$msiContexts = @(
+    @{ report = $refusedReport; exit = 1603 },
+    @{ report = $msiReport.Replace('"msiExitCode":1603', '"msiExitCode":null'); exit = 1603 },
+    @{ report = $msiReport.Replace('"RecoveryRequired"', '"Completed"').Replace('"ready":false', '"ready":true').Replace('"msiExitCode":1603', '"msiExitCode":0'); exit = 0 },
+    @{ report = $msiReport.Replace('"RecoveryRequired"', '"RolledBack"').Replace('"ready":false', '"ready":true'); exit = 1603 },
+    @{ report = $msiReport.Replace('"RecoveryRequired"', '"RebootRequired"').Replace('"msiExitCode":1603', '"msiExitCode":3010'); exit = 3010 },
+    @{ report = $msiReport; exit = 1618 }
+)
+foreach ($native in @(1605, 1618, 3010, 1641)) {
+    $msiContexts += @{ report = $msiReport.Replace('"msiExitCode":1603', "`"msiExitCode`":$native"); exit = 1603 }
+}
+foreach ($context in $msiContexts) {
+    $baseline = Read-Output '' $context.report $context.exit
+    $result = Read-Output "$msiCode`n$msiWire" $context.report $context.exit
+    Require ($null -eq $result.msiFailureEvidence -and $null -eq $result.refusalEvidence `
+        -and $result.diagnosticError -ceq 'InvalidCoordinatorMsiEvidence' `
+        -and $result.exitCode -eq $baseline.exitCode `
+        -and ($result.report | ConvertTo-Json -Compress) -ceq ($baseline.report | ConvertTo-Json -Compress)) 'An unsupported native/outcome/status context must reject only the observation, not change the original report or exit.'
+    $expectedProtocol = if ($null -ne $baseline.protocolError) { $baseline.protocolError } else { 'InvalidCoordinatorDiagnostics' }
+    Require ($result.protocolError -ceq $expectedProtocol) 'MSI evidence replaced the original report-validation error.'
+}
+$result = Read-Output "$msiCode`n$msiWire" 'not-json'
+Require ($result.protocolError -ceq 'InvalidCoordinatorReport' -and $result.exitCode -eq 1603 `
+    -and $null -eq $result.report -and $null -eq $result.msiFailureEvidence `
+    -and $result.diagnosticError -ceq 'InvalidCoordinatorMsiEvidence') 'A numeric MSI observation must not repair an invalid report.'
+$result = Read-Output "$msiCode`n$($msiWire.Replace('error=1723', 'error=0'))" `
+    $msiReport.Replace('"msiExitCode":1603', '"msiExitCode":0')
+Require ($null -eq $result.protocolError -and $result.exitCode -eq 1603 `
+    -and $result.report.outcome -ceq 'RecoveryRequired' -and -not $result.report.ready `
+    -and $result.report.msiExitCode -eq 0 -and $result.msiFailureEvidence.error -eq 0) 'A returned zero without an established fence must remain closed, not become a success claim.'
+
+$originalMsi = $msiResult | ConvertTo-Json -Depth 8 -Compress
+$recoveryMsi = Read-Output "$msiCode`n$($msiWire.Replace('action=1399', 'action=1501').Replace('error=1723', 'error=2896'))" $msiReport
+Require (($msiResult | ConvertTo-Json -Depth 8 -Compress) -ceq $originalMsi `
+    -and $recoveryMsi.msiFailureEvidence.action -eq 1501 `
+    -and $recoveryMsi.msiFailureEvidence.error -eq 2896) 'A later cleanup/recovery observation replaced the original install evidence.'
 
 $positiveCount = 0
 foreach ($stage in 1..16) {
@@ -317,6 +422,14 @@ Require ($functions.Count -eq 2) 'Both actual coordinator evidence functions mus
     foreach ($definition in $functions) { . ([scriptblock]::Create($definition.Extent.Text)) }
     function Invoke-HermesSetup {
         param($SetupExecutable, $Operation, $PackagePath, [switch]$AllowRollback, [switch]$Quiet)
+        if ($script:msiDiagnostic) {
+            $nativeText = if ($Operation -eq 'install') { $msiWire } `
+                else { $msiWire.Replace('action=1399', 'action=1501').Replace('error=1723', 'error=2896') }
+            if ($script:invalidDiagnostic) { $nativeText += "`n$wire" }
+            $nativeReport = $msiReport.Replace('"Install"', '"' + $Operation.Substring(0, 1).ToUpperInvariant() + $Operation.Substring(1) + '"')
+            return ConvertFrom-HermesSetupProcessOutput -StandardOutput $nativeReport `
+                -StandardError "$msiCode`n$nativeText" -ExitCode 1603 -Operation $Operation
+        }
         $text = if ($Operation -eq 'install') { $wire } else { $wire.Replace('stage=8', 'stage=12').Replace('cause=4', 'cause=3') }
         if ($script:invalidDiagnostic) { $text += ' token=SYNTHETIC_SECRET' }
         ConvertFrom-HermesSetupProcessOutput -StandardOutput $refusedReport.Replace('"Install"', '"' + $Operation.Substring(0, 1).ToUpperInvariant() + $Operation.Substring(1) + '"') `
@@ -337,6 +450,7 @@ Require ($functions.Count -eq 2) 'Both actual coordinator evidence functions mus
     $componentExpectation = $null
     $componentExitCode = $null
     $script:invalidDiagnostic = $false
+    $script:msiDiagnostic = $false
     [IO.Directory]::CreateDirectory($destination) | Out-Null
     try {
         $env:SystemRoot = $PSScriptRoot
@@ -368,9 +482,47 @@ Require ($functions.Count -eq 2) 'Both actual coordinator evidence functions mus
             -and $saved.stages[2].diagnosticError -ceq 'InvalidCoordinatorEvidence' `
             -and ($saved.originalFailure | ConvertTo-Json -Compress) -ceq $originalFailure `
             -and $savedText -cnotmatch 'SYNTHETIC_SECRET|token=|HERMES_SETUP') 'Invalid evidence must persist explicitly without stderr leakage or loss of original failure.'
+
+        $script:invalidDiagnostic = $false
+        $script:msiDiagnostic = $true
+        $evidence.Clear()
+        $cleanupFailures.Clear()
+        $failure = $null
+        try { $null = Invoke-Coordinator install install 'SYNTHETIC-never-executed.msi'; throw 'Synthetic native failure was accepted.' }
+        catch {
+            Require ($_.Exception.Message -ceq 'Unexpected coordinator result during install (exit 1603).') 'The original native installation failure must remain the failure.'
+            $failure = @{ stage = 'install'; message = $_.Exception.Message }
+        }
+        $originalFailure = $failure | ConvertTo-Json -Compress
+        $null = Invoke-Coordinator recover failure-recover -AcceptedExits @(0, 1603)
+        $cleanupFailures.Add('SYNTHETIC native cleanup did not establish a completed state.')
+        Save-Evidence
+        $saved = Get-Content -LiteralPath (Join-Path $destination 'acceptance.json') -Raw | ConvertFrom-Json
+        Assert-HermesCoordinatorStages $saved.stages
+        Require (-not $saved.passed -and $saved.stages.Count -eq 2 -and $saved.cleanupFailures.Count -eq 1 `
+            -and ($saved.originalFailure | ConvertTo-Json -Compress) -ceq $originalFailure `
+            -and $saved.stages[0].msiFailureEvidence.action -eq 1399 `
+            -and $saved.stages[0].msiFailureEvidence.error -eq 1723 `
+            -and $saved.stages[1].msiFailureEvidence.action -eq 1501 `
+            -and $saved.stages[1].msiFailureEvidence.error -eq 2896) 'The actual save helpers must retain separate original-install and recovery observations without promoting cleanup.'
+        $script:invalidDiagnostic = $true
+        $rejected = $false
+        try { $null = Invoke-Coordinator recover mixed-native-diagnostic -AcceptedExits @(0, 1603) }
+        catch {
+            Require ($_.Exception.Message -ceq 'Coordinator report failed validation: mixed-native-diagnostic') 'Mixed diagnostics must reach the original protocol-failure boundary.'
+            $rejected = $true
+        }
+        Require $rejected 'A permitted native exit must not hide mixed diagnostic metadata.'
+        $saved = Get-Content -LiteralPath (Join-Path $destination 'acceptance.json') -Raw | ConvertFrom-Json
+        Assert-HermesCoordinatorStages $saved.stages
+        Require ($saved.stages.Count -eq 3 -and $saved.stages[2].exitCode -eq 1603 `
+            -and $saved.stages[2].report.msiExitCode -eq 1603 -and -not $saved.stages[2].report.ready `
+            -and $null -eq $saved.stages[2].refusalEvidence -and $null -eq $saved.stages[2].msiFailureEvidence `
+            -and $saved.stages[2].diagnosticError -ceq 'MixedCoordinatorEvidence' `
+            -and ($saved.originalFailure | ConvertTo-Json -Compress) -ceq $originalFailure) 'Rejected mixed metadata must remain explicit without replacing original native failure evidence.'
     } finally {
         $env:SystemRoot = $savedSystemRoot
-        Remove-Variable -Name invalidDiagnostic, lastCoordinator -Scope Script -ErrorAction SilentlyContinue
+        Remove-Variable -Name invalidDiagnostic, msiDiagnostic, lastCoordinator -Scope Script -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath (Join-Path $destination 'acceptance.json') -ErrorAction SilentlyContinue
         [IO.Directory]::Delete($destination)
     }

@@ -11,6 +11,7 @@ if ((Get-Item -LiteralPath $ordinaryPath).Length -gt 8MB -or (Get-Item -LiteralP
 }
 $ordinary = Get-Content -LiteralPath $ordinaryPath -Raw | ConvertFrom-Json -Depth 100
 $component = Get-Content -LiteralPath $componentPath -Raw | ConvertFrom-Json -Depth 100
+Assert-HermesCoordinatorStages $ordinary.stages
 if (-not $ordinary.passed -or $null -ne $ordinary.originalFailure -or @($ordinary.cleanupFailures).Count -ne 0) {
     throw 'Ordinary installed acceptance did not complete cleanly.'
 }
