@@ -112,6 +112,15 @@ internal sealed class RestrictedOwnerToken : IDisposable
         return ReadVerified(_tokens, _token, source);
     }
 
+    internal AcceptanceDesktopAccessResult ReadExistingParentDesktopAccess(
+        IAcceptanceDesktopAccess access)
+    {
+        _ = Verify();
+        var result = access.Read(_token);
+        _ = Verify();
+        return result;
+    }
+
     // Test-only, synchronous borrow. No token or native handle is returned.
     internal void CreateSuspendedInertChild(IAcceptanceOwnedChild child)
     {
@@ -283,7 +292,7 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IRestrictedO
             _ => throw RestrictedOwnerToken.Failure(6)
         };
 
-    private static int ReadInt(SafeAccessTokenHandle token, int information)
+    private static int ReadInt(SafeHandle token, int information)
     {
         var value = 0;
         uint length = 0;
@@ -294,7 +303,7 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IRestrictedO
             ? value : throw RestrictedOwnerToken.Failure(13);
     }
 
-    private static int ReadIntegrity(SafeAccessTokenHandle token)
+    private static int ReadIntegrity(SafeHandle token)
     {
         using var data = TokenBuffer.Read(token, IntegrityInformation);
         var sid = data.ReadSid(0);
@@ -306,7 +315,7 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IRestrictedO
     }
 
     private static (int Enabled, int DenyOnly) ReadAdministrator(
-        SafeAccessTokenHandle token)
+        SafeHandle token)
     {
         using var data = TokenBuffer.Read(token, GroupsInformation);
         var groups = ReadGroups(data);
@@ -344,7 +353,7 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IRestrictedO
     }
 
     private static int SameOwner(
-        SafeAccessTokenHandle candidate, SafeAccessTokenHandle source)
+        SafeHandle candidate, SafeAccessTokenHandle source)
     {
         using var left = TokenBuffer.Read(candidate, UserInformation);
         using var right = TokenBuffer.Read(source, UserInformation);
@@ -352,7 +361,7 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IRestrictedO
     }
 
     private static int SameSession(
-        SafeAccessTokenHandle candidate, SafeAccessTokenHandle source)
+        SafeHandle candidate, SafeAccessTokenHandle source)
     {
         var current = ReadInt(source, SessionInformation);
         return current >= 0 && current == ReadInt(candidate, SessionInformation) ? 1 : 0;
@@ -391,7 +400,7 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IRestrictedO
             Initialize((ulong)length);
         }
 
-        internal static TokenBuffer Read(SafeAccessTokenHandle token, int information)
+        internal static TokenBuffer Read(SafeHandle token, int information)
         {
             var data = new TokenBuffer(RequiredSize(token, information));
             try
@@ -411,7 +420,7 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IRestrictedO
             }
         }
 
-        private static int RequiredSize(SafeAccessTokenHandle token, int information)
+        private static int RequiredSize(SafeHandle token, int information)
         {
             uint length = 0;
             var result = GetTokenInformation(token, information, 0, 0, &length);
@@ -470,7 +479,7 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IRestrictedO
     [LibraryImport("advapi32.dll", SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     private static partial int GetTokenInformation(
-        SafeAccessTokenHandle token, int information,
+        SafeHandle token, int information,
         nint buffer, uint length, uint* needed);
 
     [LibraryImport("advapi32.dll")]

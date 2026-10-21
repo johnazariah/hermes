@@ -2,6 +2,26 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Restricted-token desktop DACL decisions are observed without mutation
+
+The reviewed read-only probe borrows the verified restricted token, creates a
+query-only impersonation duplicate without assigning it, and checks the actual
+existing parent station/desktop owner/group/DACL descriptors. Descriptor and
+SID buffers stay bounded/internal; borrowed USER handles are not closed and
+the owned duplicate is closed explicitly. MIC is explicitly unmeasured.
+
+API/read failure is unobserved, not denial. Successful decisions retain only
+numeric allowed/granted-mask/error data; unsupported noninteractive generic
+mapping remains explicit. No ACL, parent connection, child setting or success
+predicate changes. A fresh C# visibility adjustment also runs the same probe
+inside the still-failing A/B case, so minimal test logging cannot hide a
+passing observation's decision.
+
+Thirty-five fake cases plus one genuine read-only case require 194 native
+cases, preserving all prior 158 assertions and zero skips. Parent passes
+warning-free root/Windows cross-builds, 2,182 Core and all static controls.
+Actual decisions remain pending and authorize no startup or installer state.
+
 ## Inert desktop counterfactual changes only the child startup binding
 
 The reviewed observation compares NULL desktop selection with an explicit

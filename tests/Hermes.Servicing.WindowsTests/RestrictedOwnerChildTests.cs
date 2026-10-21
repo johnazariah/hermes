@@ -1,6 +1,7 @@
 ﻿using System.ComponentModel;
 using System.Runtime.ExceptionServices;
 using System.Runtime.Versioning;
+using System.Security.AccessControl;
 using Hermes.Installer.Control;
 using Hermes.Servicing.Acceptance;
 using Xunit;
@@ -369,7 +370,11 @@ public sealed class RestrictedOwnerChildTests(ITestOutputHelper output)
         Assert.True(IsActualSource(before), "Required genuine source context absent.");
         var security = api.ReadParentSecurity();
         var desktop = api.ReadParentDesktop();
-        var error = Record.Exception(() => RequireDesktopCounterfactual(api));
+        var error = Record.Exception(() =>
+        {
+            RequireDesktopAccessObservation(api);
+            RequireDesktopCounterfactual(api);
+        });
         var parent = before == ReadParent() &&
             security.SameFinalState(api.ReadParentSecurity());
         var connected = desktop.SameConnection(api.ReadParentDesktop());
@@ -445,6 +450,269 @@ public sealed class RestrictedOwnerChildTests(ITestOutputHelper output)
             if (fault is { } error)
                 throw error;
             return name;
+        }
+    }
+
+    [Fact]
+    public void Desktop_access_borrows_only_the_verified_restricted_candidate()
+    {
+        var tokens = new FakeTokens();
+        using var token = RestrictedOwnerToken.Create(tokens);
+        var access = new FakeDesktopAccess(tokens);
+        var result = token.ReadExistingParentDesktopAccess(access);
+        Assert.Equal(1, access.Reads);
+        Assert.True(result.ProbeClosed);
+        Assert.False(token.IsClosed);
+    }
+
+    [Fact]
+    public void Closed_restricted_token_is_refused_before_desktop_access()
+    {
+        var tokens = new FakeTokens();
+        var token = RestrictedOwnerToken.Create(tokens);
+        token.Dispose();
+        var access = new FakeDesktopAccess(tokens);
+        var error = Assert.Throws<Win32Exception>(() =>
+            token.ReadExistingParentDesktopAccess(access));
+        Assert.Equal(6, error.NativeErrorCode);
+        Assert.Equal(0, access.Reads);
+    }
+
+    [Fact]
+    public void Desktop_access_capability_failure_is_preserved_without_fallback()
+    {
+        var tokens = new FakeTokens();
+        using var token = RestrictedOwnerToken.Create(tokens);
+        var fault = new Win32Exception(5, "Synthetic numeric failure.");
+        var access = new FakeDesktopAccess(tokens, fault: fault);
+        var error = Assert.Throws<Win32Exception>(() =>
+            token.ReadExistingParentDesktopAccess(access));
+        Assert.Same(fault, error);
+        Assert.Equal(1, access.Reads);
+        Assert.False(token.IsClosed);
+    }
+
+    [Fact]
+    public void Restricted_token_is_reverified_after_desktop_access()
+    {
+        var tokens = new FakeTokens();
+        using var token = RestrictedOwnerToken.Create(tokens);
+        var access = new FakeDesktopAccess(
+            tokens, () => tokens.ChangeFacts(Changed(6, 0)));
+        var error = Assert.Throws<RestrictedOwnerTokenVerificationException>(() =>
+            token.ReadExistingParentDesktopAccess(access));
+        Assert.Equal(32, error.FailedPredicates);
+        Assert.Equal(1, access.Reads);
+    }
+
+    [Theory]
+    [InlineData(5)]
+    [InlineData(122)]
+    [InlineData(0)]
+    public void Failed_access_check_ignores_all_poisoned_outputs(int error)
+    {
+        var reply = new AcceptanceAccessReply(
+            0, 1, uint.MaxValue, error, uint.MaxValue, uint.MaxValue);
+        var result = AcceptanceDesktopDacl.Decide(reply, 0x000f01ff);
+        Assert.Equal(new AcceptanceDaclObservation(
+            0, -1, 0, error > 0 ? error : 13), result);
+    }
+
+    [Theory]
+    [InlineData(0, 0u, 5)]
+    [InlineData(1, 0x00020001u, 1314)]
+    public void Successful_access_check_distinguishes_decision_from_stale_error(
+        int status, uint granted, int error)
+    {
+        var reply = new AcceptanceAccessReply(1, status, granted, error, 8, 0);
+        var result = AcceptanceDesktopDacl.Decide(reply, 0x000f01ff);
+        Assert.Equal(1, result.Observed);
+        Assert.Equal(status, result.Allowed);
+        Assert.Equal(granted, result.GrantedMask);
+        Assert.Equal(status == 0 ? error : 0, result.Error);
+    }
+
+    [Theory]
+    [InlineData(7u, 0u, 1u, 1)]
+    [InlineData(4097u, 0u, 1u, 1)]
+    [InlineData(8u, 1u, 1u, 1)]
+    [InlineData(8u, 0u, 0x80000000u, 1)]
+    [InlineData(8u, 0u, 1u, 0)]
+    public void Malformed_success_outputs_are_unobserved_not_denied(
+        uint bytes, uint count, uint granted, int status)
+    {
+        var reply = new AcceptanceAccessReply(1, status, granted, 5, bytes, count);
+        Assert.Equal(new AcceptanceDaclObservation(0, -1, 0, 13),
+            AcceptanceDesktopDacl.Decide(reply, 0x000f01ff));
+    }
+
+    [Theory]
+    [InlineData(1, true, 0x00020303u, 0x0002001cu, 0x00020060u, 0x000f037fu)]
+    [InlineData(1, false, 0x00020103u, 0x0002000cu, 0x00020060u, 0x000f016fu)]
+    [InlineData(2, true, 0x00020041u, 0x000200beu, 0x00020100u, 0x000f01ffu)]
+    public void Desktop_object_mappings_match_the_documented_rights(
+        int target, bool interactive, uint read, uint write, uint execute, uint all)
+    {
+        Assert.Equal(new AcceptanceDesktopGenericMapping(read, write, execute, all),
+            AcceptanceDesktopDacl.Mapping((AcceptanceDesktopObject)target, interactive));
+    }
+
+    [Theory]
+    [InlineData(1, 1)]
+    [InlineData(2, 1)]
+    [InlineData(3, 12288)]
+    [InlineData(4, 1)]
+    [InlineData(5, 0)]
+    [InlineData(6, 0)]
+    [InlineData(7, 0)]
+    public void Adverse_query_duplicate_facts_are_refused(int predicate, int value)
+    {
+        var facts = predicate == 1
+            ? RestrictedOwnerTokenFacts.Required with { TokenType = value }
+            : Changed(predicate, value) with { TokenType = 2 };
+        var error = Assert.Throws<RestrictedOwnerTokenVerificationException>(() =>
+            AcceptanceDesktopDacl.RequireProbe(facts, 2));
+        Assert.Equal(1 << (predicate - 1), error.FailedPredicates);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(3)]
+    public void Query_duplicate_requires_the_requested_impersonation_level(int level)
+    {
+        var facts = RestrictedOwnerTokenFacts.Required with { TokenType = 2 };
+        var error = Assert.Throws<RestrictedOwnerTokenVerificationException>(() =>
+            AcceptanceDesktopDacl.RequireProbe(facts, level));
+        Assert.Equal(256, error.FailedPredicates);
+    }
+
+    [Fact]
+    public void Concrete_self_relative_descriptor_round_trips_with_owner_and_group()
+    {
+        var normalized = AcceptanceDesktopDacl.NormalizeDescriptor(
+            SyntheticDesktopDescriptor(), true);
+        var parsed = new RawSecurityDescriptor(normalized, 0);
+        Assert.True(parsed.Owner is not null && parsed.Group is not null);
+        Assert.Null(parsed.SystemAcl);
+        Assert.InRange(normalized.Length, 20, AcceptanceDesktopDacl.DescriptorLimit);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    public void Malformed_descriptor_metadata_is_refused_before_native_access(int fault)
+    {
+        var bytes = SyntheticDesktopDescriptor();
+        switch (fault)
+        {
+            case 0: bytes[0] = 0; break;
+            case 1: bytes[3] &= 0x7f; break;
+            case 2: Array.Fill(bytes, (byte)0xff, 4, 4); break;
+            case 3: Array.Clear(bytes, 4, 4); break;
+            case 4: Array.Clear(bytes, 8, 4); break;
+            case 5: bytes = bytes[..19]; break;
+            default: throw new ArgumentOutOfRangeException(nameof(fault));
+        }
+        var error = Assert.Throws<Win32Exception>(() =>
+            AcceptanceDesktopDacl.NormalizeDescriptor(bytes));
+        Assert.Equal(13, error.NativeErrorCode);
+    }
+
+    [Fact]
+    public void Undocumented_noninteractive_desktop_generic_mapping_is_not_invented()
+    {
+        var descriptor = new RawSecurityDescriptor("O:SYG:SYD:(A;;GA;;;SY)");
+        var bytes = new byte[descriptor.BinaryLength];
+        descriptor.GetBinaryForm(bytes, 0);
+        var error = Assert.Throws<Win32Exception>(() =>
+            AcceptanceDesktopDacl.NormalizeDescriptor(bytes, true));
+        Assert.Equal(50, error.NativeErrorCode);
+    }
+
+    [Fact]
+    public void Actual_restricted_token_existing_desktop_dacl_access_is_observed_read_only()
+    {
+        var api = WindowsRestrictedOwnerTokens.Instance;
+        api.RequireDisposableJob();
+        var before = ReadParent();
+        Assert.True(IsActualSource(before), "Required genuine source context absent.");
+        var security = api.ReadParentSecurity();
+        var stamp = api.ReadCurrentStamp();
+        var desktop = api.ReadParentDesktop();
+        var error = Record.Exception(() => RequireDesktopAccessObservation(api));
+        var parent = before == ReadParent() && stamp == api.ReadCurrentStamp() &&
+            security.SameFinalState(api.ReadParentSecurity());
+        var connected = desktop.SameConnection(api.ReadParentDesktop());
+        output.WriteLine(
+            $"HERMES_RESTRICTED_DESKTOP_ACCESS_FINAL v=1 parent={(parent ? 1 : 0)} parentConnection={(connected ? 1 : 0)}");
+        if (error is { } failure)
+            ExceptionDispatchInfo.Capture(failure).Throw();
+        Assert.True(parent && connected, "Read-only access observation changed parent state.");
+    }
+
+    private void RequireDesktopAccessObservation(WindowsRestrictedOwnerTokens api)
+    {
+        try
+        {
+            using var token = RestrictedOwnerToken.Create(api);
+            var result = token.ReadExistingParentDesktopAccess(api);
+            AcceptanceDesktopDacl.RequireProbe(result.ProbeFacts, result.ImpersonationLevel);
+            WriteDesktopAccessObject(1, result.Station);
+            WriteDesktopAccessObject(2, result.Desktop);
+            output.WriteLine(
+                $"HERMES_RESTRICTED_DESKTOP_ACCESS_PROBE v=1 verified=1 type={result.ProbeFacts.TokenType} level={result.ImpersonationLevel} stationFlags={result.StationFlags} closed={(result.ProbeClosed ? 1 : 0)}");
+            Assert.True(result.ProbeClosed &&
+                result.Station.Observed == 1 && result.Desktop.Observed == 1,
+                "Existing-object DACL access observation incomplete.");
+        }
+        catch (Exception error) { WriteDesktopAccessFailure(error); throw; }
+    }
+
+    private void WriteDesktopAccessObject(int target, AcceptanceDaclObservation value) =>
+        output.WriteLine(
+            $"HERMES_RESTRICTED_DESKTOP_ACCESS v=1 object={target} descriptorScope=7 desired=33554432 micObserved=0 observed={value.Observed} allowed={value.Allowed} grantedMask={value.GrantedMask} error={value.Error}");
+
+    private void WriteDesktopAccessFailure(Exception error)
+    {
+        var leaves = Leaves(error).ToArray();
+        var code = leaves.OfType<Win32Exception>()
+            .Select(value => value.NativeErrorCode).FirstOrDefault(13);
+        var failed = leaves.OfType<RestrictedOwnerTokenVerificationException>()
+            .Aggregate(0, (mask, value) => mask | value.FailedPredicates);
+        output.WriteLine(
+            $"HERMES_RESTRICTED_DESKTOP_ACCESS_FAILURE v=1 error={code} failed={failed} cleanupNotCompleted={(HasCleanupFailure(error) ? 1 : 0)}");
+    }
+
+    private static byte[] SyntheticDesktopDescriptor()
+    {
+        var descriptor = new RawSecurityDescriptor("O:SYG:SYD:(A;;0x000F01FF;;;SY)");
+        var bytes = new byte[descriptor.BinaryLength];
+        descriptor.GetBinaryForm(bytes, 0);
+        return bytes;
+    }
+
+    private sealed class FakeDesktopAccess(
+        FakeTokens tokens, Action? observe = null, Exception? fault = null)
+        : IAcceptanceDesktopAccess
+    {
+        private int _reads;
+        internal int Reads => _reads;
+
+        public AcceptanceDesktopAccessResult Read(IAcceptanceRestrictedToken token)
+        {
+            _reads++;
+            Assert.Same(tokens.Candidate, token);
+            Assert.False(token.IsClosed);
+            observe?.Invoke();
+            if (fault is { } error)
+                throw error;
+            return new(new(1, 1, 0x00020001, 0), new(1, 1, 0x00020001, 0),
+                RestrictedOwnerTokenFacts.Required with { TokenType = 2 }, 2, 0, true);
         }
     }
 

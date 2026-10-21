@@ -100,6 +100,21 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Actual restricted-token DACL access is queried without host changes
+
+- **Changed:** The source-approved read-only observation queries existing parent station/desktop owner/group/DACL access using an owned query-only impersonation duplicate. It assigns no token, launches no extra child and changes no ACL or parent connection; MIC remains explicitly unmeasured.
+- **Validation:** Parent passes warning-free root/Windows cross-builds, 2,182 Core and all static controls. Thirty-six new fake/native cases require exactly 194, retaining all old 158 assertions and zero skips.
+- **Visibility:** A fresh specialist attaches the same numeric observation to the still-failing A/B test so passing-test output cannot hide the access result. Parent preservation and original exit-37 assertions remain.
+- **Boundary:** Query failure/unsupported mapping is not denial; any DACL grant is not full kernel access, child connection or loader-root proof.
+- **Next:** Publish and read only the actual decision/mask/error scope before selecting a startup correction or requesting a separately bounded owned-object context.
+
+### 2026-10-21 - Existing desktop selection alone does not cure initialization
+
+- **Evidence:** Published `ddf1f19` run `39571448965` records NULL and explicit-existing-parent arms both exiting 0xC0000142 after verified restricted context/resume, with complete cleanup. Parent final security and connection comparisons are one.
+- **Validation:** 156 of 158 native cases pass; the original NULL genuine case and the A/B success assertion remain failing. Both supported OS jobs and Tray pass. No error exit or missing assertion is accepted to change that result.
+- **Boundary:** Explicit desktop-name selection alone is insufficient. Neither ACL denial, a particular DLL nor environment causality is established. Ordinary MSI acceptance remains unexecuted after the failed native gate.
+- **Next:** Read only the actual restricted-token access/startup facts needed to choose a correction; do not change existing desktop ACLs, credentials, token policy or installer success requirements.
+
 ### 2026-10-21 - Existing-desktop binding is tested without relaxing startup success
 
 - **Changed:** The source-approved inert A/B observation varies only NULL versus explicit existing parent station/desktop binding. OS names stay internal; token, pre-resume verification, job, cleanup and all ordinary acceptance settings remain.
