@@ -2,6 +2,24 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## CDB callback readback distinguishes missing and unfamiliar command layouts
+
+Actual run 39645449224 at `c5955ee` reports both create/exit filters as
+`break`, but neither has an immediately following callback matching the
+verified command. Seven further pure controls classify that next line as
+an exact quoted/unquoted payload, an alternative command label, an empty
+or different payload, another filter header, blank, or other text.
+
+All 131 pure controls pass, including chunked output, report privacy,
+budget exhaustion and unchanged arming/acceptance predicates. Parent review,
+warning-free isolated root build and 2,182 Core cases pass. The generated
+debugger scripts and all 457 native cases remain unchanged.
+
+Both supported OS jobs and Tray pass on `c5955ee`. Its actual combined
+coverage is 14,739/17,137 lines (86.0%) and 15,167/24,668 branches (61.48%),
+across the same five assemblies. Native execution remains 456/457: genuine
+PowerShell exit 37 and installed acceptance are still unresolved.
+
 ## CDB filter readback identifies the registered callback state
 
 Actual explicit-break run 39642355661 still observes only the initial helper

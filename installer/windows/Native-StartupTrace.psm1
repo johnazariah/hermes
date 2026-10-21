@@ -30,6 +30,7 @@ function New-HermesStartupState {
             ExitEventSeen = 0; ExitEventAccepted = 0
             FlagsSeen = 0; FlagsAccepted = 0
             CprFilter = 0; EprFilter = 0
+            CprCommandShape = 0; EprCommandShape = 0
         }
         Out = (New-HermesStartupStream); Err = (New-HermesStartupStream)
         DebuggerSha256 = ''; HelperSha256 = ''; CommandSha256 = ''
@@ -44,7 +45,7 @@ function Get-HermesStartupObservation {
             'MarkerMalformed', 'MarkerMalformedKind', 'MarkerEcho',
             'LastEventSeen', 'CreateEventSeen', 'CreateEventAccepted',
             'ExitEventSeen', 'ExitEventAccepted', 'FlagsSeen', 'FlagsAccepted',
-            'CprFilter', 'EprFilter')]
+            'CprFilter', 'EprFilter', 'CprCommandShape', 'EprCommandShape')]
         [string]$Name,
         [int]$Maximum = 8388608
     )
@@ -327,12 +328,42 @@ function Add-HermesStartupFailure {
     }
 }
 
+function Get-HermesStartupFilterCommandShape {
+    param([hashtable]$State, [string]$Name, [string]$Line)
+    $text = $Line.Trim()
+    if ($text.Length -eq 0) { return 8 }
+    # Only Command: "..." is documented by sx. Other shapes are observations,
+    # not accepted spellings, registration proof, or debugger event evidence.
+    if ($text -cmatch '\ACommand(?<suffix>1)?:[ \t]*(?<payload>[^\r\n]*)\z') {
+        $offset = if ($Matches['suffix'] -ceq '1') { 2 } else { 0 }
+        $payload = $Matches.payload
+        if ($payload -cin @('', '""')) { return 5 }
+        $expected = $State.FilterExpected[$Name]
+        if ($expected -is [string] -and $expected.Length -gt 11 `
+            -and $expected.StartsWith('Command: "', [StringComparison]::Ordinal) `
+            -and $expected.EndsWith('"', [StringComparison]::Ordinal)) {
+            $quoted = $expected.Substring(9)
+            if ($payload -ceq $quoted) { return (1 + $offset) }
+            if ($payload -ceq $quoted.Substring(1, $quoted.Length - 2)) {
+                return (2 + $offset)
+            }
+        }
+        return 6
+    }
+    if ($text -cmatch '\A[a-z0-9]{1,8} - [^\r\n]+ - [^\r\n]+\z') { return 7 }
+    return 9
+}
+
 function Add-HermesStartupFilterReadback {
     param([hashtable]$State, [string]$Line)
     # sx readback is diagnostic only, never event/arming evidence.
     # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/sx--sxd--sxe--sxi--sxn--sxr--sx---set-exceptions-
     $pending = $State.FilterPending
     $State.FilterPending = ''
+    if ($pending -cin @('Cpr', 'Epr')) {
+        $State.Observations[$pending + 'CommandShape'] =
+            Get-HermesStartupFilterCommandShape $State $pending $Line
+    }
     if ($Line -cmatch '\A[ \t]*(?<event>cpr|epr) - (?<label>Create process|Exit process) - (?<status>[^\r\n]*)\z') {
         $name = if ($Matches.event -ceq 'cpr') { 'Cpr' } else { 'Epr' }
         $label = if ($name -ceq 'Cpr') { 'Create process' } else { 'Exit process' }
@@ -342,6 +373,7 @@ function Add-HermesStartupFilterReadback {
         }
         if ($Matches.label -cne $label) { $status = 5 }
         $State.Observations[$name + 'Filter'] = $status
+        $State.Observations[$name + 'CommandShape'] = 0
         $State.FilterPending = $name
     } elseif ($pending -cin @('Cpr', 'Epr') `
         -and $State.FilterExpected[$pending] -is [string] `
@@ -472,6 +504,12 @@ function New-HermesStartupObservations {
         $observations[$name] = if ($value -in @(0, 1, 2, 3, 4, 5, 9, 10, 11, 12, 13)) {
             $value
         } else { 0 }
+    }
+    # Immediate next line only: 0 = unavailable; 1/2 = exact Command payload
+    # quoted/unquoted; 3/4 = same with Command1; 5 = empty command; 6 = different
+    # payload; 7 = next filter-shaped header; 8 = blank; 9 = other line.
+    foreach ($name in @('CprCommandShape', 'EprCommandShape')) {
+        $observations[$name] = Get-HermesStartupObservation $State $name 9
     }
     # First malformed marker: 0 = none/unknown, 1 = syntax, 2 = PID range.
     $observations.MarkerMalformedKind = Get-HermesStartupObservation $State 'MarkerMalformedKind' 2

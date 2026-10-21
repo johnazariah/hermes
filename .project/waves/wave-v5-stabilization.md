@@ -100,6 +100,15 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Registered debugger filters still lack matching callback readback
+
+- **Evidence:** Published `c5955ee`, run `39645449224`, passes both supported OS jobs and Tray. Native execution passes 456/457 with zero skips; both event filters report break status but no exact immediate callback readback. The derived report still has no child event or verified arming.
+- **Changed:** Closed numeric classifications distinguish the next callback-listing line without exposing it or changing debugger commands, identity binding or resume authority.
+- **Validation:** Parent review, all 131 pure controls, warning-free isolated root build and 2,182 Core cases pass. Actual published coverage remains 86.0% line / 61.48% branch in the original five-assembly scope.
+- **Decision:** Tighten both real Setup acceptance consumers against the writer's complete finite output: reject unconsumed/duplicate records and bind schema, operation, outcome, exit and optional failure evidence. This implements the owner's standing approval of recommendations; fresh C# and PowerShell owners handle the separate consumers.
+- **Blockers:** The callback's absence versus an unfamiliar listing format remains unresolved. Genuine PowerShell execution and the Medium installed lifecycle still block merge.
+- **Next:** Read the actual closed callback-line classification and finish the independent Setup-consumer corrections.
+
 ### 2026-10-22 - Observe CDB filter registration before changing event control
 
 - **Evidence:** Published `70e73e3`, run `39642355661`, job `119368876694`, passes 116 pure controls and 456/457 native cases. Its bounded report has the initial helper marker and target row, but zero child callback/event/flag observations. Explicit event breaks did not establish arming.

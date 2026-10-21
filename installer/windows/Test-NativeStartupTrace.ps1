@@ -312,7 +312,7 @@ function Get-HermesSetupPublishFiles {
     }
 }
 
-$cases = 1..124
+$cases = 1..131
 $passed = 0
 foreach ($case in $cases) {
     $state = $null
@@ -966,7 +966,7 @@ foreach ($case in $cases) {
             63 {
                 $state = New-HermesStartupState
                 $report = New-HermesStartupReport $state $false $false
-                Assert-Control ($report.observations.Count -eq 35)
+                Assert-Control ($report.observations.Count -eq 37)
                 foreach ($value in $report.observations.Values) {
                     Assert-Control ($value -is [int] -and $value -eq 0)
                 }
@@ -1733,6 +1733,150 @@ foreach ($case in $cases) {
                     'Command: "$$><' + (Join-Path $root 'startup-cpr.cdb') + '"')
                 $report = New-HermesStartupReport $state $true $true
                 Assert-Control ($state.FilterExpected.Cpr -ceq '' -and $state.FilterExpected.Epr -ceq '' `
+                    -and $report.observations.CprFilter -eq 1 -and $report.status -eq 8 `
+                    -and $report.error -eq 13 -and $report.completed -eq 0 `
+                    -and $report.armingVerified -eq 0 -and $script:controlLaunchBindings -eq 0)
+            }
+            125 {
+                . $controlCommandDriver
+                $quoted = $state.FilterExpected.Cpr.Substring(9)
+                $unquoted = $quoted.Substring(1, $quoted.Length - 2)
+                $examples = @(
+                    @{ Text = ('       Command: ' + $quoted); Shape = 1; Filter = 9 },
+                    @{ Text = ('       Command: ' + $unquoted); Shape = 2; Filter = 1 },
+                    @{ Text = ('       Command1: ' + $quoted); Shape = 3; Filter = 1 },
+                    @{ Text = ('       Command1: ' + $unquoted); Shape = 4; Filter = 1 },
+                    @{ Text = '       Command: ""'; Shape = 5; Filter = 1 },
+                    @{ Text = '       Command1: '; Shape = 5; Filter = 1 },
+                    @{ Text = '       Command: "C:\private\secret S-1-5-21-123"'; Shape = 6; Filter = 1 },
+                    @{ Text = 'epr - Exit process - break'; Shape = 7; Filter = 1 },
+                    @{ Text = ''; Shape = 8; Filter = 1 },
+                    @{ Text = 'unclassified private text --command'; Shape = 9; Filter = 1 }
+                )
+                foreach ($example in $examples) {
+                    Add-HermesStartupLine $state 'cpr - Create process - break'
+                    Add-HermesStartupLine $state $example.Text
+                    $observed = New-HermesStartupObservations $state
+                    Assert-Control ($observed.CprCommandShape -eq $example.Shape `
+                        -and $observed.CprFilter -eq $example.Filter `
+                        -and $observed.ArmPresent -eq 0 -and $observed.BlockPresent -eq 0 `
+                        -and $observed.ParserUnknown -eq 0 -and $observed.ParserProtocol -eq 0)
+                }
+                Assert-Control (-not (Test-HermesStartupArm $state) -and -not $state.Acked)
+            }
+            126 {
+                . $controlCommandDriver
+                $state.Out = New-HermesStartupStream
+                $state.Err = New-HermesStartupStream
+                Add-HermesStartupText $state $state.Out (('x' * 4095) + "`n") $true
+                $text = "cpr - Create process - break`r`nepr - Exit process - break`r`n" +
+                    '       Command: ' + $state.FilterExpected.Epr.Substring(10,
+                        $state.FilterExpected.Epr.Length - 11) + "`r`n"
+                for ($index = 0; $index -lt $text.Length; $index += 3) {
+                    Add-HermesStartupText $state $state.Out (
+                        $text.Substring($index, [Math]::Min(3, $text.Length - $index))) $true
+                }
+                $report = New-HermesStartupReport $state $true $true
+                Assert-Control ($report.observations.CprCommandShape -eq 7 `
+                    -and $report.observations.EprCommandShape -eq 2 `
+                    -and $report.observations.CprFilter -eq 1 -and $report.observations.EprFilter -eq 1 `
+                    -and $report.outKept -eq 4096 -and $report.outDropped -gt 0 `
+                    -and $report.armingVerified -eq 0 -and $report.firstFailureKind -eq 0 `
+                    -and $report.completed -eq 0)
+            }
+            127 {
+                . $controlCommandDriver
+                $quoted = $state.FilterExpected.Cpr.Substring(9)
+                foreach ($text in @(
+                    ('Command: ' + $quoted.Replace('startup-cpr', 'STARTUP-CPR')),
+                    ('Command: ' + $quoted.Replace('startup-cpr', 'startup-epr')),
+                    ('Command: ' + $quoted + ';g'),
+                    ('Command: ' + $quoted.Replace('$$><', '$$<'))
+                )) {
+                    Add-HermesStartupLine $state 'cpr - Create process - break'
+                    Add-HermesStartupLine $state $text
+                    Assert-Control ((New-HermesStartupObservations $state).CprCommandShape -eq 6)
+                }
+                foreach ($text in @(
+                    ('Command2: ' + $quoted), ('command: ' + $quoted),
+                    ('0:000> Command: ' + $quoted), ('prefix Command: ' + $quoted)
+                )) {
+                    Add-HermesStartupLine $state 'cpr - Create process - break'
+                    Add-HermesStartupLine $state $text
+                    Add-HermesStartupLine $state $state.FilterExpected.Cpr
+                    $observed = New-HermesStartupObservations $state
+                    Assert-Control ($observed.CprCommandShape -eq 9 -and $observed.CprFilter -eq 1)
+                }
+            }
+            128 {
+                . $controlCommandDriver
+                Add-HermesStartupLine $state 'cpr - Create process - break'
+                Assert-Control ((New-HermesStartupObservations $state).CprCommandShape -eq 0)
+                Add-HermesStartupLine $state $state.FilterExpected.Cpr
+                Assert-Control ((New-HermesStartupObservations $state).CprCommandShape -eq 1)
+                Add-HermesStartupLine $state 'cpr - Create process - break'
+                Assert-Control ((New-HermesStartupObservations $state).CprCommandShape -eq 0 `
+                    -and (New-HermesStartupObservations $state).CprFilter -eq 1)
+                Add-HermesStartupLine $state 'epr - Exit process - break'
+                $observed = New-HermesStartupObservations $state
+                Assert-Control ($observed.CprCommandShape -eq 7 -and $observed.EprCommandShape -eq 0)
+                Add-HermesStartupLine $state 'ct - Create thread - ignore'
+                Assert-Control ((New-HermesStartupObservations $state).EprCommandShape -eq 7)
+            }
+            129 {
+                . $controlCommandDriver
+                $state.Out = New-HermesStartupStream
+                $state.Err = New-HermesStartupStream
+                $text = "cpr - Create process - break`n" + $state.FilterExpected.Cpr + "`n"
+                Add-HermesStartupText $state $state.Err $text $false
+                Assert-Control ((New-HermesStartupObservations $state).CprCommandShape -eq 0)
+                Add-HermesStartupLine $state 'cpr - Create process - break'
+                $state.AcceptedUtf8Bytes = [long]8388607
+                $before = (New-HermesStartupObservations $state) | ConvertTo-Json -Compress
+                Add-HermesStartupText $state $state.Out "`n" $true
+                Add-HermesStartupText $state $state.Out ($state.FilterExpected.Cpr + "`n") $true
+                Assert-Control ($state.Bounds -eq 1 -and $state.AcceptedUtf8Bytes -eq 8388608 `
+                    -and ((New-HermesStartupObservations $state) | ConvertTo-Json -Compress) -ceq $before)
+                foreach ($value in @(-1, 10, 8388608, [long]9, $true, $null,
+                        'private S-1-5-21-123', @{ text = 'Command: "secret"' })) {
+                    $state.Observations.CprCommandShape = $value
+                    $state.Observations.EprCommandShape = $value
+                    $observed = New-HermesStartupObservations $state
+                    Assert-Control ($observed.CprCommandShape -is [int] `
+                        -and $observed.CprCommandShape -eq 0 `
+                        -and $observed.EprCommandShape -is [int] -and $observed.EprCommandShape -eq 0)
+                }
+            }
+            130 {
+                $state.Out.Hash.Dispose()
+                $state.Err.Hash.Dispose()
+                $state = New-ControlFixture
+                $before = New-HermesStartupReport $state $true $true
+                $state.FilterExpected.Cpr = 'Command: "$$><C:\private\secret S-1-5-21-123 --command.cdb"'
+                Add-HermesStartupLine $state 'cpr - Create process - break'
+                Add-HermesStartupLine $state ('Command1: ' + $state.FilterExpected.Cpr.Substring(9))
+                $report = New-HermesStartupReport $state $true $true
+                Assert-Control ($report.observations.CprCommandShape -eq 3 `
+                    -and $report.observations.CprFilter -eq 1 `
+                    -and $report.completed -eq 1 -and $report.armingVerified -eq 1 `
+                    -and $report.firstFailureKind -eq 1 -and $report.cleanupComplete -eq 1)
+                foreach ($name in $before.Keys | Where-Object { $_ -cne 'observations' }) {
+                    Assert-Control ($report[$name] -ceq $before[$name])
+                }
+                $json = $report | ConvertTo-Json -Depth 4 -Compress
+                Assert-Control ([Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
+                    -and $json -notmatch 'private|secret|S-1-|--command|\$\$><|Command1:')
+            }
+            131 {
+                $script:controlCommandFault = 2
+                $script:controlCommandFaultName = 'startup.cdb'
+                . $controlCommandDriver
+                Add-HermesStartupLine $state 'cpr - Create process - break'
+                Add-HermesStartupLine $state (
+                    'Command: "$$><' + (Join-Path $root 'startup-cpr.cdb') + '"')
+                $report = New-HermesStartupReport $state $true $true
+                Assert-Control ($state.FilterExpected.Cpr -ceq '' `
+                    -and $report.observations.CprCommandShape -eq 6 `
                     -and $report.observations.CprFilter -eq 1 -and $report.status -eq 8 `
                     -and $report.error -eq 13 -and $report.completed -eq 0 `
                     -and $report.armingVerified -eq 0 -and $script:controlLaunchBindings -eq 0)
