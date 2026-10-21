@@ -180,6 +180,9 @@ function Publish-TraceCommands {
     $state.CommandSha256 = $hashes['startup.cdb']
     $state.CreateCommandSha256 = $hashes['startup-cpr.cdb']
     $state.ExitCommandSha256 = $hashes['startup-epr.cdb']
+    # Compare sx readback with the fixed, fully verified publication only.
+    $state.FilterExpected.Cpr = 'Command: "$$><' + (Join-Path $root 'startup-cpr.cdb') + '"'
+    $state.FilterExpected.Epr = 'Command: "$$><' + (Join-Path $root 'startup-epr.cdb') + '"'
     return Join-Path $root 'startup.cdb'
 }
 

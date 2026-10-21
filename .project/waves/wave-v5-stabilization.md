@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Observe CDB filter registration before changing event control
+
+- **Evidence:** Published `70e73e3`, run `39642355661`, job `119368876694`, passes 116 pure controls and 456/457 native cases. Its bounded report has the initial helper marker and target row, but zero child callback/event/flag observations. Explicit event breaks did not establish arming.
+- **Changed:** Two numeric observations classify the existing filter listing and exact pinned callback readback. Generated debugger commands, child context, arming, budgets and cleanup remain unchanged.
+- **Validation:** Parent review, 124 pure controls, installer static controls, warning-free isolated IL-only root build and 2,182 Core cases pass.
+- **Blockers:** Genuine PowerShell exit 37, loader cause and complete installed acceptance remain unresolved; PR #30 stays draft and unmerged.
+- **Next:** Publish this readback and distinguish missing callback registration from a registered callback that never executes.
+
 ### 2026-10-22 - Owned debugger callbacks request explicit event breaks
 
 - **Evidence:** Published `3c89311` run `39639654798`, job `119359542076`, passes 110 pure controls and 456/457 native cases. Pinned callback sources remove malformed-marker noise, but only the initial helper marker is observed; child marker/event/flag counts remain zero. No arming, initialization or complete cleanup is inferred.

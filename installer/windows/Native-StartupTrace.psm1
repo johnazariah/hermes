@@ -22,12 +22,14 @@ function New-HermesStartupState {
         Timeout = 0; Error = 0; CleanupFault = 0
         TracePoint = 0; ToolRole = 0; TraceFaulted = $false
         TraceFaultPoint = 0; TraceFaultRole = 0
+        FilterPending = ''; FilterExpected = @{ Cpr = ''; Epr = '' }
         Observations = @{
             Marker0 = 0; Marker1 = 0; Marker2 = 0; Marker3 = 0; Marker4 = 0
             MarkerMalformed = 0; MarkerMalformedKind = 0; MarkerEcho = 0
             LastEventSeen = 0; CreateEventSeen = 0; CreateEventAccepted = 0
             ExitEventSeen = 0; ExitEventAccepted = 0
             FlagsSeen = 0; FlagsAccepted = 0
+            CprFilter = 0; EprFilter = 0
         }
         Out = (New-HermesStartupStream); Err = (New-HermesStartupStream)
         DebuggerSha256 = ''; HelperSha256 = ''; CommandSha256 = ''
@@ -41,7 +43,8 @@ function Get-HermesStartupObservation {
         [ValidateSet('Marker0', 'Marker1', 'Marker2', 'Marker3', 'Marker4',
             'MarkerMalformed', 'MarkerMalformedKind', 'MarkerEcho',
             'LastEventSeen', 'CreateEventSeen', 'CreateEventAccepted',
-            'ExitEventSeen', 'ExitEventAccepted', 'FlagsSeen', 'FlagsAccepted')]
+            'ExitEventSeen', 'ExitEventAccepted', 'FlagsSeen', 'FlagsAccepted',
+            'CprFilter', 'EprFilter')]
         [string]$Name,
         [int]$Maximum = 8388608
     )
@@ -324,9 +327,35 @@ function Add-HermesStartupFailure {
     }
 }
 
+function Add-HermesStartupFilterReadback {
+    param([hashtable]$State, [string]$Line)
+    # sx readback is diagnostic only, never event/arming evidence.
+    # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/sx--sxd--sxe--sxi--sxn--sxr--sx---set-exceptions-
+    $pending = $State.FilterPending
+    $State.FilterPending = ''
+    if ($Line -cmatch '\A[ \t]*(?<event>cpr|epr) - (?<label>Create process|Exit process) - (?<status>[^\r\n]*)\z') {
+        $name = if ($Matches.event -ceq 'cpr') { 'Cpr' } else { 'Epr' }
+        $label = if ($name -ceq 'Cpr') { 'Create process' } else { 'Exit process' }
+        $status = switch -CaseSensitive ($Matches.status.TrimEnd()) {
+            'break' { 1 }; 'second-chance break' { 2 }
+            'output' { 3 }; 'ignore' { 4 }; default { 5 }
+        }
+        if ($Matches.label -cne $label) { $status = 5 }
+        $State.Observations[$name + 'Filter'] = $status
+        $State.FilterPending = $name
+    } elseif ($pending -cin @('Cpr', 'Epr') `
+        -and $State.FilterExpected[$pending] -is [string] `
+        -and $State.FilterExpected[$pending].Length -gt 0 `
+        -and $Line.Trim() -ceq $State.FilterExpected[$pending]) {
+        $status = Get-HermesStartupObservation $State ($pending + 'Filter') 5
+        if ($status -ge 1) { $State.Observations[$pending + 'Filter'] = $status + 8 }
+    }
+}
+
 function Add-HermesStartupLine {
     param([hashtable]$State, [string]$Line)
     if ($Line.Length -gt 4096) { $State.Bounds = 1; return }
+    Add-HermesStartupFilterReadback $State $Line
     if ($Line -cmatch '\AHERMES_CDB v=1 kind=(?<kind>[0-4]) pid=(?<pid>[1-9][0-9]{0,9})\z') {
         $kind = [int]$Matches.kind
         $pidValue = [long]$Matches.pid
@@ -434,6 +463,15 @@ function New-HermesStartupObservations {
             'CreateEventAccepted', 'ExitEventSeen', 'ExitEventAccepted',
             'FlagsSeen', 'FlagsAccepted')) {
         $observations[$name] = Get-HermesStartupObservation $State $name
+    }
+    # 0 = no recognised header; 1..5 = break/second-chance/output/ignore/unknown.
+    # Add 8 only for the immediately following, exact pinned callback command.
+    # Neither the filter nor callback readback proves that an event occurred.
+    foreach ($name in @('CprFilter', 'EprFilter')) {
+        $value = Get-HermesStartupObservation $State $name 13
+        $observations[$name] = if ($value -in @(0, 1, 2, 3, 4, 5, 9, 10, 11, 12, 13)) {
+            $value
+        } else { 0 }
     }
     # First malformed marker: 0 = none/unknown, 1 = syntax, 2 = PID range.
     $observations.MarkerMalformedKind = Get-HermesStartupObservation $State 'MarkerMalformedKind' 2

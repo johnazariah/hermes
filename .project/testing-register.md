@@ -2,6 +2,25 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## CDB filter readback identifies the registered callback state
+
+Actual explicit-break run 39642355661 still observes only the initial helper
+marker. The child row exists, but no child callback, event or loader-flag
+readback reaches the parser, so the helper continues to withhold resume.
+
+Two closed numeric fields now classify the existing `sx` listing and whether
+the immediately following callback exactly matches its verified command file.
+Paths and command text remain private. This readback is diagnostic and cannot
+arm the target or establish an event.
+
+Eight additional pure controls retain all 116 prior intents and pass 124/124.
+They cover split streaming beyond the retained prefix, altered commands,
+intervening lines, publication failure, output-budget exhaustion, closed
+report values and unchanged acceptance predicates. Parent review, installer
+static controls, warning-free isolated root build and 2,182 Core cases pass.
+Windows discovery remains 457; actual registered-filter observations are
+pending publication.
+
 ## Explicit CDB callback breaks are a diagnostic control experiment
 
 The pinned callback files retain automatic continuation. Registration now
