@@ -2,6 +2,20 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Detached console-policy arm changes only creation flags
+
+The existing failing A/B test now records arm 4 before the owned-descriptor
+arm can assert. It uses the same fixed command, automatic desktop, baseline
+descriptor, token, environment, job and cleanup, changing only
+CREATE_SUSPENDED|CREATE_NO_WINDOW (0x08000004) to
+CREATE_SUSPENDED|DETACHED_PROCESS (0x0000000C).
+
+All original exit-37 requirements remain, with an additional detached exit-37
+assertion and no new discovered case: exactly 324 still required. Independent
+C# review approves the two-file change; parent warning-free root/Windows
+cross-builds, 2,182 Core cases and installer static controls pass. Actual
+detached execution is pending; console policy is not yet the identified cause.
+
 ## Owned-only descriptor counterfactual preserves the failing baselines
 
 The existing A/B test adds one controlled child with an explicit private
@@ -19,8 +33,10 @@ It cannot make the gate green while either baseline fails.
 
 Independent C# source review approves the patch. Parent root/Windows
 cross-builds pass without warnings, all 2,182 Core cases and installer static
-controls pass. Actual counterfactual execution remains pending; the latest
-292/294 native result measured only partial self grants and two startup failures.
+controls pass. Actual run 39587085089 passes all 30 additions: 322/324 cases
+pass, two remain failing, and none skip. The extra arm measures full self
+DACL masks 0x1FFFFF and unchanged Medium labels/policy, but still exits
+0xC0000142. This descriptor is insufficient and is not promoted as a correction.
 
 ## Owned-child security inventory uses the actual child token
 

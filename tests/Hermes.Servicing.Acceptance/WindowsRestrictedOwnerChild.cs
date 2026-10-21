@@ -29,6 +29,18 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IAcceptanceC
         return new OwnedInertChild();
     }
 
+    internal IAcceptanceChildFactory DetachedProcessForObservation { get; } =
+        new DetachedProcessChildren();
+
+    private sealed class DetachedProcessChildren : IAcceptanceChildFactory
+    {
+        public IAcceptanceOwnedChild Open()
+        {
+            Instance.RequireDisposableJob();
+            return new OwnedInertChild(detachedProcess: true);
+        }
+    }
+
     internal AcceptanceParentSecuritySnapshot ReadParentSecurity()
     {
         RequireDisposableJob();
@@ -91,7 +103,8 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IAcceptanceC
 
     private sealed class OwnedInertChild(
         AcceptanceDesktopSelection desktop = AcceptanceDesktopSelection.Automatic,
-        bool ownedSelfControl = false)
+        bool ownedSelfControl = false,
+        bool detachedProcess = false)
         : IAcceptanceOwnedChild
     {
         private SafeChildHandle? _job;
@@ -153,8 +166,9 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IAcceptanceC
                 (uint)sizeof(AcceptanceOwnedObjectAttributes), (nint)security, 0);
             var supplied = security == null ? 0 : (nint)(&attributes);
             var process = default(ChildProcessInformation);
+            var flags = 0x00000004u | (detachedProcess ? 0x00000008u : 0x08000000u);
             if (CreateProcessAsUserW(token, application, command,
-                supplied, supplied, 0, 0x00000004 | 0x08000000,
+                supplied, supplied, 0, flags,
                 0, directory, startup, &process) == 0)
                 throw NativeFailure();
             _process = new(process.Process);

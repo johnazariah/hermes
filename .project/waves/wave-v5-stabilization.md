@@ -100,6 +100,21 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Detached execution isolates one creation-policy factor
+
+- **Changed:** One extra owned arm uses CREATE_SUSPENDED|DETACHED_PROCESS (0x0000000C) instead of baseline CREATE_SUSPENDED|CREATE_NO_WINDOW (0x08000004). Command, automatic desktop, baseline descriptor, environment, restricted token, job and cleanup stay unchanged.
+- **Visibility:** Existing failing A/B output records arm 4 before the owned-descriptor arm's assertion. All original baseline/genuine/counterfactual exit-37 requirements remain; no discovered test is added and the exact gate stays 324.
+- **Validation:** Fresh independent C# review approves the literal two-file patch; root and Windows cross-builds pass without warnings/errors, 2,182 Core cases pass and all installer static controls pass.
+- **Blockers:** Actual detached startup is pending. Full self DACL grants were already measured without curing initialisation, so that descriptor is not promoted.
+- **Next:** Compare the actual detached outcome. The separate context-routing map recommends one future Medium PowerShell lifecycle with administrative provider bootstrap outside it; routing and its remaining evidence/cleanup/first-run gaps remain conditional and unimplemented.
+
+### 2026-10-21 - Full owned-object self grants do not cure initialisation
+
+- **Evidence:** Published `67692d5` run `39587085089`, job `119178550755`, gives counterfactual arm 3 full process/thread self DACL masks 0x1FFFFF, successful Authz replies and closed resources. Both labels remain Medium (8192), policy 3 and flags zero.
+- **Outcome:** The child still exits 0xC0000142 instead of 37. All baseline and counterfactual contexts/cleanup and parent security/connection checks remain intact; token ownership remains open until its normal disposal. Supplying this owned descriptor is demonstrably insufficient and is not promoted as a correction.
+- **Validation:** All 30 new cases pass: 322 of 324 native cases pass, the original two test cases remain failing, and none skip. No installer lifecycle follows the failed gate.
+- **Next:** A fresh specialist isolates one process-creation policy factor: detached execution versus CREATE_NO_WINDOW for the same fixed inert command, without changing descriptors, authority or baseline requirements.
+
 ### 2026-10-21 - One owned-only descriptor counterfactual retains all baseline failures
 
 - **Changed:** A source-approved extra arm authors a private descriptor from the actual filtered token's User/Owner/Group/default DACL and restricting profile. It preserves existing ACEs/denials and appends one user-only GENERIC_ALL ACE for kernel mapping at creation of the new owned process/thread. No token default or existing ACL changes.
