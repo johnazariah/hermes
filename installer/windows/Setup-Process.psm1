@@ -46,13 +46,15 @@ function ConvertFrom-HermesSetupProcessOutput {
         if ($candidates.Count -gt 1) {
             $diagnosticError = 'DuplicateCoordinatorEvidence'
         } elseif ($candidates.Count -eq 1) {
-            $pattern = '\AHERMES_SETUP_EVIDENCE v=1 stage=(?<stage>[1-9]|1[0-6]) cause=(?<cause>[1-9]|1[0-8]) fault=(?<fault>[0-5]) errorKind=(?<errorKind>[0-2]) error=(?<error>0|-?[1-9][0-9]{0,9})\z'
+            $pattern = '\AHERMES_SETUP_EVIDENCE v=1 stage=(?<stage>[1-9]|1[0-6]) cause=(?<cause>[1-9]|1[0-9]|2[0-3]) fault=(?<fault>[0-5]) errorKind=(?<errorKind>[0-2]) error=(?<error>0|-?[1-9][0-9]{0,9})\z'
             if ($candidates[0].Length -gt 192 -or $candidates[0] -cnotmatch $pattern) {
                 $diagnosticError = 'InvalidCoordinatorEvidence'
             } else {
                 $errorCode = [long]$Matches.error
                 if ($errorCode -lt [int]::MinValue -or $errorCode -gt [uint32]::MaxValue `
-                    -or ([int]$Matches.cause -ge 10 -and ([int]$Matches.stage -ne 1 `
+                    -or ([int]$Matches.cause -ge 10 -and ( `
+                        ([int]$Matches.cause -le 18 -and [int]$Matches.stage -ne 1) `
+                        -or ([int]$Matches.cause -ge 19 -and [int]$Matches.stage -ne 10) `
                         -or [int]$Matches.fault -ne 0 -or [int]$Matches.errorKind -ne 0 -or $errorCode -ne 0))) {
                     $diagnosticError = 'InvalidCoordinatorEvidence'
                 } else {

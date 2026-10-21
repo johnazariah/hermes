@@ -133,15 +133,25 @@ internal static partial class PackageAuthoringValidator
         PackageAuthoringMode mode,
         ApprovedGuardProfile approvedGuards)
     {
+        var sourcePoint = SetupEvidenceCause.CandidateValidatorInventory;
         try
         {
             ValidateInputs(mode, approvedGuards);
+            ValidateInventory(snapshot);
+            sourcePoint = SetupEvidenceCause.CandidateValidatorRemainder;
             return Effect<ValidatedPackageProfile>.Ok(Build(snapshot, mode, approvedGuards));
         }
         catch (SetupIoException error)
-        { return Effect<ValidatedPackageProfile>.Fail(error.Code); }
+        {
+            if (error.Code == SetupCode.MediaInvalid)
+                error.IdentifyCandidateMedia(sourcePoint);
+            return Effect<ValidatedPackageProfile>.Fail(error.Code, error.Evidence);
+        }
         catch (Exception error) when (SetupIo.Expected(error))
-        { return Effect<ValidatedPackageProfile>.Fail(SetupCode.MediaInvalid); }
+        {
+            return Effect<ValidatedPackageProfile>.Fail(SetupCode.MediaInvalid,
+                CandidateMediaEvidence.At(sourcePoint));
+        }
     }
 
     private static ValidatedPackageProfile Build(
@@ -149,7 +159,6 @@ internal static partial class PackageAuthoringValidator
         PackageAuthoringMode mode,
         ApprovedGuardProfile approvedGuards)
     {
-        ValidateInventory(snapshot);
         var manifest = ReadManifest(snapshot);
         ValidatePayload(snapshot, manifest, mode);
         ValidateProperties(snapshot, manifest);

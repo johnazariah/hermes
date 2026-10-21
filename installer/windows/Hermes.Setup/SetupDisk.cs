@@ -33,8 +33,13 @@ internal interface IAtomicFileCommit
 internal sealed class SetupIoException(
     SetupCode code, SetupRefusalEvidence? evidence = null) : Exception(code.ToString())
 {
+    private SetupRefusalEvidence? _evidence = evidence;
+
     internal SetupCode Code { get; } = code;
-    internal SetupRefusalEvidence? Evidence { get; } = evidence;
+    internal SetupRefusalEvidence? Evidence => _evidence;
+
+    internal void IdentifyCandidateMedia(SetupEvidenceCause cause) =>
+        _evidence ??= CandidateMediaEvidence.At(cause);
 }
 
 internal static class SetupIo

@@ -134,15 +134,18 @@ internal sealed class SetupPackageCatalog(
     {
         RequireOutsideRoot(path);
         Pin(path);
-        var media = mediaReader.Read(path);
-        var snapshot = authoring.ReadAuthoring(path);
+        var media = CandidateMediaEvidence.Read(SetupEvidenceCause.CandidateMediaRead,
+            () => mediaReader.Read(path));
+        var snapshot = CandidateMediaEvidence.Read(SetupEvidenceCause.CandidateAuthoringRead,
+            () => authoring.ReadAuthoring(path));
         var profile = Validate(snapshot, mode);
         SetupIo.Require(media.Evidence.Identity == profile.Identity &&
             media.ManifestBytes.SequenceEqual(snapshot.Package.ManifestBytes) &&
             media.Evidence.ManifestSha256 == PackageMediaReader.Hash(
                 snapshot.Package.ManifestBytes.ToArray()), SetupCode.MediaIdentityMismatch);
         return new(media, profile,
-            SetupResources.Create(snapshot, profile, scope, programsDirectory));
+            CandidateMediaEvidence.Read(SetupEvidenceCause.CandidateResources,
+                () => SetupResources.Create(snapshot, profile, scope, programsDirectory)));
     }
 
     internal SetupCachedPackage Cached(string path)

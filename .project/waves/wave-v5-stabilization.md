@@ -100,6 +100,20 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Candidate-media refusal gains five bounded source points
+
+- **Changed:** A fresh C# author supplies five coarse numeric boundaries, preserving original exception identity/native evidence and all acceptance checks. Independent source review approves the bounded diagnostic; only tagged candidate MediaInvalid emits the new values.
+- **Validation:** Nineteen new controls exercise real refusal/order/no-mutation, output privacy, exception priority and optional writer failure. A fresh C# author corrects nine test inputs that initially stopped at argument parsing; all assertions remain. Parent passes 819 Setup, 2,182 Core, warning-free root/Windows cross-builds and all static controls.
+- **Boundary:** Codes identify media read, authoring read, inventory, remaining validator or resource construction; an inner predicate may still be unknown. Actual installed acceptance remains blocked.
+- **Next:** Publish the diagnostic and read the next normal exact-head Windows refusal before choosing a media correction.
+
+### 2026-10-21 - All native Signature cases pass; remaining media refusal isolated
+
+- **Evidence:** Published `ebbab1f` passes all 57 native Windows cases, zero skips, in run `39523162657`. Both real MSI versions again pass complete native ICE with 699 exact warnings each. Both supported OS jobs and Tray pass; publication remains blocked.
+- **Boundary:** SDK-free Install still returns Refused/MediaInvalid with no native lifecycle reports. Recover reports NoRecoveryPending and cleanup has no failures. A fresh C# specialist owns the remaining media source-point trace without relaxing admission.
+- **Publication:** PR #30 remains draft and now records the current evidence; remote main remains the financial slice `e7758a3`. Retained reports total about 10.6 MB, with three-day expiry; two caches total about 80.6 MB.
+- **Next:** Identify the first remaining media predicate, then resume normal exact-head Windows lifecycle acceptance.
+
 ### 2026-10-21 - Proved Upgrade key-header defect receives a fixture-only correction
 
 - **Root evidence:** Actual `0e8c81b` header bytes select UpgradeCode/ActionProperty. Pinned WiX6 makes UpgradeCode/VersionMin/VersionMax/Language/Attributes the five keys and marks ActionProperty non-key.

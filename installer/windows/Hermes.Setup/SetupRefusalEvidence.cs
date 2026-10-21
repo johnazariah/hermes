@@ -44,7 +44,12 @@ internal enum SetupEvidenceCause
     FinalPathPrefixUnsupported = 15,
     ReadyBindingMissing = 16,
     ReadyInventoryInvalid = 17,
-    ReadyBodyTooLarge = 18
+    ReadyBodyTooLarge = 18,
+    CandidateMediaRead = 19,
+    CandidateAuthoringRead = 20,
+    CandidateValidatorInventory = 21,
+    CandidateValidatorRemainder = 22,
+    CandidateResources = 23
 }
 
 internal sealed record SetupRefusalEvidence(
@@ -55,6 +60,16 @@ internal sealed record SetupRefusalEvidence(
     long ErrorCode = 0)
 {
     internal const int MaximumDiagnosticLength = 192;
+
+    internal bool IsCandidateMedia =>
+        Stage == SetupEvidenceStage.CandidatePackage &&
+        (Cause is SetupEvidenceCause.CandidateMediaRead
+            or SetupEvidenceCause.CandidateAuthoringRead
+            or SetupEvidenceCause.CandidateValidatorInventory
+            or SetupEvidenceCause.CandidateValidatorRemainder
+            or SetupEvidenceCause.CandidateResources) &&
+        Fault == ObservationFault.None &&
+        ErrorKind == StartupEvidenceErrorKind.None && ErrorCode == 0;
 
     internal string ToDiagnosticLine() => string.Create(
         CultureInfo.InvariantCulture,
@@ -84,6 +99,25 @@ internal sealed record SetupRefusalEvidence(
         AdmissionInvariant.ReadyBodyTooLarge => SetupEvidenceCause.ReadyBodyTooLarge,
         _ => SetupEvidenceCause.ExpectedException
     };
+}
+
+// Coarse candidate acceptance boundaries only. Expected exceptions still reach
+// their original catches; an existing typed refusal and its evidence take priority.
+internal static class CandidateMediaEvidence
+{
+    internal static SetupRefusalEvidence At(SetupEvidenceCause cause) =>
+        new(SetupEvidenceStage.Unspecified, cause);
+
+    internal static T Read<T>(SetupEvidenceCause cause, Func<T> read)
+    {
+        try { return read(); }
+        catch (SetupIoException error) when
+            (error is { Code: SetupCode.MediaInvalid, Evidence: null })
+        {
+            error.IdentifyCandidateMedia(cause);
+            throw;
+        }
+    }
 }
 
 // Only the existing read-only inspection boundary uses these wrappers.

@@ -2,6 +2,37 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Five bounded candidate-media source points preserve refusal behaviour
+
+The source-reviewed diagnostic adds only five coarse boundaries: media read,
+authoring read, validator inventory, remaining validator and resource
+construction. Causes 19–23 are emitted only for tagged CandidatePackage
+MediaInvalid with zero fault/error fields. Original exception identity,
+existing native evidence, report shape, exits and acceptance checks remain.
+
+Nineteen new executable controls cover real denial ordering/no mutation,
+exception identity and priority, original reports, optional writer failures
+and fixed numeric output. Strict PowerShell controls reject wrong stages,
+nonzero auxiliary fields, unknown causes, duplicates, oversize and raw
+canaries. Nine initially invalid test arguments were corrected by a fresh
+C# author to fixture-owned canonical MSI paths, retaining all assertions.
+
+Parent passes 819 Setup cases, 2,182 Core, warning-free root/Windows
+cross-builds and all static controls. No actual remaining boundary or
+installed acceptance is inferred until the next normal Windows run.
+
+## All 57 native Windows cases pass; installed acceptance remains blocked
+
+Normal run `39523162657` at `ebbab1f` passes all 57 native Windows
+servicing cases, zero skips, including the 12 Signature database cases.
+The corrected five-column Upgrade key now imports successfully. Both actual
+MSI versions pass complete authenticated native ICE with 699 precisely
+matched warnings each; both supported OS jobs and Tray also pass.
+
+The SDK-free coordinator still refuses the first Install with MediaInvalid.
+Recover reports NoRecoveryPending and cleanup reports no failures. This is
+native test and construction proof, not installed lifecycle acceptance.
+
 ## Actual rejected Upgrade header identifies a fixture key defect
 
 Run `39521671956` at `0e8c81b` reports Upgrade line 3 with exact bytes for

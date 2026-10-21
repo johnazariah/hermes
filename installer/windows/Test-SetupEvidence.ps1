@@ -202,6 +202,74 @@ foreach ($text in $sourceInvalid) {
     Require (($result | ConvertTo-Json -Depth 8 -Compress) -cnotmatch 'SYNTHETIC_SECRET|token=|HERMES_SETUP|unknown=') 'Invalid source-point diagnostics leaked raw stderr.'
 }
 
+$candidateLines = @(foreach ($cause in 19..23) {
+    "HERMES_SETUP_EVIDENCE v=1 stage=10 cause=$cause fault=0 errorKind=0 error=0"
+})
+foreach ($line in $candidateLines) {
+    $result = Read-Output "Hermes Setup: MediaInvalid.`n$line"
+    Require-Refusal $result
+    Require ($null -eq $result.protocolError -and $null -eq $result.diagnosticError `
+        -and $result.diagnosticCodes.Count -eq 1 -and $result.diagnosticCodes[0] -ceq 'MediaInvalid') 'Candidate boundary evidence changed the original refusal or diagnostic marker.'
+    $value = $result.refusalEvidence
+    Require (($value.PSObject.Properties.Name -join ',') -ceq 'v,stage,cause,fault,errorKind,error' `
+        -and $value.v -eq 1 -and $value.stage -eq 10 -and $value.cause -ge 19 -and $value.cause -le 23 `
+        -and $value.fault -eq 0 -and $value.errorKind -eq 0 -and $value.error -eq 0) 'Candidate evidence must contain only the exact fixed numerical combination.'
+    Require ($line.Length -le 192 `
+        -and $line -ceq "HERMES_SETUP_EVIDENCE v=$($value.v) stage=$($value.stage) cause=$($value.cause) fault=$($value.fault) errorKind=$($value.errorKind) error=$($value.error)") 'Candidate boundary evidence exceeded its bound or failed to round-trip.'
+    foreach ($property in $value.PSObject.Properties) {
+        Require ($property.Value -is [int] -or $property.Value -is [long]) 'Candidate boundary fields must remain numerical.'
+    }
+    $independent = Read-Output $line 'not-json'
+    Require ($independent.exitCode -eq 1603 -and $null -eq $independent.report `
+        -and $independent.protocolError -ceq 'InvalidCoordinatorReport' `
+        -and $independent.refusalEvidence.cause -eq $value.cause) 'Candidate evidence must not repair an invalid report.'
+}
+$candidateInvalid = @(
+    foreach ($line in $candidateLines) {
+        foreach ($stage in (1..16 | Where-Object { $_ -ne 10 })) {
+            $line.Replace('stage=10 ', "stage=$stage ")
+        }
+        foreach ($fault in 1..5) { $line.Replace('fault=0 ', "fault=$fault ") }
+        foreach ($kind in 1..2) { $line.Replace('errorKind=0 ', "errorKind=$kind ") }
+        foreach ($code in @(-2147483648L, -1L, 1L, 2147483647L, 2147483648L, 4294967295L)) {
+            $line.Replace('error=0', "error=$code")
+        }
+        "$line token=SYNTHETIC_SECRET"
+        "$line`n$line"
+        "$line`n$wire"
+        $line.Replace('error=0', 'error=00')
+        $line.Replace('error=0', 'error=-0')
+        $line.Replace('stage=10 ', 'stage=010 ')
+        $line.Replace(' fault=0', '')
+        $line.Replace(' errorKind=0', '')
+    }
+    foreach ($cause in @('0', '24', '99', '-1', '019', '+19', '19.0', 'SYNTHETIC_SECRET')) {
+        $candidateLines[0].Replace('cause=19 ', "cause=$cause ")
+    }
+    ($candidateLines[0] + ('x' * 192))
+    ($candidateLines[0] + ('x' * 4096))
+)
+foreach ($text in $candidateInvalid) {
+    $result = Read-Output "Hermes Setup: MediaInvalid.`n$text"
+    Require-Refusal $result
+    Require ($result.protocolError -ceq 'InvalidCoordinatorDiagnostics' `
+        -and $null -ne $result.diagnosticError -and $null -eq $result.refusalEvidence) 'Invalid candidate combinations must be rejected without partial evidence.'
+    if (("Hermes Setup: MediaInvalid.`n$text").Length -le 4096) {
+        Require ($result.diagnosticCodes.Count -eq 1 -and $result.diagnosticCodes[0] -ceq 'MediaInvalid') 'Invalid candidate evidence erased the original bounded diagnostic.'
+    } else {
+        Require ($result.diagnosticCodes.Count -eq 0 `
+            -and $result.diagnosticError -ceq 'CoordinatorDiagnosticsTooLong') 'Oversized candidate stderr must retain no diagnostic payload.'
+    }
+    Require (($result | ConvertTo-Json -Depth 8 -Compress) -cnotmatch 'SYNTHETIC_SECRET|token=|HERMES_SETUP') 'Rejected candidate evidence leaked raw stderr.'
+}
+$candidateAtLimit = "Hermes Setup: MediaInvalid.`n$($candidateLines[0])`n"
+$result = Read-Output ($candidateAtLimit + ('x' * (4096 - $candidateAtLimit.Length)))
+Require-Refusal $result
+Require ($null -eq $result.protocolError -and $result.refusalEvidence.cause -eq 19) 'Candidate evidence must preserve the inclusive 4096-character stderr bound.'
+$result = Read-Output "$($candidateLines[0]) token=SYNTHETIC_SECRET" 'not-json'
+Require ($result.protocolError -ceq 'InvalidCoordinatorReport' -and $null -eq $result.report `
+    -and $result.diagnosticError -ceq 'InvalidCoordinatorEvidence' -and $null -eq $result.refusalEvidence) 'Candidate diagnostic failure must not overwrite the original report failure.'
+
 $start = [Diagnostics.ProcessStartInfo]::new()
 $start.FileName = Join-Path $PSHOME $(if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' })
 $start.UseShellExecute = $false

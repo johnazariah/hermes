@@ -389,8 +389,9 @@ public sealed partial class SetupEvidenceTests
     {
         using var world = new RootFixture(badGuard: true);
         var result = await RunAsync(world, SetupVerb.Install);
-        Assert.Equal(1603, result.ExitCode);
-        Assert.Equal("Hermes Setup: MediaInvalid." + Environment.NewLine, result.Diagnostics);
+        AssertRefused(result, SetupVerb.Install,
+            new(SetupEvidenceStage.CandidatePackage, SetupEvidenceCause.CandidateValidatorRemainder),
+            SetupCode.MediaInvalid);
         using var report = JsonDocument.Parse(result.Output);
         Assert.Equal("Refused", report.RootElement.GetProperty("outcome").GetString());
         Assert.False(report.RootElement.GetProperty("ready").GetBoolean());

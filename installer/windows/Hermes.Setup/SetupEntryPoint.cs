@@ -58,8 +58,9 @@ internal static class SetupEntryPoint
     {
         await output.WriteLineAsync(execution.Report.ToJson());
         await diagnostics.WriteLineAsync($"Hermes Setup: {execution.Code}.");
-        if (execution is
-            { Code: SetupCode.InvalidEvidence or SetupCode.Unavailable, Evidence: { } evidence })
+        if (execution.Evidence is { } evidence &&
+            (execution.Code is SetupCode.InvalidEvidence or SetupCode.Unavailable ||
+             execution.Code == SetupCode.MediaInvalid && evidence.IsCandidateMedia))
         {
             var line = evidence.ToDiagnosticLine();
             try
