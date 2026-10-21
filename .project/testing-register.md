@@ -2,6 +2,19 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Quoted extension-load paths encode literal backslashes
+
+The root `.load` argument now encodes the same validated, pinned extension
+path with doubled backslashes. Microsoft maintainers explicitly document
+this requirement for quoted load paths in microsoft/WinDbg-Feedback#26. No module
+selection, path authority, callback, debugger flag or resume condition changes.
+
+All 190 pure controls pass. Four additional controls cover all three SDK
+layouts, actual published bytes/hashes, literal `\10`/`\x64` decoding and
+encoding-tamper rejection. Installer static controls pass. This is a
+source-grounded encoding correction; native load/flag execution remains
+pending and no PowerShell initialisation cause is claimed.
+
 ## Untrusted lexical facts distinguish SDK display and chain-format failures
 
 The last Windows report records error 2 but matches none of the fixed

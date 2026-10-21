@@ -774,7 +774,7 @@ function New-HermesStartupObservations {
     $observations.SdkSelectedExtensionChain = Get-HermesStartupObservation $State 'SdkSelectedExtensionChain' 3
     # First LoadLibrary failure relation: 0 = unknown/unbound; 1..7 = selected
     # full path, forward slashes, stripped/doubled backslashes, first whitespace
-    # token, full .load source, unquoted .load source. 8..19 = stem/.dll pairs:
+    # token, unencoded quoted/unquoted .load text. 8..19 = stem/.dll pairs:
     # exts, ext, ntsdexts, gflag, dbghelp, uext. 20..23 = source SDK-relative
     # winext/ext.dll, winxp/ntsdexts.dll, dbghelp.dll, winext/uext.dll.
     # Form 1..7 = bare, quotes both/leading/trailing, escaped quotes both,

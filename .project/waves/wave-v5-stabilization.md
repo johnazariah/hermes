@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Quoted extension-load encoding follows the documented parser contract
+
+- **Changed:** A fresh source owner encodes literal backslashes in the existing quoted `.load` argument. The canonical selected SDK file and all read/signature/source pins remain unchanged; callbacks, debugger options and flag-2-before-resume remain strict.
+- **Grounding:** Microsoft maintainer guidance in [microsoft/WinDbg-Feedback#26](https://github.com/microsoft/WinDbg-Feedback/issues/26#issuecomment-512359949), directly fetched and verified, requires escaping backslashes in quoted load paths. This differs from the unrelated executable-path report previously rejected as evidence.
+- **Validation:** Parent review, 190 pure controls and installer static controls pass. New controls verify every SDK layout, literal numeric/hex-looking directory components, exact publication hashes and tamper refusal.
+- **Blockers:** Actual extension loading and loader-flag readback are still unproved; no DLL-initialisation cause is inferred.
+- **Next:** Publish this single runtime encoding change and inspect actual target-bound loader-flag execution.
+
 ### 2026-10-22 - SDK lookup remains unknown after exact source comparisons
 
 - **Evidence:** Published `8541eeb`, run `39664685599`, passes both supported OS jobs and Tray. Native execution remains 460/461 with zero skips and only the original PowerShell assertion failing. The SDK reports error 2, no known source/name relation, and a chain header without a supported selected row.

@@ -114,12 +114,16 @@ function New-TraceCommands {
     # $$>< takes a filename (spaces permitted), not script arguments. Refuse
     # its semicolon separator and the enclosing -c quote delimiter in paths.
     # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/-----------------------a---run-script-file-
-    # The measured -c parse removes unescaped backslashes. Encode only the
+    # The measured -c parse removes unescaped backslashes. Encode the
     # validated callback paths; sx readback must retain their literal separators.
     # Diagnostic control experiment: force callback breaks, then read filters.
     # Neither registration nor its readback establishes runtime target binding.
+    # One-factor quoted .load encoding trial, not a proven native loader cause.
+    # Microsoft explains escaping quoted load-path separators here:
+    # https://github.com/microsoft/WinDbg-Feedback/issues/26#issuecomment-512359949
+    # Keep validation and pins canonical; encode only the command string.
     $commands = @(
-        ('.load "' + $Extension + '"'),
+        ('.load "' + $Extension.Replace('\', '\\') + '"'),
         '.chain',
         '.printf "HERMES_CDB v=1 kind=0 pid=%u\n", @$tpid',
         'sxd ibp',

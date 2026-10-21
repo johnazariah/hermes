@@ -299,6 +299,8 @@ function Write-TraceCommandFile {
                 [Text.Encoding]::ASCII.GetString($copy).Replace('\\', '')) }
             11 { $copy = [Text.Encoding]::ASCII.GetBytes(
                 [Text.Encoding]::ASCII.GetString($copy).Replace("`n.chain`n", "`n.echo `n")) }
+            12 { $copy = [Text.Encoding]::ASCII.GetBytes(
+                [Text.Encoding]::ASCII.GetString($copy).Replace('.load "C:\\', '.load "C:\ ')) }
         }
     }
     $script:controlCommandFiles[$Path] = $copy
@@ -318,7 +320,7 @@ function Get-HermesSetupPublishFiles {
     }
 }
 
-$cases = 1..186 # Original 178 + 8 untrusted lexical/chain-format controls.
+$cases = 1..190 # Original 186 + 4 single-factor quoted .load encoding controls.
 $passed = 0
 foreach ($case in $cases) {
     $state = $null
@@ -946,7 +948,7 @@ foreach ($case in $cases) {
                         -and $script:controlExtensionSignatures.Count -eq 1 `
                         -and $script:controlExtensionPins[0] -ceq $expectedPath `
                         -and $script:controlExtensionSignatures[0] -ceq $expectedPath `
-                        -and ($commands -split "`n")[0] -ceq ('.load "' + $expectedPath + '"') `
+                        -and ($commands -split "`n")[0] -ceq ('.load "' + $expectedPath.Replace('\', '\\') + '"') `
                         -and @($commands -split "`n" | Where-Object { $_ -like '.load *' }).Count -eq 1 `
                         -and $report.tracePoint -eq 9 -and $report.status -eq 3 `
                         -and $report.error -eq 0 -and -not $state.TraceFaulted)
@@ -1375,7 +1377,7 @@ foreach ($case in $cases) {
                     -and -not $script:controlStartInfo.UseShellExecute `
                     -and $arguments -cnotcontains '-g' -and $arguments -cnotcontains '-G')
                 $lines = @($sources['startup.cdb'] -split "`n")
-                Assert-Control ($lines.Count -eq 9 -and $lines[0] -ceq ('.load "' + $extension + '"') `
+                Assert-Control ($lines.Count -eq 9 -and $lines[0] -ceq ('.load "' + $extension.Replace('\', '\\') + '"') `
                     -and $lines[1] -ceq '.chain' `
                     -and $lines[2] -ceq '.printf "HERMES_CDB v=1 kind=0 pid=%u\n", @$tpid' `
                     -and $lines[3] -ceq 'sxd ibp' -and $lines[6] -ceq 'sx' `
@@ -1520,7 +1522,7 @@ foreach ($case in $cases) {
             111 {
                 . $controlCommandDriver
                 $expectedLines = @(
-                    ('.load "' + $extension + '"'),
+                    ('.load "' + $extension.Replace('\', '\\') + '"'),
                     '.chain',
                     '.printf "HERMES_CDB v=1 kind=0 pid=%u\n", @$tpid',
                     'sxd ibp',
@@ -2161,7 +2163,7 @@ foreach ($case in $cases) {
                     -and $report.firstFailureKind -eq 0 -and $report.nativeAcceptance -eq 0 `
                     -and $script:controlLaunchBindings -eq 0)
             }
-            { $_ -in (144..147 + 157..164) } {
+            { $_ -in (144..147 + 157..164 + 187..190) } {
                 & {
                     # Stub only Windows path IO; source generation, publication,
                     # retained pins, hashes and launch/failure bindings stay real.
@@ -2184,17 +2186,24 @@ foreach ($case in $cases) {
                         $encodedRoot = 'C:\\Users\\Example Name\\AppData\\Local\\Temp\\hermes\\trace'
                     }
                     $kits = 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64'
-                    $extension = $kits + '\winxp\exts.dll'
+                    $relative = switch ($case) {
+                        188 { '\winext\exts.dll' }; 189 { '\exts.dll' }; default { '\winxp\exts.dll' }
+                    }
+                    $extension = $kits + $relative
                     $symbols = $root + '\symbols'
                     $script:controlArms = 0
                     if ($case -in 146, 147) {
                         $script:controlCommandFault = $case - 137
                         $script:controlCommandFaultName = 'startup.cdb'
                     }
+                    if ($case -eq 190) {
+                        $script:controlCommandFault = 12
+                        $script:controlCommandFaultName = 'startup.cdb'
+                    }
                     . $controlCommandDriver
                     $report = New-HermesStartupReport $state $debuggerEnded $drainsEnded
                     $expectedLines = @(
-                        ('.load "' + $extension + '"'),
+                        ('.load "' + $extension.Replace('\', '\\') + '"'),
                         '.chain',
                         '.printf "HERMES_CDB v=1 kind=0 pid=%u\n", @$tpid',
                         'sxd ibp',
@@ -2211,6 +2220,21 @@ foreach ($case in $cases) {
                         -and $report.armingVerified -eq 0 -and $report.firstFailureKind -eq 0 `
                         -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0)
                     $path = $root + '\startup.cdb'
+                    if ($case -eq 190) {
+                        $actual = [Text.Encoding]::ASCII.GetString($script:controlCommandFiles[$path])
+                        $actualLines = @($actual -split "`n")
+                        Assert-Control ($actual -ceq $expectedText.Replace('.load "C:\\', '.load "C:\ ') `
+                            -and $actual.Length -eq $expectedText.Length -and $actual -cne $expectedText `
+                            -and ($actualLines[1..7] -join "`n") -ceq ($expectedLines[1..7] -join "`n") `
+                            -and $script:controlCommandHashes -eq 3 -and $script:controlLaunchBindings -eq 0 `
+                            -and $null -eq $script:controlStartInfo -and $state.TraceFaulted `
+                            -and $report.tracePoint -eq 24 -and $report.status -eq 8 -and $report.error -eq 13 `
+                            -and $report.commandSha256 -ceq '' -and $report.createCommandSha256 -ceq '' `
+                            -and $report.exitCommandSha256 -ceq '' -and $state.ExtensionExpected -ceq '' `
+                            -and $state.FilterExpected.Cpr -ceq '' -and $state.FilterExpected.Epr -ceq '' `
+                            -and -not (Test-HermesStartupArm $state) -and -not $state.Acked)
+                        return
+                    }
                     if ($case -in 146, 147) {
                         $unsafeText = if ($case -eq 146) {
                             $expectedText.Replace('\\', '\')
@@ -2251,6 +2275,29 @@ foreach ($case in $cases) {
                         -and $script:controlLaunchBindings -eq 1 -and $report.error -eq 0 `
                         -and $state.ExtensionExpected -ceq $extension `
                         -and $script:controlStartInfo.ArgumentList[2] -ceq $path)
+                    if ($case -in 187..189) {
+                        $actualLines = @([Text.Encoding]::ASCII.GetString(
+                            $script:controlCommandFiles[$path]) -split "`n")
+                        Assert-Control ($actualLines[0] -cmatch '\A\.load "(?<payload>[^"]+)"\z')
+                        $payload = $Matches.payload
+                        Assert-Control ($payload -ceq $extension.Replace('\', '\\') `
+                            -and $payload -cne $extension -and $payload -cmatch '\A(?:[^\\]|\\\\)*\z' `
+                            -and $payload.Contains('\\10\\', [StringComparison]::Ordinal) `
+                            -and $payload.Contains('\\x64\\', [StringComparison]::Ordinal) `
+                            -and $actualLines.Count -eq 9 `
+                            -and ($actualLines[1..7] -join "`n") -ceq ($expectedLines[1..7] -join "`n") `
+                            -and @($actualLines | Where-Object { $_ -like '.load *' }).Count -eq 1 `
+                            -and $state.ExtensionExpected -ceq $extension)
+                        foreach ($dropUnknown in @($false, $true)) {
+                            # Pure paired-backslash decoding model, NOT native
+                            # execution or a claim about octal/hex escape rules.
+                            $decoded = ConvertFrom-HermesStartupCommandEscapes $payload $dropUnknown
+                            Assert-Control ($decoded -ceq $extension `
+                                -and $decoded.Contains('\10\', [StringComparison]::Ordinal) `
+                                -and $decoded.Contains('\x64\', [StringComparison]::Ordinal) `
+                                -and $decoded -cnotmatch '[\x00-\x1f]')
+                        }
+                    }
                     $state.Out = New-HermesStartupStream
                     $chain = "Extension DLL search Path:`r`n    $extension`r`n" +
                         "Extension DLL chain:`r`n    ${extension}: image 10.0.1.2, API 1.0.0`r`n"
