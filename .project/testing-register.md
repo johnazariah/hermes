@@ -2,6 +2,25 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Component Setup binds complete output and settles owned pipe operations
+
+The real component `MsiCases.MainAsync` now uses the source-linked bounded
+consumer through `OwnedChild`, capturing both pipes and actual process exit.
+It validates the incoming schema, operation, complete canonical report,
+summary, status and optional diagnostic layout.
+
+After independent rejection, a fresh C# owner fixes pending-read cleanup and
+contradictory MSI/status admission. Actual drain tasks are retained; owned
+readers are explicitly closed and their settlement checked within an
+independent cleanup budget. Unsettled or faulted cleanup reports
+`CleanupFailed` while retaining the initiating failure. Only the owned Setup
+child may be terminated, never its process tree.
+
+Fresh C# re-review approves both corrections. All 1,216 portable Setup cases
+pass, including 129 source-linked real-consumer cases; root build and both
+Windows-targeted projects build warning-free, and 2,182 Core cases pass.
+Windows pipe-adapter execution and the installed lifecycle remain outstanding.
+
 ## CDB callback derivation compares fixed source transformations
 
 Actual run 39647900245 at `3b1e8cc` classifies both registered callback

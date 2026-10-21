@@ -44,12 +44,12 @@ internal static partial class MsiCases
     {
         var arguments = MainArguments(context, operation);
         using var process = OwnedChild.Start(
-            context.Options.SetupExecutable, arguments, context.Options.Work);
-        var line = await process.ReadAsync(cancellationToken);
-        var report = EvidenceJson.Decode<SetupReport>(line);
-        var code = await process.WaitAsync(cancellationToken);
-        Require.That(report.SchemaVersion == 1);
-        return new(process.Identity, code, report);
+            context.Options.SetupExecutable, arguments, context.Options.Work,
+            captureStandardError: true);
+        var result = await MainAsync(process,
+            Enum.Parse<SetupVerb>(arguments[0], ignoreCase: true),
+            SetupChildBudget.Default, cancellationToken);
+        return new(process.Identity, result.ExitCode, result.Report);
     }
 
     private static ImmutableArray<string> MainArguments(

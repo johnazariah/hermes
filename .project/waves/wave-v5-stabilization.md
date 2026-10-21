@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Component output and owned pipe cleanup pass fresh source review
+
+- **Changed:** The real component consumer reads both bounded pipes, requires the complete report/diagnostic/exit contract and independently checks owned-child cleanup. It retains actual drain operations and explicitly closes readers; unsettled cleanup fails with the original fault preserved.
+- **Review closure:** Fresh C# owner `638970f0` replaces the rejected cleanup/status implementation. Independent reviewer `b59dd5c4` approves both prior P2 corrections; original author `ad694006` remains locked out of revision and advice.
+- **Validation:** All 1,216 portable Setup cases pass, including 129 source-linked real-consumer cases. Both Windows-targeted projects and root build pass with zero warnings/errors; 2,182 Core cases pass.
+- **Blockers:** Source approval and portable fakes do not establish real Windows pipe execution. The installed Medium lifecycle and original PowerShell exit-37 gate remain pending.
+- **Next:** Publish this source-approved component correction and require real Windows adapter execution alongside the grounded debugger-path correction.
+
 ### 2026-10-22 - Compare transformed callback readback without admitting it
 
 - **Evidence:** Published `3b1e8cc`, run `39647900245`, passes both supported OS jobs, Tray and 131 pure controls. Native execution remains 456/457 with zero skips. Both callback payloads are non-empty but differ from source; child markers, events and arming remain absent.

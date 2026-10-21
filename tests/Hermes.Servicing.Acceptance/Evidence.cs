@@ -76,27 +76,10 @@ internal sealed record JournalMark(
     ImmutableArray<Guid> RevokedRunIds,
     ImmutableArray<MediaEvidence> Media);
 
-internal static class EvidenceJson
+internal static partial class EvidenceJson
 {
     internal const int MaximumReportBytes = 32 * 1024 * 1024;
     internal const int MaximumEventCharacters = 2 * 1024 * 1024;
-
-    internal static JsonSerializerOptions Options { get; } = CreateOptions();
-
-    private static JsonSerializerOptions CreateOptions()
-    {
-        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
-        options.Converters.Add(new JsonStringEnumConverter());
-        options.UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow;
-        return options;
-    }
-
-    internal static string Encode<T>(T value) =>
-        JsonSerializer.Serialize(value, Options);
-
-    internal static T Decode<T>(string text) =>
-        JsonSerializer.Deserialize<T>(text, Options)
-        ?? throw new InvalidDataException("Missing diagnostic value.");
 
     internal static T Read<T>(string path, int maximum = MaximumReportBytes)
     {
