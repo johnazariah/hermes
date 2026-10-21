@@ -100,6 +100,22 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Actual child-token object security becomes observable
+
+- **Changed:** Only the owned actual child-primary open adds READ_CONTROL to TOKEN_QUERY. Its retained handle supplies token target 3 to existing no-audit Authz, bounded kernel DACL/LABEL queries and decoders; the same actual token remains the subject.
+- **Boundary:** Kernel-object security is distinct from default-DACL templates and integrity attributes. No setter, duplication, impersonation, privilege or existing-object permission change is added. Unknown/failed observations cannot become denial or inferred labels.
+- **Validation:** Fresh independent C# review approves 28 new cases and all old assertion retention, requiring exactly 439. Byte-exact mechanical application preserves BOM/LF; isolated root build, 2,182 Core, Windows cross-build and all static controls pass.
+- **Visibility:** Token results flow through existing failing-test rows in all five PowerShell arms. Primary-open failure remains numeric, prevents resume and preserves cleanup; every exit-37/full-self/parent check stays strict.
+- **Blockers:** Actual token-object data and PowerShell script execution remain unproved. No root correction, installed lifecycle or merge follows from this observation.
+- **Next:** Publish and inspect actual token DACL rights and labels without changing token authority.
+
+### 2026-10-21 - Hidden private console does not execute the PowerShell fixture
+
+- **Evidence:** Published `bb5f79c` run `39607587761`, job `119247700844`, passes 410/411 native cases with zero skips. The new hidden-console arm also exits 0xC0000142; detached arms still return zero with either process/thread descriptor.
+- **Boundary:** All five arms match the image path, validate eight source bytes, verify the restricted context, close pipes/drains and record empty output/error streams. Parent security/connection and owned cleanup pass. No tested console or process/thread-DACL policy establishes script execution.
+- **Blockers:** The original exit-37 assertion remains failing. No launch policy or permission expansion is promoted, and no installed lifecycle follows this failed gate.
+- **Next:** A fresh specialist observes the actual child token kernel object's DACL and label. This is distinct from the already-set token integrity and its default DACL template; the proposal adds only READ_CONTROL to the owned token query, not a setter, privilege or new token mechanism.
+
 ### 2026-10-21 - Hidden private-console comparison is source-ready
 
 - **Evidence:** Published `de69d69` run `39605327219`, job `119239923925`, records all four image-matched, eight-byte-source PowerShell arms with complete pipe/drain EOF and zero output/error bytes. Detached returns zero and no-window 0xC0000142 with both partial and full self grants; 406/407 native cases pass, none skip.

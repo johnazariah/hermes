@@ -334,6 +334,11 @@ public sealed partial class RestrictedOwnerChildTests(ITestOutputHelper output)
             var proof = RestrictedOwnerChild.RunInert(token, children);
             return WriteDesktopArm(proof, children.Child, arm);
         }
+        catch (Exception error)
+        {
+            WriteDesktopArmFailure(error, arm);
+            throw;
+        }
         finally
         {
             if (children.PowerShellIoFacts is { } facts)
@@ -561,6 +566,7 @@ public sealed partial class RestrictedOwnerChildTests(ITestOutputHelper output)
     {
         WriteChildObjectAccess(result.Process, arm, result.ResourcesClosed);
         WriteChildObjectAccess(result.Thread, arm, result.ResourcesClosed);
+        WriteChildObjectAccess(result.Token, arm, result.ResourcesClosed);
     }
 
     private void WriteChildObjectAccess(
@@ -1255,6 +1261,7 @@ public sealed partial class RestrictedOwnerChildTests(ITestOutputHelper output)
         internal FakeChild Child { get; }
         internal AcceptanceChildAccessResult Access { get; init; } =
             AcceptanceChildAccessResult.Unknown;
+        internal uint ExitCode { get; init; } = 37;
         internal IReadOnlyList<ChildPoint> Calls => _calls;
         internal int Resumes => _calls.Count(point => point == ChildPoint.Resume);
 
@@ -1316,7 +1323,7 @@ public sealed partial class RestrictedOwnerChildTests(ITestOutputHelper output)
             {
                 Call(ChildPoint.Wait);
                 cancellationToken.ThrowIfCancellationRequested();
-                return 37;
+                return owner.ExitCode;
             }
 
             public void Dispose()

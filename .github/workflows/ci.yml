@@ -274,9 +274,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           [xml]$tests = Get-Content -LiteralPath "$PWD/.artifacts/servicing-windows-tests/servicing-windows.trx" -Raw
           $counts = $tests.TestRun.ResultSummary.Counters
-          if ([int]$counts.total -ne 411 -or [int]$counts.executed -ne 411 -or [int]$counts.passed -ne 411 `
+          if ([int]$counts.total -ne 439 -or [int]$counts.executed -ne 439 -or [int]$counts.passed -ne 439 `
               -or [int]$counts.failed -ne 0 -or [int]$counts.notExecuted -ne 0) {
-            throw 'Expected all existing 407 Windows cases plus 4 private-console creation and startup-policy cases (411 total), with no skips. The genuine PowerShell case still requires exit 37 in all five arms.'
+            throw 'Expected all existing 411 Windows cases plus 28 actual-token object-security cases (439 total), with no skips. The genuine PowerShell case still requires exit 37 in all five arms.'
           }
       - name: Coordinator install, repair, launch, upgrade, rollback and uninstall without SDK access
         shell: pwsh

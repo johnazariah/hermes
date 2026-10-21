@@ -3,7 +3,7 @@
 internal sealed unsafe partial class WindowsRestrictedOwnerTokens
 {
     // Borrowed handles remain owned by OwnedInertChild. Only Authz handles
-    // are owned here. The primary token was opened with TOKEN_QUERY (8).
+    // are owned here. The actual primary has TOKEN_QUERY | READ_CONTROL only.
     private sealed class ChildAuthzScope(
         SafeChildHandle primary, SafeChildHandle process, SafeChildHandle thread)
         : IAcceptanceChildAccessScope
@@ -48,6 +48,7 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens
             {
                 AcceptanceChildObject.Process => process,
                 AcceptanceChildObject.Thread => thread,
+                AcceptanceChildObject.Token => primary,
                 _ => throw RestrictedOwnerToken.Failure(13)
             };
             uint needed = 0;

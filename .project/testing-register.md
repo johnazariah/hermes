@@ -2,6 +2,25 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Actual child-token object security is observed separately
+
+The actual retained child-primary token gains only READ_CONTROL alongside
+TOKEN_QUERY (0x00020008). The existing Authz subject also becomes target 3
+for independent kernel-object DACL and label reads through the same bounded
+transport and decoders. This descriptor is neither TokenDefaultDacl nor the
+token's integrity attribute. No setter, duplication, impersonation or privilege
+is introduced.
+
+Twenty-eight request/profile/transport/label/visibility cases raise exact native
+discovery to 439. All prior process/thread controls and five PowerShell exit-37
+requirements remain. Unknown token results stay unknown; failures are not
+denials. Token rows reach every failing PowerShell arm before exit assertions.
+
+Independent C# source review and parent byte/BOM/LF audit approve the patch.
+Isolated root build, all 2,182 Core cases, Windows cross-build and installer
+static controls pass. Actual token-object descriptors and script execution
+remain pending.
+
 ## One hidden private-console arm retains the existing PowerShell matrix
 
 An additional PowerShell-only arm requests CREATE_NEW_CONSOLE with suspended

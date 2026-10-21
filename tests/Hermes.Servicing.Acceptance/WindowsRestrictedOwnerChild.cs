@@ -288,7 +288,8 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IAcceptanceC
         private SafeChildHandle OpenChildPrimary()
         {
             nint raw = 0;
-            if (OpenChildProcessToken(Handle(_process), 0x0008, &raw) == 0)
+            if (OpenChildProcessToken(
+                Handle(_process), AcceptanceChildAccess.PrimaryTokenAccess, &raw) == 0)
                 throw NativeFailure();
             var token = new SafeChildHandle(raw);
             if (!token.IsInvalid)

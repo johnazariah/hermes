@@ -6,7 +6,8 @@ internal enum AcceptanceChildObject
 {
     Unknown = 0,
     Process = 1,
-    Thread = 2
+    Thread = 2,
+    Token = 3
 }
 
 internal enum AcceptanceChildSubject
@@ -49,6 +50,9 @@ internal sealed record AcceptanceChildAccessResult(
     AcceptanceChildObjectAccess Thread,
     bool ResourcesClosed)
 {
+    internal AcceptanceChildObjectAccess Token { get; init; } =
+        AcceptanceChildObjectAccess.Unknown(AcceptanceChildObject.Token);
+
     internal static AcceptanceChildAccessResult Unknown { get; } =
         new(AcceptanceChildObjectAccess.Unknown(AcceptanceChildObject.Process),
             AcceptanceChildObjectAccess.Unknown(AcceptanceChildObject.Thread), false);
@@ -58,7 +62,8 @@ internal readonly record struct AcceptanceAuthzReply(
     int Succeeded, int Error, uint ReplyError, uint GrantedMask);
 
 // Native implementation privately captures the held, verified child primary
-// token and retained owned process/thread handles. No handle or SID escapes.
+// token as both subject and token-object target, plus the retained owned
+// process/thread handles. No handle or SID escapes.
 internal interface IAcceptanceChildAccessScope : IDisposable
 {
     bool IsClosed { get; }
@@ -72,6 +77,10 @@ internal interface IAcceptanceChildAccessScope : IDisposable
 internal static class AcceptanceChildAccess
 {
     internal const uint NoAudit = 1;
+
+    // Only the owned actual child-primary open uses TOKEN_QUERY | READ_CONTROL.
+    // Its kernel-object SD is not TokenDefaultDacl or TokenIntegrityLevel.
+    internal const uint PrimaryTokenAccess = 0x00000008u | 0x00020000u;
 
     // This is an offline OWNER/GROUP/DACL inventory, not a kernel/MIC verdict.
     // No generic mapping, token duplication, group reconstruction, or callback.
@@ -100,7 +109,10 @@ internal static class AcceptanceChildAccess
         var contextError = Initialize(scope);
         return new(
             Observe(scope, AcceptanceChildObject.Process, contextError),
-            Observe(scope, AcceptanceChildObject.Thread, contextError), false);
+            Observe(scope, AcceptanceChildObject.Thread, contextError), false)
+        {
+            Token = Observe(scope, AcceptanceChildObject.Token, contextError)
+        };
     }
 
     private static int Initialize(IAcceptanceChildAccessScope scope)
