@@ -306,31 +306,77 @@ function Read-TraceControl {
 }
 
 function Start-TraceRead {
-    param([hashtable]$Stream, [IO.StreamReader]$Reader)
+    param([hashtable]$Stream, [IO.Stream]$Source)
     if ($state.AcceptedUtf8Bytes -ge 8388608) { $state.Bounds = 1 }
-    if ($state.Bounds -ne 0) { return }
-    $Stream.Pending = $Reader.ReadAsync($Stream.Buffer, 0, $Stream.Buffer.Length)
+    if ($state.Bounds -ne 0 -or $Stream.End -or $Stream.Faulted) { return }
+    if ($null -eq $Stream.Source) { $Stream.Source = $Source }
+    if (-not [object]::ReferenceEquals($Stream.Source, $Source)) {
+        throw 'Owned trace stream changed.'
+    }
+    if ($null -ne $Stream.Pending) { return }
+    # Own the fresh process pipe directly. Never consume its StreamReader:
+    # ReadAsync(char[], ...) may fill the requested count before returning.
+    $Stream.Pending = $Source.ReadAsync($Stream.Bytes, 0, $Stream.Bytes.Length)
 }
 
 function Receive-TraceRead {
-    param([hashtable]$Stream, [IO.StreamReader]$Reader, [bool]$Parse)
+    param([hashtable]$Stream, [IO.Stream]$Source, [bool]$Parse)
     if ($state.AcceptedUtf8Bytes -ge 8388608) { $state.Bounds = 1 }
     for ($iteration = 0; $iteration -lt 16; $iteration++) {
-        if ($state.Bounds -ne 0 -or $Stream.End `
+        if ($state.Bounds -ne 0 -or $Stream.End -or $Stream.Faulted `
             -or $null -eq $Stream.Pending -or -not $Stream.Pending.IsCompleted) {
             return
         }
-        $count = $Stream.Pending.GetAwaiter().GetResult()
-        $Stream.Pending = $null
-        if ($count -eq 0) {
-            $Stream.End = $true
-            if ($Parse -and $Stream.Tail.Length -ne 0) { $state.Protocol = 1 }
-            return
+        if (-not [object]::ReferenceEquals($Stream.Source, $Source)) {
+            throw 'Owned trace stream changed.'
         }
-        Add-HermesStartupText $state $Stream (
-            [string]::new($Stream.Buffer, 0, $count)) $Parse
-        if ($state.Bounds -ne 0) { return }
-        Start-TraceRead $Stream $Reader
+        try {
+            $count = $Stream.Pending.GetAwaiter().GetResult()
+            $Stream.Pending = $null
+            $offset = 0
+            do {
+                $used = 0; $written = 0; $complete = $false
+                # A retained UTF-8 sequence can produce 4097 UTF-16 units
+                # with the next 4096 bytes. Convert drains it in bounded,
+                # scalar-preserving chunks, including the true EOF flush.
+                $Stream.Decoder.Convert($Stream.Bytes, $offset, $count - $offset,
+                    $Stream.Buffer, 0, $Stream.Buffer.Length, ($count -eq 0),
+                    [ref]$used, [ref]$written, [ref]$complete)
+                $offset += $used
+                if ($written -gt 0) {
+                    Add-HermesStartupText $state $Stream (
+                        [string]::new($Stream.Buffer, 0, $written)) $Parse
+                }
+                if ($state.Bounds -ne 0) { return }
+                if (-not $complete -and $used -eq 0 -and $written -eq 0) {
+                    throw 'Trace decoder made no progress.'
+                }
+            } while (-not $complete)
+            if ($count -eq 0) {
+                $Stream.End = $true
+                if ($Parse -and $Stream.Tail.Length -ne 0) { $state.Protocol = 1 }
+                return
+            }
+            Start-TraceRead $Stream $Source
+        } catch {
+            $Stream.Faulted = $true
+            if ($state.Error -eq 0) { $state.Error = 13 }
+            throw
+        }
+    }
+}
+
+function Close-TraceRead {
+    param([hashtable]$Stream, [IO.StreamReader]$Reader)
+    foreach ($owned in @($Reader.BaseStream, $Reader)) {
+        try { $owned.Dispose() }
+        catch { $state.CleanupFault = 13 }
+    }
+    if ($state.NativeProtocol -and $null -ne $Stream.Pending) {
+        try {
+            if (-not $Stream.Pending.Wait(1000)) { $state.CleanupFault = 13 }
+            else { $null = $Stream.Pending.GetAwaiter().GetResult() }
+        } catch { $state.CleanupFault = 13 }
     }
 }
 
@@ -338,9 +384,9 @@ function Invoke-TraceCollection {
     $elapsed = [Diagnostics.Stopwatch]::StartNew()
     $exitObservedAt = [long]-1
     while ($state.Bounds -eq 0 -and $elapsed.Elapsed.TotalSeconds -lt 210) {
-        Receive-TraceRead $state.Out $debugger.StandardOutput $true
+        Receive-TraceRead $state.Out $debugger.StandardOutput.BaseStream $true
         if ($state.Bounds -ne 0) { return }
-        Receive-TraceRead $state.Err $debugger.StandardError $false
+        Receive-TraceRead $state.Err $debugger.StandardError.BaseStream $false
         if ($state.Bounds -ne 0) { return }
         Read-TraceControl (Join-Path $root 'helper.rows')
         Publish-TraceCreated
@@ -460,8 +506,8 @@ try {
     $started = $true
     $heldDebuggerHandle = $debugger.SafeHandle
     Set-HermesStartupTracePoint $state 26 # Owned output collection.
-    Start-TraceRead $state.Out $debugger.StandardOutput
-    Start-TraceRead $state.Err $debugger.StandardError
+    Start-TraceRead $state.Out $debugger.StandardOutput.BaseStream
+    Start-TraceRead $state.Err $debugger.StandardError.BaseStream
     Invoke-TraceCollection
 } catch {
     # Never print debugger output, exception text, paths, identities, or commands.
@@ -486,9 +532,9 @@ try {
             # rescheduling pending buffers. Closure is not evidence of EOF.
             while ($state.Bounds -eq 0 -and $grace.ElapsedMilliseconds -lt 5000 `
                 -and (-not $state.Out.End -or -not $state.Err.End)) {
-                Receive-TraceRead $state.Out $debugger.StandardOutput $true
+                Receive-TraceRead $state.Out $debugger.StandardOutput.BaseStream $true
                 if ($state.Bounds -ne 0) { break }
-                Receive-TraceRead $state.Err $debugger.StandardError $false
+                Receive-TraceRead $state.Err $debugger.StandardError.BaseStream $false
                 if ($state.Bounds -ne 0) { break }
                 Start-Sleep -Milliseconds 20
             }
@@ -498,20 +544,8 @@ try {
             $drainsEnded = $state.Out.End -and $state.Err.End
             if (-not $drainsEnded) { $state.CleanupFault = 13 }
         } catch { $state.CleanupFault = 13 }
-        foreach ($reader in @($debugger.StandardOutput, $debugger.StandardError)) {
-            foreach ($owned in @($reader.BaseStream, $reader)) {
-                try { $owned.Dispose() }
-                catch { $state.CleanupFault = 13 }
-            }
-        }
-        if ($state.NativeProtocol) {
-            foreach ($stream in @($state.Out, $state.Err)) {
-                if ($null -ne $stream.Pending) {
-                    try { $null = $stream.Pending.Wait(1000) } catch {}
-                    if (-not $stream.Pending.IsCompleted) { $state.CleanupFault = 13 }
-                }
-            }
-        }
+        Close-TraceRead $state.Out $debugger.StandardOutput
+        Close-TraceRead $state.Err $debugger.StandardError
     }
     try { $debugger.Dispose() } catch { $state.CleanupFault = 13 }
     foreach ($pin in $pins) {

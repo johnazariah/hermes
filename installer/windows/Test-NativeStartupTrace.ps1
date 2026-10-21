@@ -183,43 +183,74 @@ function New-ControlReader {
         [Text.Encoding]::UTF8)
 }
 
-class StartupControlIdleReader : IO.StreamReader {
-    [string]$FirstText
+function New-ControlPipe {
+    $writer = [IO.Pipes.AnonymousPipeServerStream]::new(
+        [IO.Pipes.PipeDirection]::Out, [IO.HandleInheritability]::None)
+    try {
+        $client = [IO.Pipes.AnonymousPipeClientStream]::new(
+            [IO.Pipes.PipeDirection]::In, $writer.GetClientHandleAsString())
+        @{ Writer = $writer; Reader = [IO.StreamReader]::new($client) }
+    } catch { $writer.Dispose(); throw }
+}
+
+function Write-ControlPipe {
+    param([hashtable]$Pipe, [byte[]]$Bytes)
+    Assert-Control ($Pipe.Writer.CanWrite -and $Bytes.Length -le 4096)
+    $Pipe.Writer.Write($Bytes, 0, $Bytes.Length)
+    $Pipe.Writer.Flush()
+}
+
+function Receive-ControlPipe {
+    param([hashtable]$Stream, [hashtable]$Pipe, [bool]$Parse)
+    # Completion is not the assertion: each caller checks real parser/count
+    # progress while the writer remains open. This timeout is only a watchdog.
+    Assert-Control ($null -ne $Stream.Pending -and $Stream.Pending.Wait(5000))
+    Receive-TraceRead $Stream $Pipe.Reader.BaseStream $Parse
+}
+
+function Close-ControlPipe {
+    param([hashtable]$Stream, [hashtable]$Pipe)
+    $Pipe.Writer.Dispose()
+    Close-TraceRead $Stream $Pipe.Reader
+}
+
+class StartupControlIdleStream : IO.MemoryStream {
+    [byte[]]$FirstBytes
     [int]$Reads = 0
     [Threading.Tasks.TaskCompletionSource[int]]$Idle = [Threading.Tasks.TaskCompletionSource[int]]::new()
 
-    StartupControlIdleReader([string]$text) : base([IO.MemoryStream]::new()) {
-        $this.FirstText = $text
+    StartupControlIdleStream([string]$text) {
+        $this.FirstBytes = [Text.Encoding]::UTF8.GetBytes($text)
     }
 
-    [Threading.Tasks.Task[int]] ReadAsync([char[]]$buffer, [int]$offset, [int]$count) {
+    [Threading.Tasks.Task[int]] ReadAsync([byte[]]$buffer, [int]$offset, [int]$count) {
         $this.Reads++
-        if ($this.Reads -eq 1 -and $this.FirstText.Length -gt 0) {
-            $this.FirstText.CopyTo(0, $buffer, $offset, $this.FirstText.Length)
-            return [Threading.Tasks.Task]::FromResult($this.FirstText.Length)
+        if ($this.Reads -eq 1 -and $this.FirstBytes.Length -gt 0) {
+            [Array]::Copy($this.FirstBytes, 0, $buffer, $offset, $this.FirstBytes.Length)
+            return [Threading.Tasks.Task]::FromResult($this.FirstBytes.Length)
         }
         return $this.Idle.Task
     }
 }
 
-class StartupControlContinueReader : IO.StreamReader {
-    [string]$FirstText
-    [string]$AfterText
-    [char[]]$HeldBuffer
+class StartupControlContinueStream : IO.MemoryStream {
+    [byte[]]$FirstBytes
+    [byte[]]$AfterBytes
+    [byte[]]$HeldBuffer
     [int]$HeldOffset
     [int]$Reads = 0
     [Threading.Tasks.TaskCompletionSource[int]]$Gate = [Threading.Tasks.TaskCompletionSource[int]]::new()
 
-    StartupControlContinueReader([string]$first, [string]$after) : base([IO.MemoryStream]::new()) {
-        $this.FirstText = $first
-        $this.AfterText = $after
+    StartupControlContinueStream([string]$first, [string]$after) {
+        $this.FirstBytes = [Text.Encoding]::UTF8.GetBytes($first)
+        $this.AfterBytes = [Text.Encoding]::UTF8.GetBytes($after)
     }
 
-    [Threading.Tasks.Task[int]] ReadAsync([char[]]$buffer, [int]$offset, [int]$count) {
+    [Threading.Tasks.Task[int]] ReadAsync([byte[]]$buffer, [int]$offset, [int]$count) {
         $this.Reads++
         if ($this.Reads -eq 1) {
-            $this.FirstText.CopyTo(0, $buffer, $offset, $this.FirstText.Length)
-            return [Threading.Tasks.Task]::FromResult($this.FirstText.Length)
+            [Array]::Copy($this.FirstBytes, 0, $buffer, $offset, $this.FirstBytes.Length)
+            return [Threading.Tasks.Task]::FromResult($this.FirstBytes.Length)
         }
         if ($this.Reads -eq 2) {
             $this.HeldBuffer = $buffer; $this.HeldOffset = $offset
@@ -229,8 +260,15 @@ class StartupControlContinueReader : IO.StreamReader {
     }
 
     [void] Release() {
-        $this.AfterText.CopyTo(0, $this.HeldBuffer, $this.HeldOffset, $this.AfterText.Length)
-        $null = $this.Gate.TrySetResult($this.AfterText.Length)
+        [Array]::Copy($this.AfterBytes, 0, $this.HeldBuffer, $this.HeldOffset, $this.AfterBytes.Length)
+        $null = $this.Gate.TrySetResult($this.AfterBytes.Length)
+    }
+}
+
+class StartupControlFaultStream : IO.MemoryStream {
+    [Threading.Tasks.Task[int]] ReadAsync([byte[]]$buffer, [int]$offset, [int]$count) {
+        return [Threading.Tasks.Task]::FromException[int](
+            [IO.IOException]::new('Synthetic owned read fault.'))
     }
 }
 
@@ -247,7 +285,7 @@ foreach ($name in @('Resolve-TraceExtension', 'Confirm-TraceTools',
         'Assert-TraceCommandPath', 'New-TraceCommands', 'New-TraceEventCommands',
         'Publish-TraceCommands',
         'Confirm-TracePublication',
-        'Start-TraceRead', 'Receive-TraceRead', 'Invoke-TraceCollection')) {
+        'Start-TraceRead', 'Receive-TraceRead', 'Close-TraceRead', 'Invoke-TraceCollection')) {
     $definitions = @($driverAst.FindAll({
         param($node)
         $node -is [Management.Automation.Language.FunctionDefinitionAst] `
@@ -464,7 +502,7 @@ function Get-HermesSetupPublishFiles {
     }
 }
 
-$cases = 1..312 # Original 212 intents plus the closed CREATED/resumed/ibp protocol.
+$cases = 1..335 # Preserve all 312 intents; real pipes exercise the owned byte boundary.
 $passed = 0
 foreach ($case in $cases) {
     $state = $null
@@ -794,14 +832,14 @@ foreach ($case in $cases) {
                 $outReader = New-ControlReader 'xy'
                 $errReader = New-ControlReader ''
                 try {
-                    Start-TraceRead $state.Out $outReader
-                    Start-TraceRead $state.Err $errReader
+                    Start-TraceRead $state.Out $outReader.BaseStream
+                    Start-TraceRead $state.Err $errReader.BaseStream
                     $pending = $state.Err.Pending
                     $outBefore = Get-ControlStreamSnapshot $state.Out
                     $errBefore = Get-ControlStreamSnapshot $state.Err
-                    Receive-TraceRead $state.Out $outReader $true
-                    Receive-TraceRead $state.Err $errReader $false
-                    Start-TraceRead $state.Out $outReader
+                    Receive-TraceRead $state.Out $outReader.BaseStream $true
+                    Receive-TraceRead $state.Err $errReader.BaseStream $false
+                    Start-TraceRead $state.Out $outReader.BaseStream
                     Assert-Control ($state.Bounds -eq 1 -and $null -eq $state.Out.Pending `
                         -and [object]::ReferenceEquals($pending, $state.Err.Pending) `
                         -and -not $state.Out.End -and -not $state.Err.End `
@@ -840,8 +878,8 @@ foreach ($case in $cases) {
                     $state.Error = 5
                     $state.Final.fault = 1460
                 }
-                Start-TraceRead $state.Out $debugger.StandardOutput
-                Start-TraceRead $state.Err $debugger.StandardError
+                Start-TraceRead $state.Out $debugger.StandardOutput.BaseStream
+                Start-TraceRead $state.Err $debugger.StandardError.BaseStream
                 . $controlDriver
                 $report = New-HermesStartupReport $state $debuggerEnded $drainsEnded
                 Assert-Control ($script:controlStops -eq 1 -and $script:controlWaits -eq 0 `
@@ -890,8 +928,8 @@ foreach ($case in $cases) {
                 $outText = if ($case -eq 34) { "`n" } else { '' }
                 $errText = if ($case -eq 35) { "`n" } else { '' }
                 $debugger = [pscustomobject]@{
-                    StandardOutput = [StartupControlIdleReader]::new($outText)
-                    StandardError = [StartupControlIdleReader]::new($errText)
+                    StandardOutput = [IO.StreamReader]::new([StartupControlIdleStream]::new($outText))
+                    StandardError = [IO.StreamReader]::new([StartupControlIdleStream]::new($errText))
                     ExitCode = 0
                 }
                 $script:controlStops = 0
@@ -913,11 +951,11 @@ foreach ($case in $cases) {
                 $root = $PSScriptRoot
                 $pins = @()
                 if ($case -eq 37) {
-                    $state.Out.Pending = $debugger.StandardOutput.Idle.Task
-                    $state.Err.Pending = $debugger.StandardError.Idle.Task
+                    $state.Out.Pending = $debugger.StandardOutput.BaseStream.Idle.Task
+                    $state.Err.Pending = $debugger.StandardError.BaseStream.Idle.Task
                 } else {
-                    Start-TraceRead $state.Out $debugger.StandardOutput
-                    Start-TraceRead $state.Err $debugger.StandardError
+                    Start-TraceRead $state.Out $debugger.StandardOutput.BaseStream
+                    Start-TraceRead $state.Err $debugger.StandardError.BaseStream
                 }
                 . $controlDriver
                 $report = New-HermesStartupReport $state $debuggerEnded $drainsEnded
@@ -925,8 +963,8 @@ foreach ($case in $cases) {
                 Assert-Control ($state.Bounds -eq 1 -and $report.status -eq 7 `
                     -and $report.acceptedUtf8Bytes -eq 8388608 -and $report.completed -eq 0 `
                     -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0 `
-                    -and $debugger.StandardOutput.Reads -eq $expectedReads `
-                    -and $debugger.StandardError.Reads -eq $expectedReads `
+                    -and $debugger.StandardOutput.BaseStream.Reads -eq $expectedReads `
+                    -and $debugger.StandardError.BaseStream.Reads -eq $expectedReads `
                     -and $script:controlStops -eq 1 -and $script:controlDisposed -eq 1 `
                     -and $script:controlExitPolls -eq 1 `
                     -and $script:controlReads -eq 0 -and $script:controlArms -eq 0 `
@@ -936,8 +974,8 @@ foreach ($case in $cases) {
                     -and $report.cleanupComplete -eq 0 -and $report.cleanupFault -eq 13 `
                     -and -not $debugger.StandardOutput.BaseStream.CanRead `
                     -and -not $debugger.StandardError.BaseStream.CanRead `
-                    -and -not $debugger.StandardOutput.Idle.Task.IsCompleted `
-                    -and -not $debugger.StandardError.Idle.Task.IsCompleted `
+                    -and -not $debugger.StandardOutput.BaseStream.Idle.Task.IsCompleted `
+                    -and -not $debugger.StandardError.BaseStream.Idle.Task.IsCompleted `
                     -and $state.Protocol -eq 0 -and $state.Initial -eq 11 `
                     -and $state.Out.Tail -ceq 'HERMES_CDB v=1 kind=0 pid=99')
                 foreach ($name in @('Out', 'Err')) {
@@ -3943,11 +3981,11 @@ foreach ($case in $cases) {
                     ) -join "`r`n"
                     $after += "`r`n"
                     $outReader = if ($case -eq 309) {
-                        [StartupControlContinueReader]::new($first, $after)
+                        [IO.StreamReader]::new([StartupControlContinueStream]::new($first, $after))
                     } else { New-ControlReader ($first + $after) }
                     $physical = [StartupControlWriteStream]::new(0)
                     if ($case -eq 309) {
-                        $physical.AfterWrite = { $outReader.Release() }.GetNewClosure()
+                        $physical.AfterWrite = { $outReader.BaseStream.Release() }.GetNewClosure()
                     }
                     $debugger = [pscustomobject]@{
                         StandardInput = [IO.StreamWriter]::new($physical)
@@ -3959,8 +3997,8 @@ foreach ($case in $cases) {
                     $script:controlStops = 0; $script:controlStopFault = $false
                     $started = $true; $rootCreated = $false
                     $debuggerEnded = $false; $drainsEnded = $false
-                    Start-TraceRead $state.Out $debugger.StandardOutput
-                    Start-TraceRead $state.Err $debugger.StandardError
+                    Start-TraceRead $state.Out $debugger.StandardOutput.BaseStream
+                    Start-TraceRead $state.Err $debugger.StandardError.BaseStream
                     . $controlDriver
                     $report = New-HermesStartupReport $state $debuggerEnded $drainsEnded
                     if ($case -eq 309) {
@@ -3997,6 +4035,419 @@ foreach ($case in $cases) {
                     -and $report.armingVerified -eq 0 -and $report.powershellExit37 -eq 1 `
                     -and $report.firstFailureKind -eq 0 -and $report.cleanupComplete -eq 1 `
                     -and $report.parentUnchanged -eq 1 -and $report.nativeAcceptance -eq 0)
+            }
+            { $_ -in 313..314 } {
+                $state = Native-StartupTrace\New-HermesStartupState
+                $pipe = New-ControlPipe
+                try {
+                    $text = 'x' * $(if ($case -eq 313) { 1024 } else { 2048 })
+                    Start-TraceRead $state.Out $pipe.Reader.BaseStream
+                    Write-ControlPipe $pipe ([Text.Encoding]::UTF8.GetBytes($text))
+                    Receive-ControlPipe $state.Out $pipe $false
+                    $pending = $state.Out.Pending
+                    Start-TraceRead $state.Out $pipe.Reader.BaseStream
+                    Assert-Control ($pipe.Writer.CanWrite -and -not $state.Out.End `
+                        -and $state.Out.Count -eq $text.Length -and $state.Bounds -eq 0 `
+                        -and $state.AcceptedUtf8Bytes -eq $text.Length `
+                        -and $state.Out.Prefix -ceq $text -and $state.Out.Tail -ceq $text `
+                        -and [object]::ReferenceEquals($pending, $state.Out.Pending))
+                    $expected = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+                        [Text.Encoding]::UTF8.GetBytes($text)))
+                    Assert-Control ([Convert]::ToHexString($state.Out.Hash.GetCurrentHash()) -ceq $expected)
+                    $pipe.Writer.Dispose()
+                    Receive-ControlPipe $state.Out $pipe $false
+                    Assert-Control ($state.Out.End -and $null -eq $state.Out.Pending)
+                } finally { Close-ControlPipe $state.Out $pipe }
+            }
+            { $_ -in 315..316 } {
+                $state = New-ControlNativeCreated -Acknowledge $false
+                $state.Created = $null; $state.Initial = 0
+                $pipe = New-ControlPipe
+                try {
+                    $opening = "HERMES_CDB v=1 kind=0 pid=11`n"
+                    $created = @(
+                        'HERMES_CDB v=3 kind=1 pid=22',
+                        'Last event: 16.1: Create process 1:16',
+                        'HERMES_CDB v=3 kind=2 pid=22'
+                    ) -join "`n"
+                    $boundary = if ($case -eq 315) { 1024 } else { 2048 }
+                    $split = if ($case -eq 315) { 13 } else { 0 }
+                    $text = $opening + ('x' * ($boundary - $opening.Length - 1 - $split)) +
+                        "`n" + $created + "`n"
+                    Start-TraceRead $state.Out $pipe.Reader.BaseStream
+                    Write-ControlPipe $pipe ([Text.Encoding]::UTF8.GetBytes($text.Substring(0, $boundary)))
+                    Receive-ControlPipe $state.Out $pipe $true
+                    Assert-Control ($state.Initial -eq 11 -and $null -eq $state.Created `
+                        -and $state.Out.Count -eq $boundary -and -not (Test-HermesStartupCreated $state))
+                    Write-ControlPipe $pipe ([Text.Encoding]::UTF8.GetBytes($text.Substring($boundary)))
+                    Receive-ControlPipe $state.Out $pipe $true
+                    Assert-Control ($pipe.Writer.CanWrite -and -not $state.Out.End `
+                        -and (Test-HermesStartupCreated $state) -and -not $state.CreatedAcked `
+                        -and $state.Out.Count -eq $text.Length)
+                    Set-HermesStartupCreatedAcknowledged $state
+                    Assert-Control ($state.CreatedAcked -and $null -ne $state.CreatedBinding `
+                        -and -not $state.ContinueAttempted -and -not (Test-HermesStartupArm $state))
+                    $pipe.Writer.Dispose()
+                    Receive-ControlPipe $state.Out $pipe $true
+                    Assert-Control ($state.Out.End -and $state.Protocol -eq 0)
+                } finally { Close-ControlPipe $state.Out $pipe }
+            }
+            { $_ -in 317..318 } {
+                $state = New-ControlNativeCreated
+                $pipe = New-ControlPipe
+                $physical = [StartupControlWriteStream]::new(0)
+                $writer = [IO.StreamWriter]::new($physical)
+                try {
+                    $ibp = (@(
+                        'HERMES_CDB v=3 kind=5 pid=22',
+                        'Last event: 16.1: Break instruction exception - code 80000003 (first chance)',
+                        'HERMES_NTGLOBALFLAG v=1 pid=22 value=00000002',
+                        'HERMES_CDB v=3 kind=6 pid=22'
+                    ) -join "`r`n") + "`r`n"
+                    $boundary = if ($case -eq 317) { 1024 } else { 2048 }
+                    $split = if ($case -eq 317) { 3 } else { 0 }
+                    $first = ('x' * ($boundary - $ibp.Length - 1 - $split)) +
+                        "`n" + $ibp + '1:000> '
+                    $after = (@(
+                        'g', $failureLine,
+                        'HERMES_CDB v=1 kind=3 pid=22',
+                        'Last event: 16.1: Exit process 1:16, code c0000142',
+                        'HERMES_CDB v=1 kind=4 pid=22',
+                        'HERMES_CDB v=1 kind=3 pid=11',
+                        'Last event: b.1: Exit process 0:b, code 0',
+                        'HERMES_CDB v=1 kind=4 pid=11'
+                    ) -join "`r`n") + "`r`n"
+                    $afterBytes = [Text.Encoding]::UTF8.GetBytes($after)
+                    $physical.AfterWrite = {
+                        $pipe.Writer.Write($afterBytes, 0, $afterBytes.Length)
+                        $pipe.Writer.Flush()
+                    }.GetNewClosure()
+                    Start-TraceRead $state.Out $pipe.Reader.BaseStream
+                    Write-ControlPipe $pipe ([Text.Encoding]::UTF8.GetBytes($first.Substring(0, $boundary)))
+                    Receive-ControlPipe $state.Out $pipe $true
+                    Assert-Control ($state.Out.Count -eq $boundary -and $null -ne $state.Arm `
+                        -and -not $state.Stopped -and -not (Test-HermesStartupArm $state) `
+                        -and $physical.Writes -eq 0 -and $null -eq $state.Failure)
+                    Write-ControlPipe $pipe ([Text.Encoding]::UTF8.GetBytes($first.Substring($boundary)))
+                    Receive-ControlPipe $state.Out $pipe $true
+                    Assert-Control ($pipe.Writer.CanWrite -and -not $state.Out.End `
+                        -and $state.Stopped -and (Test-HermesStartupArm $state) `
+                        -and (Get-HermesStartupTypedFlags $state) -eq 2 -and $physical.Writes -eq 0)
+                    Invoke-HermesStartupContinue $state $writer
+                    Assert-Control ($physical.Writes -eq 1 -and $physical.Closed -and $state.InputClosed `
+                        -and $state.Continued -and $state.Acked `
+                        -and [Text.Encoding]::ASCII.GetString($physical.ToArray()) -ceq "g`n")
+                    Receive-ControlPipe $state.Out $pipe $true
+                    Assert-Control ($pipe.Writer.CanWrite -and -not $state.Out.End `
+                        -and $null -ne $state.Failure -and $state.Failure.Kind -eq 1 `
+                        -and $state.Exits.Count -eq 2 -and $state.Protocol -eq 0 `
+                        -and $state.Out.Count -eq ($first.Length + $after.Length))
+                    Update-HermesStartupRows $state ($readyV2 + "`n" + $resumedV2 + "`n" + $finalV2 + "`n")
+                    $pipe.Writer.Dispose()
+                    Receive-ControlPipe $state.Out $pipe $true
+                    $report = New-HermesStartupReport $state $true $state.Out.End
+                    Assert-Control ($report.completed -eq 1 -and $report.cleanupComplete -eq 1 `
+                        -and $report.advisory -eq 1 -and $report.nativeAcceptance -eq 0 `
+                        -and $report.originalGatePassed -eq 0)
+                } finally { $writer.Dispose(); Close-ControlPipe $state.Out $pipe }
+            }
+            319 {
+                $state = Native-StartupTrace\New-HermesStartupState
+                $pipe = New-ControlPipe
+                try {
+                    Start-TraceRead $state.Out $pipe.Reader.BaseStream
+                    Write-ControlPipe $pipe ([byte[]]@(0xc3))
+                    Receive-ControlPipe $state.Out $pipe $false
+                    Assert-Control ($state.Out.Count -eq 0 -and $state.AcceptedUtf8Bytes -eq 0)
+                    Write-ControlPipe $pipe ([byte[]]@(0xa9, 0xe2, 0x82))
+                    Receive-ControlPipe $state.Out $pipe $false
+                    Assert-Control ($state.Out.Count -eq 1 -and $state.AcceptedUtf8Bytes -eq 2)
+                    Write-ControlPipe $pipe ([byte[]]@(0xac, 0xf0, 0x9f, 0x98))
+                    Receive-ControlPipe $state.Out $pipe $false
+                    Assert-Control ($state.Out.Count -eq 2 -and $state.AcceptedUtf8Bytes -eq 5)
+                    Write-ControlPipe $pipe ([byte[]]@(0x80))
+                    Receive-ControlPipe $state.Out $pipe $false
+                    $text = ([string][char]0xe9) + ([string][char]0x20ac) + [char]::ConvertFromUtf32(0x1f600)
+                    $expected = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+                        [Text.Encoding]::UTF8.GetBytes($text)))
+                    Assert-Control ($pipe.Writer.CanWrite -and -not $state.Out.End `
+                        -and $state.Out.Count -eq 4 -and $state.AcceptedUtf8Bytes -eq 9 `
+                        -and $state.Out.Prefix -ceq $text `
+                        -and [Convert]::ToHexString($state.Out.Hash.GetCurrentHash()) -ceq $expected)
+                    $pipe.Writer.Dispose()
+                    Receive-ControlPipe $state.Out $pipe $false
+                    Assert-Control ($state.Out.End -and $state.Bounds -eq 0 -and $state.Error -eq 0)
+                } finally { Close-ControlPipe $state.Out $pipe }
+            }
+            320 {
+                $state = Native-StartupTrace\New-HermesStartupState
+                $pipe = New-ControlPipe
+                try {
+                    Start-TraceRead $state.Out $pipe.Reader.BaseStream
+                    Write-ControlPipe $pipe ([byte[]]@(0xf0, 0x9f, 0x98))
+                    Receive-ControlPipe $state.Out $pipe $false
+                    Assert-Control ($state.Out.Count -eq 0)
+                    $bytes = [byte[]]::new(4096)
+                    [Array]::Fill($bytes, [byte]0x78)
+                    $bytes[0] = 0x80
+                    Write-ControlPipe $pipe $bytes
+                    Receive-ControlPipe $state.Out $pipe $false
+                    $text = [char]::ConvertFromUtf32(0x1f600) + ('x' * 4095)
+                    $expected = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+                        [Text.Encoding]::UTF8.GetBytes($text)))
+                    Assert-Control ($pipe.Writer.CanWrite -and -not $state.Out.End `
+                        -and $state.Out.Count -eq 4097 -and $state.AcceptedUtf8Bytes -eq 4099 `
+                        -and $state.Out.Prefix.Length -eq 4096 -and $state.Out.Tail.Length -le 4096 `
+                        -and $state.Bounds -eq 0 -and $state.Error -eq 0 `
+                        -and [Convert]::ToHexString($state.Out.Hash.GetCurrentHash()) -ceq $expected)
+                    $pipe.Writer.Dispose()
+                    Receive-ControlPipe $state.Out $pipe $false
+                    Assert-Control ($state.Out.End)
+                } finally { Close-ControlPipe $state.Out $pipe }
+            }
+            { $_ -in 321..323 } {
+                $state = Native-StartupTrace\New-HermesStartupState
+                $pipe = New-ControlPipe
+                try {
+                    Start-TraceRead $state.Out $pipe.Reader.BaseStream
+                    $bytes = switch ($case) {
+                        321 { [byte[]]@(0xe2, 0x82) }
+                        322 { [byte[]]@(0xc3, 0x28) }
+                        323 { [byte[]]@(0xef, 0xbb, 0xbf, 0x78) }
+                    }
+                    Write-ControlPipe $pipe $bytes
+                    $refused = $false
+                    try { Receive-ControlPipe $state.Out $pipe $false } catch { $refused = $true }
+                    if ($case -eq 321) {
+                        Assert-Control (-not $refused -and $state.Out.Count -eq 0 -and -not $state.Out.End)
+                        $pipe.Writer.Dispose()
+                        try { Receive-ControlPipe $state.Out $pipe $false } catch { $refused = $true }
+                    }
+                    if ($case -eq 323) {
+                        Assert-Control (-not $refused -and $state.Out.Count -eq 2 `
+                            -and $state.AcceptedUtf8Bytes -eq 4 -and $state.Bounds -eq 0 `
+                            -and $state.Out.Prefix -ceq (([string][char]0xfeff) + 'x'))
+                        $pipe.Writer.Dispose()
+                        Receive-ControlPipe $state.Out $pipe $false
+                        Assert-Control ($state.Out.End -and -not $state.Out.Faulted)
+                    } else {
+                        Assert-Control ($refused -and $state.Out.Faulted -and $state.Error -eq 13 `
+                            -and $state.Out.Count -eq 0 -and -not $state.Out.End `
+                            -and (New-HermesStartupReport $state $true $true).completed -eq 0)
+                        Start-TraceRead $state.Out $pipe.Reader.BaseStream
+                        Assert-Control ($null -eq $state.Out.Pending)
+                    }
+                } finally { Close-ControlPipe $state.Out $pipe }
+            }
+            { $_ -in 324..326 } {
+                $state = Native-StartupTrace\New-HermesStartupState
+                $state.AcceptedUtf8Bytes = [long]8388607
+                $outPipe = New-ControlPipe
+                $errPipe = New-ControlPipe
+                try {
+                    Start-TraceRead $state.Out $outPipe.Reader.BaseStream
+                    Start-TraceRead $state.Err $errPipe.Reader.BaseStream
+                    $selected = if ($case -eq 325) { $state.Err } else { $state.Out }
+                    $pipe = if ($case -eq 325) { $errPipe } else { $outPipe }
+                    $other = if ($case -eq 325) { $state.Out } else { $state.Err }
+                    $bytes = if ($case -eq 326) { [byte[]]@(0xc3, 0xa9) } else { [byte[]]@(0x78) }
+                    $otherPending = $other.Pending
+                    Write-ControlPipe $pipe $bytes
+                    Receive-ControlPipe $selected $pipe $true
+                    $outBefore = Get-ControlStreamSnapshot $state.Out
+                    $errBefore = Get-ControlStreamSnapshot $state.Err
+                    Start-TraceRead $state.Out $outPipe.Reader.BaseStream
+                    Start-TraceRead $state.Err $errPipe.Reader.BaseStream
+                    Receive-TraceRead $state.Out $outPipe.Reader.BaseStream $true
+                    Receive-TraceRead $state.Err $errPipe.Reader.BaseStream $false
+                    $emptyHash = [Convert]::ToHexString(
+                        [Security.Cryptography.SHA256]::HashData([byte[]]::new(0)))
+                    Assert-Control ($state.Bounds -eq 1 -and $state.AcceptedUtf8Bytes -eq $(if ($case -eq 326) { 8388607 } else { 8388608 }) `
+                        -and $selected.Count -eq [int]($case -ne 326) -and $other.Count -eq 0 `
+                        -and $selected.Tail -ceq '' -and $selected.Prefix -ceq '' `
+                        -and [Convert]::ToHexString($selected.Hash.GetCurrentHash()) -ceq $emptyHash `
+                        -and $null -eq $selected.Pending -and -not $state.Out.End -and -not $state.Err.End `
+                        -and [object]::ReferenceEquals($otherPending, $other.Pending) `
+                        -and (Get-ControlStreamSnapshot $state.Out) -ceq $outBefore `
+                        -and (Get-ControlStreamSnapshot $state.Err) -ceq $errBefore `
+                        -and (New-HermesStartupReport $state $true $true).status -eq 7)
+                } finally {
+                    Close-ControlPipe $state.Out $outPipe
+                    Close-ControlPipe $state.Err $errPipe
+                }
+            }
+            327 {
+                $state = Native-StartupTrace\New-HermesStartupState
+                $pipe = New-ControlPipe
+                try {
+                    Start-TraceRead $state.Out $pipe.Reader.BaseStream
+                    $pending = $state.Out.Pending
+                    $handle = $pipe.Reader.BaseStream.SafePipeHandle
+                    Assert-Control (-not $pending.IsCompleted -and $pipe.Writer.CanWrite)
+                    $watch = [Diagnostics.Stopwatch]::StartNew()
+                    Close-TraceRead $state.Out $pipe.Reader
+                    Assert-Control ($watch.ElapsedMilliseconds -lt 5000 `
+                        -and [object]::ReferenceEquals($pending, $state.Out.Pending) `
+                        -and -not $state.Out.End -and $state.Out.Count -eq 0 `
+                        -and $state.AcceptedUtf8Bytes -eq 0)
+                    # Closure cancellation differs across pipe implementations.
+                    # A still-pending task is a cleanup fault, never EOF/success.
+                    if (-not $pending.IsCompleted -or $pending.IsFaulted -or $pending.IsCanceled) {
+                        Assert-Control ($state.CleanupFault -eq 13)
+                    }
+                    $pipe.Writer.Dispose()
+                    try { $null = $pending.Wait(5000) } catch {}
+                    Assert-Control ($pending.IsCompleted -and $handle.IsClosed -and -not $state.Out.End)
+                } finally { Close-ControlPipe $state.Out $pipe }
+            }
+            328 {
+                $state = Native-StartupTrace\New-HermesStartupState
+                $reader = [IO.StreamReader]::new([StartupControlFaultStream]::new())
+                try {
+                    Start-TraceRead $state.Out $reader.BaseStream
+                    $pending = $state.Out.Pending
+                    Assert-Control ($pending.IsCompleted -and $pending.IsFaulted -and $state.CleanupFault -eq 0)
+                    Close-TraceRead $state.Out $reader
+                    Assert-Control ($state.CleanupFault -eq 13 -and -not $state.Out.End `
+                        -and [object]::ReferenceEquals($pending, $state.Out.Pending))
+                } finally { $reader.Dispose() }
+            }
+            329 {
+                $state = Native-StartupTrace\New-HermesStartupState
+                $pipe = New-ControlPipe
+                $other = New-ControlPipe
+                try {
+                    Start-TraceRead $state.Out $pipe.Reader.BaseStream
+                    $pending = $state.Out.Pending
+                    $refused = $false
+                    try { Start-TraceRead $state.Out $other.Reader.BaseStream } catch { $refused = $true }
+                    Assert-Control ($refused -and [object]::ReferenceEquals($pending, $state.Out.Pending))
+                    Write-ControlPipe $pipe ([Text.Encoding]::UTF8.GetBytes("ok`n"))
+                    Assert-Control ($pending.Wait(5000))
+                    $refused = $false
+                    try { Receive-TraceRead $state.Out $other.Reader.BaseStream $true } catch { $refused = $true }
+                    Assert-Control ($refused -and $state.Out.Count -eq 0 `
+                        -and [object]::ReferenceEquals($pending, $state.Out.Pending))
+                    Receive-TraceRead $state.Out $pipe.Reader.BaseStream $true
+                    Assert-Control ($state.Out.Count -eq 3 -and $state.Protocol -eq 0 -and $state.Error -eq 0)
+                    $pipe.Writer.Dispose()
+                    Receive-ControlPipe $state.Out $pipe $true
+                    Assert-Control ($state.Out.End)
+                    Start-TraceRead $state.Out $pipe.Reader.BaseStream
+                    Assert-Control ($null -eq $state.Out.Pending)
+                } finally {
+                    Close-ControlPipe $state.Out $pipe
+                    $other.Writer.Dispose(); $other.Reader.Dispose()
+                }
+            }
+            { $_ -in 330..331 } {
+                $state = Native-StartupTrace\New-HermesStartupState
+                $pipe = New-ControlPipe
+                try {
+                    Start-TraceRead $state.Out $pipe.Reader.BaseStream
+                    $text = if ($case -eq 330) { ('x' * 4095) + "`n" } else { 'x' * 4096 }
+                    Write-ControlPipe $pipe ([Text.Encoding]::UTF8.GetBytes($text))
+                    Receive-ControlPipe $state.Out $pipe $true
+                    Assert-Control ($pipe.Writer.CanWrite -and -not $state.Out.End `
+                        -and $state.Out.Count -eq 4096 -and $state.Out.Prefix.Length -eq 4096 `
+                        -and $state.Bounds -eq 0 -and $state.Protocol -eq 0)
+                    $pipe.Writer.Dispose()
+                    Receive-ControlPipe $state.Out $pipe $true
+                    Assert-Control ($state.Out.End -and $state.Protocol -eq [int]($case -eq 331) `
+                        -and $state.Out.Tail.Length -eq $(if ($case -eq 330) { 0 } else { 4096 }))
+                } finally { Close-ControlPipe $state.Out $pipe }
+            }
+            332 {
+                $state = Native-StartupTrace\New-HermesStartupState
+                $readCalls = @($driverAst.FindAll({
+                    param($node)
+                    $node -is [Management.Automation.Language.InvokeMemberExpressionAst] `
+                        -and $node.Member.Extent.Text -ceq 'ReadAsync'
+                }, $true))
+                Assert-Control ($readCalls.Count -eq 1 -and $readCalls[0].Expression.Extent.Text -ceq '$Source' `
+                    -and $readCalls[0].Arguments[0].Extent.Text -ceq '$Stream.Bytes')
+                $pumpCalls = @($driverAst.FindAll({
+                    param($node)
+                    $node -is [Management.Automation.Language.CommandAst] `
+                        -and $node.GetCommandName() -in @('Start-TraceRead', 'Receive-TraceRead')
+                }, $true))
+                foreach ($call in $pumpCalls) {
+                    $argument = $call.CommandElements[2].Extent.Text
+                    Assert-Control ($argument -ceq '$Source' -or $argument -cmatch '\A\$debugger\.Standard(?:Output|Error)\.BaseStream\z')
+                }
+                Assert-Control ($state.Out.Bytes.Length -eq 4096 -and $state.Out.Buffer.Length -eq 4096 `
+                    -and $state.Out.Decoder.Fallback -is [Text.DecoderExceptionFallback] `
+                    -and $state.NativeProtocol -and -not $state.Out.Faulted)
+            }
+            333 {
+                $state = Native-StartupTrace\New-HermesStartupState
+                $state.AcceptedUtf8Bytes = [long](8388608 - 4098)
+                $pipe = New-ControlPipe
+                try {
+                    Start-TraceRead $state.Out $pipe.Reader.BaseStream
+                    Write-ControlPipe $pipe ([byte[]]@(0xf0, 0x9f, 0x98))
+                    Receive-ControlPipe $state.Out $pipe $false
+                    $bytes = [byte[]]::new(4096)
+                    [Array]::Fill($bytes, [byte]0x78)
+                    $bytes[0] = 0x80
+                    Write-ControlPipe $pipe $bytes
+                    Receive-ControlPipe $state.Out $pipe $false
+                    $before = Get-ControlStreamSnapshot $state.Out
+                    Start-TraceRead $state.Out $pipe.Reader.BaseStream
+                    Receive-TraceRead $state.Out $pipe.Reader.BaseStream $false
+                    Assert-Control ($state.Bounds -eq 1 -and $state.AcceptedUtf8Bytes -eq 8388608 `
+                        -and $state.Out.Count -eq 4096 -and $state.Out.Prefix.Length -eq 0 `
+                        -and $state.Out.Tail.Length -eq 0 -and $null -eq $state.Out.Pending `
+                        -and -not $state.Out.End -and $state.Error -eq 0 `
+                        -and (Get-ControlStreamSnapshot $state.Out) -ceq $before)
+                    $emptyHash = [Convert]::ToHexString(
+                        [Security.Cryptography.SHA256]::HashData([byte[]]::new(0)))
+                    Assert-Control ([Convert]::ToHexString($state.Out.Hash.GetCurrentHash()) -ceq $emptyHash)
+                } finally { Close-ControlPipe $state.Out $pipe }
+            }
+            334 {
+                $state = Native-StartupTrace\New-HermesStartupState
+                $state.AcceptedUtf8Bytes = [long]8388607
+                $outPipe = New-ControlPipe
+                $errPipe = New-ControlPipe
+                try {
+                    Start-TraceRead $state.Out $outPipe.Reader.BaseStream
+                    Start-TraceRead $state.Err $errPipe.Reader.BaseStream
+                    Write-ControlPipe $outPipe ([byte[]]@(0xe2, 0x82))
+                    Receive-ControlPipe $state.Out $outPipe $false
+                    Assert-Control ($state.Out.Count -eq 0 -and $state.AcceptedUtf8Bytes -eq 8388607)
+                    Write-ControlPipe $errPipe ([byte[]]@(0x78))
+                    Receive-ControlPipe $state.Err $errPipe $false
+                    $pending = $state.Out.Pending
+                    $before = Get-ControlStreamSnapshot $state.Out
+                    $outPipe.Writer.Dispose()
+                    Assert-Control ($pending.Wait(5000))
+                    Receive-TraceRead $state.Out $outPipe.Reader.BaseStream $true
+                    Assert-Control ($state.Bounds -eq 1 -and $state.AcceptedUtf8Bytes -eq 8388608 `
+                        -and -not $state.Out.End -and -not $state.Out.Faulted -and $state.Error -eq 0 `
+                        -and [object]::ReferenceEquals($pending, $state.Out.Pending) `
+                        -and (Get-ControlStreamSnapshot $state.Out) -ceq $before)
+                } finally {
+                    Close-ControlPipe $state.Out $outPipe
+                    Close-ControlPipe $state.Err $errPipe
+                }
+            }
+            335 {
+                $state = Native-StartupTrace\New-HermesStartupState
+                $reader = [IO.StreamReader]::new([StartupControlFaultStream]::new())
+                try {
+                    Start-TraceRead $state.Out $reader.BaseStream
+                    $pending = $state.Out.Pending
+                    Assert-Control ($pending.IsCompleted -and $pending.IsFaulted)
+                    $refused = $false
+                    try { Receive-TraceRead $state.Out $reader.BaseStream $false } catch { $refused = $true }
+                    Start-TraceRead $state.Out $reader.BaseStream
+                    Assert-Control ($refused -and $state.Out.Faulted -and $state.Error -eq 13 `
+                        -and -not $state.Out.End -and $state.Out.Count -eq 0 `
+                        -and [object]::ReferenceEquals($pending, $state.Out.Pending))
+                    Close-TraceRead $state.Out $reader
+                    Assert-Control ($state.CleanupFault -eq 13 -and $pending.IsFaulted)
+                } finally { $reader.Dispose() }
             }
         }
         $passed++

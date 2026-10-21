@@ -5,7 +5,9 @@ $ErrorActionPreference = 'Stop'
 function New-HermesStartupStream {
     @{
         Count = [long]0; Prefix = ''; Tail = ''; DiscardLine = $false
-        End = $false; Pending = $null; Buffer = [char[]]::new(4096)
+        End = $false; Pending = $null; Source = $null; Faulted = $false
+        Bytes = [byte[]]::new(4096); Buffer = [char[]]::new(4096)
+        Decoder = [Text.UTF8Encoding]::new($false, $true).GetDecoder()
         Hash = [Security.Cryptography.IncrementalHash]::CreateHash(
             [Security.Cryptography.HashAlgorithmName]::SHA256)
         Fingerprint = ''

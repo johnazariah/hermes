@@ -100,6 +100,24 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Read available debugger bytes without waiting for a character block
+
+- **Changed:** A fresh owner replaces buffered character reads with retained asynchronous raw-pipe reads and strict incremental UTF-8 decoding. The controller's CREATED, checked Resume receipt, actual initial breakpoint, stopped prompt and one fixed continuation remain unchanged.
+- **Validation:** Parent source review and all 335 controls pass, preserving the prior 312 intents and adding 23 cases, including 20 real anonymous-pipe cases. Open-writer tests exercise actual production progress at 1,024/2,048-byte boundaries, split markers/prompt, continuation-dependent output, UTF-8, exact budget and cleanup. Installer static controls pass.
+- **Evidence:** The independently reproduced buffered-reader stall motivates this correction; no Windows failure cause is inferred from portable tests.
+- **Blockers:** Actual Windows CREATED progress, pre-DllMain arming, genuine PowerShell exit 37 and installed Medium acceptance remain pending.
+- **Next:** Publish the pipe correction and inspect the fixed owned Windows diagnostic.
+
+### 2026-10-22 - Hosted controls pass; real pipe reads expose a progress hazard
+
+- **Evidence:** Published `bab25c3`, run `39692007108`, job `119540197376`, executes 501 cases: 500 pass, only the original restricted PowerShell case fails, and none skip. All 58 startup controls and four real adapters pass. Both supported OS jobs and Tray pass.
+- **Observed:** The diagnostic verifies create/exit filters and the initial-breakpoint registration, but records no CREATED acknowledgement, Resumed receipt or child initial callback. It times out with error 1460 and cleanup fault 5; the parent remains unchanged. No loader cause is established.
+- **Found:** An independent in-process anonymous-pipe probe shows the current 4,096-character `StreamReader.ReadAsync` can retain 1,024 or 2,048 available characters until EOF. This can obstruct control-marker and non-newline-prompt progress. Whether it caused the hosted timeout remains to be demonstrated.
+- **Action:** Parent review rejects that reader boundary. A fresh source owner is revising it and adding real-pipe regressions; the original author is locked out of this revision.
+- **Coverage:** The current five-assembly report records 14,735/17,137 lines and 15,110/24,668 branches, above the unchanged 85%/60% gates.
+- **Blockers:** Genuine PowerShell exit 37, reliable pre-DllMain evidence and the installed Medium lifecycle remain pending. PR #30 stays draft; remote main remains `e7758a3`.
+- **Next:** Prove available-byte progress through the production reader before repeating the owned Windows diagnostic.
+
 ### 2026-10-22 - Separate synthetic diagnostic execution from pre-DllMain trace arming
 
 - **Evidence:** Published `f5979cc`, run `39676486281`, still produces no typed loader-flag value at process creation. Both supported OS jobs and Tray pass; native acceptance remains 460/461 with only the original PowerShell exit-37 case failing.

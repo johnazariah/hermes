@@ -2,6 +2,28 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Owned debugger pipes make progress before EOF
+
+The trace pump now reads available bytes from each retained process pipe,
+without consuming its buffered `StreamReader`. A strict incremental UTF-8
+decoder preserves split scalars and drains output in at most 4,096-character
+chunks. EOF flush, malformed encoding and underlying read faults remain
+explicit; closing a reader does not fabricate EOF.
+
+All **335 controls** pass: the prior 312 intents plus 23 cases, including
+20 real in-process anonymous-pipe cases. With the writer still open, the
+production pump consumes 1,024/2,048-byte blocks, recognises split CREATED
+markers and a non-newline stopped prompt, and admits later data only after
+the single fixed continuation. Other cases cover split UTF-8, decoder
+overflow, EOF, source identity, pending-read settlement and exact combined
+8 MiB exhaustion without further parsing, hashing or read scheduling.
+
+Installer static controls pass. The native project remains exactly 501
+cases. At the previous published head `bab25c3`, 500 pass and only the
+original PowerShell case fails; all 58 startup controls and four actual
+adapters pass. The raw-reader correction still needs target-host execution
+before attributing that run's missing CREATED acknowledgement to buffering.
+
 ## Diagnostic continuation requires an observed child initial breakpoint
 
 The version-2 helper separates CREATED permission from trace arming. It
