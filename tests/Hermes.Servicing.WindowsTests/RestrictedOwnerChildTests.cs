@@ -296,13 +296,40 @@ public sealed partial class RestrictedOwnerChildTests(ITestOutputHelper output)
 
     private void RequirePowerShellProof(WindowsRestrictedOwnerTokens api)
     {
-        var children = new RecordingChildren(api.PowerShellForObservation);
-        var proof = MeasureChild(api, children);
-        _ = WriteDesktopArm(proof, children.Child, 5);
+        using var token = RestrictedOwnerToken.Create(api);
+        var proof = MeasurePowerShellArm(token, api.PowerShellForObservation, 5);
+        var comparison = MeasurePowerShellArm(token, api.PowerShellNoWindowForObservation, 6);
+        _ = token.Verify();
         Assert.Equal(RestrictedOwnerTokenFacts.Required, proof.Facts);
         Assert.Equal(MsiContextRead.Absent, proof.Thread);
         Assert.Equal(37u, proof.ExitCode);
         Assert.True(proof.Access.ResourcesClosed);
+        RequirePowerShellArm(comparison);
+    }
+
+    private static void RequirePowerShellArm(RestrictedOwnerChildResult proof)
+    {
+        Assert.Equal(RestrictedOwnerTokenFacts.Required, proof.Facts);
+        Assert.Equal(MsiContextRead.Absent, proof.Thread);
+        Assert.Equal(37u, proof.ExitCode);
+        Assert.True(proof.Access.ResourcesClosed);
+    }
+
+    private RestrictedOwnerChildResult MeasurePowerShellArm(
+        RestrictedOwnerToken token, IAcceptanceChildFactory factory, int arm)
+    {
+        var children = new RecordingChildren(factory);
+        try
+        {
+            var proof = RestrictedOwnerChild.RunInert(token, children);
+            return WriteDesktopArm(proof, children.Child, arm);
+        }
+        finally
+        {
+            if (children.PowerShellIoFacts is { } facts)
+                foreach (var row in facts.Rows(arm))
+                    output.WriteLine(row);
+        }
     }
 
     [Fact]
@@ -1184,6 +1211,10 @@ public sealed partial class RestrictedOwnerChildTests(ITestOutputHelper output)
         private IAcceptanceOwnedChild? _child;
         internal IAcceptanceOwnedChild Child =>
             _child ?? throw new XunitException("Owned child scope absent.");
+
+        internal AcceptancePowerShellProbeIoFacts? PowerShellIoFacts =>
+            _child is IAcceptancePowerShellProbeObservation observed
+                ? observed.PowerShellIoFacts : null;
 
         public IAcceptanceOwnedChild Open()
         {

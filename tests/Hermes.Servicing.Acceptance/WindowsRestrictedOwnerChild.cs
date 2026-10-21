@@ -30,14 +30,18 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IAcceptanceC
     }
 
     internal IAcceptanceChildFactory PowerShellForObservation { get; } =
-        new PowerShellProbeChildren();
+        new PowerShellProbeChildren(AcceptancePowerShellProbeConsole.Detached);
 
-    private sealed class PowerShellProbeChildren : IAcceptanceChildFactory
+    internal IAcceptanceChildFactory PowerShellNoWindowForObservation { get; } =
+        new PowerShellProbeChildren(AcceptancePowerShellProbeConsole.NoWindow);
+
+    private sealed class PowerShellProbeChildren(AcceptancePowerShellProbeConsole console)
+        : IAcceptanceChildFactory
     {
         public IAcceptanceOwnedChild Open()
         {
             Instance.RequireDisposableJob();
-            return new OwnedInertChild(powerShellProbe: true);
+            return new OwnedInertChild(powerShellProbe: true, powerShellConsole: console);
         }
     }
 
@@ -160,7 +164,8 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IAcceptanceC
     private sealed partial class OwnedInertChild(
         AcceptanceDesktopSelection desktop = AcceptanceDesktopSelection.Automatic,
         bool ownedSelfControl = false,
-        bool powerShellProbe = false)
+        bool powerShellProbe = false,
+        AcceptancePowerShellProbeConsole powerShellConsole = AcceptancePowerShellProbeConsole.Detached)
         : IAcceptanceOwnedChild
     {
         private SafeChildHandle? _job;

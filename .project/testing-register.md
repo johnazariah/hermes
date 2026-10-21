@@ -2,6 +2,26 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## PowerShell observations reach failing-test output before exit assertions
+
+The actual suspended process image path is queried and matched to the validated
+application path before resume. Immutable numeric launch/EOF/pipe/drain facts
+now reach ITest output after disposal, rather than relying on Console.Error.
+This establishes neither binary hashing nor independent argv/environment facts.
+
+One PowerShell-only comparison selects CREATE_NO_WINDOW instead of DETACHED
+while preserving the same fixed script, token, arguments, environment, explicit
+stdio list and cleanup. Both arm results are recorded before their unchanged
+exit-37 assertions; ordinary cmd launch policy is unchanged.
+
+Thirteen image/flag/observation cases raise exact discovery to 407, retaining
+all old 394 definitions. Independent C# review approves the six-file patch.
+Parent warning-free root/Windows cross-builds, 2,182 Core and installer static
+controls pass. Actual image matches, stream facts and comparison exits remain
+pending. Exact-tag PowerShell 7.6.7 source inspection found no established
+quoting/EOF contract defect; the runner's published software profile is not
+attestation of the actual child binary.
+
 ## Closed PowerShell probe owns explicit stdio and bounded drains
 
 Only the fixed PowerShell probe now uses extended startup information with

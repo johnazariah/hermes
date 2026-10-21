@@ -100,6 +100,22 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - PowerShell image and final stream observations become visible
+
+- **Changed:** A read-only query matches the actual suspended image path to the fixed application. Existing final I/O facts flow as immutable numeric ITest rows after cleanup. The same token runs DETACHED and a PowerShell-only CREATE_NO_WINDOW comparison; both exits remain required to equal 37.
+- **Preserved:** No payload, image path, SID, handle or environment values are printed. Ordinary cmd policy, the exact script lease, authority, controlled inheritance and parent/cleanup checks remain unchanged. Image-path matching is not hash attestation or an actual argv query.
+- **Validation:** Fresh independent C# review approves 13 new cases, requiring exactly 407. Warning-free root/Windows cross-builds, 2,182 Core and all static controls pass. One overlapping patch-context boundary was split mechanically without changing authored source.
+- **Evidence:** The actual runner image's published software profile identifies PowerShell 7.6.7. Inspection of that tag's host/parser source supports retaining explicit exit 37 and found no demonstrated fixed-switch/file/EOF contract defect; it does not attest the launched binary.
+- **Blockers:** Actual comparison data and exact script execution remain pending. No console cause, whole-Medium lifecycle, installed acceptance or merge success is inferred.
+- **Next:** Publish and read both actual image-match/stream/exit rows before selecting any PowerShell correction.
+
+### 2026-10-21 - Controlled stdio alone does not establish PowerShell script execution
+
+- **Evidence:** Published `eece787` run `39599263190`, job `119219281839`, passes 393 of 394 native cases with zero skips. All 47 new stdio cases pass; the same genuine PowerShell case still returns 0 rather than 37.
+- **Boundary:** Actual restricted context, job/process cleanup and parent security/connection still pass. Controlled handles are not proved to be a remedy. The numeric I/O diagnostic currently goes to Console.Error and is absent from minimal failing-test output, so its stream facts are not inferred.
+- **Blockers:** Exact fixed-script execution and whole-lifecycle Medium routing remain unproved. No installed lifecycle follows the failed native gate; zero is not promoted to success.
+- **Next:** A fresh C# owner traces the fixed image/arguments/script/stream contract and wires only the minimal closed diagnostic or causal counterfactual into visible failing-test evidence, preserving exit 37.
+
 ### 2026-10-21 - Fixed PowerShell probe receives controlled stdio
 
 - **Changed:** The final scoped implementation owns three stdio pipes, an explicit inherited-handle list and extended startup information only for the fixed PowerShell probe. Parent copies close before resume, stdin has EOF, concurrent bounded drains report numeric counts/status and checked cleanup retains failures.

@@ -3,6 +3,47 @@ using System.Runtime.ExceptionServices;
 
 namespace Hermes.Servicing.Acceptance;
 
+internal enum AcceptancePowerShellProbeConsole { Detached, NoWindow }
+
+internal interface IAcceptancePowerShellProbeImage
+{
+    string Read();
+}
+
+internal interface IAcceptancePowerShellProbeObservation
+{
+    AcceptancePowerShellProbeIoFacts PowerShellIoFacts { get; }
+}
+
+internal sealed record AcceptancePowerShellProbeIoFacts(
+    uint CreationFlags,
+    bool ProcessCreated,
+    bool ImageMatched,
+    int SourceBytes,
+    bool StdinEof,
+    bool PipesClosed,
+    bool DrainsClosed,
+    AcceptancePowerShellProbeDrainFacts Output,
+    AcceptancePowerShellProbeDrainFacts Error)
+{
+    internal ImmutableArray<string> Rows(int arm) =>
+    [
+        FormattableString.Invariant(
+            $"HERMES_RESTRICTED_POWERSHELL_LAUNCH v=1 arm={arm} flags={CreationFlags} created={Bit(ProcessCreated)} imageMatch={Bit(ImageMatched)} sourceBytes={SourceBytes}"),
+        FormattableString.Invariant(
+            $"HERMES_RESTRICTED_POWERSHELL_IO v=2 arm={arm} stdinEof={Bit(StdinEof)} pipesClosed={Bit(PipesClosed)} drainsClosed={Bit(DrainsClosed)}"),
+        DrainRow(Output, arm, 0),
+        DrainRow(Error, arm, 1)
+    ];
+
+    private static int Bit(bool value) => value ? 1 : 0;
+
+    private static string DrainRow(
+        AcceptancePowerShellProbeDrainFacts facts, int arm, int stream) =>
+        FormattableString.Invariant(
+            $"HERMES_RESTRICTED_POWERSHELL_DRAIN v=1 arm={arm} stream={stream} bytes={facts.Total} kept={facts.Retained} dropped={facts.Discarded} state={(int)facts.State} error={facts.Error}");
+}
+
 internal enum AcceptancePowerShellProbeReadKind { Pending, Data, End }
 
 internal readonly record struct AcceptancePowerShellProbeRead(
@@ -56,6 +97,22 @@ internal static class AcceptancePowerShellProbeIoPolicy
     internal const uint CreationFlags = 0x00000004u | 0x00000008u | 0x00080000u;
     internal const uint StartupFlags = 0x00000100u;
     internal const int InheritHandles = 1;
+
+    internal static uint CreationFlagsFor(AcceptancePowerShellProbeConsole console) =>
+        console switch
+        {
+            AcceptancePowerShellProbeConsole.Detached => CreationFlags,
+            AcceptancePowerShellProbeConsole.NoWindow =>
+                (CreationFlags & ~0x00000008u) | 0x08000000u,
+            _ => throw RestrictedOwnerToken.Failure(13)
+        };
+
+    internal static void RequireImage(
+        string expected, IAcceptancePowerShellProbeImage image)
+    {
+        if (!string.Equals(expected, image.Read(), StringComparison.OrdinalIgnoreCase))
+            throw RestrictedOwnerToken.Failure(13);
+    }
 
     internal static void RequireLayout((int Pointer, int Startup, int Extended) layout)
     {

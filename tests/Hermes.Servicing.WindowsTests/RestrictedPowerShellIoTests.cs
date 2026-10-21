@@ -276,6 +276,116 @@ public sealed class RestrictedPowerShellIoTests
         Assert.Equal(1, calls);
     }
 
+    [Theory]
+    [InlineData(0, 0x0008000cu)]
+    [InlineData(1, 0x08080004u)]
+    public void Console_comparison_changes_only_the_closed_console_flags(int console, uint expected)
+    {
+        var flags = AcceptancePowerShellProbeIoPolicy.CreationFlagsFor(
+            (AcceptancePowerShellProbeConsole)console);
+        Assert.Equal(expected, flags);
+        Assert.Equal(0x00080004u, flags & ~(0x08000000u | 0x00000008u));
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(2)]
+    [InlineData(int.MaxValue)]
+    public void Unknown_console_policy_is_refused_without_a_default_arm(int value)
+    {
+        var error = Assert.Throws<Win32Exception>(() =>
+            AcceptancePowerShellProbeIoPolicy.CreationFlagsFor(
+                (AcceptancePowerShellProbeConsole)value));
+        Assert.Equal(13, error.NativeErrorCode);
+    }
+
+    [Fact]
+    public void Image_verification_reads_once_and_accepts_ordinal_case_difference()
+    {
+        var image = new ProbeImage(ProbeApplication.ToLowerInvariant());
+        AcceptancePowerShellProbeIoPolicy.RequireImage(ProbeApplication, image);
+        Assert.Equal(1, image.Reads);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("pwsh.exe")]
+    [InlineData(@"C:\Windows\System32\cmd.exe")]
+    [InlineData(@"C:\Program Files\PowerShell\7\other.exe")]
+    public void A_different_or_unqualified_actual_image_is_refused(string actual)
+    {
+        var image = new ProbeImage(actual);
+        var error = Assert.Throws<Win32Exception>(() =>
+            AcceptancePowerShellProbeIoPolicy.RequireImage(ProbeApplication, image));
+        Assert.Equal(13, error.NativeErrorCode);
+        Assert.Equal(1, image.Reads);
+    }
+
+    [Fact]
+    public void Image_query_failure_is_preserved_without_a_second_read()
+    {
+        var fault = new Win32Exception(5, "Synthetic image query denial.");
+        var image = new ProbeImage(string.Empty, fault);
+        var error = Assert.Throws<Win32Exception>(() =>
+            AcceptancePowerShellProbeIoPolicy.RequireImage(ProbeApplication, image));
+        Assert.Same(fault, error);
+        Assert.Equal(1, image.Reads);
+    }
+
+    [Fact]
+    public void Visible_diagnostics_are_closed_numeric_rows_without_stream_content()
+    {
+        var ended = new AcceptancePowerShellProbeDrainFacts(
+            3, 3, 0, AcceptancePowerShellProbeDrainState.End, 0);
+        var facts = new AcceptancePowerShellProbeIoFacts(
+            AcceptancePowerShellProbeIoPolicy.CreationFlags, true, true, 8, true, true, true, ended, ended);
+        Assert.Equal(new[]
+        {
+            "HERMES_RESTRICTED_POWERSHELL_LAUNCH v=1 arm=5 flags=524300 created=1 imageMatch=1 sourceBytes=8",
+            "HERMES_RESTRICTED_POWERSHELL_IO v=2 arm=5 stdinEof=1 pipesClosed=1 drainsClosed=1",
+            "HERMES_RESTRICTED_POWERSHELL_DRAIN v=1 arm=5 stream=0 bytes=3 kept=3 dropped=0 state=1 error=0",
+            "HERMES_RESTRICTED_POWERSHELL_DRAIN v=1 arm=5 stream=1 bytes=3 kept=3 dropped=0 state=1 error=0"
+        }, facts.Rows(5));
+        var uncreated = facts with { ProcessCreated = false, ImageMatched = false, SourceBytes = 0 };
+        Assert.Contains("created=0 imageMatch=0 sourceBytes=0", uncreated.Rows(5)[0]);
+    }
+
+    [Fact]
+    public void Observation_capability_carries_final_existing_drain_facts_after_disposal()
+    {
+        using var drains = new AcceptancePowerShellProbeDrains(
+            new BulkOutput(7), new BulkOutput(9));
+        drains.Start();
+        drains.Dispose();
+        IAcceptancePowerShellProbeObservation observed = new StubObservation(
+            new(AcceptancePowerShellProbeIoPolicy.CreationFlags, true, true, 8,
+                true, true, drains.IsClosed, drains.Facts.Output, drains.Facts.Error));
+        var facts = observed.PowerShellIoFacts;
+        Assert.Equal((7L, 9L), (facts.Output.Total, facts.Error.Total));
+        Assert.True(facts.DrainsClosed);
+        Assert.Equal(4, facts.Rows(5).Length);
+    }
+
+    private const string ProbeApplication = @"C:\Program Files\PowerShell\7\pwsh.exe";
+
+    private sealed record StubObservation(AcceptancePowerShellProbeIoFacts PowerShellIoFacts)
+        : IAcceptancePowerShellProbeObservation;
+
+    private sealed class ProbeImage(string image, Exception? failure = null)
+        : IAcceptancePowerShellProbeImage
+    {
+        private int _reads;
+        internal int Reads => _reads;
+
+        public string Read()
+        {
+            _reads++;
+            if (failure is { } error)
+                throw error;
+            return image;
+        }
+    }
+
     private static AcceptancePowerShellProbeRead Pending() =>
         new(AcceptancePowerShellProbeReadKind.Pending);
 

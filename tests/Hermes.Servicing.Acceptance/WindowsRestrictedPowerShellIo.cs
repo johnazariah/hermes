@@ -6,19 +6,44 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens
         PowerShellProbeIoLayout =>
         (sizeof(nint), sizeof(ChildStartupInfo), sizeof(PowerShellProbeStartupInfoEx));
 
-    private sealed partial class OwnedInertChild
+    private sealed partial class OwnedInertChild : IAcceptancePowerShellProbeObservation
     {
         private PowerShellProbeStdio? _powerShellIo;
+        private bool _powerShellCreated;
+        private bool _powerShellImageMatched;
+        private int _powerShellSourceBytes;
+
+        public AcceptancePowerShellProbeIoFacts PowerShellIoFacts
+        {
+            get
+            {
+                var (output, error) = _powerShellIo?.Facts ??
+                    (AcceptancePowerShellProbeDrainFacts.Empty,
+                        AcceptancePowerShellProbeDrainFacts.Empty);
+                return new(
+                    AcceptancePowerShellProbeIoPolicy.CreationFlagsFor(powerShellConsole),
+                    _powerShellCreated, _powerShellImageMatched, _powerShellSourceBytes,
+                    _powerShellIo?.StdinEof ?? false,
+                    _powerShellIo?.PipesClosed ?? false,
+                    _powerShellIo?.DrainsClosed ?? false, output, error);
+            }
+        }
 
         private void StartPowerShellProbe(
             SafeAccessTokenHandle token, string application, char* command,
             string directory, ChildStartupInfo* startup, byte* security)
         {
             AcceptancePowerShellProbeIoPolicy.RequireLayout(PowerShellProbeIoLayout);
+            if (_powerShellSource is not { } source)
+                throw RestrictedOwnerToken.Failure(13);
+            _powerShellSourceBytes = checked((int)source.Length);
             var io = PowerShellProbeStdio.Open();
             _powerShellIo = io;
             LaunchPowerShellWithIo(
                 token, application, command, directory, startup, security, io);
+            AcceptancePowerShellProbeIoPolicy.RequireImage(
+                application, new PowerShellProbeImage(Handle(_process)));
+            _powerShellImageMatched = true;
             io.ChildCreated();
         }
 
@@ -61,11 +86,12 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens
             var process = default(ChildProcessInformation);
             if (CreateProcessAsUserW(token, application, command,
                 supplied, supplied, AcceptancePowerShellProbeIoPolicy.InheritHandles,
-                AcceptancePowerShellProbeIoPolicy.CreationFlags,
+                AcceptancePowerShellProbeIoPolicy.CreationFlagsFor(powerShellConsole),
                 0, directory, (ChildStartupInfo*)startup, &process) == 0)
                 throw NativeFailure();
             _process = new(process.Process);
             _thread = new(process.Thread);
+            _powerShellCreated = true;
         }
     }
 
@@ -78,6 +104,7 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens
         private readonly ImmutableArray<PowerShellProbePipe> _pipes;
         private readonly AcceptancePowerShellProbeDrains _drains;
         private bool _disposed;
+        private bool _stdinEof;
 
         private PowerShellProbeStdio(ImmutableArray<PowerShellProbePipe> pipes)
         {
@@ -87,6 +114,12 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens
 
         internal nint[] ChildHandles =>
             _pipes.Select(pipe => pipe.ChildValue).ToArray();
+
+        internal (AcceptancePowerShellProbeDrainFacts Output,
+            AcceptancePowerShellProbeDrainFacts Error) Facts => _drains.Facts;
+        internal bool StdinEof => _stdinEof;
+        internal bool PipesClosed => _pipes.All(pipe => pipe.IsClosed);
+        internal bool DrainsClosed => _drains.IsClosed;
 
         internal static PowerShellProbeStdio Open()
         {
@@ -110,6 +143,7 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens
             AcceptanceChildCleanup.Complete(
                 _pipes[0].CloseChild, _pipes[1].CloseChild, _pipes[2].CloseChild,
                 _pipes[0].CloseParent);
+            _stdinEof = true;
             // The child is still suspended. Its stdin now has EOF, and the
             // parent retains neither child output writer.
             _drains.Start();
@@ -217,6 +251,22 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens
             AcceptanceChildCleanup.Complete(CloseParent, CloseChild);
     }
 
+    private sealed class PowerShellProbeImage(SafeChildHandle process)
+        : IAcceptancePowerShellProbeImage
+    {
+        public string Read()
+        {
+            const int capacity = 512;
+            char* buffer = stackalloc char[capacity];
+            uint length = capacity;
+            if (QueryProbeImage(process, 0, buffer, &length) == 0)
+                throw NativeFailure();
+            if (length is 0 or >= capacity)
+                throw RestrictedOwnerToken.Failure(13);
+            return new string(buffer, 0, checked((int)length));
+        }
+    }
+
     private sealed class PowerShellProbeAttributes : SafeHandleZeroOrMinusOneIsInvalid
     {
         private bool _initialized;
@@ -275,6 +325,11 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens
             return true;
         }
     }
+
+    [LibraryImport("kernel32.dll", EntryPoint = "QueryFullProcessImageNameW", SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    private static partial int QueryProbeImage(
+        SafeChildHandle process, uint flags, char* name, uint* length);
 
     [LibraryImport("kernel32.dll", EntryPoint = "CreatePipe", SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
