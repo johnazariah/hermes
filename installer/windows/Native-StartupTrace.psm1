@@ -23,7 +23,7 @@ function New-HermesStartupState {
         TracePoint = 0; ToolRole = 0; TraceFaulted = $false
         TraceFaultPoint = 0; TraceFaultRole = 0
         FilterPending = ''; FilterExpected = @{ Cpr = ''; Epr = '' }; ExtensionExpected = ''
-        ChainPending = $false
+        ChainPending = $false; ChainCollecting = $false
         Observations = @{
             Marker0 = 0; Marker1 = 0; Marker2 = 0; Marker3 = 0; Marker4 = 0
             MarkerMalformed = 0; MarkerMalformedKind = 0; MarkerEcho = 0
@@ -32,6 +32,8 @@ function New-HermesStartupState {
             FlagsSeen = 0; FlagsAccepted = 0; SdkCommandErrors = 0
             SdkLoadLibraryWin32Error = 0; SdkLoadLibraryPathShape = 0
             SdkSelectedExtensionChain = 0; SdkLoadLibraryRelation = 0; SdkLoadLibraryForm = 0
+            SdkLoadLibraryLexicalModule = 0; SdkLoadLibraryLexicalSuffix = 0
+            SdkLoadLibraryDisplay = 0; SdkChainLines = 0; SdkChainSupportedRows = 0
             CprFilter = 0; EprFilter = 0
             CprCommandShape = 0; EprCommandShape = 0
             CprCommandTransform = 0; EprCommandTransform = 0
@@ -53,6 +55,8 @@ function Get-HermesStartupObservation {
             'ExitEventSeen', 'ExitEventAccepted', 'FlagsSeen', 'FlagsAccepted', 'SdkCommandErrors',
             'SdkLoadLibraryWin32Error', 'SdkLoadLibraryPathShape',
             'SdkSelectedExtensionChain', 'SdkLoadLibraryRelation', 'SdkLoadLibraryForm',
+            'SdkLoadLibraryLexicalModule', 'SdkLoadLibraryLexicalSuffix',
+            'SdkLoadLibraryDisplay', 'SdkChainLines', 'SdkChainSupportedRows',
             'CprFilter', 'EprFilter', 'CprCommandShape', 'EprCommandShape',
             'CprCommandTransform', 'EprCommandTransform',
             'CprPayloadLength', 'EprPayloadLength', 'CprSourceLength', 'EprSourceLength')]
@@ -509,22 +513,83 @@ function Get-HermesStartupLoadLibraryRelation {
     return $unknown
 }
 
+function Get-HermesStartupLibraryLexicalFacts {
+    param($Expected, [string]$Path)
+    $unknown = @{ Module = 0; Suffix = 0; Display = 0 }
+    if ($Expected -isnot [string] -or $Expected.Length -eq 0 -or $Expected.Length -gt 240 `
+        -or $Expected -cmatch '[";\x00-\x1f\x7f-\uffff]' -or $Path.Length -eq 0 `
+        -or $Path.Length -gt 1024 -or $Path -cmatch '[\x00-\x1f]') { return $unknown }
+    # Private lexical display comparison, NOT a Windows path parser. No file
+    # resolution, general escape decoding, command execution, or path authority.
+    $display = $Path
+    $flags = 1
+    for ($round = 0; $round -lt 2; $round++) {
+        $padded = $display.Trim([char[]]@(' ', [char]9))
+        if ($padded -cne $display) { $flags = $flags -bor 256 }
+        $escaped = [regex]::Replace($padded, '\\+(?=["''])', '')
+        if ($escaped -cne $padded) { $flags = $flags -bor 64 }
+        $display = $escaped.Trim([char[]]@(' ', [char]9, '"', "'"))
+        if ($display -cne $escaped) { $flags = $flags -bor 32 }
+        if ($round -eq 0 -and $display -cmatch '\A(?i:\.load)[ \t]+(?<rest>.+)\z') {
+            $flags = $flags -bor 16
+            $display = $Matches.rest
+        } else { break }
+    }
+    $slashes = [regex]::Replace($display, '[\\/]+', '\')
+    if ($slashes -cne $display) { $flags = $flags -bor 128 }
+    $source = [regex]::Replace($Expected, '[\\/]+', '\')
+    if ([string]::Equals($slashes, $source, [StringComparison]::OrdinalIgnoreCase)) {
+        $flags = $flags -bor 2
+        if ($slashes -cne $source) { $flags = $flags -bor 512 }
+    } elseif ($slashes.Length -ge 3 -and $slashes.Length -lt $source.Length) {
+        if ($source.StartsWith($slashes, [StringComparison]::OrdinalIgnoreCase)) { $flags = $flags -bor 4 }
+        if ($source.EndsWith($slashes, [StringComparison]::OrdinalIgnoreCase)) { $flags = $flags -bor 8 }
+    }
+    $leaf = ($slashes -split '\\')[-1]
+    $dot = $leaf.IndexOf('.')
+    $stem = if ($dot -lt 0) { $leaf } else { $leaf.Substring(0, $dot) }
+    $suffix = if ($dot -lt 0) { '' } else { $leaf.Substring($dot) }
+    # Fixed SDK/default-search names plus the fixed callback stem. A known
+    # leaf does not identify its directory, provenance, dependency, or load.
+    $names = @('exts', 'ext', 'ntsdexts', 'gflag', 'dbghelp', 'uext',
+        'dbgeng', 'symsrv', 'gflags', 'cdb', 'kext', 'kdexts')
+    for ($index = 0; $index -lt $names.Count; $index++) {
+        if (-not [string]::Equals($stem, $names[$index], [StringComparison]::OrdinalIgnoreCase)) { continue }
+        $kind = switch ($suffix.ToLowerInvariant()) {
+            '' { 1 }; '.dll' { 2 }; '.dll.dll' { 3 }; '.exe' { 4 }; default { 5 }
+        }
+        return @{ Module = $index + 1; Suffix = $kind; Display = $flags }
+    }
+    return @{ Module = 0; Suffix = 0; Display = $flags }
+}
+
 function Add-HermesStartupChainReadback {
     param([hashtable]$State, [string]$Line)
     # Root stdout only, before marker 0; never search-path text or callbacks.
     # Documented full-path row example:
     # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/-load---loadby--load-extension-dll-
-    if ($State.Initial -ne 0) { return }
+    if ($State.Initial -ne 0 -or $Line.Contains('HERMES_CDB', [StringComparison]::Ordinal)) {
+        $State.ChainCollecting = $false
+        $State.ChainPending = $false
+        return
+    }
     if ($Line -ceq 'Extension DLL chain:') {
         $State.ChainPending = $true
+        $State.ChainCollecting = $true
         if ((Get-HermesStartupObservation $State 'SdkSelectedExtensionChain' 3) -eq 0) {
             $State.Observations.SdkSelectedExtensionChain = 1
         }
         return
     }
+    $row = '\A[ \t]+(?<path>[^\x00-\x1f]{1,1024}): image [0-9]{1,5}(?:\.[0-9]{1,5}){1,3}, API [0-9]{1,5}(?:\.[0-9]{1,5}){1,3}(?:, built [^\x00-\x1f]{1,128})?\z'
+    # Count the entire bounded root readback, even after an unsupported row
+    # closes the strict matcher. Counts do not widen its accepted grammar.
+    if ($State.ChainCollecting -and $Line.Trim([char[]]@(' ', [char]9)).Length -gt 0) {
+        Add-HermesStartupObservation $State 'SdkChainLines'
+        if ($Line -cmatch $row) { Add-HermesStartupObservation $State 'SdkChainSupportedRows' }
+    }
     if (-not $State.ChainPending) { return }
     if ($Line -cnotmatch '\A[ \t]+') { $State.ChainPending = $false; return }
-    $row = '\A[ \t]+(?<path>[^\x00-\x1f]{1,1024}): image [0-9]{1,5}(?:\.[0-9]{1,5}){1,3}, API [0-9]{1,5}(?:\.[0-9]{1,5}){1,3}(?:, built [^\x00-\x1f]{1,128})?\z'
     if ($Line -cnotmatch $row) { return }
     $match = Get-HermesStartupLoadLibraryRelation $State.ExtensionExpected $Matches.path
     if ($match.Relation -notin @(1, 2) -or $match.Form -notin @(1, 9)) { return }
@@ -546,6 +611,10 @@ function Set-HermesStartupLoadLibraryError {
     $relation = Get-HermesStartupLoadLibraryRelation $State.ExtensionExpected $Path
     $State.Observations.SdkLoadLibraryRelation = $relation.Relation
     $State.Observations.SdkLoadLibraryForm = $relation.Form
+    $lexical = Get-HermesStartupLibraryLexicalFacts $State.ExtensionExpected $Path
+    $State.Observations.SdkLoadLibraryLexicalModule = $lexical.Module
+    $State.Observations.SdkLoadLibraryLexicalSuffix = $lexical.Suffix
+    $State.Observations.SdkLoadLibraryDisplay = $lexical.Display
 }
 
 function Add-HermesStartupSdkError {
@@ -713,6 +782,26 @@ function New-HermesStartupObservations {
     $observations.SdkLoadLibraryRelation = Get-HermesStartupObservation $State 'SdkLoadLibraryRelation' 23
     $form = Get-HermesStartupObservation $State 'SdkLoadLibraryForm' 15
     $observations.SdkLoadLibraryForm = if ($form -eq 8) { 0 } else { $form }
+    # Untrusted first-failure lexical facts only. Module 0 = other/unavailable;
+    # 1..12 = exts, ext, ntsdexts, gflag, dbghelp, uext, dbgeng, symsrv,
+    # gflags, cdb, kext, kdexts. Suffix 1..5 = stem, .dll, .dll.dll, .exe,
+    # other dot suffix; 0 = no recognised stem. No private leaf is published.
+    $observations.SdkLoadLibraryLexicalModule =
+        Get-HermesStartupObservation $State 'SdkLoadLibraryLexicalModule' 12
+    $observations.SdkLoadLibraryLexicalSuffix =
+        Get-HermesStartupObservation $State 'SdkLoadLibraryLexicalSuffix' 5
+    # Display bits: 1 = compared with verified source; 2 = lexical full match;
+    # 4/8 = proper source prefix/suffix (at least 3 characters); 16 = .load
+    # prefix removed; 32 = boundary quotes/padding removed; 64 = backslashes
+    # before quotes removed; 128 = mixed/repeated slash display collapsed;
+    # 256 = exterior padding removed; 512 = full match differs in case.
+    # These transforms do NOT establish valid serialization or a loaded module.
+    $observations.SdkLoadLibraryDisplay = Get-HermesStartupObservation $State 'SdkLoadLibraryDisplay' 1023
+    # Nonblank root .chain lines vs rows supported by the original metadata
+    # grammar. Collection ends at marker-0 output/echo, never reads stderr.
+    foreach ($name in @('SdkChainLines', 'SdkChainSupportedRows')) {
+        $observations[$name] = Get-HermesStartupObservation $State $name
+    }
     # 0 = no recognised header; 1..5 = break/second-chance/output/ignore/unknown.
     # Add 8 only for the immediately following, exact pinned callback command.
     # Neither the filter nor callback readback proves that an event occurred.

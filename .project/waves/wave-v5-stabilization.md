@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - SDK lookup remains unknown after exact source comparisons
+
+- **Evidence:** Published `8541eeb`, run `39664685599`, passes both supported OS jobs and Tray. Native execution remains 460/461 with zero skips and only the original PowerShell assertion failing. The SDK reports error 2, no known source/name relation, and a chain header without a supported selected row.
+- **Changed:** Five bounded numeric facts distinguish fixed module stems/suffixes, untrusted lexical source-display relationships and chain-format support. No path resolution, load-command correction or new authority is introduced.
+- **Validation:** Parent review and all 186 pure controls pass, including unknown forms, source-independent classification, output exhaustion, report limits and non-arming cases.
+- **Blockers:** Missing-library identity, actual selected-extension load and genuine PowerShell execution remain unresolved.
+- **Next:** Read these lexical/format facts once on Windows and use the result to select a concrete command-binding correction.
+
 ### 2026-10-22 - Actual Windows proves the four strict adapter cases
 
 - **Evidence:** Published `e79d7ff`, run `39663397530`, job `119441985422`, executes 461 native cases: 460 pass, one fails, zero skip. Only the original restricted PowerShell assertion fails; all four owned-child adapter cases pass after the startup correction.

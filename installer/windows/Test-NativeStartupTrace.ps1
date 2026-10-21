@@ -318,7 +318,7 @@ function Get-HermesSetupPublishFiles {
     }
 }
 
-$cases = 1..178 # Original 168 + 10 read-only chain/source-relation controls.
+$cases = 1..186 # Original 178 + 8 untrusted lexical/chain-format controls.
 $passed = 0
 foreach ($case in $cases) {
     $state = $null
@@ -972,7 +972,7 @@ foreach ($case in $cases) {
             63 {
                 $state = New-HermesStartupState
                 $report = New-HermesStartupReport $state $false $false
-                Assert-Control ($report.observations.Count -eq 49)
+                Assert-Control ($report.observations.Count -eq 54)
                 foreach ($value in $report.observations.Values) {
                     Assert-Control ($value -is [int] -and $value -eq 0)
                 }
@@ -2154,7 +2154,7 @@ foreach ($case in $cases) {
                     Assert-Control ($report.observations[$field] -is [int])
                 }
                 $json = $report | ConvertTo-Json -Depth 4 -Compress
-                Assert-Control ($report.observations.Count -eq 49 `
+                Assert-Control ($report.observations.Count -eq 54 `
                     -and [Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
                     -and $json -notmatch 'Users|Example|AppData|Temp|Command:|\$\$><' `
                     -and $report.armingVerified -eq 0 -and $report.completed -eq 0 `
@@ -2767,9 +2767,222 @@ foreach ($case in $cases) {
                 Assert-Control ($state.Bounds -eq 1 -and $state.AcceptedUtf8Bytes -eq 8388608 `
                     -and ($report.observations | ConvertTo-Json -Compress) -ceq $before `
                     -and $report.status -eq 7 -and $report.completed -eq 0 -and $report.armingVerified -eq 0 `
-                    -and $report.observations.Count -eq 49 `
+                    -and $report.observations.Count -eq 54 `
                     -and [Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
                     -and $json -notmatch 'Program Files|Windows Kits|exts\.dll|gflag\.dll|LoadLibrary\(|C:')
+            }
+            179 {
+                $state.ExtensionExpected = 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\winxp\exts.dll'
+                $names = @('exts', 'ext', 'ntsdexts', 'gflag', 'dbghelp', 'uext',
+                    'dbgeng', 'symsrv', 'gflags', 'cdb', 'kext', 'kdexts')
+                $suffixes = @('', '.DLL', '.dll.dll', '.exe', '.dll.private-suffix')
+                foreach ($parse in @($true, $false)) {
+                    for ($index = 0; $index -lt $names.Count; $index++) {
+                        for ($suffix = 0; $suffix -lt $suffixes.Count; $suffix++) {
+                            $state.Observations.SdkCommandErrors = 0
+                            $library = '  \"C:/private\\folder/' + $names[$index].ToUpperInvariant() +
+                                $suffixes[$suffix] + "'   "
+                            $text = 'The call to LoadLibrary(' + $library + ') failed, Win32 error 0n2' + "`r`n"
+                            $stream = if ($parse) { $state.Out } else { $state.Err }
+                            for ($offset = 0; $offset -lt $text.Length; $offset += 3) {
+                                Add-HermesStartupText $state $stream (
+                                    $text.Substring($offset, [Math]::Min(3, $text.Length - $offset))) $parse
+                            }
+                            $observed = New-HermesStartupObservations $state
+                            Assert-Control ($observed.SdkLoadLibraryLexicalModule -eq ($index + 1) `
+                                -and $observed.SdkLoadLibraryLexicalSuffix -eq ($suffix + 1) `
+                                -and ($observed.SdkLoadLibraryDisplay -band 2) -eq 0 `
+                                -and ($observed.SdkLoadLibraryDisplay -band 481) -eq 481 `
+                                -and $observed.SdkLoadLibraryRelation -eq 0 -and $observed.SdkLoadLibraryForm -eq 0 `
+                                -and $observed.SdkLoadLibraryWin32Error -eq 2 -and $observed.FlagsAccepted -eq 0 `
+                                -and -not (Test-HermesStartupArm $state) -and -not $state.Acked)
+                        }
+                    }
+                }
+            }
+            180 {
+                $selected = 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\winxp\exts.dll'
+                $controls = @(
+                    @{ Path = $selected; Bits = 3; Full = $true },
+                    @{ Path = $selected.ToUpperInvariant(); Bits = 515; Full = $true },
+                    @{ Path = $selected.Replace('\Windows Kits\', '/Windows Kits\\'); Bits = 131; Full = $true },
+                    @{ Path = ('  \"' + $selected.Replace('\', '\\') + "'   "); Bits = 483; Full = $true },
+                    @{ Path = ('.load "' + $selected + '"'); Bits = 51; Full = $true },
+                    @{ Path = ('".load \"' + $selected + '\""'); Bits = 115; Full = $true },
+                    @{ Path = $selected.Substring(0, 10); Bits = 5; Full = $false },
+                    @{ Path = 'winxp/exts.dll'; Bits = 137; Full = $false },
+                    @{ Path = $selected.Replace('\winxp\', '\other\..\winxp\'); Bits = 1; Full = $false },
+                    @{ Path = 'C:\private\exts.dll'; Bits = 1; Full = $false },
+                    @{ Path = ('.load .load "' + $selected + '"'); Bits = 49; Full = $false },
+                    @{ Path = 'C:\private\unknown-file.dll'; Bits = 1; Full = $false },
+                    @{ Path = 'C:\private\exts-other.dll'; Bits = 1; Full = $false }
+                )
+                foreach ($control in $controls) {
+                    $facts = Get-HermesStartupLibraryLexicalFacts $selected $control.Path
+                    Assert-Control (($facts.Display -band $control.Bits) -eq $control.Bits `
+                        -and (($facts.Display -band 2) -eq 2) -eq $control.Full `
+                        -and $facts.Display -is [int] -and $facts.Module -is [int] -and $facts.Suffix -is [int])
+                }
+                foreach ($path in @('C:\private\unknown-file.dll', 'C:\private\exts-other.dll',
+                        'C:\private\pre-exts.dll', 'C:\private\extsX.dll')) {
+                    $facts = Get-HermesStartupLibraryLexicalFacts $selected $path
+                    Assert-Control ($facts.Module -eq 0 -and $facts.Suffix -eq 0 -and $facts.Display -eq 1)
+                }
+            }
+            181 {
+                foreach ($parse in @($true, $false)) {
+                    $state.Observations.SdkSelectedExtensionChain = 0
+                    $state.Observations.SdkChainLines = 0
+                    $state.Observations.SdkChainSupportedRows = 0
+                    $state.Initial = [uint32]0
+                    $state.ChainPending = $false
+                    $state.ChainCollecting = $false
+                    $state.ExtensionExpected = 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\winxp\exts.dll'
+                    $text = "Extension DLL search Path:`n    C:\private\search.dll`n" +
+                        "Extension DLL chain:`n    other: image 10.0.1.2, API 1.0.0`n" +
+                        "        [path: C:\private\other.dll]`n`nunknown unindented chain format`n" +
+                        "    C:\private\exts.dll: image 10.0.1.2, API 1.0.0`n" +
+                        '0:000> .printf "HERMES_CDB v=1 kind=0 pid=%u\n", @$tpid' + "`n" +
+                        "HERMES_CDB v=1 kind=0 pid=11`nafter collection`n"
+                    $stream = if ($parse) { $state.Out } else { $state.Err }
+                    for ($offset = 0; $offset -lt $text.Length; $offset += 5) {
+                        Add-HermesStartupText $state $stream (
+                            $text.Substring($offset, [Math]::Min(5, $text.Length - $offset))) $parse
+                    }
+                    $observed = New-HermesStartupObservations $state
+                    Assert-Control ($observed.SdkChainLines -eq $(if ($parse) { 4 } else { 0 }) `
+                        -and $observed.SdkChainSupportedRows -eq $(if ($parse) { 2 } else { 0 }) `
+                        -and $observed.SdkSelectedExtensionChain -eq [int]$parse `
+                        -and $observed.FlagsAccepted -eq 0 -and $observed.ParserUnknown -eq 0 `
+                        -and $observed.ParserProtocol -eq 0 -and -not $state.ChainCollecting `
+                        -and -not (Test-HermesStartupArm $state) -and -not $state.Acked)
+                }
+            }
+            182 {
+                $selected = 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\winxp\exts.dll'
+                foreach ($expected in @('', $null, 1, @{ path = 'private' },
+                        ('C:\' + ('x' * 240)), 'C:\private";.echo injected', ('C:\private' + [char]128))) {
+                    $facts = Get-HermesStartupLibraryLexicalFacts $expected 'exts.dll'
+                    Assert-Control ($facts.Module -eq 0 -and $facts.Suffix -eq 0 -and $facts.Display -eq 0)
+                }
+                foreach ($path in @('', ('x' * 1025), ("C:\private`nexts.dll"), ("C:\private" + [char]0))) {
+                    $facts = Get-HermesStartupLibraryLexicalFacts $selected $path
+                    Assert-Control ($facts.Module -eq 0 -and $facts.Suffix -eq 0 -and $facts.Display -eq 0)
+                }
+                $facts = Get-HermesStartupLibraryLexicalFacts $selected (('x' * 1015) + '\exts.dll')
+                Assert-Control ($facts.Module -eq 1 -and $facts.Suffix -eq 2 -and $facts.Display -eq 1)
+                foreach ($code in @('2', '4294967296')) {
+                    foreach ($name in @('SdkCommandErrors', 'SdkLoadLibraryWin32Error',
+                            'SdkLoadLibraryPathShape', 'SdkLoadLibraryRelation', 'SdkLoadLibraryForm',
+                            'SdkLoadLibraryLexicalModule', 'SdkLoadLibraryLexicalSuffix', 'SdkLoadLibraryDisplay')) {
+                        $state.Observations[$name] = 0
+                    }
+                    $state.ExtensionExpected = $selected
+                    Add-HermesStartupText $state $state.Err (
+                        'The call to LoadLibrary( \"C:/private\\exts.dll'' ) failed, Win32 error 0n' + $code + "`n") $false
+                    $before = (New-HermesStartupObservations $state) | ConvertTo-Json -Compress
+                    Add-HermesStartupText $state $state.Out (
+                        'The call to LoadLibrary(' + $selected + ') failed, Win32 error 0n126' + "`n") $true
+                    Assert-Control (((New-HermesStartupObservations $state) | ConvertTo-Json -Compress) -ceq $before `
+                        -and (New-HermesStartupObservations $state).SdkLoadLibraryWin32Error -eq $(
+                            if ($code -ceq '2') { 2 } else { 0 }) `
+                        -and (New-HermesStartupObservations $state).SdkLoadLibraryLexicalModule -eq $(
+                            if ($code -ceq '2') { 1 } else { 0 }))
+                }
+            }
+            183 {
+                $state.ExtensionExpected = 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\winxp\exts.dll'
+                Add-HermesStartupText $state $state.Out (
+                    "Extension DLL chain:`n    $($state.ExtensionExpected): image 10.0.1.2, API 1.0.0`n" +
+                    "HERMES_CDB v=1 kind=0 pid=11`nHERMES_CDB v=1 kind=1 pid=22`n" +
+                    "Last event: 16.1: Create process 1:16`n") $true
+                Add-HermesStartupText $state $state.Err (
+                    'The call to LoadLibrary( \"' + $state.ExtensionExpected.Replace('\', '/') +
+                    "' ) failed, Win32 error 0n2`nCurrent NtGlobalFlag contents: 0x00000002`n") $false
+                Add-HermesStartupLine $state 'HERMES_CDB v=1 kind=2 pid=22'
+                Update-HermesStartupRows $state ($targetRow + "`n")
+                $report = New-HermesStartupReport $state $false $false
+                Assert-Control ($report.observations.SdkChainLines -eq 1 `
+                    -and $report.observations.SdkChainSupportedRows -eq 1 `
+                    -and $report.observations.SdkLoadLibraryLexicalModule -eq 1 `
+                    -and ($report.observations.SdkLoadLibraryDisplay -band 2) -eq 2 `
+                    -and $report.observations.FlagsAccepted -eq 0 -and $report.observations.ArmFlag2 -eq 0 `
+                    -and -not (Test-HermesStartupArm $state) -and -not $state.Acked `
+                    -and $report.completed -eq 0 -and $report.armingVerified -eq 0 `
+                    -and $report.firstFailureKind -eq 0 -and $report.nativeAcceptance -eq 0)
+            }
+            184 {
+                $state.Out.Hash.Dispose()
+                $state.Err.Hash.Dispose()
+                $state = New-ControlFixture
+                $state.ExtensionExpected = 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\winxp\exts.dll'
+                $before = New-HermesStartupReport $state $true $true
+                Add-HermesStartupLine $state (
+                    'The call to LoadLibrary( \"C:/private\\ntsdexts.dll'' ) failed, Win32 error 0n2')
+                $report = New-HermesStartupReport $state $true $true
+                foreach ($name in $before.Keys | Where-Object { $_ -cne 'observations' }) {
+                    Assert-Control ($report[$name] -ceq $before[$name])
+                }
+                Assert-Control ($report.observations.SdkLoadLibraryLexicalModule -eq 3 `
+                    -and $report.observations.SdkLoadLibraryLexicalSuffix -eq 2 `
+                    -and $report.armingVerified -eq 1 -and $report.completed -eq 1)
+            }
+            185 {
+                $limits = @{
+                    SdkLoadLibraryLexicalModule = 12; SdkLoadLibraryLexicalSuffix = 5
+                    SdkLoadLibraryDisplay = 1023; SdkChainLines = 8388608; SdkChainSupportedRows = 8388608
+                }
+                foreach ($name in $limits.Keys) {
+                    $maximum = $limits[$name]
+                    foreach ($value in @(-1, ($maximum + 1), [long]1, 1.5, $true, $null,
+                            '1', @{ text = 'C:\private\exts.dll' })) {
+                        $state.Observations[$name] = $value
+                        $observed = New-HermesStartupObservations $state
+                        Assert-Control ($observed[$name] -is [int] -and $observed[$name] -eq 0)
+                    }
+                    foreach ($value in @(0, 1, $maximum)) {
+                        $state.Observations[$name] = $value
+                        Assert-Control ((New-HermesStartupObservations $state)[$name] -eq $value)
+                    }
+                }
+                foreach ($name in @('DebuggerSha256', 'HelperSha256', 'CommandSha256',
+                        'CreateCommandSha256', 'ExitCommandSha256')) { $state[$name] = 'f' * 64 }
+                $state.Out.Fingerprint = 'f' * 64
+                $state.Err.Fingerprint = 'f' * 64
+                $report = New-HermesStartupReport $state $true $true
+                $json = $report | ConvertTo-Json -Depth 4 -Compress
+                Assert-Control ($report.observations.Count -eq 54 `
+                    -and [Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
+                    -and $json -notmatch 'private|exts\.dll|LoadLibrary\(|C:' `
+                    -and $report.completed -eq 0 -and $report.armingVerified -eq 0)
+            }
+            186 {
+                $state.ExtensionExpected = 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\winxp\exts.dll'
+                $text = "Extension DLL chain:`nunknown unindented format`n" +
+                    'The call to LoadLibrary( \"C:/private\\gflag.dll'' ) failed, Win32 error 0n2' + "`n"
+                for ($offset = 0; $offset -lt $text.Length; $offset++) {
+                    Add-HermesStartupText $state $state.Out $text.Substring($offset, 1) $true
+                }
+                Add-HermesStartupText $state $state.Err ('x' * 4096) $false
+                Add-HermesStartupText $state $state.Err ('x' * 4096) $false
+                Add-HermesStartupText $state $state.Err "`n" $false
+                $observed = New-HermesStartupObservations $state
+                Assert-Control ($observed.SdkLoadLibraryLexicalModule -eq 4 `
+                    -and $observed.SdkLoadLibraryLexicalSuffix -eq 2 `
+                    -and $observed.SdkChainLines -eq 2 -and $observed.SdkChainSupportedRows -eq 0 `
+                    -and $state.Err.Prefix.Length -eq 4096 -and $state.Err.Tail.Length -eq 0)
+                $before = $observed | ConvertTo-Json -Compress
+                $state.AcceptedUtf8Bytes = [long]8388607
+                Add-HermesStartupText $state $state.Err "`n" $false
+                Add-HermesStartupText $state $state.Out (
+                    "Extension DLL chain:`n    $($state.ExtensionExpected): image 10.0.1.2, API 1.0.0`n") $true
+                $report = New-HermesStartupReport $state $true $true
+                $json = $report | ConvertTo-Json -Depth 4 -Compress
+                Assert-Control ($state.Bounds -eq 1 -and $state.AcceptedUtf8Bytes -eq 8388608 `
+                    -and ($report.observations | ConvertTo-Json -Compress) -ceq $before `
+                    -and $report.completed -eq 0 -and $report.armingVerified -eq 0 `
+                    -and $report.status -eq 7 -and [Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
+                    -and $json -notmatch 'private|Program Files|Windows Kits|exts\.dll|gflag\.dll|LoadLibrary\(|C:')
             }
         }
         $passed++

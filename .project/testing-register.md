@@ -2,6 +2,22 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Untrusted lexical facts distinguish SDK display and chain-format failures
+
+The last Windows report records error 2 but matches none of the fixed
+missing-library variants. The selected-extension chain header is present
+without a supported selected row; neither observation identifies the cause.
+
+Five numeric observations now classify a fixed module stem/suffix, lexical
+selected-source display relationship, and chain line/support counts.
+Private lexical transforms do not resolve files, admit paths, identify a
+loaded module or satisfy arming. Raw payloads remain private.
+
+All 186 pure controls and the report-bound checks pass. Every prior intent
+is retained; commands and source authority are unchanged. Current published
+`8541eeb` passes both supported OS jobs and Tray, with only the original
+PowerShell assertion failing in the 460/461 native result.
+
 ## All four owned-child adapter cases pass on actual Windows
 
 Run 39663397530 at `e79d7ff` executes all 461 native cases: 460 pass, one
