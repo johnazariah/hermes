@@ -170,7 +170,8 @@ internal static partial class PackageAuthoringValidator
         var registry = point.Read(CandidateValidatorRegistry, () => ReadRegistry(snapshot, manifest));
         var components = point.Read(CandidateValidatorComponents, () => ReadComponents(snapshot, manifest, registry));
         point.Check(CandidateValidatorFeature, () => ValidateFeature(snapshot, components));
-        return new(manifest, mode, point.Read(CandidateValidatorGuard, () => ReadGuard(snapshot, approvedGuards)),
+        return new(manifest, mode, point.Read(CandidateValidatorGuard,
+            () => ReadGuard(snapshot, approvedGuards, point)),
             components, registry, point.Read(CandidateValidatorShortcut, () => ReadShortcut(snapshot, manifest)),
             point.Read(CandidateValidatorRemovals, () => ReadRemovals(snapshot, manifest)));
     }
@@ -448,12 +449,15 @@ internal static partial class PackageAuthoringValidator
     }
 
     private static GuardImageObservation ReadGuard(
-        PackageAuthoringSnapshot snapshot, ApprovedGuardProfile approved)
+        PackageAuthoringSnapshot snapshot, ApprovedGuardProfile approved,
+        CandidateValidatorSourcePoint point)
     {
         var bytes = snapshot.RequireBinary(GuardBinary);
         Require(bytes.Length <= 32 * 1024 * 1024);
-        var observation = GuardImageInspection.Read(bytes);
-        Require(approved.Sha256.Contains(observation.Sha256));
+        var observation = point.Read(CandidateGuardInspection,
+            () => GuardImageInspection.Read(bytes));
+        point.Check(CandidateGuardApprovedHash,
+            () => Require(approved.Sha256.Contains(observation.Sha256)));
         return observation;
     }
 

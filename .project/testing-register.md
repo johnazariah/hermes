@@ -2,6 +2,22 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Guard refusal distinguishes inspection from approved-hash membership
+
+Actual cause 35 leaves guard acquisition/bounds, PE inspection and approval
+membership indistinguishable. The source-reviewed refinement adds only cause
+42 for inspection and 43 for the subsequent approved-hash check. Input bounds
+retain cause 35; all PE/export, hash, ABI and callback policy remains unchanged.
+The existing stage-10/zero-auxiliary numeric wire admits only the new fixed
+values and retains the original privacy/bounds.
+
+Nineteen additional discovered cases cover input bounds, malformed and
+strict-export hash-approved synthetic images, hash-denial precedence,
+three positive modes, exception identity and evidence priority. Collection
+assertions preserve the approved set's own comparer. Parent passes 921 Setup,
+2,182 Core, warning-free root/Windows cross-builds and all static controls.
+The actual next guard predicate remains for normal Windows execution.
+
 ## Sequence validation uses the pinned producer's actual admin action name
 
 Pinned WiX v6 requires unconditional InstallAdminPackage at 3900; the

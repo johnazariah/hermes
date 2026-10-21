@@ -76,7 +76,7 @@ public sealed partial class SetupEvidenceTests
             .Cell("RemoveFile", 0, 2, "*").Guard([0], approveSyntheticImage: false);
         var database = new BoundaryDatabase(world.Database, authoring: changed.Snapshot);
         AssertRefused(await RunBoundaryAsync(world, database), SetupVerb.Install,
-            BoundaryEvidence(SetupEvidenceCause.CandidateValidatorGuard), SetupCode.MediaInvalid);
+            BoundaryEvidence(SetupEvidenceCause.CandidateGuardInspection), SetupCode.MediaInvalid);
         AssertNoMutation(world);
     }
 
@@ -135,7 +135,7 @@ public sealed partial class SetupEvidenceTests
         Assert.InRange(evidence.ToDiagnosticLine().Length, 1,
             SetupRefusalEvidence.MaximumDiagnosticLength);
         Assert.Matches(
-            @"\AHERMES_SETUP_EVIDENCE v=1 stage=10 cause=(19|[23][0-9]|4[01]) fault=0 errorKind=0 error=0\z",
+            @"\AHERMES_SETUP_EVIDENCE v=1 stage=10 cause=(19|[23][0-9]|4[0-3]) fault=0 errorKind=0 error=0\z",
             evidence.ToDiagnosticLine());
         var result = await RunAsync(new ThrowingFactory(
             new SetupIoException(SetupCode.MediaInvalid, evidence)), SetupVerb.Install, source);

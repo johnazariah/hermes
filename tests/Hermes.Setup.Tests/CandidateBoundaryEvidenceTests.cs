@@ -14,7 +14,7 @@ public sealed partial class SetupEvidenceTests
         using var world = new RootFixture();
         var source = BoundaryPackagePath(world);
         var causes = Enum.GetValues<SetupEvidenceCause>().Where(cause => (int)cause >= 19).ToArray();
-        Assert.Equal(Enumerable.Range(19, 23), causes.Select(cause => (int)cause));
+        Assert.Equal(Enumerable.Range(19, 25), causes.Select(cause => (int)cause));
         foreach (var cause in causes)
             await AssertCandidateBoundaryAsync(cause, source);
     }
@@ -28,7 +28,7 @@ public sealed partial class SetupEvidenceTests
         SetupRefusalEvidence?[] values = [null,
             valid with { Stage = SetupEvidenceStage.CurrentPackage },
             valid with { Cause = SetupEvidenceCause.Rejected },
-            valid with { Cause = (SetupEvidenceCause)42 },
+            valid with { Cause = (SetupEvidenceCause)44 },
             valid with { Fault = ObservationFault.NativeQuery },
             valid with { ErrorKind = StartupEvidenceErrorKind.HResult },
             valid with { ErrorCode = 1 }];
@@ -122,7 +122,7 @@ public sealed partial class SetupEvidenceTests
             Binaries = snapshot.Binaries.SetItem("HermesServicingGuard", malformed)
         });
         AssertRefused(await RunBoundaryAsync(world, database), SetupVerb.Install,
-            BoundaryEvidence(SetupEvidenceCause.CandidateValidatorGuard), SetupCode.MediaInvalid);
+            BoundaryEvidence(SetupEvidenceCause.CandidateGuardInspection), SetupCode.MediaInvalid);
         AssertNoMutation(world);
     }
 
@@ -149,6 +149,8 @@ public sealed partial class SetupEvidenceTests
     [InlineData(SetupEvidenceCause.CandidatePropertyName)]
     [InlineData(SetupEvidenceCause.CandidatePropertySecureSet)]
     [InlineData(SetupEvidenceCause.CandidatePropertyValue)]
+    [InlineData(SetupEvidenceCause.CandidateGuardInspection)]
+    [InlineData(SetupEvidenceCause.CandidateGuardApprovedHash)]
     public void BoundaryAnnotationPreservesTheOriginalExceptionInstanceAndCode(object sourcePoint)
     {
         var cause = Assert.IsType<SetupEvidenceCause>(sourcePoint);
@@ -166,6 +168,8 @@ public sealed partial class SetupEvidenceTests
     [InlineData(SetupEvidenceCause.CandidatePropertyName)]
     [InlineData(SetupEvidenceCause.CandidatePropertySecureSet)]
     [InlineData(SetupEvidenceCause.CandidatePropertyValue)]
+    [InlineData(SetupEvidenceCause.CandidateGuardInspection)]
+    [InlineData(SetupEvidenceCause.CandidateGuardApprovedHash)]
     public void ExistingNativeEvidenceHasPriorityOverTheCoarseBoundary(object sourcePoint)
     {
         var cause = Assert.IsType<SetupEvidenceCause>(sourcePoint);
@@ -180,9 +184,13 @@ public sealed partial class SetupEvidenceTests
         Assert.Equal(SetupCode.MediaInvalid, actual.Code);
     }
 
-    [Fact]
-    public void BoundaryObservationDoesNotCatchOrReclassifyOtherExceptions()
+    [Theory]
+    [InlineData(SetupEvidenceCause.CandidateMediaRead)]
+    [InlineData(SetupEvidenceCause.CandidateGuardInspection)]
+    [InlineData(SetupEvidenceCause.CandidateGuardApprovedHash)]
+    public void BoundaryObservationDoesNotCatchOrReclassifyOtherExceptions(object sourcePoint)
     {
+        var cause = Assert.IsType<SetupEvidenceCause>(sourcePoint);
         Exception[] errors = [new IOException("sensitive"), new UnauthorizedAccessException("sensitive"),
             new Win32Exception(87, "sensitive"), new BadImageFormatException("sensitive"),
             new OperationCanceledException("sensitive"), new InvalidOperationException("sensitive"),
@@ -190,7 +198,7 @@ public sealed partial class SetupEvidenceTests
         foreach (var error in errors)
         {
             var actual = Assert.Throws(error.GetType(), () =>
-                CandidateMediaEvidence.Read<int>(SetupEvidenceCause.CandidateMediaRead, () => throw error));
+                CandidateMediaEvidence.Read<int>(cause, () => throw error));
             Assert.Same(error, actual);
         }
     }

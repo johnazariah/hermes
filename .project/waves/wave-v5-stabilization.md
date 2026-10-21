@@ -100,6 +100,20 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Guard rejection preserves strict inspection and hash boundaries
+
+- **Changed:** The source-approved diagnostic distinguishes PE inspection from the later approved-hash check with only two fixed numeric causes. Input bounds and all PE/export/hash/ABI/callback policy, catches and evidence priority remain unchanged.
+- **Validation:** Parent passes 921 Setup cases, including 19 additional boundary/precedence/identity controls, and 2,182 Core. Root/Windows cross-builds are warning-free and all static controls pass. The author corrects collection assertion syntax without changing its comparer or suppressing analyzers.
+- **Boundary:** The previously reported guard SHA does not establish embedded Binary equality or compiled-profile membership. No native export cardinality or particular PE failure is inferred from cause 35.
+- **Next:** Publish and obtain the one remaining inspection-versus-approval fact from normal exact-head Windows execution.
+
+### 2026-10-21 - Actual admin sequence passes; guard-image admission is next
+
+- **Evidence:** Published `e071062` run `39535027107` passes actual unconditional InstallAdminPackage-at-3900 readback and language readback for both MSI versions, both complete 699-warning validations and all 57 native cases.
+- **Progress:** Install now reaches stage 10/cause 35. Sequence, directory, registry, component and feature checks return; ReadGuard, including its existing expected-exception conversion, rejects. No particular PE/profile predicate is yet observed.
+- **Boundary:** First SDK-free Install remains Refused/MediaInvalid; Recover reports NoRecoveryPending and cleanup has no failures. PR #30 remains draft and main is unchanged. Retained reports total about 11.9 MB; the two caches remain about 80.6 MB.
+- **Next:** A fresh C# specialist traces only the real guard-image/profile/build contract without weakening approved hashes, ABI or callback authority.
+
 ### 2026-10-21 - Strict sequence policy recognises InstallAdminPackage
 
 - **Changed:** Pinned WiX requires unconditional InstallAdminPackage at 3900, while two validator entries used AdminPackage. The source-approved correction changes only those names and adds actual compiled-row readback before ICE/receipt completion; all positions, conditions, guards and advertisement refusal remain.

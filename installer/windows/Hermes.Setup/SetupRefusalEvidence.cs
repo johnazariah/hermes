@@ -67,7 +67,9 @@ internal enum SetupEvidenceCause
     CandidatePropertyCount = 38,
     CandidatePropertyName = 39,
     CandidatePropertySecureSet = 40,
-    CandidatePropertyValue = 41
+    CandidatePropertyValue = 41,
+    CandidateGuardInspection = 42,
+    CandidateGuardApprovedHash = 43
 }
 
 internal sealed record SetupRefusalEvidence(
@@ -103,7 +105,9 @@ internal sealed record SetupRefusalEvidence(
             or SetupEvidenceCause.CandidatePropertyCount
             or SetupEvidenceCause.CandidatePropertyName
             or SetupEvidenceCause.CandidatePropertySecureSet
-            or SetupEvidenceCause.CandidatePropertyValue) &&
+            or SetupEvidenceCause.CandidatePropertyValue
+            or SetupEvidenceCause.CandidateGuardInspection
+            or SetupEvidenceCause.CandidateGuardApprovedHash) &&
         Fault == ObservationFault.None &&
         ErrorKind == StartupEvidenceErrorKind.None && ErrorCode == 0;
 
