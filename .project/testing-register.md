@@ -2,6 +2,22 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Callback execution exposes the remaining SDK flag-command boundary
+
+Actual run 39654782472 at `84357dc` executes the fixed callback files.
+Create and exit events match the held target; both helper rows are present
+and parent state is unchanged. No loader-flag readback is accepted, so arming
+is withheld and cleanup remains incomplete.
+
+One closed numeric bitmask now distinguishes known SDK messages for library
+loading, the gflag export, PEB reads and ntdll symbols. It examines bounded
+stdout/stderr lines without admitting stderr as identity or event evidence.
+Zero means no known message matched, not command success.
+
+All 156 pure controls and installer static controls pass. The report retains
+its 4,096-byte limit with 44 numeric observations; debugger commands, pins,
+child authority and resume conditions are unchanged.
+
 ## Windows owned-child adapter has four mandatory real-process cases
 
 Four hosted-High cases now exercise the real `OwnedChild` and component

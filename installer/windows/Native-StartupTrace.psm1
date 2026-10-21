@@ -28,7 +28,7 @@ function New-HermesStartupState {
             MarkerMalformed = 0; MarkerMalformedKind = 0; MarkerEcho = 0
             LastEventSeen = 0; CreateEventSeen = 0; CreateEventAccepted = 0
             ExitEventSeen = 0; ExitEventAccepted = 0
-            FlagsSeen = 0; FlagsAccepted = 0
+            FlagsSeen = 0; FlagsAccepted = 0; SdkCommandErrors = 0
             CprFilter = 0; EprFilter = 0
             CprCommandShape = 0; EprCommandShape = 0
             CprCommandTransform = 0; EprCommandTransform = 0
@@ -47,7 +47,7 @@ function Get-HermesStartupObservation {
         [ValidateSet('Marker0', 'Marker1', 'Marker2', 'Marker3', 'Marker4',
             'MarkerMalformed', 'MarkerMalformedKind', 'MarkerEcho',
             'LastEventSeen', 'CreateEventSeen', 'CreateEventAccepted',
-            'ExitEventSeen', 'ExitEventAccepted', 'FlagsSeen', 'FlagsAccepted',
+            'ExitEventSeen', 'ExitEventAccepted', 'FlagsSeen', 'FlagsAccepted', 'SdkCommandErrors',
             'CprFilter', 'EprFilter', 'CprCommandShape', 'EprCommandShape',
             'CprCommandTransform', 'EprCommandTransform',
             'CprPayloadLength', 'EprPayloadLength', 'CprSourceLength', 'EprSourceLength')]
@@ -451,9 +451,29 @@ function Add-HermesStartupFilterReadback {
     }
 }
 
+function Add-HermesStartupSdkError {
+    param([hashtable]$State, [string]$Line)
+    if ($Line.Length -gt 4096) { return }
+    # Closed SDK message shapes only, not command success or target evidence.
+    # !gflag belongs to Exts.dll; a missing export is not a LoadLibrary diagnosis.
+    # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/-gflag
+    # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/using-debugger-extension-commands
+    # https://learn.microsoft.com/windows-hardware/drivers/debugger/verifying-symbols
+    $kind = switch -CaseSensitive -Regex ($Line) {
+        '\AThe call to LoadLibrary\([^\x00-\x1f]{1,1024}\) failed, Win32 error 0n[0-9]{1,10}\z' { 1; break }
+        '\ANo export gflag found\z' { 2; break }
+        '\AUnable to read PEB\z' { 4; break }
+        '\A\*\*\* ERROR: (?:Symbols|Module load completed but symbols) could not be loaded for ntdll\.dll\z' { 8; break }
+        default { 0 }
+    }
+    $State.Observations.SdkCommandErrors =
+        (Get-HermesStartupObservation $State 'SdkCommandErrors' 15) -bor $kind
+}
+
 function Add-HermesStartupLine {
     param([hashtable]$State, [string]$Line)
     if ($Line.Length -gt 4096) { $State.Bounds = 1; return }
+    Add-HermesStartupSdkError $State $Line
     Add-HermesStartupFilterReadback $State $Line
     if ($Line -cmatch '\AHERMES_CDB v=1 kind=(?<kind>[0-4]) pid=(?<pid>[1-9][0-9]{0,9})\z') {
         $kind = [int]$Matches.kind
@@ -532,21 +552,22 @@ function Add-HermesStartupText {
     if ($keep -gt 0) { $Stream.Prefix += $Chunk.Substring(0, $keep) }
     # The last admitted byte is accounted for, but exhaustion ends collection.
     if ($State.AcceptedUtf8Bytes -ge 8388608) { $State.Bounds = 1; return }
-    if (-not $Parse) { return }
     $pieces = @($Chunk -split "`n")
     for ($index = 0; $index -lt $pieces.Count; $index++) {
         $last = $index -eq $pieces.Count - 1
         if (-not $Stream.DiscardLine) {
             $Stream.Tail += $pieces[$index]
             if ($Stream.Tail.Length -gt 4096) {
-                $State.Bounds = 1
+                if ($Parse) { $State.Bounds = 1 }
                 $Stream.Tail = ''
                 $Stream.DiscardLine = $true
             }
         }
         if (-not $last) {
             if (-not $Stream.DiscardLine) {
-                Add-HermesStartupLine $State ($Stream.Tail.TrimEnd("`r"))
+                $line = $Stream.Tail.TrimEnd("`r")
+                if ($Parse) { Add-HermesStartupLine $State $line }
+                else { Add-HermesStartupSdkError $State $line }
             }
             $Stream.Tail = ''
             $Stream.DiscardLine = $false
@@ -563,6 +584,10 @@ function New-HermesStartupObservations {
             'FlagsSeen', 'FlagsAccepted')) {
         $observations[$name] = Get-HermesStartupObservation $State $name
     }
+    # Message-presence bits only: 1 = LoadLibrary failure, 2 = missing gflag
+    # export, 4 = unreadable PEB, 8 = ntdll symbol load failure. Zero means
+    # none recognised, not success. Stdout/stderr never supply new authority.
+    $observations.SdkCommandErrors = Get-HermesStartupObservation $State 'SdkCommandErrors' 15
     # 0 = no recognised header; 1..5 = break/second-chance/output/ignore/unknown.
     # Add 8 only for the immediately following, exact pinned callback command.
     # Neither the filter nor callback readback proves that an event occurred.

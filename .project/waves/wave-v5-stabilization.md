@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Real callbacks bind the target but loader-flag arming remains absent
+
+- **Evidence:** Published `84357dc`, run `39654782472`, job `119412052673`, executes create and exit callback files. Current/event PIDs match the held target, helper final state is present and parent state is unchanged. Flag readback stays absent; arming and complete cleanup remain false.
+- **Changed:** Closed numeric SDK-message bits classify library/export/PEB/symbol failures from bounded stdout/stderr. They add no identity, flag or acceptance authority; unknown message shapes remain unavailable.
+- **Validation:** Parent review, all 156 pure controls and full installer static controls pass. Pins, commands, single-resume requirements, output budgets and genuine PowerShell assertion are unchanged.
+- **Blockers:** The actual SDK refusal category and PowerShell initialisation cause remain unproved.
+- **Next:** Publish and read the specific SDK-command category before changing extension loading or debugger event sequencing.
+
 ### 2026-10-22 - Four real Windows adapter cases join the unchanged native baseline
 
 - **Changed:** A fresh C# owner adds controlled real-process completion/noise/deadline cases through the actual owned-child adapter. Pinned constant scripts, source image/PID identity, closed streams, settled drains and parent preservation are required; only the owned child can be terminated.

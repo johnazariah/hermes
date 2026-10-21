@@ -316,7 +316,7 @@ function Get-HermesSetupPublishFiles {
     }
 }
 
-$cases = 1..147 # Original 143 controls + 4 Windows callback-encoding controls.
+$cases = 1..156 # Original 143 + 4 callback-encoding + 9 closed SDK-error controls.
 $passed = 0
 foreach ($case in $cases) {
     $state = $null
@@ -970,7 +970,7 @@ foreach ($case in $cases) {
             63 {
                 $state = New-HermesStartupState
                 $report = New-HermesStartupReport $state $false $false
-                Assert-Control ($report.observations.Count -eq 43)
+                Assert-Control ($report.observations.Count -eq 44)
                 foreach ($value in $report.observations.Values) {
                     Assert-Control ($value -is [int] -and $value -eq 0)
                 }
@@ -2150,7 +2150,7 @@ foreach ($case in $cases) {
                     Assert-Control ($report.observations[$field] -is [int])
                 }
                 $json = $report | ConvertTo-Json -Depth 4 -Compress
-                Assert-Control ($report.observations.Count -eq 43 `
+                Assert-Control ($report.observations.Count -eq 44 `
                     -and [Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
                     -and $json -notmatch 'Users|Example|AppData|Temp|Command:|\$\$><' `
                     -and $report.armingVerified -eq 0 -and $report.completed -eq 0 `
@@ -2283,6 +2283,122 @@ foreach ($case in $cases) {
                         -and $report.firstFailureKind -eq 0 -and $report.nativeAcceptance -eq 0 `
                         -and $script:controlArms -eq 0)
                 }
+            }
+            { $_ -in 148..151 } {
+                $message = @(
+                    'The call to LoadLibrary(C:\private SDK (x86)\exts.dll) failed, Win32 error 0n126',
+                    'No export gflag found',
+                    'Unable to read PEB',
+                    '*** ERROR: Symbols could not be loaded for ntdll.dll'
+                )[$case - 148]
+                $expected = 1 -shl ($case - 148)
+                foreach ($parse in @($true, $false)) {
+                    $state.Out.Hash.Dispose()
+                    $state.Err.Hash.Dispose()
+                    $state = New-ControlOpenBlock
+                    Add-HermesStartupLine $state 'Last event: 16.1: Create process 1:16'
+                    $stream = if ($parse) { $state.Out } else { $state.Err }
+                    $text = $message + "`r`n"
+                    for ($index = 0; $index -lt $text.Length; $index += 3) {
+                        Add-HermesStartupText $state $stream (
+                            $text.Substring($index, [Math]::Min(3, $text.Length - $index))) $parse
+                    }
+                    Add-HermesStartupLine $state 'HERMES_CDB v=1 kind=2 pid=22'
+                    $report = New-HermesStartupReport $state $false $false
+                    $observed = $report.observations
+                    Assert-Control ($observed.SdkCommandErrors -eq $expected `
+                        -and $observed.CreateEventAccepted -eq 1 -and $observed.ArmKind -eq 1 `
+                        -and $observed.ArmCurrentMatchesTarget -eq 1 -and $observed.ArmEventMatchesTarget -eq 1 `
+                        -and $observed.FlagsSeen -eq 0 -and $observed.FlagsAccepted -eq 0 `
+                        -and $observed.ArmFlag2 -eq 0 -and $observed.ParserUnknown -eq 1 `
+                        -and $observed.ParserProtocol -eq 0 -and -not (Test-HermesStartupArm $state) `
+                        -and -not $state.Acked -and $report.armingVerified -eq 0 `
+                        -and $report.completed -eq 0 -and $report.firstFailureKind -eq 0 `
+                        -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0)
+                    $json = $report | ConvertTo-Json -Depth 4 -Compress
+                    Assert-Control ([Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
+                        -and $json -notmatch 'private|exts|LoadLibrary|gflag|PEB|ntdll|Symbols')
+                }
+            }
+            152 {
+                foreach ($line in @(
+                    'No export other found', 'no export gflag found', 'No export Gflag found',
+                    'No export gflag found trailing', '0:000> No export gflag found',
+                    '.echo No export gflag found', 'prefix Unable to read PEB',
+                    'Unable to read PEB trailing', 'Unable to read other memory',
+                    'The call to LoadLibrary(C:\private\exts.dll) succeeded, Win32 error 0n126',
+                    'The call to LoadLibrary(C:\private\exts.dll) failed, Win32 error unknown',
+                    '*** ERROR: Symbols could not be loaded for private.dll',
+                    '*** WARNING: Symbols could not be loaded for ntdll.dll',
+                    'CN=private S-1-5-21-123 --command'
+                )) {
+                    Add-HermesStartupLine $state $line
+                    Assert-Control ((New-HermesStartupObservations $state).SdkCommandErrors -eq 0)
+                }
+                Assert-Control (-not (Test-HermesStartupArm $state) -and -not $state.Acked)
+            }
+            153 {
+                foreach ($line in @(
+                    'No export gflag found', 'Unable to read PEB',
+                    'The call to LoadLibrary(C:\private\exts.dll) failed, Win32 error 0n2',
+                    '*** ERROR: Module load completed but symbols could not be loaded for ntdll.dll'
+                )) {
+                    Add-HermesStartupLine $state $line
+                    Add-HermesStartupLine $state $line
+                }
+                Assert-Control ((New-HermesStartupObservations $state).SdkCommandErrors -eq 15)
+                foreach ($value in @(-1, 16, [long]1, 1.5, $true, $null,
+                        'private S-1-5-21-123', @{ text = 'LoadLibrary' })) {
+                    $state.Observations.SdkCommandErrors = $value
+                    $observed = New-HermesStartupObservations $state
+                    Assert-Control ($observed.SdkCommandErrors -is [int] -and $observed.SdkCommandErrors -eq 0)
+                }
+                foreach ($value in 0..15) {
+                    $state.Observations.SdkCommandErrors = $value
+                    Assert-Control ((New-HermesStartupObservations $state).SdkCommandErrors -eq $value)
+                }
+            }
+            154 {
+                Add-HermesStartupText $state $state.Err ('x' * 4096) $false
+                Add-HermesStartupText $state $state.Err "No export gflag found`n" $false
+                Assert-Control ($state.Bounds -eq 0 `
+                    -and (New-HermesStartupObservations $state).SdkCommandErrors -eq 0)
+                Add-HermesStartupText $state $state.Err 'No export gflag found' $false
+                Assert-Control ((New-HermesStartupObservations $state).SdkCommandErrors -eq 0)
+                Add-HermesStartupText $state $state.Err "`n" $false
+                Assert-Control ((New-HermesStartupObservations $state).SdkCommandErrors -eq 2)
+                $state.AcceptedUtf8Bytes = [long]8388607
+                $before = (New-HermesStartupObservations $state) | ConvertTo-Json -Compress
+                Add-HermesStartupText $state $state.Err "`n" $false
+                Add-HermesStartupText $state $state.Out "Unable to read PEB`n" $true
+                Assert-Control ($state.Bounds -eq 1 -and $state.AcceptedUtf8Bytes -eq 8388608 `
+                    -and ((New-HermesStartupObservations $state) | ConvertTo-Json -Compress) -ceq $before)
+            }
+            155 {
+                $state.Out.Hash.Dispose()
+                $state.Err.Hash.Dispose()
+                $state = New-ControlFixture
+                $before = New-HermesStartupReport $state $true $true
+                Add-HermesStartupLine $state 'No export gflag found'
+                $report = New-HermesStartupReport $state $true $true
+                foreach ($name in $before.Keys | Where-Object { $_ -cne 'observations' }) {
+                    Assert-Control ($report[$name] -ceq $before[$name])
+                }
+                Assert-Control ($report.observations.SdkCommandErrors -eq 2 `
+                    -and $report.armingVerified -eq 1 -and $report.completed -eq 1)
+            }
+            156 {
+                $text = "HERMES_CDB v=1 kind=0 pid=11`nHERMES_CDB v=1 kind=1 pid=22`n" +
+                    "Last event: 16.1: Create process 1:16`n" +
+                    "Current NtGlobalFlag contents: 0x00000002`nHERMES_CDB v=1 kind=2 pid=22`n" +
+                    "No export gflag found`n"
+                Add-HermesStartupText $state $state.Err $text $false
+                $observed = New-HermesStartupObservations $state
+                Assert-Control ($observed.SdkCommandErrors -eq 2 -and $observed.Marker0 -eq 0 `
+                    -and $observed.Marker1 -eq 0 -and $observed.FlagsSeen -eq 0 `
+                    -and $observed.FlagsAccepted -eq 0 -and $observed.CreateEventAccepted -eq 0 `
+                    -and $observed.ArmPresent -eq 0 -and $observed.ParserUnknown -eq 0 `
+                    -and $observed.ParserProtocol -eq 0 -and -not (Test-HermesStartupArm $state))
             }
         }
         $passed++
