@@ -161,7 +161,7 @@ internal static partial class PackageAuthoringValidator
     {
         var manifest = point.Read(CandidateValidatorManifest, () => ReadManifest(snapshot));
         point.Check(CandidateValidatorPayload, () => ValidatePayload(snapshot, manifest, mode));
-        point.Check(CandidateValidatorProperties, () => ValidateProperties(snapshot, manifest));
+        point.Check(CandidateValidatorProperties, () => ValidateProperties(snapshot, manifest, point));
         point.Check(CandidateValidatorSearch, () => ValidateSearch(snapshot));
         point.Check(CandidateValidatorUpgrade, () => ValidateUpgrade(snapshot, manifest));
         point.Check(CandidateValidatorActions, () => ValidateActions(snapshot));
@@ -362,16 +362,19 @@ internal static partial class PackageAuthoringValidator
             part.All(char.IsAsciiDigit) && Number(part) <= ushort.MaxValue);
 
     private static void ValidateProperties(
-        PackageAuthoringSnapshot snapshot, PayloadManifest manifest)
+        PackageAuthoringSnapshot snapshot, PayloadManifest manifest,
+        CandidateValidatorSourcePoint point)
     {
         var expected = ExpectedProperties(manifest);
         var rows = snapshot.RequireTable("Property");
-        Require(rows.Length == expected.Count &&
-            rows.All(row => expected.TryGetValue(row[0], out var value) &&
+        Require(point.Read(CandidatePropertyCount, () => rows.Length == expected.Count) &&
+            rows.All(row => point.Read(CandidatePropertyName, () =>
+                expected.TryGetValue(row[0], out var value) &&
                 (row[0] == "SecureCustomProperties"
-                    ? SamePropertySet(row[1], value)
-                    : string.Equals(row[1], value, row[0] is "ProductCode" or "UpgradeCode"
-                        ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))));
+                    ? point.Read(CandidatePropertySecureSet, () => SamePropertySet(row[1], value))
+                    : point.Read(CandidatePropertyValue, () =>
+                        string.Equals(row[1], value, row[0] is "ProductCode" or "UpgradeCode"
+                            ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))))));
     }
 
     private static ImmutableDictionary<string, string> ExpectedProperties(PayloadManifest manifest) =>

@@ -14,7 +14,7 @@ public sealed partial class SetupEvidenceTests
         using var world = new RootFixture();
         var source = BoundaryPackagePath(world);
         var causes = Enum.GetValues<SetupEvidenceCause>().Where(cause => (int)cause >= 19).ToArray();
-        Assert.Equal(Enumerable.Range(19, 19), causes.Select(cause => (int)cause));
+        Assert.Equal(Enumerable.Range(19, 23), causes.Select(cause => (int)cause));
         foreach (var cause in causes)
             await AssertCandidateBoundaryAsync(cause, source);
     }
@@ -28,7 +28,7 @@ public sealed partial class SetupEvidenceTests
         SetupRefusalEvidence?[] values = [null,
             valid with { Stage = SetupEvidenceStage.CurrentPackage },
             valid with { Cause = SetupEvidenceCause.Rejected },
-            valid with { Cause = (SetupEvidenceCause)38 },
+            valid with { Cause = (SetupEvidenceCause)42 },
             valid with { Fault = ObservationFault.NativeQuery },
             valid with { ErrorKind = StartupEvidenceErrorKind.HResult },
             valid with { ErrorCode = 1 }];
@@ -106,7 +106,7 @@ public sealed partial class SetupEvidenceTests
         var database = new BoundaryDatabase(world.Database,
             authoring: world.New.Authoring.Cell("Property", 5, 1, "sensitive").Snapshot);
         AssertRefused(await RunBoundaryAsync(world, database), SetupVerb.Install,
-            BoundaryEvidence(SetupEvidenceCause.CandidateValidatorProperties), SetupCode.MediaInvalid);
+            BoundaryEvidence(SetupEvidenceCause.CandidatePropertyValue), SetupCode.MediaInvalid);
         AssertNoMutation(world);
     }
 
@@ -143,26 +143,38 @@ public sealed partial class SetupEvidenceTests
         AssertNoMutation(world);
     }
 
-    [Fact]
-    public void BoundaryAnnotationPreservesTheOriginalExceptionInstanceAndCode()
+    [Theory]
+    [InlineData(SetupEvidenceCause.CandidateMediaRead)]
+    [InlineData(SetupEvidenceCause.CandidatePropertyCount)]
+    [InlineData(SetupEvidenceCause.CandidatePropertyName)]
+    [InlineData(SetupEvidenceCause.CandidatePropertySecureSet)]
+    [InlineData(SetupEvidenceCause.CandidatePropertyValue)]
+    public void BoundaryAnnotationPreservesTheOriginalExceptionInstanceAndCode(object sourcePoint)
     {
+        var cause = Assert.IsType<SetupEvidenceCause>(sourcePoint);
         var error = new SetupIoException(SetupCode.MediaInvalid);
         var actual = Assert.Throws<SetupIoException>(() =>
-            CandidateMediaEvidence.Read<int>(SetupEvidenceCause.CandidateMediaRead, () => throw error));
+            CandidateMediaEvidence.Read<int>(cause, () => throw error));
         Assert.Same(error, actual);
         Assert.Equal(SetupCode.MediaInvalid, actual.Code);
-        Assert.Equal(CandidateMediaEvidence.At(SetupEvidenceCause.CandidateMediaRead), actual.Evidence);
+        Assert.Equal(CandidateMediaEvidence.At(cause), actual.Evidence);
     }
 
-    [Fact]
-    public void ExistingNativeEvidenceHasPriorityOverTheCoarseBoundary()
+    [Theory]
+    [InlineData(SetupEvidenceCause.CandidateAuthoringRead)]
+    [InlineData(SetupEvidenceCause.CandidatePropertyCount)]
+    [InlineData(SetupEvidenceCause.CandidatePropertyName)]
+    [InlineData(SetupEvidenceCause.CandidatePropertySecureSet)]
+    [InlineData(SetupEvidenceCause.CandidatePropertyValue)]
+    public void ExistingNativeEvidenceHasPriorityOverTheCoarseBoundary(object sourcePoint)
     {
+        var cause = Assert.IsType<SetupEvidenceCause>(sourcePoint);
         var evidence = new SetupRefusalEvidence(SetupEvidenceStage.Unspecified,
             SetupEvidenceCause.MsiObservation, ObservationFault.NativeQuery,
             StartupEvidenceErrorKind.Win32, 87);
         var error = new SetupIoException(SetupCode.MediaInvalid, evidence);
         var actual = Assert.Throws<SetupIoException>(() =>
-            CandidateMediaEvidence.Read<int>(SetupEvidenceCause.CandidateAuthoringRead, () => throw error));
+            CandidateMediaEvidence.Read<int>(cause, () => throw error));
         Assert.Same(error, actual);
         Assert.Same(evidence, actual.Evidence);
         Assert.Equal(SetupCode.MediaInvalid, actual.Code);

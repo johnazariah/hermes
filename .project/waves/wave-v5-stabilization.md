@@ -100,6 +100,20 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Property rejection retains its exact predicate and strict contract
+
+- **Changed:** The source-approved refinement identifies only count, closed-name, secure-set or scalar rejection with fixed numeric codes. The single original Require and its short-circuit/comparison order remain; no names, values, counts or rows are logged.
+- **Validation:** Parent passes 864 Setup cases, 2,182 Core, warning-free root/Windows cross-builds and all static controls. A fresh C# author fixes a missing test import without changing assertions. The new synthetic controls do not claim real producer agreement.
+- **Boundary:** The pinned primary sources inspected so far do not prove the final Property-row mismatch; no acceptance correction is made.
+- **Next:** Publish and read the exact property predicate from the normal Windows lifecycle before changing its closed contract.
+
+### 2026-10-21 - Actual remaining rejection is ValidateProperties
+
+- **Evidence:** Published `a6f9552` run `39528781933` returns stage 10/cause 26 with zero auxiliary fields and no protocol/diagnostic error. Manifest and payload validation return; ValidateProperties rejects.
+- **Validation:** All 57 native Windows cases and both complete 699-warning MSI validations pass again. The first SDK-free Install still refuses; Recover reports NoRecoveryPending and cleanup has no failures.
+- **Boundary:** No property values or table rows are logged, and no property policy is relaxed. The fresh specialist now compares only the property contract with the producer/finalizer.
+- **Next:** Correct a proved producer/validator mismatch, or obtain only the exact remaining property predicate.
+
 ### 2026-10-21 - Remaining validator gains per-call numeric evidence
 
 - **Changed:** A fresh C# specialist adds 14 fixed top-level validator source points, not guard-by-guard observations. Existing call/catch/order, exception identity, native evidence priority, policy and bounds remain. Independent source review approves the seven-file refinement.

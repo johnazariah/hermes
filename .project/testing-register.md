@@ -2,6 +2,22 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Four property predicates retain the original closed contract
+
+Actual cause 26 narrows the rejection to ValidateProperties. The
+source-reviewed refinement distinguishes count, closed-name membership,
+secure-property set and scalar comparison using only causes 38–41. It
+preserves the single Require, original short-circuit/row order, comparisons,
+catches, exception identity, evidence priority and all bounds. No property
+names, values, counts or rows are emitted.
+
+All 864 Setup cases pass: 26 additional discovered controls cover real
+property refusals, ordering, synthetic version acceptance, exception identity
+and native-evidence priority. A fresh C# author supplied the missing test
+namespace import; no assertions changed. Parent also passes 2,182 Core,
+warning-free root/Windows cross-builds and all static controls. No producer
+mismatch or successful installation is yet proved.
+
 ## Remaining-validator calls have fixed numeric source points
 
 Actual `497b461` returns candidate cause 22 after media, authoring and inventory

@@ -46,7 +46,7 @@ function ConvertFrom-HermesSetupProcessOutput {
         if ($candidates.Count -gt 1) {
             $diagnosticError = 'DuplicateCoordinatorEvidence'
         } elseif ($candidates.Count -eq 1) {
-            $pattern = '\AHERMES_SETUP_EVIDENCE v=1 stage=(?<stage>[1-9]|1[0-6]) cause=(?<cause>[1-9]|[12][0-9]|3[0-7]) fault=(?<fault>[0-5]) errorKind=(?<errorKind>[0-2]) error=(?<error>0|-?[1-9][0-9]{0,9})\z'
+            $pattern = '\AHERMES_SETUP_EVIDENCE v=1 stage=(?<stage>[1-9]|1[0-6]) cause=(?<cause>[1-9]|[1-3][0-9]|4[01]) fault=(?<fault>[0-5]) errorKind=(?<errorKind>[0-2]) error=(?<error>0|-?[1-9][0-9]{0,9})\z'
             if ($candidates[0].Length -gt 192 -or $candidates[0] -cnotmatch $pattern) {
                 $diagnosticError = 'InvalidCoordinatorEvidence'
             } else {
