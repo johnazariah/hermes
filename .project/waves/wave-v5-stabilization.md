@@ -100,6 +100,15 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Token-object observation closes another hypothesis without changing authority
+
+- **Evidence:** Published `cf8aa10` run `39611721626`, job `119262016763`, passes 438/439 native cases with zero skips. Every actual child token object has DACL mask 0x6001F, an explicit Medium label (8192), policy 1, flags zero and successful query/cleanup; no higher token-object label is observed.
+- **Outcome:** All 28 added cases pass, but the original PowerShell exit-37 test remains failing. Detached still returns zero; no-window/new-console return 0xC0000142. Image matches, exact source, empty/closed streams, actual restricted context and parent preservation remain measured. No token-object correction is justified by these results.
+- **Stocktake:** Both supported OS jobs and Tray pass on this source head; installer fails and publication is skipped. Remote main is still the shipped financial slice `e7758a3`; PR #30 is draft and unmerged. Authentication/coverage source and installed acceptance remain distinct. Strict legacy repair #24 remains disabled/blocked.
+- **Storage:** 90 bounded report artifacts total 19,813,156 bytes; two npm caches total 80,649,421 bytes. Three-day report retention remains; no MSI/DLL/raw-TRX uploads or shared-runner servicing.
+- **Blockers:** PowerShell has not executed its fixed script, so whole-Medium lifecycle, administrative provider split, installed native authentication, meaningful refusal causes, strict component transport/cleanup and standalone first-run proofs remain unfinished.
+- **Next:** Stop adding permission/console variants; obtain a bounded native-startup trace of the owned disposable child before selecting another correction. No merge, release or completion claim is authorised by the passing source gates.
+
 ### 2026-10-21 - Actual child-token object security becomes observable
 
 - **Changed:** Only the owned actual child-primary open adds READ_CONTROL to TOKEN_QUERY. Its retained handle supplies token target 3 to existing no-audit Authz, bounded kernel DACL/LABEL queries and decoders; the same actual token remains the subject.

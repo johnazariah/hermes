@@ -18,8 +18,11 @@ denials. Token rows reach every failing PowerShell arm before exit assertions.
 
 Independent C# source review and parent byte/BOM/LF audit approve the patch.
 Isolated root build, all 2,182 Core cases, Windows cross-build and installer
-static controls pass. Actual token-object descriptors and script execution
-remain pending.
+static controls pass. Actual run 39611721626 passes all 28 additions:
+438/439 cases pass, one PowerShell case fails, none skip. Every arm measures
+token-object DACL mask 0x6001F and an explicit Medium label (8192), policy 1,
+flags/error zero. No higher token-object label is observed. This does not
+identify the startup failure; script execution remains unproved.
 
 ## One hidden private-console arm retains the existing PowerShell matrix
 
