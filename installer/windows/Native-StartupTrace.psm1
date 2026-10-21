@@ -31,6 +31,9 @@ function New-HermesStartupState {
             FlagsSeen = 0; FlagsAccepted = 0
             CprFilter = 0; EprFilter = 0
             CprCommandShape = 0; EprCommandShape = 0
+            CprCommandTransform = 0; EprCommandTransform = 0
+            CprPayloadLength = 0; EprPayloadLength = 0
+            CprSourceLength = 0; EprSourceLength = 0
         }
         Out = (New-HermesStartupStream); Err = (New-HermesStartupStream)
         DebuggerSha256 = ''; HelperSha256 = ''; CommandSha256 = ''
@@ -45,7 +48,9 @@ function Get-HermesStartupObservation {
             'MarkerMalformed', 'MarkerMalformedKind', 'MarkerEcho',
             'LastEventSeen', 'CreateEventSeen', 'CreateEventAccepted',
             'ExitEventSeen', 'ExitEventAccepted', 'FlagsSeen', 'FlagsAccepted',
-            'CprFilter', 'EprFilter', 'CprCommandShape', 'EprCommandShape')]
+            'CprFilter', 'EprFilter', 'CprCommandShape', 'EprCommandShape',
+            'CprCommandTransform', 'EprCommandTransform',
+            'CprPayloadLength', 'EprPayloadLength', 'CprSourceLength', 'EprSourceLength')]
         [string]$Name,
         [int]$Maximum = 8388608
     )
@@ -328,6 +333,64 @@ function Add-HermesStartupFailure {
     }
 }
 
+function ConvertFrom-HermesStartupCommandEscapes {
+    param([string]$Source, [bool]$DropUnknown)
+    # Source-only comparison hypotheses, not an sx parser or command repair.
+    # bp documents C controls; sx does not specify its unescaping algorithm:
+    # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/bp--bu--bm--set-breakpoint-
+    $escapes = [hashtable]::new(@{
+        'a' = [string][char]7; 'b' = [string][char]8; 'f' = [string][char]12
+        'n' = [string][char]10; 'r' = [string][char]13
+        't' = [string][char]9; 'v' = [string][char]11
+        '\' = '\'; '"' = '"'; "'" = "'"; '?' = '?'
+    }, [StringComparer]::Ordinal)
+    return [regex]::Replace($Source, '\\(.)', {
+        param($capture)
+        $escape = $capture.Groups[1].Value
+        if ($escapes.ContainsKey($escape)) { $escapes[$escape] }
+        elseif ($DropUnknown) { $escape } else { $capture.Value }
+    })
+}
+
+function Get-HermesStartupCommandTransform {
+    param([string]$Source, [string]$Payload)
+    if ($Source.Length -gt 4096 -or $Payload.Length -gt 4096) { return 0 }
+    $doubled = $Source.Replace('\', '\\')
+    $removed = $Source.Replace('\', '')
+    $knownEscapes = ConvertFrom-HermesStartupCommandEscapes $Source $false
+    $allEscapes = ConvertFrom-HermesStartupCommandEscapes $Source $true
+    # Fixed ordinals only. Never decode, execute, hash, or retain the payload.
+    # First exact ordinal wins when a source has no character to transform.
+    $variants = @(
+        $Source, ('"' + $Source + '"'), ('\"' + $Source + '\"'), ('""' + $Source + '""'),
+        $doubled, ('"' + $doubled + '"'), ('\"' + $doubled + '\"'),
+        $removed, ('"' + $removed + '"'),
+        $knownEscapes, ('"' + $knownEscapes + '"'),
+        $allEscapes, ('"' + $allEscapes + '"'),
+        $Source.Replace('$$', '$'), ('"' + $Source.Replace('$$', '$') + '"'),
+        $Source.Replace('$$', '$$$$'), ('"' + $Source.Replace('$$', '$$$$') + '"'),
+        $Source.Replace('$$', ''), ('"' + $Source.Replace('$$', '') + '"')
+    )
+    for ($index = 0; $index -lt $variants.Count; $index++) {
+        if ($Payload -ceq $variants[$index]) { return ($index + 1) }
+    }
+    return 0
+}
+
+function Set-HermesStartupCommandDerivation {
+    param([hashtable]$State, [string]$Name, [string]$Payload)
+    if ($Payload.Length -gt 4096) { return }
+    $State.Observations[$Name + 'PayloadLength'] = $Payload.Length
+    $expected = $State.FilterExpected[$Name]
+    if ($expected -isnot [string] -or $expected.Length -le 11 -or $expected.Length -gt 4096 `
+        -or -not $expected.StartsWith('Command: "', [StringComparison]::Ordinal) `
+        -or -not $expected.EndsWith('"', [StringComparison]::Ordinal)) { return }
+    $source = $expected.Substring(10, $expected.Length - 11)
+    $State.Observations[$Name + 'SourceLength'] = $source.Length
+    $State.Observations[$Name + 'CommandTransform'] =
+        Get-HermesStartupCommandTransform $source $Payload
+}
+
 function Get-HermesStartupFilterCommandShape {
     param([hashtable]$State, [string]$Name, [string]$Line)
     $text = $Line.Trim()
@@ -337,6 +400,7 @@ function Get-HermesStartupFilterCommandShape {
     if ($text -cmatch '\ACommand(?<suffix>1)?:[ \t]*(?<payload>[^\r\n]*)\z') {
         $offset = if ($Matches['suffix'] -ceq '1') { 2 } else { 0 }
         $payload = $Matches.payload
+        Set-HermesStartupCommandDerivation $State $Name $payload
         if ($payload -cin @('', '""')) { return 5 }
         $expected = $State.FilterExpected[$Name]
         if ($expected -is [string] -and $expected.Length -gt 11 `
@@ -374,6 +438,9 @@ function Add-HermesStartupFilterReadback {
         if ($Matches.label -cne $label) { $status = 5 }
         $State.Observations[$name + 'Filter'] = $status
         $State.Observations[$name + 'CommandShape'] = 0
+        foreach ($field in @('CommandTransform', 'PayloadLength', 'SourceLength')) {
+            $State.Observations[$name + $field] = 0
+        }
         $State.FilterPending = $name
     } elseif ($pending -cin @('Cpr', 'Epr') `
         -and $State.FilterExpected[$pending] -is [string] `
@@ -510,6 +577,20 @@ function New-HermesStartupObservations {
     # payload; 7 = next filter-shaped header; 8 = blank; 9 = other line.
     foreach ($name in @('CprCommandShape', 'EprCommandShape')) {
         $observations[$name] = Get-HermesStartupObservation $State $name 9
+    }
+    # Transform 0 = unmatched/unavailable; 1..4 = literal raw/quoted/escaped
+    # quotes/doubled quotes; 5..7 = doubled backslashes raw/quoted/escaped
+    # quotes; 8/9 = removed backslashes raw/quoted; 10/11 = known one-character
+    # C escapes raw/quoted; 12/13 = also drop unknown escape backslashes;
+    # 14/15 = single dollar raw/quoted; 16/17 = four dollars raw/quoted;
+    # 18/19 = no dollars raw/quoted. These do not accept transformed commands.
+    foreach ($name in @('CprCommandTransform', 'EprCommandTransform')) {
+        $observations[$name] = Get-HermesStartupObservation $State $name 19
+    }
+    # UTF-16 code units: trimmed readback payload (including displayed quotes)
+    # versus the exact unquoted source command from the verified publication.
+    foreach ($name in @('CprPayloadLength', 'EprPayloadLength', 'CprSourceLength', 'EprSourceLength')) {
+        $observations[$name] = Get-HermesStartupObservation $State $name 4096
     }
     # First malformed marker: 0 = none/unknown, 1 = syntax, 2 = PID range.
     $observations.MarkerMalformedKind = Get-HermesStartupObservation $State 'MarkerMalformedKind' 2

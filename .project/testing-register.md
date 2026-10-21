@@ -2,6 +2,22 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## CDB callback derivation compares fixed source transformations
+
+Actual run 39647900245 at `3b1e8cc` classifies both registered callback
+payloads as non-empty and different from the pinned source. It still records
+no child callback or arming. Six numeric fields now compare fixed quoting,
+backslash, C-escape and dollar hypotheses and record bounded lengths; raw
+payloads remain private and no transformed command is admitted.
+
+Review caught a case-insensitive escape lookup in the first candidate.
+A fresh owner corrected it to ordinal matching and added mixed-case and
+Windows-path regressions, including a failure before the correction.
+All 143 pure controls pass, retaining 43 observations and the 4,096-byte
+report bound. Parent review and the installer static controls pass.
+Debugger commands, single-resume authority and all 457 native cases are
+unchanged.
+
 ## Standalone Setup consumes complete writer frames
 
 The standalone acceptance reader now requires one complete stdout report and

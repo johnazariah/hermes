@@ -100,6 +100,15 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Compare transformed callback readback without admitting it
+
+- **Evidence:** Published `3b1e8cc`, run `39647900245`, passes both supported OS jobs, Tray and 131 pure controls. Native execution remains 456/457 with zero skips. Both callback payloads are non-empty but differ from source; child markers, events and arming remain absent.
+- **Changed:** Six bounded numeric derivations compare fixed command transformations and lengths. No raw payload is published and no transformation satisfies arming.
+- **Review closure:** Parent review rejects the first case-insensitive C-escape hypothesis. A fresh owner supplies ordinal matching and mixed-case Windows-path regressions; the rejected author does not revise or advise.
+- **Validation:** Parent review, all 143 pure controls and full installer static controls pass. Generated commands, source pins, token context, budgets and the original exit-37 requirement are unchanged.
+- **Blockers:** Stored-command mutation versus debugger display escaping is not yet identified; the component transport remains under independent revision.
+- **Next:** Publish the numeric derivation and select a correction only from the actual measured transformation.
+
 ### 2026-10-22 - Setup status rejects impossible Busy and reboot combinations
 
 - **Changed:** The standalone reader rejects reboot reports carrying MSI 1618/1605 and Busy exits with contradictory non-null MSI results. Pre-call refusals, real MSI 1618 Busy and verification-triggered reboots with MSI 0/1603 remain valid.
