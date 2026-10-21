@@ -2,6 +2,27 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Closed NativeAOT runtime DATA profile preserves callback authority
+
+Actual pre-load profile-match bit one establishes the selected producer's
+closed three-entry shape. The reviewed C# correction preserves the strict
+legacy two-entry path and admits only the exact three-entry NativeAOT profile:
+two executable callbacks plus the correlated, bounded, aligned,
+non-executable source-defined runtime DATA object. Callback observations
+remain callback-only; whole-image SHA and exact approval remain unchanged.
+
+Ninety new cases cover all six EAT permutations, independent encoded
+fixtures, malformed hash-approved profiles, roles/layout/bounds/correlation,
+whole-image changes, genuine candidate/retained/cache composition and
+pre-effect refusals. The frozen old policy remains the legacy oracle; unknown
+count/shape rejection is explicit rather than presented as unchanged
+three-entry acceptance.
+
+Parent passes all 1,049 Setup cases, 2,182 Core, warning-free root/Windows
+cross-builds and all static controls. The temporary PowerShell parser/tests
+and both hooks are removed. Normal exact-head Windows admission and the full
+installed lifecycle remain required.
+
 ## Temporary producer observation returns one closed-profile bit
 
 The source-reviewed build-only probe tests one complete candidate profile:

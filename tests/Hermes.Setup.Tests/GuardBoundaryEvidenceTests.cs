@@ -29,7 +29,7 @@ public sealed partial class SetupEvidenceTests
     }
 
     [Theory]
-    [InlineData(0x314, 3u, 55)]
+    [InlineData(0x314, 4u, 55)]
     [InlineData(0x318, 3u, 56)]
     [InlineData(0x340, 0x1100u, 63)]
     public async Task StrictExportInspectionStillRejectsHashApprovedSyntheticImages(

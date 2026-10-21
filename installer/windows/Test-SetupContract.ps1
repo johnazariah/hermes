@@ -66,11 +66,6 @@ $lifecycle = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Test-Installer.p
 Require ($lifecycle -notmatch 'Invoke-Msi' -and $lifecycle.Contains('Assert-RawMsiRefused')) 'Raw MSI paths must be negative acceptance only.'
 Require ($lifecycle.Contains('Invoke-Coordinator') -and $lifecycle.Contains("GetFolderPath('LocalApplicationData')")) 'Lifecycle must use the actual coordinator and fixed known-folder root.'
 $publisher = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Publish-Servicing.ps1') -Raw
-$producerProbe = $publisher.IndexOf('Test-HermesGuardProducerProfile $image', [StringComparison]::Ordinal)
-Require ($producerProbe -ge 0 `
-    -and $producerProbe -lt $publisher.IndexOf('[Runtime.InteropServices.NativeLibrary]::Load($guard)', [StringComparison]::Ordinal) `
-    -and $producerProbe -lt $publisher.IndexOf('$guardHash =', [StringComparison]::Ordinal)) 'The actual producer observation must precede native loading and independent hash selection.'
-& (Join-Path $PSScriptRoot 'Test-GuardProducerProfile.ps1')
 Require ($publisher.IndexOf('$guardHash =', [StringComparison]::Ordinal) -lt $publisher.IndexOf('& dotnet publish $setupProject', [StringComparison]::Ordinal) `
     -and $publisher.Contains('-p:HermesApprovedGuardSha256=') -and $publisher.Contains('Get-HermesCompiledGuardTrust')) 'The independent guard hash must precede Setup compilation and be verified in its actual assembly metadata.'
 $ci = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../.github/workflows/ci.yml') -Raw

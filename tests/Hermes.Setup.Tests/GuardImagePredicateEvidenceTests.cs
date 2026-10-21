@@ -83,7 +83,7 @@ public sealed partial class SetupEvidenceTests
     public async Task FunctionCountDenialStillPrecedesNameCountAndLaterDenials()
     {
         using var world = new RootFixture();
-        var bytes = GuardWords((0x314, 3), (0x318, 3), (0x340, 0));
+        var bytes = GuardWords((0x314, 4), (0x318, 3), (0x340, 0));
         var changed = world.New.Authoring.Guard(bytes, approveSyntheticImage: true)
             .Cell("Shortcut", 0, 5, "sensitive").Cell("RemoveFile", 0, 2, "*");
         await AssertGuardRefusedAsync(world, changed, SetupEvidenceCause.CandidateGuardFunctionCount);
@@ -200,7 +200,7 @@ public sealed partial class SetupEvidenceTests
 
     private static byte[] GuardFunctionMutation(int cause) => cause switch
     {
-        55 => GuardWords((0x314, 3)),
+        55 => GuardWords((0x314, 4)),
         56 => GuardWords((0x318, 3)),
         57 => GuardWords((0x31c, uint.MaxValue)),
         58 => GuardWords((0x320, uint.MaxValue)),
@@ -307,7 +307,9 @@ public sealed partial class SetupEvidenceTests
         return bytes;
     }
 
-    // Frozen pre-instrumentation policy; synthetic fixtures are not producer proof.
+    // Frozen strict-two policy, retained as the legacy oracle.
+    // The closed NativeAOT compatibility profile is tested independently.
+    // Synthetic fixtures are not producer proof.
     private static class FrozenGuardPolicy
     {
         internal static GuardImageObservation Read(ImmutableArray<byte> bytes)

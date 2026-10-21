@@ -100,6 +100,21 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Strict NativeAOT compatibility replaces the temporary observation
+
+- **Changed:** The source-approved C# correction retains legacy strict-two support and recognises only the observed closed three-entry callback/runtime-DATA profile. Names, ordinals, targets, backing, roles and exact object layout remain checked; callback authority and whole-image SHA approval are unchanged.
+- **Validation:** Parent passes 1,049 Setup cases, including 90 new permutation/adverse/hash/composition controls, and 2,182 Core. Root/Windows cross-builds are warning-free and all static controls pass.
+- **Cleanup:** Both temporary PowerShell files and the publication/test hooks are removed. Normal publication/acceptance flow is restored; actual one-bit evidence remains in the retained job/session log.
+- **Boundary:** This intentionally corrects producer compatibility; it does not claim that embedded-MSI admission, approved-hash verification or installation has passed yet.
+- **Next:** Publish and run normal exact-head Windows acceptance through guard admission and the complete installed lifecycle.
+
+### 2026-10-21 - Actual NativeAOT producer matches the closed three-entry profile
+
+- **Evidence:** Published `d4d40bb` run `39542344273` reports the single profile-match bit as one before native loading/hash selection. The pinned published guard has exactly the two correlated executable callbacks and the source-defined bounded non-executable runtime data object, with the complete closed profile matched.
+- **Validation:** All 57 native cases, both compiled language/admin-row checks and both complete 699-warning validations still pass. The unchanged C# two-entry policy still refuses first Install.
+- **Boundary:** This observation does not prove embedded-MSI Binary identity or approved-hash membership; neither is bypassed. No raw binary, export names, addresses or values were emitted.
+- **Next:** A fresh C# specialist owns strict producer compatibility, preserved exact hash/callback authority and removal of the temporary four-file observation seam.
+
 ### 2026-10-21 - One closed producer-profile observation precedes native loading
 
 - **Changed:** The source-approved temporary build probe emits only a zero/one match for a complete candidate callback/runtime-data profile before native loading or hash selection. A negative result fails publication; C# admission remains unchanged.

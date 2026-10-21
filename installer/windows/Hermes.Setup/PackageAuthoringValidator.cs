@@ -21,6 +21,8 @@ internal sealed record ApprovedGuardProfile(
     string Root,
     ImmutableHashSet<string> Sha256);
 
+// Exports contains only validated callback identities, not runtime DATA exports.
+// Sha256 always covers the entire native image, including the runtime DATA object.
 internal sealed record GuardImageObservation(
     string Sha256,
     ImmutableArray<string> Exports);

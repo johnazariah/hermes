@@ -9,6 +9,19 @@ namespace Hermes.Setup;
 // Structural observations only. No LoadLibrary, reflection loading or execution.
 internal static class GuardImageInspection
 {
+    private enum ExportRole { Callback, RuntimeData }
+
+    private sealed record NativeExport(string Name, ExportRole Role);
+
+    private static ImmutableArray<string> CallbackNames { get; } =
+        ["HermesPreflight", "HermesTransactionFence"];
+
+    private static ImmutableArray<NativeExport> NativeAotRoles { get; } =
+    [
+        new("DotNetRuntimeDebugHeader", ExportRole.RuntimeData),
+        .. CallbackNames.Select(name => new NativeExport(name, ExportRole.Callback))
+    ];
+
     internal static GuardImageObservation Read(ImmutableArray<byte> bytes) =>
         Read(bytes, new CandidateValidatorSourcePoint());
 
@@ -47,10 +60,22 @@ internal static class GuardImageInspection
         var start = directory.RelativeVirtualAddress;
         var functionCount = point.Read(CandidateGuardFunctionCountRead,
             () => U32(pe, start + 20));
-        Require(point, CandidateGuardFunctionCount, () => functionCount == 2);
+        Require(point, CandidateGuardFunctionCount, () => functionCount is 2 or 3);
         var nameCount = point.Read(CandidateGuardNameCountRead,
             () => U32(pe, start + 24));
-        Require(point, CandidateGuardNameCount, () => nameCount == 2);
+        Require(point, CandidateGuardNameCount, () => nameCount == functionCount);
+        return functionCount switch
+        {
+            2 => LegacyExports(pe, directory, point),
+            3 => point.Read(CandidateGuardInspection, () => NativeAotExports(pe, directory)),
+            _ => throw Invalid()
+        };
+    }
+
+    private static ImmutableArray<string> LegacyExports(
+        PEReader pe, DirectoryEntry directory, CandidateValidatorSourcePoint point)
+    {
+        var start = directory.RelativeVirtualAddress;
         var functions = point.Read(CandidateGuardFunctionTableRva,
             () => Rva(pe, start + 28));
         var names = point.Read(CandidateGuardNameTableRva,
@@ -90,8 +115,118 @@ internal static class GuardImageInspection
                 () => Rva(pe, checked(names + index * 4))), point)).ToImmutableArray();
         Require(point, CandidateGuardExportNames, () =>
             result.Order(StringComparer.Ordinal).SequenceEqual(
-                new[] { "HermesPreflight", "HermesTransactionFence" }.Order(StringComparer.Ordinal)));
+                CallbackNames.Order(StringComparer.Ordinal)));
         return result;
+    }
+
+    // Closed Windows NativeAOT producer profile, not a general extra-export policy.
+    // DebugHeader.cpp at runtime v9.0.21 defines the on-disk runtime DATA object.
+    private static ImmutableArray<string> NativeAotExports(PEReader pe, DirectoryEntry directory)
+    {
+        var optional = pe.PEHeaders.PEHeader ?? throw Invalid();
+        Require(optional.CorHeaderTableDirectory.RelativeVirtualAddress == 0);
+        var start = directory.RelativeVirtualAddress;
+        _ = BackedBytes(pe, start, directory.Size);
+        var addresses = NativeRvas(pe, Rva(pe, checked(start + 28), backed: true));
+        var names = NativeRvas(pe, Rva(pe, checked(start + 32), backed: true));
+        var ordinals = NativeOrdinals(pe, Rva(pe, checked(start + 36), backed: true));
+        Require(addresses.Distinct().Count() == 3);
+        Require(ordinals.Order().SequenceEqual(new ushort[] { 0, 1, 2 }));
+        foreach (var (export, index) in NativeAotRoles.Select((export, index) => (export, index)))
+            ValidateNativeExport(pe, export, names[index], addresses[ordinals[index]], directory);
+        // The runtime DATA entry is validated above, never a callback identity.
+        return CallbackNames;
+    }
+
+    private static ImmutableArray<int> NativeRvas(PEReader pe, int table)
+    {
+        _ = BackedBytes(pe, table, 12);
+        return Enumerable.Range(0, 3).Select(index =>
+            Rva(pe, checked(table + index * 4), backed: true)).ToImmutableArray();
+    }
+
+    private static ImmutableArray<ushort> NativeOrdinals(PEReader pe, int table)
+    {
+        _ = BackedBytes(pe, table, 6);
+        return Enumerable.Range(0, 3).Select(index =>
+            U16(pe, checked(table + index * 2), backed: true)).ToImmutableArray();
+    }
+
+    private static void ValidateNativeExport(
+        PEReader pe, NativeExport export, int name, int target, DirectoryEntry directory)
+    {
+        // Exact bounded ASCII including NUL: no aliases, suffixes or unknown names.
+        var expected = Encoding.ASCII.GetBytes(export.Name + '\0');
+        Require(BackedBytes(pe, name, expected.Length).AsSpan().SequenceEqual(expected));
+        var width = export.Role switch { ExportRole.RuntimeData => 32, _ => 1 };
+        Require(target > 0 &&
+            ((long)target + width <= directory.RelativeVirtualAddress ||
+                (long)target >= (long)directory.RelativeVirtualAddress + directory.Size));
+        var section = BackedSection(pe, target, width);
+        Require(export.Role switch
+        {
+            ExportRole.Callback =>
+                (section.SectionCharacteristics &
+                    (SectionCharacteristics.MemExecute | SectionCharacteristics.ContainsCode)) ==
+                (SectionCharacteristics.MemExecute | SectionCharacteristics.ContainsCode),
+            ExportRole.RuntimeData => IsRuntimeData(pe, target, section),
+            _ => false
+        });
+    }
+
+    private static bool IsRuntimeData(PEReader pe, int address, SectionHeader section)
+    {
+        const SectionCharacteristics required = SectionCharacteristics.MemRead |
+            SectionCharacteristics.MemWrite | SectionCharacteristics.ContainsInitializedData;
+        const SectionCharacteristics excluded =
+            SectionCharacteristics.MemExecute | SectionCharacteristics.ContainsCode;
+        if ((section.SectionCharacteristics & required) != required ||
+            (section.SectionCharacteristics & excluded) != 0 || address % 8 != 0)
+            return false;
+        var data = BackedBytes(pe, address, 32).AsSpan();
+        return data[..4].SequenceEqual("DNDH"u8) &&
+            BinaryPrimitives.ReadUInt16LittleEndian(data[4..]) == 4 &&
+            BinaryPrimitives.ReadUInt16LittleEndian(data[6..]) == 0 &&
+            BinaryPrimitives.ReadUInt32LittleEndian(data[8..]) == 1 &&
+            BinaryPrimitives.ReadUInt32LittleEndian(data[12..]) == 0 &&
+            BinaryPrimitives.ReadUInt64LittleEndian(data[16..]) == 0 &&
+            BinaryPrimitives.ReadUInt64LittleEndian(data[24..]) == 0;
+    }
+
+    private static ImmutableArray<byte> BackedBytes(PEReader pe, int address, int count)
+    {
+        var section = BackedSection(pe, address, count);
+        var offset = checked((int)((long)section.PointerToRawData +
+            address - section.VirtualAddress));
+        return pe.GetEntireImage().GetContent(offset, count);
+    }
+
+    private static SectionHeader BackedSection(PEReader pe, int address, int count)
+    {
+        var optional = pe.PEHeaders.PEHeader ?? throw Invalid();
+        var length = pe.GetEntireImage().Length;
+        Require(length > 0 && length <= 32 * 1024 * 1024 &&
+            address > 0 && count > 0 && count <= length &&
+            (long)address + count <= optional.SizeOfImage);
+        var sections = pe.PEHeaders.SectionHeaders.Where(section =>
+            (long)address < (long)section.VirtualAddress +
+                Math.Max(section.VirtualSize, section.SizeOfRawData) &&
+            (long)address + count > section.VirtualAddress).ToArray();
+        Require(sections.Length == 1);
+        var section = sections[0];
+        ValidateBacking(section, optional, length, address, count);
+        return section;
+    }
+
+    private static void ValidateBacking(
+        SectionHeader section, PEHeader optional, int length, int address, int count)
+    {
+        var delta = (long)address - section.VirtualAddress;
+        Require(optional.SizeOfHeaders > 0 &&
+            delta >= 0 && delta + count <= Math.Min(section.VirtualSize, section.SizeOfRawData) &&
+            (section.SectionCharacteristics & SectionCharacteristics.MemRead) != 0 &&
+            section.PointerToRawData >= optional.SizeOfHeaders &&
+            (long)section.PointerToRawData + delta + count <= length);
     }
 
     private static bool IsCode(
@@ -121,15 +256,18 @@ internal static class GuardImageInspection
         return Encoding.ASCII.GetString(limit[..end]);
     }
 
-    private static uint U32(PEReader pe, int address) =>
+    private static uint U32(PEReader pe, int address, bool backed = false) =>
         BinaryPrimitives.ReadUInt32LittleEndian(
-            pe.GetSectionData(address).GetContent(0, 4).AsSpan());
+            (backed ? BackedBytes(pe, address, 4) :
+                pe.GetSectionData(address).GetContent(0, 4)).AsSpan());
 
-    private static ushort U16(PEReader pe, int address) =>
+    private static ushort U16(PEReader pe, int address, bool backed = false) =>
         BinaryPrimitives.ReadUInt16LittleEndian(
-            pe.GetSectionData(address).GetContent(0, 2).AsSpan());
+            (backed ? BackedBytes(pe, address, 2) :
+                pe.GetSectionData(address).GetContent(0, 2)).AsSpan());
 
-    private static int Rva(PEReader pe, int address) => checked((int)U32(pe, address));
+    private static int Rva(PEReader pe, int address, bool backed = false) =>
+        checked((int)U32(pe, address, backed));
 
     private static void Require(
         CandidateValidatorSourcePoint point, SetupEvidenceCause cause, Func<bool> condition) =>

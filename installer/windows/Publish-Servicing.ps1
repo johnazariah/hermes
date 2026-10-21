@@ -11,7 +11,6 @@ if ($env:OS -ne 'Windows_NT' -or $env:GITHUB_ACTIONS -ne 'true' `
     throw 'Native servicing publication requires the dedicated disposable GitHub-hosted Windows runner.'
 }
 Import-Module (Join-Path $PSScriptRoot 'Servicing-Build.psm1') -Force
-Import-Module (Join-Path $PSScriptRoot 'Guard-ProducerProfile.psm1') -Force
 $output = [IO.Path]::GetFullPath($OutputDirectory)
 $workspace = [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE).TrimEnd('\')
 if (-not $output.StartsWith($workspace + '\', [StringComparison]::OrdinalIgnoreCase)) {
@@ -36,13 +35,6 @@ try {
     Add-Type -AssemblyName System.Reflection.Metadata
     $image = [System.Reflection.PortableExecutable.PEReader]::new($pin, [System.Reflection.PortableExecutable.PEStreamOptions]::LeaveOpen)
     try {
-        # One finite actual observation before loading the guard or selecting trust.
-        # Neither outcome proves an embedded MSI guard identity or approved hash.
-        if (-not (Test-HermesGuardProducerProfile $image)) {
-            Write-Host 'HermesGuardProducerProfile=0'
-            throw 'The closed guard producer profile was not observed.'
-        }
-        Write-Host 'HermesGuardProducerProfile=1'
         if ($null -ne $image.PEHeaders.CorHeader -or $null -eq $image.PEHeaders.PEHeader `
             -or $image.PEHeaders.CoffHeader.Machine -ne [System.Reflection.PortableExecutable.Machine]::Amd64 `
             -or ($image.PEHeaders.CoffHeader.Characteristics -band [System.Reflection.PortableExecutable.Characteristics]::Dll) -eq 0) {
