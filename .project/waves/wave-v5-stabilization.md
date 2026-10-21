@@ -100,6 +100,15 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - All restricted-child tests pass; next context prerequisites are wired
+
+- **Evidence:** Published `e563f80` run `39590722505`, job `119190696185`, passes all 324 native cases without failures/skips. Both real MSI versions again pass complete native ICE with 699 exact prerequisite-bound warnings each.
+- **Boundary:** Saved acceptance still records Install and Recover as RecoveryRequired/1603/TransactionFenceMissing, with a High Administrator caller and session/elevated hint. The original high harness has not yet been routed through the proved restricted context; cleanup correctly remains incomplete.
+- **Changed:** A closed fixed-PowerShell startup fact uses the same restricted child path and a leased exact-byte exit script. Independent reporter acquisition replaces an all-access cache request with a live non-inherited read-only kernel pin, preserving loaded-image/time/hash and writer bindings.
+- **Validation:** Independent C# review approves both source artifacts and counts 347 cases (324 plus 1 genuine PowerShell and 22 reporter cases). Root/Windows cross-builds have zero warnings/errors; 2,182 Core and all static controls pass. New C# files follow project BOM/LF rather than the observer author's conflicting no-BOM formatting note.
+- **Blockers:** Actual PowerShell startup, Medium observer/channel/cache access, fixed whole-harness launcher and separate administrative provider bootstrap remain pending. No MSI, installed UI or merge success is inferred.
+- **Next:** Publish and require all 347 cases before using these prerequisites to route the actual lifecycle.
+
 ### 2026-10-21 - Detached execution genuinely starts the restricted child
 
 - **Evidence:** Published `d5fd646` run `39589130087`, job `119185383021`, records arm 4 exiting 37 with verified restricted context, original partial self grants, unchanged Medium labels and complete cleanup. All CREATE_NO_WINDOW arms still exit 0xC0000142, including the full-self-DACL arm; parent security/connection remain unchanged.

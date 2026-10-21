@@ -275,6 +275,37 @@ public sealed partial class RestrictedOwnerChildTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void Actual_restricted_PowerShell_initialises_without_parent_changes()
+    {
+        var api = WindowsRestrictedOwnerTokens.Instance;
+        api.RequireDisposableJob();
+        var before = ReadParent();
+        Assert.True(IsActualSource(before), "Required genuine source context absent.");
+        var security = api.ReadParentSecurity();
+        var desktop = api.ReadParentDesktop();
+        var error = Record.Exception(() => RequirePowerShellProof(api));
+        var parent = before == ReadParent() &&
+            security.SameFinalState(api.ReadParentSecurity());
+        var connected = desktop.SameConnection(api.ReadParentDesktop());
+        output.WriteLine(
+            $"HERMES_RESTRICTED_POWERSHELL_FINAL v=1 parent={(parent ? 1 : 0)} parentConnection={(connected ? 1 : 0)}");
+        if (error is { } failure)
+            ExceptionDispatchInfo.Capture(failure).Throw();
+        Assert.True(parent && connected, "PowerShell probe changed parent final state.");
+    }
+
+    private void RequirePowerShellProof(WindowsRestrictedOwnerTokens api)
+    {
+        var children = new RecordingChildren(api.PowerShellForObservation);
+        var proof = MeasureChild(api, children);
+        _ = WriteDesktopArm(proof, children.Child, 5);
+        Assert.Equal(RestrictedOwnerTokenFacts.Required, proof.Facts);
+        Assert.Equal(MsiContextRead.Absent, proof.Thread);
+        Assert.Equal(37u, proof.ExitCode);
+        Assert.True(proof.Access.ResourcesClosed);
+    }
+
+    [Fact]
     public void Automatic_desktop_remains_null_without_reading_parent_names()
     {
         var names = new FakeDesktopNames(

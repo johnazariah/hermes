@@ -2,6 +2,27 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Fixed PowerShell startup and read-only reporter acquisition
+
+One new genuine case launches only Program Files PowerShell 7 with the
+canonical job-workspace script containing exactly `exit 37`. Bounded canonical
+local paths reject invalid components and reparse ancestors; a non-write/
+non-delete-sharing script lease survives child execution and cleanup. Existing
+restricted-context, detached creation, closed-use and parent-state checks apply.
+This proves only fixed PowerShell initialisation when the actual case passes.
+
+Reporter acquisition now requests QUERY_INFORMATION|VM_READ|SYNCHRONIZE
+(0x00100410), non-inherited, rather than forcing the Process.SafeHandle
+all-access cache. Its kernel pin spans unchanged loaded-image/time/hash
+identity reads, liveness and native-writer tracking. Twenty-one capability
+cases plus one genuine current-process query cover closure, failure and
+binding preservation. Medium observer/channel/cache permissions remain unproved.
+
+The exact native gate is 347: all old 324 plus 1 PowerShell and 22 reporter
+cases, with no skips. Independent C# review approves both artifacts; parent
+warning-free root/Windows cross-builds, all 2,182 Core cases and installer
+static controls pass. Actual 347-case execution is pending.
+
 ## Detached creation is the normal fixed-child path
 
 Actual run 39589130087 compares the same restricted subject, command,

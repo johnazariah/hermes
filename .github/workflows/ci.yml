@@ -274,9 +274,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           [xml]$tests = Get-Content -LiteralPath "$PWD/.artifacts/servicing-windows-tests/servicing-windows.trx" -Raw
           $counts = $tests.TestRun.ResultSummary.Counters
-          if ([int]$counts.total -ne 324 -or [int]$counts.executed -ne 324 -or [int]$counts.passed -ne 324 `
+          if ([int]$counts.total -ne 347 -or [int]$counts.executed -ne 347 -or [int]$counts.passed -ne 347 `
               -or [int]$counts.failed -ne 0 -or [int]$counts.notExecuted -ne 0) {
-            throw 'Expected all existing 294 Windows cases, including 65 mandatory-label and 35 Authz cases, plus 30 owned-descriptor cases (324 total). One owned-self descriptor counterfactual also executes inside the existing A/B test; original and both baseline A/B exit-37 assertions remain unchanged, with no skips.'
+            throw 'Expected all existing 324 Windows cases plus one genuine restricted-PowerShell startup case and 22 read-only reporter-process cases (347 total), with no skips.'
           }
       - name: Coordinator install, repair, launch, upgrade, rollback and uninstall without SDK access
         shell: pwsh

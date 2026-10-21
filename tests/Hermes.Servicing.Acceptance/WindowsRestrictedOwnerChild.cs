@@ -29,6 +29,74 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IAcceptanceC
         return new OwnedInertChild();
     }
 
+    internal IAcceptanceChildFactory PowerShellForObservation { get; } =
+        new PowerShellProbeChildren();
+
+    private sealed class PowerShellProbeChildren : IAcceptanceChildFactory
+    {
+        public IAcceptanceOwnedChild Open()
+        {
+            Instance.RequireDisposableJob();
+            return new OwnedInertChild(powerShellProbe: true);
+        }
+    }
+
+    private static (string Application, char[] Command, FileStream Source)
+        OpenPowerShellProbe()
+    {
+        var programFiles = RequirePowerShellProbePath(
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles));
+        var workspace = RequirePowerShellProbePath(
+            Environment.GetEnvironmentVariable("GITHUB_WORKSPACE")
+                ?? throw RestrictedOwnerToken.Failure(13));
+        var application = RequirePowerShellProbePath(
+            Path.Combine(programFiles, "PowerShell", "7", "pwsh.exe"));
+        var script = RequirePowerShellProbePath(
+            Path.Combine(workspace, "installer", "windows", "Test-RestrictedPowerShell.ps1"));
+        var command =
+            $"\"{application}\" -NoLogo -NoProfile -NonInteractive -File \"{script}\"\0".ToCharArray();
+        return (application, command, OpenPowerShellProbeSource(script));
+    }
+
+    private static string RequirePowerShellProbePath(string value)
+    {
+        if (value.Length is < 4 or > 240 ||
+            !char.IsAsciiLetter(value[0]) || value[1] != ':' || value[2] != '\\' ||
+            !value.Split('\\').Skip(1).All(IsPowerShellProbeComponent) ||
+            !Path.IsPathFullyQualified(value) ||
+            !string.Equals(value, Path.GetFullPath(value), StringComparison.OrdinalIgnoreCase))
+            throw RestrictedOwnerToken.Failure(13);
+        for (string? path = value; path is { }; path = Path.GetDirectoryName(path))
+            if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+                throw RestrictedOwnerToken.Failure(13);
+        return value;
+    }
+
+    private static bool IsPowerShellProbeComponent(string component) =>
+        component.Length > 0 && component[^1] is not ('.' or ' ') &&
+        component.IndexOfAny(Path.GetInvalidFileNameChars()) < 0 &&
+        !component.Any(char.IsControl);
+
+    private static FileStream OpenPowerShellProbeSource(string path)
+    {
+        var source = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        try
+        {
+            if (source.Length is not (8 or 9))
+                throw RestrictedOwnerToken.Failure(13);
+            Span<byte> bytes = stackalloc byte[checked((int)source.Length)];
+            source.ReadExactly(bytes);
+            if (!bytes.SequenceEqual("exit 37\n"u8) && !bytes.SequenceEqual("exit 37\r\n"u8))
+                throw RestrictedOwnerToken.Failure(13);
+            return source;
+        }
+        catch
+        {
+            source.Dispose();
+            throw;
+        }
+    }
+
     internal AcceptanceParentSecuritySnapshot ReadParentSecurity()
     {
         RequireDisposableJob();
@@ -91,13 +159,15 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IAcceptanceC
 
     private sealed class OwnedInertChild(
         AcceptanceDesktopSelection desktop = AcceptanceDesktopSelection.Automatic,
-        bool ownedSelfControl = false)
+        bool ownedSelfControl = false,
+        bool powerShellProbe = false)
         : IAcceptanceOwnedChild
     {
         private SafeChildHandle? _job;
         private SafeChildHandle? _process;
         private SafeChildHandle? _thread;
         private SafeChildHandle? _primary;
+        private FileStream? _powerShellSource;
         private ChildState _state;
         private bool _disposed;
         private bool _cleanupCompleted;
@@ -125,6 +195,8 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IAcceptanceC
             var directory = SystemDirectory();
             var application = Path.Combine(directory, "cmd.exe");
             var command = $"\"{application}\" /d /q /c exit 37\0".ToCharArray();
+            if (powerShellProbe)
+                (application, command, _powerShellSource) = OpenPowerShellProbe();
             var descriptor = ownedSelfControl ? ReadOwnedSelfDescriptor(token) : null;
             Launch(FilteredHandle(token), application, command, directory, descriptor);
             _state = ChildState.Suspended;
@@ -280,7 +352,8 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IAcceptanceC
                 ReapOwnedProcess,
                 () => _primary?.CloseChecked(),
                 () => _thread?.CloseChecked(),
-                () => _process?.CloseChecked());
+                () => _process?.CloseChecked(),
+                () => _powerShellSource?.Dispose());
             _cleanupCompleted = true;
         }
 

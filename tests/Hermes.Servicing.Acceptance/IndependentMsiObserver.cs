@@ -195,17 +195,12 @@ internal sealed class IndependentMsiObserver : IAsyncDisposable
     private NativeWriterBinding VerifyWriter(WireEvent wire, DiagnosticValue value)
     {
         var reporter = wire.Reporter ?? throw new EvidenceGap("MissingNativeReporter");
-        if (reporter.ProcessId is 0 or > int.MaxValue)
-            throw new EvidenceGap("UnsupportedNativeReporter");
-        using var process = Process.GetProcessById(checked((int)reporter.ProcessId));
-        _ = process.SafeHandle;
-        var actual = Files.Identity(process);
-        if (process.HasExited)
-            throw new EvidenceGap("DiagnosticWriterObservationLost");
-        var binding = _writerTracker.Observe(wire.Cursor, reporter,
-            value.Writer, Key(actual), DateTime.UtcNow.ToFileTimeUtc());
+        var observation = ReadOnlyWriterObservation.Observe(
+            new WindowsWriterProcessQuery(), _writerTracker,
+            wire.Cursor, reporter, value.Writer);
+        var actual = observation.Identity;
         _writers.TryAdd(Key(actual), actual);
-        return binding;
+        return observation.Binding;
     }
 
     internal IndependentObserverReport Report()
