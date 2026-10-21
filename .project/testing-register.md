@@ -2,6 +2,25 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Typed loader-flag readback is bound to the held target
+
+Version-2 create callbacks add a read-only, public-symbol-resolved
+`ntdll!_PEB.NtGlobalFlag` query. A four-byte width guard precedes its fixed
+PID/DWORD record. No raw offset, whole-PEB dump, environment access or new
+write is introduced; the existing SDK setter remains unchanged.
+
+The parser requires the typed record inside the matching create event and
+binds it to the held child/helper/birth identity. Legacy `!gflag` text cannot
+satisfy a version-2 block. Availability is separate from value, preserving
+measured zero versus unavailable evidence.
+
+All 210 pure controls retain the prior 190 intents and cover framing,
+width/source hashes, wrong PID/phase/version, duplicates, stdout-only
+authority, missing types/memory, early failure, exit and output exhaustion.
+The pinned create script is 311 bytes with SHA-256
+`ed53082705ecdca0ed5250a8dcf95dc1bf831a6a90eea3e1146eb3c3064c47af`.
+Actual symbol/type availability and child flags remain pending Windows proof.
+
 ## Quoted extension-load paths encode literal backslashes
 
 The root `.load` argument now encodes the same validated, pinned extension

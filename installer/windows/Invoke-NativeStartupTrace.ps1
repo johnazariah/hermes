@@ -140,11 +140,19 @@ function New-TraceCommands {
 }
 
 function New-TraceEventCommands {
+    # C++ resolves the field through the target's ntdll symbols, never an offset.
+    # Only a four-byte field may produce this readback; missing types/memory
+    # leave the v2 create block unarmed, even if !gflag printed a valid value.
+    # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/c---numbers-and-operators
+    # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/pseudo-register-syntax
+    # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/-printf
+    # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/-if
     [ordered]@{
         'startup-cpr.cdb' = (@(
-            '.printf "HERMES_CDB v=1 kind=1 pid=%u\n", @$tpid',
+            '.printf "HERMES_CDB v=2 kind=1 pid=%u\n", @$tpid',
             '.lastevent', '|.', '!gflag +sls', '!gflag',
-            '.printf "HERMES_CDB v=1 kind=2 pid=%u\n", @$tpid', 'g'
+            '.if (@@c++(sizeof(((ntdll!_PEB*)@$peb)->NtGlobalFlag)) == 4) { .printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(((ntdll!_PEB*)@$peb)->NtGlobalFlag) }',
+            '.printf "HERMES_CDB v=2 kind=2 pid=%u\n", @$tpid', 'g'
         ) -join "`r`n") + "`r`n"
         'startup-epr.cdb' = (@(
             '.printf "HERMES_CDB v=1 kind=3 pid=%u\n", @$tpid',

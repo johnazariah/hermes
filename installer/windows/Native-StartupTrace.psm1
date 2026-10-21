@@ -223,8 +223,12 @@ function Test-HermesStartupArmed {
 }
 
 function Add-HermesStartupMarker {
-    param([hashtable]$State, [int]$Kind, [uint32]$Pid)
-    if ($Pid -eq 0) { $State.Protocol = 1; return }
+    param([hashtable]$State, [int]$Kind, [uint32]$Pid, [int]$Version = 1)
+    if ($Pid -eq 0 -or $Version -notin @(1, 2) `
+        -or ($Version -eq 2 -and $Kind -notin @(1, 2))) {
+        $State.Protocol = 1
+        return
+    }
     switch ($Kind) {
         0 {
             if ($State.Initial -ne 0 -or $null -ne $State.Block) {
@@ -238,13 +242,14 @@ function Add-HermesStartupMarker {
                 return
             }
             $State.Block = @{
-                Kind = $Kind; Pid = $Pid; EventPid = [uint32]0
+                Kind = $Kind; Version = $Version; Pid = $Pid; EventPid = [uint32]0
                 Flags = [long]-1; Code = [long]-1; Event = 0
             }
         }
         { $_ -in @(2, 4) } {
             $block = $State.Block
             if ($null -eq $block -or $block.Pid -ne $Pid `
+                -or $block.Version -ne $Version `
                 -or $block.Kind -ne $Kind - 1 -or $block.Event -ne 1 `
                 -or $block.EventPid -ne $Pid) {
                 $State.Protocol = 1
@@ -641,13 +646,52 @@ function Add-HermesStartupSdkError {
         (Get-HermesStartupObservation $State 'SdkCommandErrors' 15) -bor $kind
 }
 
+function Add-HermesStartupTypedFlags {
+    param([hashtable]$State, [string]$Line)
+    $block = $State.Block
+    $pattern = '\AHERMES_NTGLOBALFLAG v=1 pid=(?<pid>[1-9][0-9]{0,9}) value=(?<flags>[0-9a-f]{8})\z'
+    if ($Line -cnotmatch $pattern -or $null -eq $block `
+        -or $block.Kind -ne 1 -or $block.Version -ne 2 `
+        -or $block.Event -ne 1 -or $block.EventPid -ne $block.Pid `
+        -or [long]$Matches.pid -gt [uint32]::MaxValue `
+        -or [long]$Matches.pid -ne $block.Pid -or $block.Pid -eq $State.Initial `
+        -or $block.Flags -ne -1 -or $State.Protocol -ne 0 -or $State.Unknown -ne 0 `
+        -or $State.Acked -or $null -ne $State.Final `
+        -or $State.Exits.ContainsKey([string]$block.Pid)) {
+        $State.Protocol = 1
+        return
+    }
+    $block.Flags = [long][Convert]::ToUInt32($Matches.flags, 16)
+}
+
+function Get-HermesStartupTypedFlags {
+    param([hashtable]$State)
+    $block = if ($null -ne $State.Arm) { $State.Arm } else { $State.Block }
+    $target = $State.Target
+    if ($State.Protocol -ne 0 -or $null -eq $target -or $null -eq $block `
+        -or $block.Kind -ne 1 -or $block.Version -ne 2 -or $block.Event -ne 1 `
+        -or $State.Initial -ne $target.helper -or $target.pid -eq $target.helper `
+        -or $target.born -le 0 -or $target.image -ne 1 -or $target.debug -ne 1 `
+        -or $target.context -ne 1 -or $block.Pid -ne $target.pid `
+        -or $block.EventPid -ne $target.pid `
+        -or $block.Flags -lt 0 -or $block.Flags -gt [uint32]::MaxValue) { return [long]-1 }
+    return [long]$block.Flags
+}
+
 function Add-HermesStartupLine {
     param([hashtable]$State, [string]$Line)
     if ($Line.Length -gt 4096) { $State.Bounds = 1; return }
     Add-HermesStartupSdkError $State $Line
     Add-HermesStartupChainReadback $State $Line
     Add-HermesStartupFilterReadback $State $Line
-    if ($Line -cmatch '\AHERMES_CDB v=1 kind=(?<kind>[0-4]) pid=(?<pid>[1-9][0-9]{0,9})\z') {
+    if ($Line.Contains('HERMES_NTGLOBALFLAG', [StringComparison]::Ordinal)) {
+        if (-not $Line.Contains('.printf', [StringComparison]::Ordinal)) {
+            Add-HermesStartupTypedFlags $State $Line
+        }
+        return
+    }
+    if ($Line -cmatch '\AHERMES_CDB v=(?<version>[12]) kind=(?<kind>[0-4]) pid=(?<pid>[1-9][0-9]{0,9})\z') {
+        $version = [int]$Matches.version
         $kind = [int]$Matches.kind
         $pidValue = [long]$Matches.pid
         Add-HermesStartupObservation $State "Marker$kind"
@@ -659,7 +703,7 @@ function Add-HermesStartupLine {
             $State.Protocol = 1
             return
         }
-        Add-HermesStartupMarker $State $kind ([uint32]$pidValue)
+        Add-HermesStartupMarker $State $kind ([uint32]$pidValue) $version
         return
     }
     if ($Line.Contains('HERMES_CDB', [StringComparison]::Ordinal) `
@@ -695,6 +739,7 @@ function Add-HermesStartupLine {
         Add-HermesStartupObservation $State 'FlagsSeen'
     }
     if ($null -ne $State.Block -and $State.Block.Kind -eq 1 `
+        -and $State.Block.Version -eq 1 `
         -and $Line -cmatch '\A\s*Current NtGlobalFlag contents:\s*(?:0x)?(?<flags>[0-9a-fA-F]{1,8})\s*\z') {
         $State.Block.Flags = [Convert]::ToUInt32($Matches.flags, 16)
         Add-HermesStartupObservation $State 'FlagsAccepted'
@@ -856,6 +901,11 @@ function New-HermesStartupObservations {
     }
     $observations.TargetRowPresent = [int]($null -ne $State.Target)
     $observations.FinalRowPresent = [int]($null -ne $State.Final)
+    # Actual DWORD only after current/event/helper/held-child row binding.
+    # Availability distinguishes a measured zero from no field read at all.
+    $typedFlags = Get-HermesStartupTypedFlags $State
+    $observations.TypedFlagsAvailable = [int]($typedFlags -ge 0)
+    $observations.TypedFlagsValue = if ($typedFlags -ge 0) { $typedFlags } else { 0 }
     $observations.ParserUnknown = [int]($State.Unknown -ne 0)
     $observations.ParserProtocol = [int]($State.Protocol -ne 0)
     return $observations

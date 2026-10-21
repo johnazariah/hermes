@@ -100,6 +100,15 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Query the typed child flag instead of relying on extension text
+
+- **Evidence:** Published `c1fcd22`, run `39669489732`, job `119463254848`, passes 190 pure controls and 460/461 native cases. The quoted-load correction clears every known library-load error; actual target-bound flag text still does not appear.
+- **Changed:** A fresh source owner adds a read-only public-symbol field query guarded by a four-byte width check. Version-2 create blocks require that typed PID/DWORD record; extension text cannot substitute, and no offset, whole-PEB/environment dump or extra write is used.
+- **Preserved:** Held child/helper/birth/event identity, pre-resume flag bit 2, historical arming, source pins, budget and cleanup requirements remain mandatory. Missing/invalid field reads cannot arm.
+- **Validation:** Parent producer/parser/arming review and all 210 pure controls pass, including the exact pinned 311-byte script and adverse phase/framing/identity cases.
+- **Blockers:** Symbol-resolved field access at the actual creation event has not run on Windows; no PowerShell initialisation cause is inferred.
+- **Next:** Publish and require the actual target-bound DWORD value before acknowledging resume.
+
 ### 2026-10-22 - Quoted extension-load encoding follows the documented parser contract
 
 - **Changed:** A fresh source owner encodes literal backslashes in the existing quoted `.load` argument. The canonical selected SDK file and all read/signature/source pins remain unchanged; callbacks, debugger options and flag-2-before-resume remain strict.

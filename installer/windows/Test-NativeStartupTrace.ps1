@@ -11,7 +11,7 @@ $failureLine = '16:1 @ 00000000 - LdrpCallInitRoutine - ERROR: DLL_PROCESS_ATTAC
 
 function Assert-Control {
     param([bool]$Value)
-    if (-not $Value) { throw 'Bounded startup protocol control failed.' }
+    if (-not $Value) { throw "Bounded startup protocol control failed at line $($MyInvocation.ScriptLineNumber)." }
 }
 
 function New-ControlFixture {
@@ -61,6 +61,15 @@ function New-ControlOpenBlock {
     $state = New-HermesStartupState
     Add-HermesStartupLine $state 'HERMES_CDB v=1 kind=0 pid=11'
     Add-HermesStartupLine $state "HERMES_CDB v=1 kind=$Kind pid=$Current"
+    Update-HermesStartupRows $state ($targetRow + "`n")
+    return $state
+}
+
+function New-ControlTypedBlock {
+    $state = New-HermesStartupState
+    Add-HermesStartupLine $state 'HERMES_CDB v=1 kind=0 pid=11'
+    Add-HermesStartupLine $state 'HERMES_CDB v=2 kind=1 pid=22'
+    Add-HermesStartupLine $state 'Last event: 16.1: Create process 1:16'
     Update-HermesStartupRows $state ($targetRow + "`n")
     return $state
 }
@@ -320,7 +329,7 @@ function Get-HermesSetupPublishFiles {
     }
 }
 
-$cases = 1..190 # Original 186 + 4 single-factor quoted .load encoding controls.
+$cases = 1..210 # Original 190 plus typed, PID-bound NtGlobalFlag readback controls.
 $passed = 0
 foreach ($case in $cases) {
     $state = $null
@@ -974,7 +983,7 @@ foreach ($case in $cases) {
             63 {
                 $state = New-HermesStartupState
                 $report = New-HermesStartupReport $state $false $false
-                Assert-Control ($report.observations.Count -eq 54)
+                Assert-Control ($report.observations.Count -eq 56)
                 foreach ($value in $report.observations.Values) {
                     Assert-Control ($value -is [int] -and $value -eq 0)
                 }
@@ -1157,7 +1166,7 @@ foreach ($case in $cases) {
             77 {
                 $state = New-HermesStartupState
                 foreach ($line in @(
-                    'HERMES_CDB v=2 kind=1 pid=22',
+                    'HERMES_CDB v=3 kind=1 pid=22',
                     '0:000> HERMES_CDB v=1 kind=1 pid=22',
                     'HERMES_CDB v=1 kind=9 pid=22 C:\private\secret S-1-5-21-123 --command',
                     '0:000> .printf "HERMES_CDB v=1 kind=1 pid=%u\n", @$tpid'
@@ -1394,9 +1403,10 @@ foreach ($case in $cases) {
             91 {
                 $sources = New-TraceEventCommands
                 $expectedCreate = @(
-                    '.printf "HERMES_CDB v=1 kind=1 pid=%u\n", @$tpid',
+                    '.printf "HERMES_CDB v=2 kind=1 pid=%u\n", @$tpid',
                     '.lastevent', '|.', '!gflag +sls', '!gflag',
-                    '.printf "HERMES_CDB v=1 kind=2 pid=%u\n", @$tpid', 'g'
+                    '.if (@@c++(sizeof(((ntdll!_PEB*)@$peb)->NtGlobalFlag)) == 4) { .printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(((ntdll!_PEB*)@$peb)->NtGlobalFlag) }',
+                    '.printf "HERMES_CDB v=2 kind=2 pid=%u\n", @$tpid', 'g'
                 )
                 $expectedExit = @(
                     '.printf "HERMES_CDB v=1 kind=3 pid=%u\n", @$tpid', '.lastevent',
@@ -2156,7 +2166,7 @@ foreach ($case in $cases) {
                     Assert-Control ($report.observations[$field] -is [int])
                 }
                 $json = $report | ConvertTo-Json -Depth 4 -Compress
-                Assert-Control ($report.observations.Count -eq 54 `
+                Assert-Control ($report.observations.Count -eq 56 `
                     -and [Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
                     -and $json -notmatch 'Users|Example|AppData|Temp|Command:|\$\$><' `
                     -and $report.armingVerified -eq 0 -and $report.completed -eq 0 `
@@ -2814,7 +2824,7 @@ foreach ($case in $cases) {
                 Assert-Control ($state.Bounds -eq 1 -and $state.AcceptedUtf8Bytes -eq 8388608 `
                     -and ($report.observations | ConvertTo-Json -Compress) -ceq $before `
                     -and $report.status -eq 7 -and $report.completed -eq 0 -and $report.armingVerified -eq 0 `
-                    -and $report.observations.Count -eq 54 `
+                    -and $report.observations.Count -eq 56 `
                     -and [Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
                     -and $json -notmatch 'Program Files|Windows Kits|exts\.dll|gflag\.dll|LoadLibrary\(|C:')
             }
@@ -2998,7 +3008,7 @@ foreach ($case in $cases) {
                 $state.Err.Fingerprint = 'f' * 64
                 $report = New-HermesStartupReport $state $true $true
                 $json = $report | ConvertTo-Json -Depth 4 -Compress
-                Assert-Control ($report.observations.Count -eq 54 `
+                Assert-Control ($report.observations.Count -eq 56 `
                     -and [Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
                     -and $json -notmatch 'private|exts\.dll|LoadLibrary\(|C:' `
                     -and $report.completed -eq 0 -and $report.armingVerified -eq 0)
@@ -3030,6 +3040,269 @@ foreach ($case in $cases) {
                     -and $report.completed -eq 0 -and $report.armingVerified -eq 0 `
                     -and $report.status -eq 7 -and [Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
                     -and $json -notmatch 'private|Program Files|Windows Kits|exts\.dll|gflag\.dll|LoadLibrary\(|C:')
+            }
+            191 {
+                $state = New-ControlTypedBlock
+                Add-HermesStartupLine $state 'HERMES_NTGLOBALFLAG v=1 pid=22 value=00000002'
+                Assert-Control ($state.Block.Flags -eq 2 -and -not (Test-HermesStartupArm $state))
+                Add-HermesStartupLine $state 'HERMES_CDB v=2 kind=2 pid=22'
+                Assert-Control ((Test-HermesStartupArm $state) -and -not $state.Acked)
+                Set-HermesStartupArmAcknowledged $state
+                Add-HermesStartupLine $state $failureLine
+                foreach ($line in @(
+                    'HERMES_CDB v=1 kind=3 pid=22',
+                    'Last event: 16.1: Exit process 1:16, code c0000142',
+                    'HERMES_CDB v=1 kind=4 pid=22',
+                    'HERMES_CDB v=1 kind=3 pid=11',
+                    'Last event: b.1: Exit process 0:b, code 0',
+                    'HERMES_CDB v=1 kind=4 pid=11'
+                )) { Add-HermesStartupLine $state $line }
+                Update-HermesStartupRows $state ($targetRow + "`n" + $finalRow + "`n")
+                $report = New-HermesStartupReport $state $true $true
+                Assert-Control ($report.observations.TypedFlagsAvailable -eq 1 `
+                    -and $report.observations.TypedFlagsValue -eq 2 `
+                    -and $report.observations.FlagsSeen -eq 0 -and $report.observations.FlagsAccepted -eq 0 `
+                    -and $report.armingVerified -eq 1 -and $report.completed -eq 1 `
+                    -and $report.cleanupComplete -eq 1 -and $report.nativeAcceptance -eq 0 `
+                    -and $state.ArmedBinding.Born -eq 123 -and (Test-HermesStartupArmed $state) `
+                    -and -not (Test-HermesStartupArm $state))
+            }
+            { $_ -in 192..194 } {
+                $state = New-ControlTypedBlock
+                $hex = @('00000000', '00000001', 'ffffffff')[$case - 192]
+                $expected = [long][Convert]::ToUInt32($hex, 16)
+                Add-HermesStartupLine $state ("HERMES_NTGLOBALFLAG v=1 pid=22 value=" + $hex)
+                Add-HermesStartupLine $state 'HERMES_CDB v=2 kind=2 pid=22'
+                $observed = New-HermesStartupObservations $state
+                Assert-Control ($observed.TypedFlagsAvailable -eq 1 `
+                    -and $observed.TypedFlagsValue -eq $expected `
+                    -and (Test-HermesStartupArm $state) -eq ($case -eq 194) `
+                    -and $observed.ArmFlag2 -eq [int]($case -eq 194) `
+                    -and $observed.ParserUnknown -eq [int]($case -ne 194) -and -not $state.Acked)
+            }
+            195 {
+                foreach ($line in @(
+                    'HERMES_NTGLOBALFLAG v=1 pid=22 value=2',
+                    'HERMES_NTGLOBALFLAG v=1 pid=22 value=000000002',
+                    'HERMES_NTGLOBALFLAG v=1 pid=22 value=100000002',
+                    'HERMES_NTGLOBALFLAG v=1 pid=22 value=0x00000002',
+                    'HERMES_NTGLOBALFLAG v=1 pid=22 value=0000000A',
+                    'HERMES_NTGLOBALFLAG v=1 pid=22 value=????????',
+                    'HERMES_NTGLOBALFLAG v=2 pid=22 value=00000002',
+                    'HERMES_NTGLOBALFLAG v=1 pid=22 value=00000002 trailing',
+                    ' HERMES_NTGLOBALFLAG v=1 pid=22 value=00000002',
+                    '0:000> HERMES_NTGLOBALFLAG v=1 pid=22 value=00000002'
+                )) {
+                    $state = New-ControlTypedBlock
+                    try {
+                        Add-HermesStartupLine $state $line
+                        Add-HermesStartupLine $state 'HERMES_CDB v=2 kind=2 pid=22'
+                        $observed = New-HermesStartupObservations $state
+                        Assert-Control ($state.Arm.Flags -eq -1 -and $state.Protocol -eq 1 `
+                            -and $observed.TypedFlagsAvailable -eq 0 -and $observed.TypedFlagsValue -eq 0 `
+                            -and -not (Test-HermesStartupArm $state) -and -not $state.Acked)
+                    } finally { $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose() }
+                }
+            }
+            196 {
+                foreach ($pidText in @('0', '023', '23', '11', '4294967296', '99999999999', '-1')) {
+                    $state = New-ControlTypedBlock
+                    try {
+                        Add-HermesStartupLine $state ("HERMES_NTGLOBALFLAG v=1 pid=" + $pidText + ' value=00000002')
+                        Add-HermesStartupLine $state 'HERMES_CDB v=2 kind=2 pid=22'
+                        Assert-Control ($state.Protocol -eq 1 -and $state.Arm.Flags -eq -1 `
+                            -and (Get-HermesStartupTypedFlags $state) -eq -1 `
+                            -and -not (Test-HermesStartupArm $state))
+                    } finally { $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose() }
+                }
+            }
+            197 {
+                foreach ($phase in @('none', 'before-event', 'exit', 'legacy', 'wrong-event', 'helper')) {
+                    $state = if ($phase -eq 'exit') { New-ControlOpenBlock -Kind 3 } `
+                        elseif ($phase -eq 'legacy') { New-ControlOpenBlock } else { New-HermesStartupState }
+                    try {
+                        $current = if ($phase -eq 'helper') { 11 } else { 22 }
+                        if ($phase -in @('before-event', 'wrong-event', 'helper')) {
+                            Add-HermesStartupLine $state 'HERMES_CDB v=1 kind=0 pid=11'
+                            Add-HermesStartupLine $state "HERMES_CDB v=2 kind=1 pid=$current"
+                            if ($phase -eq 'wrong-event') {
+                                Add-HermesStartupLine $state 'Last event: 17.1: Create process 1:17'
+                            } elseif ($phase -eq 'helper') {
+                                Add-HermesStartupLine $state 'Last event: b.1: Create process 0:b'
+                            }
+                        }
+                        Add-HermesStartupLine $state "HERMES_NTGLOBALFLAG v=1 pid=$current value=00000002"
+                        Assert-Control ($state.Protocol -eq 1 `
+                            -and (Get-HermesStartupTypedFlags $state) -eq -1 `
+                            -and -not (Test-HermesStartupArm $state) -and -not $state.Acked)
+                    } finally { $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose() }
+                }
+            }
+            198 {
+                $state = New-ControlTypedBlock
+                $readback = "HERMES_NTGLOBALFLAG v=1 pid=22 value=00000002`r`n"
+                Add-HermesStartupText $state $state.Err $readback $false
+                Assert-Control ($state.Block.Flags -eq -1 -and $state.Protocol -eq 0 `
+                    -and (Get-HermesStartupTypedFlags $state) -eq -1)
+                $text = $readback + "HERMES_CDB v=2 kind=2 pid=22`r`n"
+                for ($index = 0; $index -lt $text.Length; $index += 7) {
+                    Add-HermesStartupText $state $state.Out (
+                        $text.Substring($index, [Math]::Min(7, $text.Length - $index))) $true
+                }
+                Assert-Control ((Test-HermesStartupArm $state) `
+                    -and (Get-HermesStartupTypedFlags $state) -eq 2 `
+                    -and $state.Protocol -eq 0 -and $state.Unknown -eq 0)
+            }
+            199 {
+                $state = New-ControlTypedBlock
+                $sourceLines = (New-TraceEventCommands)['startup-cpr.cdb'] -split "`r`n"
+                Add-HermesStartupLine $state ('1:000> ' + $sourceLines[5])
+                Assert-Control ($state.Block.Flags -eq -1 -and $state.Protocol -eq 0)
+                Add-HermesStartupLine $state 'Current NtGlobalFlag contents: 0x00000002'
+                Add-HermesStartupLine $state 'HERMES_CDB v=2 kind=2 pid=22'
+                $observed = New-HermesStartupObservations $state
+                Assert-Control ($state.Arm.Flags -eq -1 -and $state.Unknown -eq 1 `
+                    -and $observed.FlagsSeen -eq 1 -and $observed.FlagsAccepted -eq 0 `
+                    -and $observed.TypedFlagsAvailable -eq 0 -and -not (Test-HermesStartupArm $state))
+            }
+            200 {
+                foreach ($errorLine in @(
+                    '', 'Unable to read PEB', 'Memory access error at private-address',
+                    'Type ntdll!_PEB not found', 'Syntax error at NtGlobalFlag',
+                    '*** ERROR: Symbols could not be loaded for ntdll.dll',
+                    'Couldn''t resolve error at ((ntdll!_PEB*)@$peb)->NtGlobalFlag'
+                )) {
+                    $state = New-ControlTypedBlock
+                    try {
+                        Add-HermesStartupLine $state 'Current NtGlobalFlag contents: 0x00000002'
+                        Add-HermesStartupLine $state $errorLine
+                        Add-HermesStartupLine $state 'HERMES_CDB v=2 kind=2 pid=22'
+                        $observed = New-HermesStartupObservations $state
+                        Assert-Control ($state.Arm.Flags -eq -1 -and $state.Unknown -eq 1 `
+                            -and $observed.TypedFlagsAvailable -eq 0 -and $observed.TypedFlagsValue -eq 0 `
+                            -and -not (Test-HermesStartupArm $state) -and -not $state.Acked)
+                    } finally { $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose() }
+                }
+            }
+            201 {
+                $state = New-ControlTypedBlock
+                Add-HermesStartupLine $state $failureLine
+                Add-HermesStartupLine $state 'HERMES_NTGLOBALFLAG v=1 pid=22 value=00000002'
+                Add-HermesStartupLine $state 'HERMES_CDB v=2 kind=2 pid=22'
+                Assert-Control ($state.Unknown -eq 1 -and $state.Protocol -eq 1 `
+                    -and $null -eq $state.Failure -and (Get-HermesStartupTypedFlags $state) -eq -1 `
+                    -and -not (Test-HermesStartupArm $state) -and -not $state.Acked)
+            }
+            202 {
+                $state = New-ControlTypedBlock
+                Add-HermesStartupLine $state 'HERMES_NTGLOBALFLAG v=1 pid=22 value=00000002'
+                Add-HermesStartupLine $state 'HERMES_CDB v=2 kind=2 pid=22'
+                Set-HermesStartupArmAcknowledged $state
+                Add-HermesStartupLine $state 'HERMES_CDB v=1 kind=3 pid=22'
+                Add-HermesStartupLine $state 'Last event: 16.1: Exit process 1:16, code c0000142'
+                Add-HermesStartupLine $state 'HERMES_CDB v=1 kind=4 pid=22'
+                Assert-Control ((Test-HermesStartupArmed $state))
+                Add-HermesStartupLine $state 'HERMES_NTGLOBALFLAG v=1 pid=22 value=00000002'
+                Assert-Control ($state.Protocol -eq 1 -and -not (Test-HermesStartupArmed $state) `
+                    -and (Get-HermesStartupTypedFlags $state) -eq -1)
+            }
+            203 {
+                $state = New-ControlTypedBlock
+                Add-HermesStartupLine $state 'HERMES_NTGLOBALFLAG v=1 pid=22 value=00000002'
+                Add-HermesStartupLine $state 'HERMES_NTGLOBALFLAG v=1 pid=22 value=00000000'
+                Add-HermesStartupLine $state 'HERMES_CDB v=2 kind=2 pid=22'
+                Assert-Control ($state.Protocol -eq 1 -and $state.Arm.Flags -eq 2 `
+                    -and (Get-HermesStartupTypedFlags $state) -eq -1 `
+                    -and -not (Test-HermesStartupArm $state))
+            }
+            204 {
+                $state = New-ControlTypedBlock
+                Add-HermesStartupLine $state 'HERMES_NTGLOBALFLAG v=1 pid=22 value=00000002'
+                Add-HermesStartupLine $state 'HERMES_CDB v=1 kind=2 pid=22'
+                Assert-Control ($state.Protocol -eq 1 -and $null -eq $state.Arm `
+                    -and $null -eq $state.Block -and -not (Test-HermesStartupArm $state))
+                Add-HermesStartupMarker $state 0 11 2
+                Assert-Control ($state.Protocol -eq 1)
+            }
+            205 {
+                foreach ($row in @(
+                    $targetRow.Replace('pid=22', 'pid=23'),
+                    $targetRow.Replace('helper=11', 'helper=12'),
+                    $targetRow.Replace('born=123', 'born=0'),
+                    $targetRow.Replace('context=1', 'context=0')
+                )) {
+                    $state = New-ControlTypedBlock
+                    try {
+                        $state.Target = $null
+                        $state.TargetText = ''
+                        Add-HermesStartupLine $state 'HERMES_NTGLOBALFLAG v=1 pid=22 value=00000002'
+                        Add-HermesStartupLine $state 'HERMES_CDB v=2 kind=2 pid=22'
+                        Assert-Control ((Get-HermesStartupTypedFlags $state) -eq -1 `
+                            -and -not (Test-HermesStartupArm $state))
+                        Update-HermesStartupRows $state ($row + "`n")
+                        Assert-Control ((Get-HermesStartupTypedFlags $state) -eq -1 `
+                            -and -not (Test-HermesStartupArm $state))
+                    } finally { $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose() }
+                }
+            }
+            206 {
+                $state = New-ControlTypedBlock
+                Update-HermesStartupRows $state ($targetRow + "`n" + $finalRow + "`n")
+                Add-HermesStartupLine $state 'HERMES_NTGLOBALFLAG v=1 pid=22 value=00000002'
+                Add-HermesStartupLine $state 'HERMES_CDB v=2 kind=2 pid=22'
+                Assert-Control ($state.Protocol -eq 1 -and $state.Arm.Flags -eq -1 `
+                    -and (Get-HermesStartupTypedFlags $state) -eq -1 `
+                    -and -not (Test-HermesStartupArm $state))
+            }
+            207 {
+                . $controlCommandDriver
+                $report = New-HermesStartupReport $state $debuggerEnded $drainsEnded
+                $bytes = $script:controlCommandFiles[(Join-Path $root 'startup-cpr.cdb')]
+                Assert-Control ($bytes.Length -eq 311 `
+                    -and $report.createCommandSha256 -ceq 'ed53082705ecdca0ed5250a8dcf95dc1bf831a6a90eea3e1146eb3c3064c47af' `
+                    -and $script:controlCommandPins.Count -eq 3 -and $script:controlCommandHashes -eq 3 `
+                    -and $script:controlLaunchBindings -eq 1 -and $script:controlStops -eq 1 `
+                    -and $script:controlDisposed -eq 1 -and $report.armingVerified -eq 0)
+            }
+            208 {
+                $state = New-ControlTypedBlock
+                Add-HermesStartupLine $state 'HERMES_NTGLOBALFLAG v=1 pid=22 value=ffffffff'
+                Add-HermesStartupLine $state 'HERMES_CDB v=2 kind=2 pid=22'
+                Set-HermesStartupArmAcknowledged $state
+                foreach ($name in @('DebuggerSha256', 'HelperSha256', 'CommandSha256',
+                        'CreateCommandSha256', 'ExitCommandSha256')) { $state[$name] = 'f' * 64 }
+                $state.Out.Fingerprint = 'f' * 64
+                $state.Err.Fingerprint = 'f' * 64
+                foreach ($name in @($state.Observations.Keys)) { $state.Observations[$name] = 8388608 }
+                $report = New-HermesStartupReport $state $false $false
+                $json = $report | ConvertTo-Json -Depth 4 -Compress
+                Assert-Control ($report.observations.TypedFlagsAvailable -eq 1 `
+                    -and $report.observations.TypedFlagsValue -eq [long][uint32]::MaxValue `
+                    -and [Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
+                    -and $json -notmatch 'NtGlobalFlag|ntdll|_PEB|HERMES_NTGLOBALFLAG|0x|private')
+            }
+            209 {
+                $state = New-ControlTypedBlock
+                Add-HermesStartupLine $state 'HERMES_NTGLOBALFLAG v=1 pid=22 value=00000002'
+                Add-HermesStartupLine $state 'HERMES_CDB v=2 kind=2 pid=22'
+                Set-HermesStartupArmAcknowledged $state
+                Assert-Control ((Test-HermesStartupArmed $state) -and $state.ArmedBinding.Born -eq 123)
+                Update-HermesStartupRows $state ($targetRow.Replace('born=123', 'born=124') + "`n")
+                Assert-Control ($state.Protocol -eq 1 -and -not (Test-HermesStartupArmed $state) `
+                    -and (Get-HermesStartupTypedFlags $state) -eq -1 `
+                    -and -not (Test-HermesStartupArm $state))
+            }
+            210 {
+                $state = New-ControlTypedBlock
+                $readback = "HERMES_NTGLOBALFLAG v=1 pid=22 value=00000002`n"
+                Add-HermesStartupText $state $state.Err ('x' * 4096) $false
+                $state.AcceptedUtf8Bytes = 8388608 - [Text.Encoding]::UTF8.GetByteCount($readback)
+                Add-HermesStartupText $state $state.Out $readback $true
+                Assert-Control ($state.AcceptedUtf8Bytes -eq 8388608 -and $state.Bounds -eq 1 `
+                    -and $state.Block.Flags -eq -1 -and (Get-HermesStartupTypedFlags $state) -eq -1 `
+                    -and -not (Test-HermesStartupArm $state))
+                Add-HermesStartupLine $state ($readback.TrimEnd("`n") + ('x' * 4096))
+                Assert-Control ($state.Bounds -eq 1 -and $state.Block.Flags -eq -1)
             }
         }
         $passed++
