@@ -100,6 +100,15 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Actual Windows proves the four strict adapter cases
+
+- **Evidence:** Published `e79d7ff`, run `39663397530`, job `119441985422`, executes 461 native cases: 460 pass, one fails, zero skip. Only the original restricted PowerShell assertion fails; all four owned-child adapter cases pass after the startup correction.
+- **Closed boundary:** Real hosted-High process identity, clean/noisy pipe handling, checked deadline reaping, closed streams and actual drain settlement now have target-host evidence. This closes the Setup transport work, not installed Medium or MSI acceptance.
+- **Changed:** The next diagnostic adds only root `.chain` readback and closed selected-module/missing-library/display observations. It does not alter extension loading, source trust or flag-2-before-resume.
+- **Validation:** Parent review and all 178 pure controls pass. No raw chain rows or library paths enter reports.
+- **Blockers:** Genuine PowerShell execution and actual extension-loading identity remain unresolved; cross-platform current-head jobs are still finishing.
+- **Next:** Publish and read the selected extension's actual chain relation before changing command binding.
+
 ### 2026-10-22 - Loaded-image readiness preserves proof and owns failed startup
 
 - **Changed:** The real owned-start path waits only for the documented transient null main module, using monotonic bounded observations of the same process. Loaded-module/PID/time/path/hash proof remains mandatory afterward.

@@ -120,6 +120,7 @@ function New-TraceCommands {
     # Neither registration nor its readback establishes runtime target binding.
     $commands = @(
         ('.load "' + $Extension + '"'),
+        '.chain',
         '.printf "HERMES_CDB v=1 kind=0 pid=%u\n", @$tpid',
         'sxd ibp',
         ('sxe -c "$$><' + $cpr.Replace('\', '\\') + '" cpr'),

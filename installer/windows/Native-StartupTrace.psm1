@@ -23,6 +23,7 @@ function New-HermesStartupState {
         TracePoint = 0; ToolRole = 0; TraceFaulted = $false
         TraceFaultPoint = 0; TraceFaultRole = 0
         FilterPending = ''; FilterExpected = @{ Cpr = ''; Epr = '' }; ExtensionExpected = ''
+        ChainPending = $false
         Observations = @{
             Marker0 = 0; Marker1 = 0; Marker2 = 0; Marker3 = 0; Marker4 = 0
             MarkerMalformed = 0; MarkerMalformedKind = 0; MarkerEcho = 0
@@ -30,6 +31,7 @@ function New-HermesStartupState {
             ExitEventSeen = 0; ExitEventAccepted = 0
             FlagsSeen = 0; FlagsAccepted = 0; SdkCommandErrors = 0
             SdkLoadLibraryWin32Error = 0; SdkLoadLibraryPathShape = 0
+            SdkSelectedExtensionChain = 0; SdkLoadLibraryRelation = 0; SdkLoadLibraryForm = 0
             CprFilter = 0; EprFilter = 0
             CprCommandShape = 0; EprCommandShape = 0
             CprCommandTransform = 0; EprCommandTransform = 0
@@ -50,6 +52,7 @@ function Get-HermesStartupObservation {
             'LastEventSeen', 'CreateEventSeen', 'CreateEventAccepted',
             'ExitEventSeen', 'ExitEventAccepted', 'FlagsSeen', 'FlagsAccepted', 'SdkCommandErrors',
             'SdkLoadLibraryWin32Error', 'SdkLoadLibraryPathShape',
+            'SdkSelectedExtensionChain', 'SdkLoadLibraryRelation', 'SdkLoadLibraryForm',
             'CprFilter', 'EprFilter', 'CprCommandShape', 'EprCommandShape',
             'CprCommandTransform', 'EprCommandTransform',
             'CprPayloadLength', 'EprPayloadLength', 'CprSourceLength', 'EprSourceLength')]
@@ -468,6 +471,69 @@ function Get-HermesStartupLoadLibraryPathShape {
     return 7
 }
 
+function Get-HermesStartupLoadLibraryRelation {
+    param($Expected, [string]$Path)
+    $unknown = @{ Relation = 0; Form = 0 }
+    if ($Expected -isnot [string] -or $Expected.Length -eq 0 -or $Expected.Length -gt 240 `
+        -or $Expected -cmatch '[";\x00-\x1f\x7f-\uffff]' -or $Path.Length -gt 1024) { return $unknown }
+    # Fixed source variants only. No trimming, path resolution, decoding, or
+    # payload-derived names; even a match is diagnostic, never load authority.
+    # Default user-mode modules:
+    # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/using-debugger-extension-commands
+    # gflag is the fixed callback command, not a documented default module.
+    $variants = @(
+        $Expected, $Expected.Replace('\', '/'), $Expected.Replace('\', ''),
+        $Expected.Replace('\', '\\'), ($Expected -split '[ \t]', 2)[0],
+        ('.load "' + $Expected + '"'), ('.load ' + $Expected),
+        'exts', 'exts.dll', 'ext', 'ext.dll', 'ntsdexts', 'ntsdexts.dll',
+        'gflag', 'gflag.dll', 'dbghelp', 'dbghelp.dll', 'uext', 'uext.dll'
+    )
+    if ($Expected -cmatch '\A(?<sdk>[A-Za-z]:\\.+?)\\(?:(?:winxp|winext)\\)?exts\.dll\z') {
+        $sdk = $Matches.sdk
+        $variants += @(($sdk + '\winext\ext.dll'), ($sdk + '\winxp\ntsdexts.dll'),
+            ($sdk + '\dbghelp.dll'), ($sdk + '\winext\uext.dll'))
+    }
+    for ($index = 0; $index -lt $variants.Count; $index++) {
+        $source = $variants[$index]
+        $forms = @($source, ('"' + $source + '"'), ('"' + $source), ($source + '"'),
+            ('\"' + $source + '\"'), (' ' + $source), ($source + ' '))
+        for ($form = 0; $form -lt $forms.Count; $form++) {
+            if ([string]::Equals($Path, $forms[$form], [StringComparison]::Ordinal)) {
+                return @{ Relation = $index + 1; Form = $form + 1 }
+            }
+            if ([string]::Equals($Path, $forms[$form], [StringComparison]::OrdinalIgnoreCase)) {
+                return @{ Relation = $index + 1; Form = $form + 9 }
+            }
+        }
+    }
+    return $unknown
+}
+
+function Add-HermesStartupChainReadback {
+    param([hashtable]$State, [string]$Line)
+    # Root stdout only, before marker 0; never search-path text or callbacks.
+    # Documented full-path row example:
+    # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/-load---loadby--load-extension-dll-
+    if ($State.Initial -ne 0) { return }
+    if ($Line -ceq 'Extension DLL chain:') {
+        $State.ChainPending = $true
+        if ((Get-HermesStartupObservation $State 'SdkSelectedExtensionChain' 3) -eq 0) {
+            $State.Observations.SdkSelectedExtensionChain = 1
+        }
+        return
+    }
+    if (-not $State.ChainPending) { return }
+    if ($Line -cnotmatch '\A[ \t]+') { $State.ChainPending = $false; return }
+    $row = '\A[ \t]+(?<path>[^\x00-\x1f]{1,1024}): image [0-9]{1,5}(?:\.[0-9]{1,5}){1,3}, API [0-9]{1,5}(?:\.[0-9]{1,5}){1,3}(?:, built [^\x00-\x1f]{1,128})?\z'
+    if ($Line -cnotmatch $row) { return }
+    $match = Get-HermesStartupLoadLibraryRelation $State.ExtensionExpected $Matches.path
+    if ($match.Relation -notin @(1, 2) -or $match.Form -notin @(1, 9)) { return }
+    $value = if ($match.Relation -eq 1 -and $match.Form -eq 1) { 2 } else { 3 }
+    if ((Get-HermesStartupObservation $State 'SdkSelectedExtensionChain' 3) -ne 2) {
+        $State.Observations.SdkSelectedExtensionChain = $value
+    }
+}
+
 function Set-HermesStartupLoadLibraryError {
     param([hashtable]$State, [string]$Path, [string]$Code)
     $errorCode = [long]0
@@ -477,6 +543,9 @@ function Set-HermesStartupLoadLibraryError {
     $State.Observations.SdkLoadLibraryWin32Error = $errorCode
     $State.Observations.SdkLoadLibraryPathShape =
         Get-HermesStartupLoadLibraryPathShape $State.ExtensionExpected $Path
+    $relation = Get-HermesStartupLoadLibraryRelation $State.ExtensionExpected $Path
+    $State.Observations.SdkLoadLibraryRelation = $relation.Relation
+    $State.Observations.SdkLoadLibraryForm = $relation.Form
 }
 
 function Add-HermesStartupSdkError {
@@ -507,6 +576,7 @@ function Add-HermesStartupLine {
     param([hashtable]$State, [string]$Line)
     if ($Line.Length -gt 4096) { $State.Bounds = 1; return }
     Add-HermesStartupSdkError $State $Line
+    Add-HermesStartupChainReadback $State $Line
     Add-HermesStartupFilterReadback $State $Line
     if ($Line -cmatch '\AHERMES_CDB v=1 kind=(?<kind>[0-4]) pid=(?<pid>[1-9][0-9]{0,9})\z') {
         $kind = [int]$Matches.kind
@@ -629,6 +699,20 @@ function New-HermesStartupObservations {
     $observations.SdkLoadLibraryWin32Error =
         Get-HermesStartupObservation $State 'SdkLoadLibraryWin32Error' ([long][uint32]::MaxValue)
     $observations.SdkLoadLibraryPathShape = Get-HermesStartupObservation $State 'SdkLoadLibraryPathShape' 7
+    # Root .chain: 0 = unavailable; 1 = header only/no supported selected row;
+    # 2 = exact selected full path; 3 = source case/forward-separator display.
+    # A listed module is not flag-2, target-binding, or arming evidence.
+    $observations.SdkSelectedExtensionChain = Get-HermesStartupObservation $State 'SdkSelectedExtensionChain' 3
+    # First LoadLibrary failure relation: 0 = unknown/unbound; 1..7 = selected
+    # full path, forward slashes, stripped/doubled backslashes, first whitespace
+    # token, full .load source, unquoted .load source. 8..19 = stem/.dll pairs:
+    # exts, ext, ntsdexts, gflag, dbghelp, uext. 20..23 = source SDK-relative
+    # winext/ext.dll, winxp/ntsdexts.dll, dbghelp.dll, winext/uext.dll.
+    # Form 1..7 = bare, quotes both/leading/trailing, escaped quotes both,
+    # one leading/trailing space; add 8 for case-only display differences.
+    $observations.SdkLoadLibraryRelation = Get-HermesStartupObservation $State 'SdkLoadLibraryRelation' 23
+    $form = Get-HermesStartupObservation $State 'SdkLoadLibraryForm' 15
+    $observations.SdkLoadLibraryForm = if ($form -eq 8) { 0 } else { $form }
     # 0 = no recognised header; 1..5 = break/second-chance/output/ignore/unknown.
     # Add 8 only for the immediately following, exact pinned callback command.
     # Neither the filter nor callback readback proves that an event occurred.

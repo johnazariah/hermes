@@ -2,6 +2,21 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## All four owned-child adapter cases pass on actual Windows
+
+Run 39663397530 at `e79d7ff` executes all 461 native cases: 460 pass, one
+fails, zero skip. The only failure is the original restricted PowerShell
+exit-37 case. All four real adapter cases therefore pass, including checked
+deadline reaping, stream closure and settled drains before fixture cleanup.
+This proves the hosted-High transport boundary, not installed Medium/MSI
+acceptance.
+
+The next loader diagnostic adds a read-only root `.chain` and three closed
+numeric observations: selected-extension listing, missing-library relation
+and display form. It distinguishes a loaded pinned module from search-path
+text and another missing module without printing raw data or granting flag/
+resume authority. All 178 pure controls pass; actual chain evidence is pending.
+
 ## Owned startup waits for loaded identity and cleans up every bind failure
 
 The directly started process is observed until its main module is available,
