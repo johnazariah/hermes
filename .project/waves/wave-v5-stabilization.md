@@ -100,6 +100,13 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Proved Upgrade key-header defect receives a fixture-only correction
+
+- **Root evidence:** Actual `0e8c81b` header bytes select UpgradeCode/ActionProperty. Pinned WiX6 makes UpgradeCode/VersionMin/VersionMax/Language/Attributes the five keys and marks ActionProperty non-key.
+- **Changed:** The source-approved fixture-only correction selects that genuine ordered key and shares the unchanged emitter with actual-file byte controls. No production, types, row inputs, assertion or 57-case selection change is made.
+- **Validation:** Parent passes warning-free root/cross-build, 2,182 Core, 800 Setup and all static controls. Four new portable cases verify the actual single/composite and empty/populated header emission.
+- **Next:** Publish and resume the normal exact-head Windows project/lifecycle; no native import success is inferred from source approval.
+
 ### 2026-10-21 - Exact rejected key-header bytes are the remaining native fact
 
 - **Actual result:** Run `39519627685` at `7786a0f` reports 2216 / line 3 for all failing imports. Intended header computation alone does not justify changing emitted data.

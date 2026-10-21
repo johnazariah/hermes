@@ -2,6 +2,23 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Actual rejected Upgrade header identifies a fixture key defect
+
+Run `39521671956` at `0e8c81b` reports Upgrade line 3 with exact bytes for
+`Upgrade<TAB>UpgradeCode<TAB>ActionProperty<CR><LF>`. The pinned WiX6 definition
+instead makes the first five Upgrade columns its key and excludes
+ActionProperty.
+
+The reviewed test-only correction selects those five keys and shares the
+unchanged ASCII/tab/CRLF emitter with portable controls. Four controls read
+actual emitted files and verify independent single/composite and empty/
+populated Upgrade headers. Production, row inputs, column types, existing
+native assertions and all 57 test selections remain unchanged.
+
+Parent passes warning-free root/cross-build, 2,182 Core, 800 Setup and all
+static controls. Source review approves the demonstrated key-header fix;
+actual native import and lifecycle success remain pending.
+
 ## Import format error points to the actual key header
 
 Run `39519627685` at `7786a0f` reports 2216 with line number 3 for every

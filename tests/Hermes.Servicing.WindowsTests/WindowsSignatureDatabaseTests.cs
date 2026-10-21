@@ -2,7 +2,6 @@
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
-using System.Text;
 using Hermes.Setup;
 using Hermes.Setup.Tests;
 using Xunit;
@@ -127,12 +126,7 @@ internal sealed class ScratchSignatureMsi : IDisposable
             var columns = PackageAuthoringSchema.Columns[pair.Key];
             var types = columns.Select((_, index) => index == 0 ? "s72" : "S0")
                 .ToImmutableArray();
-            ImmutableArray<string> keys = pair.Key switch
-            {
-                "FeatureComponents" => [columns[0], columns[1]],
-                "Upgrade" => [columns[0], columns[^1]],
-                _ => [columns[0]]
-            };
+            var keys = SignatureFixture.BaseTableKeys(pair.Key, columns);
             Import(installer, database, pair.Key, columns, types, keys, pair.Value);
         }
     }
@@ -164,14 +158,8 @@ internal sealed class ScratchSignatureMsi : IDisposable
         ImmutableArray<string> keys, ImmutableArray<ImmutableArray<string>> rows)
     {
         var filename = table + ".idt";
-        var lines = new[]
-        {
-            string.Join('\t', columns),
-            string.Join('\t', types),
-            string.Join('\t', keys.Prepend(table))
-        }.Concat(rows.Select(row => string.Join('\t', row)));
-        File.WriteAllText(Path.Combine(_root, filename),
-            string.Join("\r\n", lines) + "\r\n", Encoding.ASCII);
+        SignatureFixture.WriteIdt(Path.Combine(_root, filename),
+            table, columns, types, keys, rows);
         try { ((dynamic)database).Import(_root, filename); }
         catch (COMException) { ReportImportError(installer, table, filename); throw; }
     }

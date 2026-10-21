@@ -1,4 +1,5 @@
 ﻿using System.Collections.Immutable;
+using System.Text;
 using Hermes.Setup;
 
 namespace Hermes.Setup.Tests;
@@ -25,6 +26,30 @@ internal static class SignatureFixture
 
     internal static ImmutableArray<string> Row { get; } =
         ["ExistingInstallDirectory", "foreign.exe", "", "", "", "", "", "", ""];
+
+    internal static ImmutableArray<string> BaseTableKeys(
+        string table, ImmutableArray<string> columns) => table switch
+        {
+            "FeatureComponents" => [columns[0], columns[1]],
+            // WiX v6: Upgrade's first five columns are keys, not ActionProperty.
+            "Upgrade" => [.. columns.Take(5)],
+            _ => [columns[0]]
+        };
+
+    internal static void WriteIdt(
+        string path, string table,
+        ImmutableArray<string> columns, ImmutableArray<string> types,
+        ImmutableArray<string> keys, ImmutableArray<ImmutableArray<string>> rows)
+    {
+        var lines = new[]
+        {
+            string.Join('\t', columns),
+            string.Join('\t', types),
+            string.Join('\t', keys.Prepend(table))
+        }.Concat(rows.Select(row => string.Join('\t', row)));
+        File.WriteAllText(path,
+            string.Join("\r\n", lines) + "\r\n", Encoding.ASCII);
+    }
 
     internal static (string Table, string Hex) CaptureImportHeader(
         string table, string root, string filename)
