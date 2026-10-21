@@ -13,8 +13,9 @@ public sealed partial class SetupChildTransportTests
     private static SetupReport SuccessReport { get; } =
         new(SetupVerb.Install, SetupOutcome.Completed, true, 0);
     private static string SuccessJson => SuccessReport.ToJson();
-    private static SetupChildBudget Budget { get; } =
-        new(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(1), TimeProvider.System);
+    // Non-deadline fixtures must not race thread-pool scheduling during cleanup.
+    private static SetupChildBudget Budget =>
+        new(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(1), new ManualClock());
 
     [Fact]
     public async Task Both_pipes_are_drained_concurrently()
@@ -138,6 +139,28 @@ public sealed partial class SetupChildTransportTests
         AssertClosedAndSettled(errors);
         Assert.Equal(1, child.Kills);
         Assert.True(child.HasExited);
+    }
+
+    [Fact]
+    public async Task Parser_fixture_clocks_are_manual_and_isolated()
+    {
+        var expiringBudget = Budget;
+        var parsingBudget = Budget;
+        var clock = Assert.IsType<ManualClock>(expiringBudget.Clock);
+        Assert.IsType<ManualClock>(parsingBudget.Clock);
+        using var expiringChild = new Child(
+            Bytes(SuccessJson + "\n"), Bytes(SuccessSummary), exited: false);
+        var timeout = ConsumeAsync(expiringChild, budget: expiringBudget);
+        var started = Source();
+        var release = Source();
+        using var parserChild = new Child(
+            Bytes(SuccessJson + "\n", (_, _) => Hold(true, started, release)), Bytes(RefusalSummary));
+        var parsing = ConsumeAsync(parserChild, budget: parsingBudget);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        clock.Fire();
+        release.TrySetResult(true);
+        await FaultAsync(timeout, SetupChildFault.Timeout);
+        await FaultAsync(parsing, SetupChildFault.ExitMismatch);
     }
 
     [Theory]

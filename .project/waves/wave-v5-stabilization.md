@@ -100,6 +100,13 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Parser fixtures separate semantic checks from scheduler deadlines
+
+- **Changed:** A fresh C# owner gives each default fake-child invocation its own manual clock. Production and real-adapter budgets are unchanged; dedicated timeout/cancellation tests still expire explicitly and all outer watchdogs remain.
+- **Validation:** Fresh C# review approves. The added real-consumer regression proves one invocation's expiry cannot change another's strict summary rejection. All current portable cases pass and root build/test remain clean.
+- **Uncertainty:** The macOS log lacks the original assertion detail. This removes the identified wall-clock scheduling hazard without attributing that historical failure or weakening its expected result.
+- **Next:** Publish the deterministic fixture alongside the independently reviewed startup-binding correction and require fresh macOS evidence.
+
 ### 2026-10-22 - Bound library-load evidence precedes any extension-loading change
 
 - **Evidence:** Published `5de8751`, run `39657808901`, passes 156 pure controls. Native execution is 457 passed/four failed of 461: the original PowerShell assertion plus three startup-image binding failures. The SDK reports a LoadLibrary failure, with no accepted flag readback.

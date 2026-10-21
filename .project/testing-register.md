@@ -2,6 +2,20 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Parser-only fixtures use isolated manual clocks
+
+Default fake-child invocations now receive separate manual clocks rather
+than racing thread-pool cleanup against a one-second wall-clock budget.
+Production budgets, real Windows adapter deadlines, dedicated expiry/
+cancellation cases and five-second test watchdogs remain unchanged.
+
+A regression expires one real consumer invocation while a separate held
+parser still rejects its contradictory summary with `ExitMismatch`.
+Fresh C# review approves the clock isolation and retained assertions.
+The missing macOS assertion detail prevents attributing that historical
+failure to cleanup scheduling; the change removes a source-visible timing
+dependency without claiming otherwise.
+
 ## Library-load diagnostics bind error numbers to the selected extension
 
 Actual run 39657808901 at `5de8751` reports the LoadLibrary-failure bit and
