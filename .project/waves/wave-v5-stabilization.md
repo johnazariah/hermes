@@ -100,6 +100,13 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Native startup tracing replaces further permission variants
+
+- **Changed:** The disposable Windows installer job now reports only presence/absence for fixed SDK debugger prerequisites: CDB, GFlags and DbgEng. The read-only inventory runs even when the strict PowerShell test fails; no assertion, token, registry, privilege or artifact policy changes.
+- **Validation:** Isolated root build and all 2,182 Core cases pass; installer static controls and workflow lint pass. Native discovery remains 439 and the original exit-37 requirement remains blocking.
+- **Blockers:** Actual debugger availability is pending. PowerShell still has no proved script execution, despite the measured context, image, security descriptors and clean stdio lifecycle.
+- **Next:** Select a primary-supported, owned-process-only loader trace using an existing debugger if available. No tracing, global loader flag or debugger privilege is assumed from this inventory.
+
 ### 2026-10-21 - Token-object observation closes another hypothesis without changing authority
 
 - **Evidence:** Published `cf8aa10` run `39611721626`, job `119262016763`, passes 438/439 native cases with zero skips. Every actual child token object has DACL mask 0x6001F, an explicit Medium label (8192), policy 1, flags zero and successful query/cleanup; no higher token-object label is observed.

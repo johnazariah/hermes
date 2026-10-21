@@ -278,6 +278,16 @@ jobs:
               -or [int]$counts.failed -ne 0 -or [int]$counts.notExecuted -ne 0) {
             throw 'Expected all existing 411 Windows cases plus 28 actual-token object-security cases (439 total), with no skips. The genuine PowerShell case still requires exit 37 in all five arms.'
           }
+      - name: Inspect fixed native-debugger prerequisites
+        if: always()
+        shell: pwsh
+        run: |
+          $kits = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFilesX86)) 'Windows Kits/10/Debuggers/x64'
+          $names = @('cdb.exe', 'gflags.exe', 'dbgeng.dll')
+          for ($index = 0; $index -lt $names.Count; $index++) {
+            $present = [int][IO.File]::Exists((Join-Path $kits $names[$index]))
+            Write-Output "HERMES_NATIVE_DEBUG_TOOLS v=1 role=$($index + 1) present=$present"
+          }
       - name: Coordinator install, repair, launch, upgrade, rollback and uninstall without SDK access
         shell: pwsh
         run: |
