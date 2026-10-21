@@ -1,6 +1,6 @@
 ﻿namespace Hermes.Servicing.Acceptance;
 
-internal sealed class OwnedChild : IDisposable, ISetupChild
+internal sealed partial class OwnedChild : IDisposable, ISetupChild
 {
     private readonly Process _process;
     internal Stamp Identity { get; }
@@ -29,51 +29,11 @@ internal sealed class OwnedChild : IDisposable, ISetupChild
         string executable, IEnumerable<string> arguments, string work,
         bool captureStandardError = false)
     {
-        var start = new ProcessStartInfo(executable)
-        {
-            UseShellExecute = false,
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = captureStandardError,
-            WorkingDirectory = Path.GetDirectoryName(executable)
-                ?? throw new InvalidDataException()
-        };
-        foreach (var argument in arguments)
-            start.ArgumentList.Add(argument);
-        HideSdk(start, work);
-        return Bind(Process.Start(start) ?? throw new InvalidOperationException(),
-            captureStandardError);
-    }
-
-    private static OwnedChild Bind(Process process, bool checkedSetup)
-    {
-        try { return new(process); }
-        catch (Exception failure) when (checkedSetup)
-        {
-            try
-            {
-                if (!process.HasExited)
-                    process.Kill(entireProcessTree: false);
-                if (!process.WaitForExit(
-                    checked((int)SetupChildBudget.Default.Cleanup.TotalMilliseconds)))
-                    throw new TimeoutException();
-            }
-            catch (Exception cleanup)
-            {
-                throw new SetupChildException(SetupChildFault.CleanupFailed,
-                    new AggregateException(failure, cleanup));
-            }
-            finally { process.Dispose(); }
-            throw;
-        }
-    }
-
-    private static void HideSdk(ProcessStartInfo start, string work)
-    {
-        start.Environment["PATH"] = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32");
-        start.Environment["DOTNET_ROOT"] = Path.Combine(work, "absent-sdk");
-        start.Environment["DOTNET_ROOT_X64"] = Path.Combine(work, "absent-sdk");
+        var start = CreateStartInfo(
+            executable, arguments, work, captureStandardError);
+        var process = Process.Start(start) ?? throw new InvalidOperationException();
+        return Bind(new StartedChildImage(process), TimeProvider.System,
+            () => new OwnedChild(process));
     }
 
     internal async Task<string> ReadAsync(CancellationToken cancellationToken)

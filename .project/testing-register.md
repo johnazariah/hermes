@@ -2,6 +2,24 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Owned startup waits for loaded identity and cleans up every bind failure
+
+The directly started process is observed until its main module is available,
+within a five-second monotonic budget. Only the documented null-during-load
+state is retried; exit, query exceptions and late results fail. The unchanged
+`Files.Identity` still supplies loaded-module path, PID, birth time and hash.
+
+Independent review rejected cleanup limited to stderr-capturing callers.
+A fresh owner now sends both capture modes through the same bounded
+kill/reap/dispose path. Complete cleanup preserves the original exception;
+incomplete cleanup retains it alongside teardown faults. No unrelated PID or
+process tree is opened or terminated.
+
+Fresh re-review approves. The real source-linked controls cover 24 readiness
+and 36 binding cases. All 1,277 portable Setup cases, 2,184 Core cases and
+the warning-free root/Windows builds pass. Actual execution of all four
+Windows adapter cases remains required.
+
 ## Parser-only fixtures use isolated manual clocks
 
 Default fake-child invocations now receive separate manual clocks rather

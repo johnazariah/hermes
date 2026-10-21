@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Loaded-image readiness preserves proof and owns failed startup
+
+- **Changed:** The real owned-start path waits only for the documented transient null main module, using monotonic bounded observations of the same process. Loaded-module/PID/time/path/hash proof remains mandatory afterward.
+- **Review closure:** Independent C# review rejects the first candidate's non-stderr cleanup hole. Fresh owner `5470b095` supplies capture-independent bounded kill/reap/dispose; reviewer `d822adb9` approves. Rejected author `4813d703` does not revise or advise.
+- **Validation:** All 1,277 portable Setup cases pass, including 24 actual-gate readiness controls and 36 actual-bind failure/cleanup controls. Root/Windows builds have zero warnings/errors; 2,184 Core cases pass.
+- **Blockers:** No Mac execution of Windows native bodies occurred. All four real adapter cases and the original PowerShell assertion still require hosted proof.
+- **Next:** Publish and rerun the complete 461-case Windows gate without changing its original or added case requirements.
+
 ### 2026-10-22 - Parser fixtures separate semantic checks from scheduler deadlines
 
 - **Changed:** A fresh C# owner gives each default fake-child invocation its own manual clock. Production and real-adapter budgets are unchanged; dedicated timeout/cancellation tests still expire explicitly and all outer watchdogs remain.

@@ -13,6 +13,10 @@
              Link="Acceptance/MsiCases.Setup.cs" />
     <Compile Include="../Hermes.Servicing.Acceptance/SetupOutput.cs"
              Link="Acceptance/SetupOutput.cs" />
+    <Compile Include="../Hermes.Servicing.Acceptance/OwnedChild.Binding.cs"
+             Link="Acceptance/OwnedChild.Binding.cs" />
+    <Compile Include="../Hermes.Servicing.Acceptance/OwnedChildStartup.cs"
+             Link="Acceptance/OwnedChildStartup.cs" />
     <Compile Include="../../installer/windows/Hermes.Installer.Control/MsiCallContextObservation.cs"
              Link="Production/MsiCallContextObservation.cs" />
     <Compile Include="../../installer/windows/Hermes.Setup/SetupModel.cs"
