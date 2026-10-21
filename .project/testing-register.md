@@ -2,6 +2,23 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Import format error points to the actual key header
+
+Run `39519627685` at `7786a0f` reports 2216 with line number 3 for every
+failing scratch import. Source comparison of the intended table/key header
+does not establish a justified format change.
+
+The reviewed test-only continuation captures the actual written third line
+as exact hex and its canonical schema table name, after reading error fields
+1/4. File access is read-only and bounded to 4096 total header bytes, stopping
+at the third LF without reading rows. Unknown names, failed reads and optional
+output failures remain bounded unknowns; original COM failures are preserved.
+
+Seventeen byte-exact portable controls verify terminators, composite keys,
+raw bytes, bounds, actual-file readback and no row reads. Parent passes the
+warning-free root/cross-build, 2,182 Core, 796 Setup and all static controls.
+No format, production, assertion or 57-case selection change is made.
+
 ## Native Import reports format error 2216; capture only its line number
 
 Run `39517899783` at `b86d1ee` makes the associated xUnit channel visible:

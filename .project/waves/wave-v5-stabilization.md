@@ -100,6 +100,13 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Exact rejected key-header bytes are the remaining native fact
+
+- **Actual result:** Run `39519627685` at `7786a0f` reports 2216 / line 3 for all failing imports. Intended header computation alone does not justify changing emitted data.
+- **Changed:** The source-approved test-only capture reads the actual third line and canonical schema table, with a 4096-byte total header bound and no row reads, after native error capture. Original exceptions and all 57 cases remain unchanged.
+- **Validation:** Seventeen byte-exact portable cases pass; parent passes warning-free root/cross-build, 2,182 Core, 796 Setup and all static controls.
+- **Next:** Publish, read the bounded native header, and select only a proved fixture-format correction.
+
 ### 2026-10-21 - Actual MSI 2216 narrows the missing fact to its line-number field
 
 - **Actual result:** Run `39517899783` at `b86d1ee` emits numeric 2216 for all twelve common Import failures. Primary Microsoft documentation defines format error/Line field 4, not a file-open or duplicate-key diagnosis.

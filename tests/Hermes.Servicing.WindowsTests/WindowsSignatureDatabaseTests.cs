@@ -173,20 +173,23 @@ internal sealed class ScratchSignatureMsi : IDisposable
         File.WriteAllText(Path.Combine(_root, filename),
             string.Join("\r\n", lines) + "\r\n", Encoding.ASCII);
         try { ((dynamic)database).Import(_root, filename); }
-        catch (COMException) { ReportImportError(installer); throw; }
+        catch (COMException) { ReportImportError(installer, table, filename); throw; }
     }
 
-    private void ReportImportError(object installer)
+    private void ReportImportError(object installer, string table, string filename)
     {
         (string Id, string Line) diagnostic;
         try { diagnostic = ReadImportError(installer); }
         catch { diagnostic = ("unknown:capture-failed", "unknown"); }
-        try
-        {
-            _writeDiagnostic("MSI_IMPORT_ERROR_ID=" + diagnostic.Id);
-            _writeDiagnostic("MSI_IMPORT_ERROR_LINE=" + diagnostic.Line);
-        }
-        catch { /* Optional diagnostics must not replace the Import exception. */ }
+        var header = SignatureFixture.CaptureImportHeader(table, _root, filename);
+        SignatureFixture.WriteImportDiagnostic(
+            _writeDiagnostic, "MSI_IMPORT_ERROR_ID=", diagnostic.Id);
+        SignatureFixture.WriteImportDiagnostic(
+            _writeDiagnostic, "MSI_IMPORT_ERROR_LINE=", diagnostic.Line);
+        SignatureFixture.WriteImportDiagnostic(
+            _writeDiagnostic, "MSI_IMPORT_SCHEMA_TABLE=", header.Table);
+        SignatureFixture.WriteImportDiagnostic(
+            _writeDiagnostic, "MSI_IMPORT_HEADER3_HEX=", header.Hex);
     }
 
     private static (string Id, string Line) ReadImportError(object installer)

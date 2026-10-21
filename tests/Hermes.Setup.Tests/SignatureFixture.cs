@@ -6,6 +6,8 @@ namespace Hermes.Setup.Tests;
 internal static class SignatureFixture
 {
     internal const string Name = "Signature";
+    internal const int ImportHeaderByteLimit = 4096;
+    internal const string UnknownImportHeader = "unknown";
 
     // Independent expected native observations, not derived from production schema.
     internal static ImmutableArray<ImmutableArray<string>> Definitions { get; } =
@@ -23,6 +25,63 @@ internal static class SignatureFixture
 
     internal static ImmutableArray<string> Row { get; } =
         ["ExistingInstallDirectory", "foreign.exe", "", "", "", "", "", "", ""];
+
+    internal static (string Table, string Hex) CaptureImportHeader(
+        string table, string root, string filename)
+    {
+        var schemaTable = UnknownImportHeader;
+        try
+        {
+            schemaTable = PackageAuthoringSchema.Columns.Keys
+                .FirstOrDefault(name => name.Length <= 72 && name == table)
+                ?? UnknownImportHeader;
+            if (schemaTable == UnknownImportHeader)
+                return (schemaTable, UnknownImportHeader);
+            using var source = new FileStream(Path.Combine(root, filename),
+                FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 1);
+            return (schemaTable, ReadThirdHeaderLineHex(source));
+        }
+        catch { return (schemaTable, UnknownImportHeader); }
+    }
+
+    internal static string ReadThirdHeaderLineHex(Stream source)
+    {
+        try { return ReadThirdHeaderLine(source); }
+        catch { return UnknownImportHeader; }
+    }
+
+    // Count LF-delimited physical lines without decoding, normalizing or
+    // reading past line three. Retain CR and LF in the captured byte sequence.
+    private static string ReadThirdHeaderLine(Stream source)
+    {
+        var bytes = new byte[ImportHeaderByteLimit];
+        var length = 0;
+        var line = 1;
+        for (var count = 0; count < ImportHeaderByteLimit; count++)
+        {
+            var value = source.ReadByte();
+            if (value < 0)
+                return UnknownImportHeader;
+            if (line == 3)
+                bytes[length++] = (byte)value;
+            if (value != '\n')
+                continue;
+            if (line++ == 3)
+                return Convert.ToHexString(bytes.AsSpan(0, length));
+        }
+        return UnknownImportHeader;
+    }
+
+    internal static void WriteImportDiagnostic(
+        Action<string> write, string field, string value)
+    {
+        try { write(field + value); }
+        catch
+        {
+            try { write(field + UnknownImportHeader); }
+            catch { /* Optional output must not replace the Import exception. */ }
+        }
+    }
 
     internal static AuthoringFixture WithEmpty(AuthoringFixture fixture) =>
         fixture with
