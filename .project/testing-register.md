@@ -2,6 +2,24 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## PowerShell console and owned-descriptor factors are measured together
+
+The existing genuine PowerShell case now collects four arms before asserting:
+DETACHED and CREATE_NO_WINDOW, each with the original descriptor and the
+already-tested private user-self descriptor. New arms reuse the same verified
+token, fixed source, arguments, environment, stdio and cleanup; they also
+require actual full self grants and unchanged Medium label policy.
+
+This adds no cases: the exact gate remains 407, and every exit must still be
+37. Independent C# review approves the literal two-file change; warning-free
+root/Windows cross-builds, 2,182 Core and static controls pass.
+
+Actual prior run 39603408632 passed 406/407 without skips: image matches,
+source length eight, stdin EOF, final pipe/drain closure and empty stdout/
+stderr were observed for both original arms. DETACHED returned zero and
+CREATE_NO_WINDOW returned 0xC0000142. The new descriptor arms remain pending;
+no permission change is promoted as a remedy.
+
 ## PowerShell observations reach failing-test output before exit assertions
 
 The actual suspended process image path is queried and matched to the validated

@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - PowerShell descriptor factor joins the closed console comparison
+
+- **Evidence:** Published `af04f41` run `39603408632`, job `119233368753`, passes 406/407 without skips. Both original arms match the actual image path, validate eight script bytes, close stdin/pipes/drains and record zero stdout/stderr bytes with EOF/error zero. DETACHED returns zero; CREATE_NO_WINDOW returns 0xC0000142.
+- **Changed:** Two extra arms reuse the existing owned-self descriptor with each console policy. All four observations precede strict exit-37 assertions; new descriptor arms also require full actual self grants and the original Medium label policy. No token or existing ACL mutation occurs.
+- **Validation:** Fresh independent C# review approves the small two-file patch. Discovery stays 407; warning-free root/Windows cross-builds, 2,182 Core and static controls pass.
+- **Blockers:** PowerShell with full process/thread self access had not been measured. This is a closed descriptor counterfactual, not a promoted correction or proof of which startup operation needs a right.
+- **Next:** Publish and compare the complete console/descriptor matrix under the unchanged context and cleanup requirements.
+
 ### 2026-10-21 - PowerShell image and final stream observations become visible
 
 - **Changed:** A read-only query matches the actual suspended image path to the fixed application. Existing final I/O facts flow as immutable numeric ITest rows after cleanup. The same token runs DETACHED and a PowerShell-only CREATE_NO_WINDOW comparison; both exits remain required to equal 37.

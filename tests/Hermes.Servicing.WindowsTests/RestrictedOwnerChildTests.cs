@@ -299,12 +299,20 @@ public sealed partial class RestrictedOwnerChildTests(ITestOutputHelper output)
         using var token = RestrictedOwnerToken.Create(api);
         var proof = MeasurePowerShellArm(token, api.PowerShellForObservation, 5);
         var comparison = MeasurePowerShellArm(token, api.PowerShellNoWindowForObservation, 6);
+        var detachedSelf = MeasurePowerShellArm(token, api.PowerShellDetachedSelfControlForObservation, 7);
+        var noWindowSelf = MeasurePowerShellArm(token, api.PowerShellNoWindowSelfControlForObservation, 8);
         _ = token.Verify();
         Assert.Equal(RestrictedOwnerTokenFacts.Required, proof.Facts);
         Assert.Equal(MsiContextRead.Absent, proof.Thread);
         Assert.Equal(37u, proof.ExitCode);
         Assert.True(proof.Access.ResourcesClosed);
         RequirePowerShellArm(comparison);
+        RequirePowerShellArm(detachedSelf);
+        RequireFullOwnedSelf(detachedSelf.Access.Process, AcceptanceChildObject.Process);
+        RequireFullOwnedSelf(detachedSelf.Access.Thread, AcceptanceChildObject.Thread);
+        RequirePowerShellArm(noWindowSelf);
+        RequireFullOwnedSelf(noWindowSelf.Access.Process, AcceptanceChildObject.Process);
+        RequireFullOwnedSelf(noWindowSelf.Access.Thread, AcceptanceChildObject.Thread);
     }
 
     private static void RequirePowerShellArm(RestrictedOwnerChildResult proof)

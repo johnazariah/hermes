@@ -35,13 +35,21 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IAcceptanceC
     internal IAcceptanceChildFactory PowerShellNoWindowForObservation { get; } =
         new PowerShellProbeChildren(AcceptancePowerShellProbeConsole.NoWindow);
 
-    private sealed class PowerShellProbeChildren(AcceptancePowerShellProbeConsole console)
+    internal IAcceptanceChildFactory PowerShellDetachedSelfControlForObservation { get; } =
+        new PowerShellProbeChildren(AcceptancePowerShellProbeConsole.Detached, ownedSelfControl: true);
+
+    internal IAcceptanceChildFactory PowerShellNoWindowSelfControlForObservation { get; } =
+        new PowerShellProbeChildren(AcceptancePowerShellProbeConsole.NoWindow, ownedSelfControl: true);
+
+    private sealed class PowerShellProbeChildren(
+        AcceptancePowerShellProbeConsole console, bool ownedSelfControl = false)
         : IAcceptanceChildFactory
     {
         public IAcceptanceOwnedChild Open()
         {
             Instance.RequireDisposableJob();
-            return new OwnedInertChild(powerShellProbe: true, powerShellConsole: console);
+            return new OwnedInertChild(
+                ownedSelfControl: ownedSelfControl, powerShellProbe: true, powerShellConsole: console);
         }
     }
 
