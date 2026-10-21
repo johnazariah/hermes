@@ -469,7 +469,7 @@ internal static partial class PackageAuthoringValidator
             ["ProcessComponents"] = 1600, ["UnpublishFeatures"] = 1800,
             ["RemoveRegistryValues"] = 2600, ["RemoveShortcuts"] = 3200,
             ["RemoveFiles"] = 3500, ["RemoveFolders"] = 3600, ["CreateFolders"] = 3700,
-            ["AdminPackage"] = 3900, ["InstallFiles"] = 4000, ["CreateShortcuts"] = 4500,
+            ["InstallAdminPackage"] = 3900, ["InstallFiles"] = 4000, ["CreateShortcuts"] = 4500,
             ["WriteRegistryValues"] = 5000, ["RegisterUser"] = 6000,
             ["RegisterProduct"] = 6100, ["PublishFeatures"] = 6300,
             ["PublishProduct"] = 6400, ["InstallFinalize"] = 6600
@@ -494,7 +494,7 @@ internal static partial class PackageAuthoringValidator
                 "CostInitialize", "FileCost", "CostFinalize")));
         ValidateSequence(snapshot, "AdminExecuteSequence",
             ReadOnlyActions.AddRange(ImmutableArray.Create(Preflight, "InstallValidate", "InstallInitialize",
-                "AdminPackage", "InstallFiles", "InstallFinalize")));
+                "InstallAdminPackage", "InstallFiles", "InstallFinalize")));
         ValidateSequence(snapshot, "AdvtExecuteSequence",
             ReadOnlyActions.AddRange(ImmutableArray.Create(RejectAdvertisement,
                 "InstallValidate", "InstallInitialize", "CreateShortcuts",

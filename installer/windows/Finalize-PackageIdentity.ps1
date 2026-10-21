@@ -41,6 +41,14 @@ function Assert-HermesPackageLanguage {
     }
 }
 
+function Assert-HermesAdminPackageSequence {
+    $rows = @(Get-RowValues "SELECT ``Action``, ``Condition``, ``Sequence`` FROM ``AdminExecuteSequence`` WHERE ``Action``='InstallAdminPackage' OR ``Action``='AdminPackage'" 3)
+    if ($rows.Count -ne 1 -or $rows[0][0] -cne 'InstallAdminPackage' `
+        -or $rows[0][1] -cne '' -or $rows[0][2] -cne '3900') {
+        throw 'Bound MSI must contain only the unconditional InstallAdminPackage action at 3900.'
+    }
+}
+
 $phase = 'product-properties'
 try {
     $database = $installer.OpenDatabase((Resolve-Path -LiteralPath $PackagePath).Path, 1)
@@ -95,6 +103,8 @@ try {
     if ($null -eq $actual -or [Guid]$actual -ne [Guid]$identity.packageCode) { throw 'MSI summary PackageCode was not persisted.' }
     $phase = 'product-language-readback'
     Assert-HermesPackageLanguage
+    $phase = 'admin-package-sequence-readback'
+    Assert-HermesAdminPackageSequence
 } catch {
     [Console]::Error.WriteLine("MSI finalization failed during $phase; source line $($_.InvocationInfo.ScriptLineNumber).")
     @($_.ScriptStackTrace -split '\r?\n' | Select-Object -First 4) | ForEach-Object {

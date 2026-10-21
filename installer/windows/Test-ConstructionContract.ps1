@@ -122,6 +122,54 @@ foreach ($required in @('Assert-HermesNativeGuard', 'Get-HermesCompiledGuardTrus
         )
         Refuse-LanguageChange { Assert-HermesPackageLanguage } $compiledRefusal
     }
+
+    $sequenceHelpers = @($ast.FindAll({
+        param($node)
+        $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Assert-HermesAdminPackageSequence'
+    }, $true))
+    $sequenceCalls = @($ast.FindAll({
+        param($node)
+        $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq 'Assert-HermesAdminPackageSequence'
+    }, $true))
+    if ($sequenceHelpers.Count -ne 1 -or $sequenceCalls.Count -ne 1 `
+        -or $readOnly -lt 0 -or $sequenceCalls[0].Extent.StartOffset -le $readOnly) {
+        throw 'The producer admin sequence helper must run once after fresh read-only database opening.'
+    }
+    . ([scriptblock]::Create($sequenceHelpers[0].Extent.Text))
+
+    function Get-RowValues([string]$Query, [int]$Columns) {
+        if ($Query -cne "SELECT ``Action``, ``Condition``, ``Sequence`` FROM ``AdminExecuteSequence`` WHERE ``Action``='InstallAdminPackage' OR ``Action``='AdminPackage'" -or $Columns -ne 3) {
+            throw 'Admin package readback must use its fixed sequence-row query.'
+        }
+        foreach ($row in $sequenceRows) { ,$row }
+    }
+
+    $sequenceRefusal = 'Bound MSI must contain only the unconditional InstallAdminPackage action at 3900.'
+    $sequenceRows = @(,@('InstallAdminPackage', '', '3900'))
+    Assert-HermesAdminPackageSequence
+    $sequenceRows = @()
+    Refuse-LanguageChange { Assert-HermesAdminPackageSequence } $sequenceRefusal
+    foreach ($row in @(
+        ,@('AdminPackage', '', '3900')
+        ,@('InstallAdminPackage', '1', '3900')
+        ,@('InstallAdminPackage', 'NOT Installed', '3900')
+        ,@('InstallAdminPackage', '', '-1')
+        ,@('InstallAdminPackage', '', '0')
+        ,@('InstallAdminPackage', '', '3899')
+        ,@('InstallAdminPackage', '', '3901')
+    )) {
+        $sequenceRows = @(,$row)
+        Refuse-LanguageChange { Assert-HermesAdminPackageSequence } $sequenceRefusal
+    }
+    foreach ($extra in @('InstallAdminPackage', 'AdminPackage')) {
+        $sequenceRows = @(
+            ,@('InstallAdminPackage', '', '3900')
+            ,@($extra, '', '3900')
+        )
+        Refuse-LanguageChange { Assert-HermesAdminPackageSequence } $sequenceRefusal
+        [Array]::Reverse($sequenceRows)
+        Refuse-LanguageChange { Assert-HermesAdminPackageSequence } $sequenceRefusal
+    }
 }
 Write-Output 'Producer language source and compiled-row controls passed; no MSI was opened.'
 Write-Output 'Construction contract and corrective-repair source controls passed; no coordinator, native guard, MSI or profile operation was executed.'

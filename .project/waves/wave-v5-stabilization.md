@@ -100,6 +100,20 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Strict sequence policy recognises InstallAdminPackage
+
+- **Changed:** Pinned WiX requires unconditional InstallAdminPackage at 3900, while two validator entries used AdminPackage. The source-approved correction changes only those names and adds actual compiled-row readback before ICE/receipt completion; all positions, conditions, guards and advertisement refusal remain.
+- **Validation:** A pinned producer-data/actual-authoring reconstruction supplies independent positive baselines and 38 new adverse controls. Parent passes 902 Setup, 2,182 Core, warning-free root/Windows cross-builds and all static controls. The duplicate test explicitly retains its earlier inventory refusal.
+- **Boundary:** Cause 30 alone did not observe a particular row; source proves a sufficient producer mismatch. Neither the reconstruction nor source approval certifies the installed lifecycle.
+- **Next:** Publish and require normal exact-head Windows row readback plus resumed complete lifecycle acceptance.
+
+### 2026-10-21 - Compiled language and property admission pass on real Windows
+
+- **Evidence:** Published `0fb23eb` run `39532858534` passes exact ProductLanguage 1033 readback for both real MSI versions, then both complete 699-warning native validations. All 57 native cases, both supported OS jobs and Tray pass.
+- **Progress:** Install now reaches stage 10/cause 30: Properties, Search, Upgrade and Actions validation return; ValidateSequences rejects. The original failed candidate's language value is still not inferred retrospectively.
+- **Boundary:** First SDK-free Install remains Refused/MediaInvalid. Recover reports NoRecoveryPending, cleanup has no failures, publication is skipped and PR #30 remains draft.
+- **Next:** A fresh C# specialist compares only the sequence contract with the pinned WiX standard-action/binder primaries and existing authored servicing positions.
+
 ### 2026-10-21 - Producer language explicitly matches the strict property contract
 
 - **Changed:** Fresh specialist authoring pins Package Language to 1033. The finalizer requires exactly one matching ProductLanguage row in the fresh read-only MSI before ICE/receipt completion. The C# validator and all refusal policy remain unchanged.

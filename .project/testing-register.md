@@ -2,6 +2,26 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Sequence validation uses the pinned producer's actual admin action name
+
+Pinned WiX v6 requires unconditional InstallAdminPackage at 3900; the
+validator incorrectly named it AdminPackage in two entries. The reviewed
+correction replaces only that name. A finalizer gate now reads the actual
+bound admin row before ICE/receipt completion and rejects the obsolete alias,
+changed condition/position, absence or duplicates without printing values.
+
+The test-only exact WixToolset.Data 6.0.0 dependency supplies standard
+positions/conditions; required membership is primary-bound and explicit
+schedules come from embedded actual Package.wxs. This is reconstruction,
+not claimed binder execution. Thirty-eight new cases establish positive
+baselines in all three modes, then reject changes before mutation. The
+duplicate case retains its actual earlier inventory refusal; other sequence
+mutations require the exact sequence refusal.
+
+Parent passes all 902 Setup cases, 2,182 Core, warning-free root/Windows
+cross-builds and all static controls. Source review approves the strict
+correction; actual Windows row readback and lifecycle remain pending.
+
 ## Producer language is pinned and read back from the final MSI
 
 The reviewed producer correction explicitly authors Package Language 1033,

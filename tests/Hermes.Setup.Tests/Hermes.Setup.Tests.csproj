@@ -56,9 +56,14 @@
     <Compile Include="../../installer/windows/Hermes.Setup/SetupEntryPoint.cs"
              Link="Production/SetupEntryPoint.cs" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="WixToolset.Data" Version="[6.0.0]" PrivateAssets="all" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="../../installer/windows/Package.wxs"
+                      LogicalName="Hermes.Setup.Tests.Package.wxs" />
   </ItemGroup>
 </Project>
