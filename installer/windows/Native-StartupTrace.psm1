@@ -22,13 +22,14 @@ function New-HermesStartupState {
         Timeout = 0; Error = 0; CleanupFault = 0
         TracePoint = 0; ToolRole = 0; TraceFaulted = $false
         TraceFaultPoint = 0; TraceFaultRole = 0
-        FilterPending = ''; FilterExpected = @{ Cpr = ''; Epr = '' }
+        FilterPending = ''; FilterExpected = @{ Cpr = ''; Epr = '' }; ExtensionExpected = ''
         Observations = @{
             Marker0 = 0; Marker1 = 0; Marker2 = 0; Marker3 = 0; Marker4 = 0
             MarkerMalformed = 0; MarkerMalformedKind = 0; MarkerEcho = 0
             LastEventSeen = 0; CreateEventSeen = 0; CreateEventAccepted = 0
             ExitEventSeen = 0; ExitEventAccepted = 0
             FlagsSeen = 0; FlagsAccepted = 0; SdkCommandErrors = 0
+            SdkLoadLibraryWin32Error = 0; SdkLoadLibraryPathShape = 0
             CprFilter = 0; EprFilter = 0
             CprCommandShape = 0; EprCommandShape = 0
             CprCommandTransform = 0; EprCommandTransform = 0
@@ -48,14 +49,16 @@ function Get-HermesStartupObservation {
             'MarkerMalformed', 'MarkerMalformedKind', 'MarkerEcho',
             'LastEventSeen', 'CreateEventSeen', 'CreateEventAccepted',
             'ExitEventSeen', 'ExitEventAccepted', 'FlagsSeen', 'FlagsAccepted', 'SdkCommandErrors',
+            'SdkLoadLibraryWin32Error', 'SdkLoadLibraryPathShape',
             'CprFilter', 'EprFilter', 'CprCommandShape', 'EprCommandShape',
             'CprCommandTransform', 'EprCommandTransform',
             'CprPayloadLength', 'EprPayloadLength', 'CprSourceLength', 'EprSourceLength')]
         [string]$Name,
-        [int]$Maximum = 8388608
+        [long]$Maximum = 8388608
     )
     $value = $State.Observations[$Name]
-    if ($value -is [int] -and $value -ge 0 -and $value -le $Maximum) {
+    if (($value -is [int] -or ($Name -ceq 'SdkLoadLibraryWin32Error' -and $value -is [long])) `
+        -and $value -ge 0 -and $value -le $Maximum) {
         return $value
     }
     return 0
@@ -451,6 +454,31 @@ function Add-HermesStartupFilterReadback {
     }
 }
 
+function Get-HermesStartupLoadLibraryPathShape {
+    param($Expected, [string]$Path)
+    if ($Expected -isnot [string] -or $Expected.Length -eq 0 -or $Expected.Length -gt 240 `
+        -or $Expected -cmatch '[";\x00-\x1f\x7f-\uffff]') { return 0 }
+    $stripped = $Expected.Replace('\', '')
+    $doubled = $Expected.Replace('\', '\\')
+    $variants = @($Expected, ('"' + $Expected + '"'),
+        $stripped, ('"' + $stripped + '"'), $doubled, ('"' + $doubled + '"'))
+    for ($index = 0; $index -lt $variants.Count; $index++) {
+        if ($Path -ceq $variants[$index]) { return ($index + 1) }
+    }
+    return 7
+}
+
+function Set-HermesStartupLoadLibraryError {
+    param([hashtable]$State, [string]$Path, [string]$Code)
+    $errorCode = [long]0
+    if (-not [long]::TryParse($Code, [Globalization.NumberStyles]::None,
+            [Globalization.CultureInfo]::InvariantCulture, [ref]$errorCode) `
+        -or $errorCode -gt [uint32]::MaxValue) { return }
+    $State.Observations.SdkLoadLibraryWin32Error = $errorCode
+    $State.Observations.SdkLoadLibraryPathShape =
+        Get-HermesStartupLoadLibraryPathShape $State.ExtensionExpected $Path
+}
+
 function Add-HermesStartupSdkError {
     param([hashtable]$State, [string]$Line)
     if ($Line.Length -gt 4096) { return }
@@ -460,7 +488,12 @@ function Add-HermesStartupSdkError {
     # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/using-debugger-extension-commands
     # https://learn.microsoft.com/windows-hardware/drivers/debugger/verifying-symbols
     $kind = switch -CaseSensitive -Regex ($Line) {
-        '\AThe call to LoadLibrary\([^\x00-\x1f]{1,1024}\) failed, Win32 error 0n[0-9]{1,10}\z' { 1; break }
+        '\AThe call to LoadLibrary\((?<library>[^\x00-\x1f]{1,1024})\) failed, Win32 error 0n(?<error>[0-9]{1,10})\z' {
+            if (((Get-HermesStartupObservation $State 'SdkCommandErrors' 15) -band 1) -eq 0) {
+                Set-HermesStartupLoadLibraryError $State $Matches.library $Matches.error
+            }
+            1; break
+        }
         '\ANo export gflag found\z' { 2; break }
         '\AUnable to read PEB\z' { 4; break }
         '\A\*\*\* ERROR: (?:Symbols|Module load completed but symbols) could not be loaded for ntdll\.dll\z' { 8; break }
@@ -588,6 +621,14 @@ function New-HermesStartupObservations {
     # export, 4 = unreadable PEB, 8 = ntdll symbol load failure. Zero means
     # none recognised, not success. Stdout/stderr never supply new authority.
     $observations.SdkCommandErrors = Get-HermesStartupObservation $State 'SdkCommandErrors' 15
+    # First recognised LoadLibrary failure only; later errors cannot replace it.
+    # Win32 error is uint32-bounded; zero also means unavailable. Path shape:
+    # 0 = unbound/unavailable, 1/2 = exact selected path bare/literal quotes,
+    # 3/4 = stripped backslashes bare/quoted, 5/6 = doubled bare/quoted, 7 = other.
+    # These exact source comparisons do not normalise or authorise any path.
+    $observations.SdkLoadLibraryWin32Error =
+        Get-HermesStartupObservation $State 'SdkLoadLibraryWin32Error' ([long][uint32]::MaxValue)
+    $observations.SdkLoadLibraryPathShape = Get-HermesStartupObservation $State 'SdkLoadLibraryPathShape' 7
     # 0 = no recognised header; 1..5 = break/second-chance/output/ignore/unknown.
     # Add 8 only for the immediately following, exact pinned callback command.
     # Neither the filter nor callback readback proves that an event occurred.

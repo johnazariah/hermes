@@ -100,6 +100,15 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Bound library-load evidence precedes any extension-loading change
+
+- **Evidence:** Published `5de8751`, run `39657808901`, passes 156 pure controls. Native execution is 457 passed/four failed of 461: the original PowerShell assertion plus three startup-image binding failures. The SDK reports a LoadLibrary failure, with no accepted flag readback.
+- **Changed:** The advisory report binds its first numeric Win32 error to a closed selected-extension path shape. Expected identity comes from verified publication; raw paths and messages remain private.
+- **Validation:** Parent review and all 168 pure controls pass. Published coverage is 86.0% line / 61.51% branch with unchanged five-assembly scope.
+- **Review boundary:** The proposed null-only image-readiness gate passes 24 new portable cases, but independent C# review rejects its non-stderr constructor-failure cleanup. A fresh revision owner is assigned; it remains uncommitted. A separate owner investigates the macOS portable report-test failure.
+- **Blockers:** Actual extension error/path shape, real adapter acceptance and genuine PowerShell execution remain unresolved.
+- **Next:** Publish the bounded library diagnostics while correcting startup cleanup and deterministic portable-test timing.
+
 ### 2026-10-22 - Real callbacks bind the target but loader-flag arming remains absent
 
 - **Evidence:** Published `84357dc`, run `39654782472`, job `119412052673`, executes create and exit callback files. Current/event PIDs match the held target, helper final state is present and parent state is unchanged. Flag readback stays absent; arming and complete cleanup remain false.

@@ -2,6 +2,25 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Library-load diagnostics bind error numbers to the selected extension
+
+Actual run 39657808901 at `5de8751` reports the LoadLibrary-failure bit and
+no flag readback. Two added numeric fields retain the first recognised
+uint32-bounded error and its closed path relationship to the pinned selected
+extension. Literal quoting and stripped/doubled separators remain distinct;
+no path is normalised, admitted or exposed.
+
+All 168 pure controls pass, including actual verified publication, first-error
+latching, numeric boundaries, source/path mismatches and report privacy.
+The expected path is recorded only after verified command publication.
+Debugger commands, source trust and flag-2-before-resume are unchanged.
+
+That Windows run executes 461 native cases: 457 pass and four fail. One
+failure is the original PowerShell case; three new adapter cases fail before
+release when the startup main module is unavailable. This is not adapter
+acceptance. Published combined coverage remains 86.0% line / 61.51% branch
+in the same five-assembly scope.
+
 ## Callback execution exposes the remaining SDK flag-command boundary
 
 Actual run 39654782472 at `84357dc` executes the fixed callback files.

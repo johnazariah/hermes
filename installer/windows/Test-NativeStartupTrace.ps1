@@ -316,7 +316,7 @@ function Get-HermesSetupPublishFiles {
     }
 }
 
-$cases = 1..156 # Original 143 + 4 callback-encoding + 9 closed SDK-error controls.
+$cases = 1..168 # Original 143 + 4 encoding + 9 SDK-error + 12 bound LoadLibrary controls.
 $passed = 0
 foreach ($case in $cases) {
     $state = $null
@@ -970,7 +970,7 @@ foreach ($case in $cases) {
             63 {
                 $state = New-HermesStartupState
                 $report = New-HermesStartupReport $state $false $false
-                Assert-Control ($report.observations.Count -eq 44)
+                Assert-Control ($report.observations.Count -eq 46)
                 foreach ($value in $report.observations.Values) {
                     Assert-Control ($value -is [int] -and $value -eq 0)
                 }
@@ -2150,14 +2150,14 @@ foreach ($case in $cases) {
                     Assert-Control ($report.observations[$field] -is [int])
                 }
                 $json = $report | ConvertTo-Json -Depth 4 -Compress
-                Assert-Control ($report.observations.Count -eq 44 `
+                Assert-Control ($report.observations.Count -eq 46 `
                     -and [Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
                     -and $json -notmatch 'Users|Example|AppData|Temp|Command:|\$\$><' `
                     -and $report.armingVerified -eq 0 -and $report.completed -eq 0 `
                     -and $report.firstFailureKind -eq 0 -and $report.nativeAcceptance -eq 0 `
                     -and $script:controlLaunchBindings -eq 0)
             }
-            { $_ -in 144..147 } {
+            { $_ -in (144..147 + 157..164) } {
                 & {
                     # Stub only Windows path IO; source generation, publication,
                     # retained pins, hashes and launch/failure bindings stay real.
@@ -2183,7 +2183,7 @@ foreach ($case in $cases) {
                     $extension = $kits + '\winxp\exts.dll'
                     $symbols = $root + '\symbols'
                     $script:controlArms = 0
-                    if ($case -ge 146) {
+                    if ($case -in 146, 147) {
                         $script:controlCommandFault = $case - 137
                         $script:controlCommandFaultName = 'startup.cdb'
                     }
@@ -2206,7 +2206,7 @@ foreach ($case in $cases) {
                         -and $report.armingVerified -eq 0 -and $report.firstFailureKind -eq 0 `
                         -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0)
                     $path = $root + '\startup.cdb'
-                    if ($case -ge 146) {
+                    if ($case -in 146, 147) {
                         $unsafeText = if ($case -eq 146) {
                             $expectedText.Replace('\\', '\')
                         } else { $expectedText.Replace('\\', '') }
@@ -2220,6 +2220,7 @@ foreach ($case in $cases) {
                             -and $report.error -eq 13 -and $report.commandSha256 -ceq '' `
                             -and $report.createCommandSha256 -ceq '' -and $report.exitCommandSha256 -ceq '' `
                             -and $state.FilterExpected.Cpr -ceq '' -and $state.FilterExpected.Epr -ceq '' `
+                            -and $state.ExtensionExpected -ceq '' `
                             -and -not (Test-HermesStartupArm $state) -and -not $state.Acked)
                         return
                     }
@@ -2243,6 +2244,7 @@ foreach ($case in $cases) {
                     }
                     Assert-Control ($script:controlCommandHashes -eq 3 `
                         -and $script:controlLaunchBindings -eq 1 -and $report.error -eq 0 `
+                        -and $state.ExtensionExpected -ceq $extension `
                         -and $script:controlStartInfo.ArgumentList[2] -ceq $path)
                     Add-HermesStartupLine $state 'HERMES_CDB v=1 kind=0 pid=11'
                     Update-HermesStartupRows $state ($targetRow + "`n")
@@ -2278,10 +2280,37 @@ foreach ($case in $cases) {
                                 -and -not (Test-HermesStartupArm $state) -and -not $state.Acked)
                         }
                     }
+                    if ($case -in 157..164) {
+                        $state.Err = New-HermesStartupStream
+                        $variants = @($extension, ('"' + $extension + '"'),
+                            $extension.Replace('\', ''), ('"' + $extension.Replace('\', '') + '"'),
+                            $extension.Replace('\', '\\'), ('"' + $extension.Replace('\', '\\') + '"'),
+                            $extension.Replace('exts.dll', 'EXTS.dll'), $extension)
+                        $library = $variants[$case - 157]
+                        $shape = if ($case -eq 164) { 0 } else { $case - 156 }
+                        if ($case -eq 164) { $state.ExtensionExpected = '' }
+                        $text = 'The call to LoadLibrary(' + $library + ') failed, Win32 error 0n126' + "`r`n"
+                        for ($offset = 0; $offset -lt $text.Length; $offset += 7) {
+                            Add-HermesStartupText $state $state.Err (
+                                $text.Substring($offset, [Math]::Min(7, $text.Length - $offset))) $false
+                        }
+                        $observed = New-HermesStartupObservations $state
+                        Assert-Control ($observed.SdkCommandErrors -eq 1 `
+                            -and $observed.SdkLoadLibraryWin32Error -eq 126 `
+                            -and $observed.SdkLoadLibraryPathShape -eq $shape)
+                        Add-HermesStartupLine $state (
+                            'The call to LoadLibrary(C:\private\other.dll) failed, Win32 error 0n123')
+                        $observed = New-HermesStartupObservations $state
+                        Assert-Control ($observed.SdkLoadLibraryWin32Error -eq 126 `
+                            -and $observed.SdkLoadLibraryPathShape -eq $shape)
+                    }
                     $report = New-HermesStartupReport $state $true $true
                     Assert-Control ($report.armingVerified -eq 0 -and $report.completed -eq 0 `
                         -and $report.firstFailureKind -eq 0 -and $report.nativeAcceptance -eq 0 `
                         -and $script:controlArms -eq 0)
+                    $json = $report | ConvertTo-Json -Depth 4 -Compress
+                    Assert-Control ([Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
+                        -and $json -notmatch 'Program Files|Windows Kits|private|EXTS\.dll|C:|D:')
                 }
             }
             { $_ -in 148..151 } {
@@ -2317,7 +2346,7 @@ foreach ($case in $cases) {
                         -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0)
                     $json = $report | ConvertTo-Json -Depth 4 -Compress
                     Assert-Control ([Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
-                        -and $json -notmatch 'private|exts|LoadLibrary|gflag|PEB|ntdll|Symbols')
+                        -and $json -notmatch 'private|exts|LoadLibrary\(|gflag|PEB|ntdll|Symbols')
                 }
             }
             152 {
@@ -2399,6 +2428,74 @@ foreach ($case in $cases) {
                     -and $observed.FlagsAccepted -eq 0 -and $observed.CreateEventAccepted -eq 0 `
                     -and $observed.ArmPresent -eq 0 -and $observed.ParserUnknown -eq 0 `
                     -and $observed.ParserProtocol -eq 0 -and -not (Test-HermesStartupArm $state))
+            }
+            165 {
+                foreach ($code in @('0', '123', '126', '4294967295', '4294967296', '9999999999',
+                        '-1', '+1', '1e3', '126 trailing', '12345678901')) {
+                    $state.Observations.SdkCommandErrors = 0
+                    $state.Observations.SdkLoadLibraryWin32Error = 0
+                    $state.Observations.SdkLoadLibraryPathShape = 0
+                    Add-HermesStartupLine $state (
+                        'The call to LoadLibrary(C:\private\exts.dll) failed, Win32 error 0n' + $code)
+                    $valid = $code -cin @('0', '123', '126', '4294967295')
+                    $recognised = $valid -or $code -cin @('4294967296', '9999999999')
+                    $observed = New-HermesStartupObservations $state
+                    Assert-Control ($observed.SdkCommandErrors -eq [int]$recognised `
+                        -and $observed.SdkLoadLibraryWin32Error -eq $(if ($valid) { [long]$code } else { 0 }) `
+                        -and $observed.SdkLoadLibraryPathShape -eq 0 `
+                        -and -not (Test-HermesStartupArm $state) -and -not $state.Acked)
+                }
+            }
+            166 {
+                foreach ($value in @(-1, [long]4294967296, [long]::MaxValue, 1.5, $true, $null,
+                        '126', @{ path = 'private' })) {
+                    $state.Observations.SdkLoadLibraryWin32Error = $value
+                    Assert-Control ((New-HermesStartupObservations $state).SdkLoadLibraryWin32Error -eq 0)
+                }
+                foreach ($value in @(0, 126, [long]4294967295)) {
+                    $state.Observations.SdkLoadLibraryWin32Error = $value
+                    Assert-Control ((New-HermesStartupObservations $state).SdkLoadLibraryWin32Error -eq $value)
+                }
+                foreach ($value in @(-1, 8, [long]1, 1.5, $true, $null, '1', @{ path = 'private' })) {
+                    $state.Observations.SdkLoadLibraryPathShape = $value
+                    Assert-Control ((New-HermesStartupObservations $state).SdkLoadLibraryPathShape -eq 0)
+                }
+                foreach ($value in 0..7) {
+                    $state.Observations.SdkLoadLibraryPathShape = $value
+                    Assert-Control ((New-HermesStartupObservations $state).SdkLoadLibraryPathShape -eq $value)
+                }
+                foreach ($expected in @('', $null, 1, @{ path = 'private' },
+                        ('C:\' + ('x' * 240)), 'C:\private";.echo injected', ('C:\private' + [char]128))) {
+                    Assert-Control ((Get-HermesStartupLoadLibraryPathShape $expected 'C:\private\exts.dll') -eq 0)
+                }
+            }
+            167 {
+                $state.Out.Hash.Dispose()
+                $state.Err.Hash.Dispose()
+                $state = New-ControlFixture
+                $state.ExtensionExpected = 'C:\private\exts.dll'
+                $before = New-HermesStartupReport $state $true $true
+                Add-HermesStartupLine $state (
+                    'The call to LoadLibrary("C:\private\exts.dll") failed, Win32 error 0n123')
+                $report = New-HermesStartupReport $state $true $true
+                foreach ($name in $before.Keys | Where-Object { $_ -cne 'observations' }) {
+                    Assert-Control ($report[$name] -ceq $before[$name])
+                }
+                $json = $report | ConvertTo-Json -Depth 4 -Compress
+                Assert-Control ($report.observations.SdkLoadLibraryWin32Error -eq 123 `
+                    -and $report.observations.SdkLoadLibraryPathShape -eq 2 `
+                    -and $report.completed -eq 1 -and $report.armingVerified -eq 1 `
+                    -and [Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
+                    -and $json -notmatch 'private|exts\.dll|LoadLibrary\(|C:')
+            }
+            168 {
+                $state.AcceptedUtf8Bytes = [long]8388607
+                $before = (New-HermesStartupObservations $state) | ConvertTo-Json -Compress
+                Add-HermesStartupText $state $state.Err "`n" $false
+                Add-HermesStartupText $state $state.Err (
+                    'The call to LoadLibrary(C:\private\exts.dll) failed, Win32 error 0n126' + "`n") $false
+                Assert-Control ($state.Bounds -eq 1 -and $state.AcceptedUtf8Bytes -eq 8388608 `
+                    -and ((New-HermesStartupObservations $state) | ConvertTo-Json -Compress) -ceq $before)
             }
         }
         $passed++
