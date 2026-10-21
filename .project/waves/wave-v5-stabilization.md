@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - SDK extension location is bound through trust checks to CDB
+
+- **Evidence:** Published `dd23a3d` run `39628746029`, job `119320895584`, passes 49 pure controls and 456/457 native cases. Trace point 6/tool role 6 identifies extension-file pinning, before signature validation; helper and CDB execution remain unreached.
+- **Changed:** The fixed SDK directory supplies exactly one `exts.dll` from closed `winxp`, `winext` or root layouts. The same selected file must pass the original pin and valid Microsoft signature checks and becomes the explicit CDB `.load` path. Missing/ambiguous/noncandidate locations refuse.
+- **Validation:** Parent direct review and all 62 pure controls pass, including actual resolver-to-pin/signature/command binding and failures. Isolated root build, 2,182 Core and installer static controls pass. No trust relaxation or native-discovery count change occurs.
+- **Blockers:** The installed SDK layout and actual loader trace are not yet established.
+- **Next:** Publish the layout correction and require the same selected extension to reach CDB before attributing any startup cause.
+
 ### 2026-10-22 - Native debugger preflight exposes its exact closed refusal point
 
 - **Evidence:** Published `b4e15a0` run `39626230554`, job `119312097915`, passes 37 pure controls and 456/457 native cases, with only the original PowerShell assertion failing. Tools remain present. The advisory trace refuses before any debugger output: debugger hash present, helper/command hashes absent, no target/arming/exit evidence, status 8/error 13 and cleanup fault zero.

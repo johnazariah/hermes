@@ -50,15 +50,32 @@ function Get-TraceHash {
     } finally { $hasher.Dispose() }
 }
 
+function Test-TraceExtensionFile {
+    param([string]$Path)
+    return [IO.File]::Exists($Path)
+}
+
+function Resolve-TraceExtension {
+    param([string]$Kits)
+    # Only these SDK-local layouts qualify; never prefer one ambiguous copy.
+    $candidates = @(foreach ($relative in @('winxp/exts.dll', 'winext/exts.dll', 'exts.dll')) {
+        $candidate = Join-Path $Kits $relative
+        if (Test-TraceExtensionFile $candidate) { $candidate }
+    })
+    if ($candidates.Count -ne 1) { throw 'Unique SDK extension required.' }
+    return $candidates[0]
+}
+
 function Confirm-TraceTools {
     param([string]$Kits)
     # Roles 1..6: cdb, gflags, dbgeng, dbghelp, symsrv, exts; 0 = no SDK tool.
     $role = 0
     foreach ($relative in @('cdb.exe', 'gflags.exe', 'dbgeng.dll', 'dbghelp.dll',
-            'symsrv.dll', 'winext/exts.dll')) {
+            'symsrv.dll', 'exts.dll')) {
         $role++
         Set-HermesStartupTracePoint $state 6 $role # Pin.
-        $path = Join-Path $Kits $relative
+        $path = if ($role -eq 6) { Resolve-TraceExtension $Kits } `
+            else { Join-Path $Kits $relative }
         $pin = Open-TracePin $path
         Set-HermesStartupTracePoint $state 7 $role # Query signature.
         $signature = Get-AuthenticodeSignature -LiteralPath $path
@@ -76,6 +93,26 @@ function Confirm-TraceTools {
             $state.DebuggerSha256 = Get-TraceHash $pin
         }
     }
+    return $path
+}
+
+function New-TraceCommands {
+    param([string]$Extension)
+    $cpr = '.printf \"HERMES_CDB v=1 kind=1 pid=%u\n\", @$tpid;.lastevent;|.;!gflag +sls;!gflag;.printf \"HERMES_CDB v=1 kind=2 pid=%u\n\", @$tpid;g'
+    $epr = '.printf \"HERMES_CDB v=1 kind=3 pid=%u\n\", @$tpid;.lastevent;.printf \"HERMES_CDB v=1 kind=4 pid=%u\n\", @$tpid;g'
+    $commands = @(
+        ('.load "' + $Extension + '"'),
+        '.printf "HERMES_CDB v=1 kind=0 pid=%u\n", @$tpid',
+        'sxd ibp',
+        ('sx- -c "' + $cpr + '" cpr'),
+        ('sx- -c "' + $epr + '" epr'),
+        'g'
+    ) -join "`n"
+    $commands += "`n"
+    if (@($commands.ToCharArray() | Where-Object { [int]$_ -gt 127 }).Count -ne 0) {
+        throw 'Debugger command encoding refused.'
+    }
+    return $commands
 }
 
 function Confirm-TracePublication {
@@ -281,7 +318,7 @@ try {
     $kits = Join-Path ([Environment]::GetFolderPath(
         [Environment+SpecialFolder]::ProgramFilesX86)) 'Windows Kits/10/Debuggers/x64'
     $kits = Assert-TracePath ([IO.Path]::GetFullPath($kits))
-    Confirm-TraceTools $kits
+    $extension = Confirm-TraceTools $kits
     $helper = Confirm-TracePublication $workspace
     Set-HermesStartupTracePoint $state 23 # Pin diagnostic sources.
     foreach ($source in @($PSCommandPath, (Join-Path $PSScriptRoot 'Native-StartupTrace.psm1'))) {
@@ -289,21 +326,7 @@ try {
     }
 
     Set-HermesStartupTracePoint $state 24 # Fixed command and symbol setup.
-    $extension = Join-Path $kits 'winext/exts.dll'
-    $cpr = '.printf \"HERMES_CDB v=1 kind=1 pid=%u\n\", @$tpid;.lastevent;|.;!gflag +sls;!gflag;.printf \"HERMES_CDB v=1 kind=2 pid=%u\n\", @$tpid;g'
-    $epr = '.printf \"HERMES_CDB v=1 kind=3 pid=%u\n\", @$tpid;.lastevent;.printf \"HERMES_CDB v=1 kind=4 pid=%u\n\", @$tpid;g'
-    $commands = @(
-        ('.load "' + $extension + '"'),
-        '.printf "HERMES_CDB v=1 kind=0 pid=%u\n", @$tpid',
-        'sxd ibp',
-        ('sx- -c "' + $cpr + '" cpr'),
-        ('sx- -c "' + $epr + '" epr'),
-        'g'
-    ) -join "`n"
-    $commands += "`n"
-    if (@($commands.ToCharArray() | Where-Object { [int]$_ -gt 127 }).Count -ne 0) {
-        throw 'Debugger command encoding refused.'
-    }
+    $commands = New-TraceCommands $extension
     $commandPath = Join-Path $root 'startup.cdb'
     [IO.File]::WriteAllText($commandPath, $commands, [Text.Encoding]::ASCII)
     [IO.File]::SetAttributes($commandPath, [IO.FileAttributes]::ReadOnly)

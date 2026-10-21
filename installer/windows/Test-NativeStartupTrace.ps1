@@ -91,7 +91,8 @@ $driverAst = [Management.Automation.Language.Parser]::ParseFile(
     (Join-Path $PSScriptRoot 'Invoke-NativeStartupTrace.ps1'),
     [ref]$tokens, [ref]$parseErrors)
 Assert-Control ($parseErrors.Count -eq 0)
-foreach ($name in @('Confirm-TraceTools', 'Confirm-TracePublication',
+foreach ($name in @('Resolve-TraceExtension', 'Confirm-TraceTools', 'New-TraceCommands',
+        'Confirm-TracePublication',
         'Start-TraceRead', 'Receive-TraceRead', 'Invoke-TraceCollection')) {
     $definitions = @($driverAst.FindAll({
         param($node)
@@ -121,8 +122,22 @@ $controlDriver = [scriptblock]::Create(
     $driverTry.Finally.Extent.Text)
 Assert-Control ($driverTry.CatchClauses.Count -eq 1)
 $controlPreflight = [scriptblock]::Create(
-    'try { Confirm-TraceTools $root; $null = Confirm-TracePublication $root } ' +
+    'try { $null = Confirm-TraceTools $root; $null = Confirm-TracePublication $root } ' +
     $driverTry.CatchClauses[0].Extent.Text + ' finally ' + $driverTry.Finally.Extent.Text)
+$toolBinding = @($driverTry.Body.Statements | Where-Object {
+    $_ -is [Management.Automation.Language.AssignmentStatementAst] `
+        -and $_.Left.Extent.Text -ceq '$extension'
+})
+$commandBinding = @($driverTry.Body.Statements | Where-Object {
+    $_ -is [Management.Automation.Language.AssignmentStatementAst] `
+        -and $_.Left.Extent.Text -ceq '$commands'
+})
+Assert-Control ($toolBinding.Count -eq 1 -and $commandBinding.Count -eq 1)
+Assert-Control ($toolBinding[0].Extent.Text -ceq '$extension = Confirm-TraceTools $kits' `
+    -and $commandBinding[0].Extent.Text -ceq '$commands = New-TraceCommands $extension')
+$controlExtensionDriver = [scriptblock]::Create(
+    'try { ' + $toolBinding[0].Extent.Text + '; ' + $commandBinding[0].Extent.Text +
+    ' } ' + $driverTry.CatchClauses[0].Extent.Text + ' finally ' + $driverTry.Finally.Extent.Text)
 
 function Read-TraceControl {
     param([string]$Path)
@@ -150,6 +165,10 @@ function Open-TracePin {
     if ($case -eq 38 -and $state.ToolRole -eq 2) {
         throw 'C:\private-preflight S-1-5-21-123 CN=secret --command'
     }
+    if ($state.TracePoint -eq 6 -and $state.ToolRole -eq 6) {
+        $script:controlExtensionPins.Add($Path)
+        if ($case -eq 61) { throw 'C:\private-preflight --command' }
+    }
     $text = if ($state.TracePoint -eq 11) { $script:controlManifest } else { '' }
     $pin = [IO.MemoryStream]::new([Text.Encoding]::UTF8.GetBytes($text))
     $pins.Add($pin)
@@ -160,20 +179,33 @@ function Get-AuthenticodeSignature {
     param([string]$LiteralPath)
     Assert-Control ($state.TracePoint -eq 7 -and $state.ToolRole -in 1..6)
     $script:controlToolRoles.Add($state.ToolRole)
+    if ($state.ToolRole -eq 6) { $script:controlExtensionSignatures.Add($LiteralPath) }
     if (($case -eq 39 -and $state.ToolRole -eq 3) `
         -or ($case -eq 47 -and $state.ToolRole -eq 2)) {
         throw 'C:\private-preflight CN=secret --command'
     }
     [pscustomobject]@{
-        Status = $(if ($case -eq 40 -and $state.ToolRole -eq 4) {
+        Status = $(if (($case -eq 40 -and $state.ToolRole -eq 4) `
+            -or ($case -eq 59 -and $state.ToolRole -eq 6)) {
             [Management.Automation.SignatureStatus]::NotSigned
         } else { [Management.Automation.SignatureStatus]::Valid })
         SignerCertificate = [pscustomobject]@{
-            Subject = $(if ($case -eq 41 -and $state.ToolRole -eq 5) {
+            Subject = $(if (($case -eq 41 -and $state.ToolRole -eq 5) `
+                -or ($case -eq 60 -and $state.ToolRole -eq 6)) {
                 'CN=private-preflight'
             } else { 'CN=private-preflight, O=Microsoft Corporation, C=US' })
         }
     }
+}
+
+function Test-TraceExtensionFile {
+    param([string]$Path)
+    Assert-Control ($state.TracePoint -eq 6 -and $state.ToolRole -eq 6)
+    $script:controlExtensionChecks.Add($Path)
+    if ($case -eq 62 -and $Path -ceq (Join-Path $kits 'winext/exts.dll')) {
+        throw 'C:\private-preflight --command'
+    }
+    return $script:controlExtensionFiles -ccontains $Path
 }
 
 function Get-TraceHash {
@@ -200,10 +232,14 @@ function Get-HermesSetupPublishFiles {
     }
 }
 
-$cases = 1..49
+$cases = 1..62
 $passed = 0
 foreach ($case in $cases) {
     $state = $null
+    $script:controlExtensionFiles = @(Join-Path $PSScriptRoot 'winxp/exts.dll')
+    $script:controlExtensionChecks = [Collections.Generic.List[string]]::new()
+    $script:controlExtensionPins = [Collections.Generic.List[string]]::new()
+    $script:controlExtensionSignatures = [Collections.Generic.List[string]]::new()
     try {
         switch ($case) {
             1 {
@@ -735,6 +771,77 @@ foreach ($case in $cases) {
                 $report = New-HermesStartupReport $state $true $true
                 Assert-Control ($report.tracePoint -eq 0 -and $report.toolRole -eq 0 `
                     -and $report.status -eq 8 -and $report.error -eq 13 -and $report.completed -eq 0)
+            }
+            { $_ -in 50..62 } {
+                $state = New-HermesStartupState
+                $kits = $PSScriptRoot
+                $candidates = @('winxp/exts.dll', 'winext/exts.dll', 'exts.dll') |
+                    ForEach-Object { Join-Path $kits $_ }
+                $masks = @{
+                    50 = 0; 51 = 1; 52 = 2; 53 = 4; 54 = 3; 55 = 5; 56 = 6
+                    57 = 7; 58 = 0; 59 = 1; 60 = 1; 61 = 1; 62 = 1
+                }
+                $script:controlExtensionFiles = @(for ($index = 0; $index -lt 3; $index++) {
+                    if (($masks[$case] -band (1 -shl $index)) -ne 0) { $candidates[$index] }
+                })
+                if ($case -eq 58) {
+                    $script:controlExtensionFiles = @(
+                        (Join-Path $kits 'other/exts.dll'), (Join-Path $kits 'winxp/unrelated.dll'))
+                }
+                $script:controlToolRoles = [Collections.Generic.List[int]]::new()
+                $script:controlStops = 0
+                $script:controlDisposed = 0
+                $script:controlStopFault = $false
+                $debugger = [pscustomobject]@{}
+                $debugger | Add-Member ScriptMethod Dispose { $script:controlDisposed++ }
+                $started = $false
+                $debuggerEnded = $false
+                $drainsEnded = $false
+                $rootCreated = $false
+                $pins = [Collections.Generic.List[IO.Stream]]::new()
+                $extension = $null
+                $commands = $null
+                . $controlExtensionDriver
+                $report = New-HermesStartupReport $state $debuggerEnded $drainsEnded
+                $checkCount = if ($case -eq 62) { 2 } else { 3 }
+                Assert-Control ($script:controlExtensionChecks.Count -eq $checkCount `
+                    -and ($script:controlExtensionChecks -join '|') `
+                        -ceq ($candidates[0..($checkCount - 1)] -join '|') `
+                    -and $report.debuggerSha256 -ceq ('a' * 64) `
+                    -and $report.helperSha256 -ceq '' -and $report.commandSha256 -ceq '' `
+                    -and $script:controlStops -eq 1 -and $script:controlDisposed -eq 1 `
+                    -and $report.cleanupFault -eq 0 -and $report.toolRole -eq 6 `
+                    -and $report.completed -eq 0 -and $report.nativeAcceptance -eq 0 `
+                    -and $report.originalGatePassed -eq 0 -and $report.acceptedUtf8Bytes -eq 0)
+                if ($case -in 51..53) {
+                    $expectedPath = $candidates[$case - 51]
+                    Assert-Control ($extension -ceq $expectedPath `
+                        -and $script:controlExtensionPins.Count -eq 1 `
+                        -and $script:controlExtensionSignatures.Count -eq 1 `
+                        -and $script:controlExtensionPins[0] -ceq $expectedPath `
+                        -and $script:controlExtensionSignatures[0] -ceq $expectedPath `
+                        -and ($commands -split "`n")[0] -ceq ('.load "' + $expectedPath + '"') `
+                        -and @($commands -split "`n" | Where-Object { $_ -like '.load *' }).Count -eq 1 `
+                        -and $report.tracePoint -eq 9 -and $report.status -eq 3 `
+                        -and $report.error -eq 0 -and -not $state.TraceFaulted)
+                } else {
+                    $expectedPoint = if ($case -eq 59) { 8 } elseif ($case -eq 60) { 9 } else { 6 }
+                    $pinCount = [int]($case -in 59..61)
+                    $signatureCount = [int]($case -in 59..60)
+                    Assert-Control ($null -eq $extension -and $null -eq $commands `
+                        -and $script:controlExtensionPins.Count -eq $pinCount `
+                        -and $script:controlExtensionSignatures.Count -eq $signatureCount `
+                        -and $report.tracePoint -eq $expectedPoint -and $report.status -eq 8 `
+                        -and $report.error -eq 13 -and $state.TraceFaulted)
+                    if ($pinCount -eq 1) {
+                        Assert-Control ($script:controlExtensionPins[0] -ceq $candidates[0])
+                    }
+                    if ($signatureCount -eq 1) {
+                        Assert-Control ($script:controlExtensionSignatures[0] -ceq $candidates[0])
+                    }
+                }
+                Assert-Control (($report | ConvertTo-Json -Compress) `
+                    -notmatch 'private-preflight|CN=|S-1-|--command|exts\.dll|\.load')
             }
         }
         $passed++

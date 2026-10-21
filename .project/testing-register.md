@@ -2,6 +2,21 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## SDK extension discovery preserves pin/signature/load identity
+
+Actual preflight run 39628746029 identifies point 6, role 6: extension-file
+pinning failed before signature validation or CDB launch. Extension discovery
+now accepts exactly one `exts.dll` in three closed layouts beneath the selected
+SDK directory: `winxp`, `winext`, or its root. Missing/ambiguous layouts refuse;
+no PATH, current-directory or alternate extension fallback is used.
+
+The selected path is the same read-pinned, Microsoft-signature-validated path
+inserted into CDB's fixed `.load` command. Thirteen new pure controls verify
+all selections, ambiguity, non-candidates, pin/signature failures and actual
+command binding. Parent review, 62/62 pure controls, installer static controls,
+isolated root build and 2,182 Core cases pass. Windows discovery stays 457.
+Actual SDK layout and loader execution remain pending.
+
 ## Native startup preflight reports a closed failure boundary
 
 The first actual diagnostic run passed all 37 pure controls and 456/457
