@@ -69,7 +69,37 @@ internal enum SetupEvidenceCause
     CandidatePropertySecureSet = 40,
     CandidatePropertyValue = 41,
     CandidateGuardInspection = 42,
-    CandidateGuardApprovedHash = 43
+    CandidateGuardApprovedHash = 43,
+    CandidateGuardPeReader = 44,
+    CandidateGuardPeHeaders = 45,
+    CandidateGuardMachine = 46,
+    CandidateGuardDll = 47,
+    CandidateGuardExecutable = 48,
+    CandidateGuardNoClrHeader = 49,
+    CandidateGuardOptionalHeader = 50,
+    CandidateGuardPe32Plus = 51,
+    CandidateGuardNoClrDirectory = 52,
+    CandidateGuardExportRva = 53,
+    CandidateGuardExportSize = 54,
+    CandidateGuardFunctionCount = 55,
+    CandidateGuardNameCount = 56,
+    CandidateGuardFunctionTableRva = 57,
+    CandidateGuardNameTableRva = 58,
+    CandidateGuardOrdinalTableRva = 59,
+    CandidateGuardFunctionAddresses = 60,
+    CandidateGuardDistinctFunctions = 61,
+    CandidateGuardPositiveTarget = 62,
+    CandidateGuardNonForwardedTarget = 63,
+    CandidateGuardExecutableTarget = 64,
+    CandidateGuardOrdinalIndexes = 65,
+    CandidateGuardOrdinalPermutation = 66,
+    CandidateGuardNameRvas = 67,
+    CandidateGuardNameData = 68,
+    CandidateGuardNameTerminator = 69,
+    CandidateGuardNameAscii = 70,
+    CandidateGuardExportNames = 71,
+    CandidateGuardFunctionCountRead = 72,
+    CandidateGuardNameCountRead = 73
 }
 
 internal sealed record SetupRefusalEvidence(
@@ -107,7 +137,37 @@ internal sealed record SetupRefusalEvidence(
             or SetupEvidenceCause.CandidatePropertySecureSet
             or SetupEvidenceCause.CandidatePropertyValue
             or SetupEvidenceCause.CandidateGuardInspection
-            or SetupEvidenceCause.CandidateGuardApprovedHash) &&
+            or SetupEvidenceCause.CandidateGuardApprovedHash
+            or SetupEvidenceCause.CandidateGuardPeReader
+            or SetupEvidenceCause.CandidateGuardPeHeaders
+            or SetupEvidenceCause.CandidateGuardMachine
+            or SetupEvidenceCause.CandidateGuardDll
+            or SetupEvidenceCause.CandidateGuardExecutable
+            or SetupEvidenceCause.CandidateGuardNoClrHeader
+            or SetupEvidenceCause.CandidateGuardOptionalHeader
+            or SetupEvidenceCause.CandidateGuardPe32Plus
+            or SetupEvidenceCause.CandidateGuardNoClrDirectory
+            or SetupEvidenceCause.CandidateGuardExportRva
+            or SetupEvidenceCause.CandidateGuardExportSize
+            or SetupEvidenceCause.CandidateGuardFunctionCount
+            or SetupEvidenceCause.CandidateGuardNameCount
+            or SetupEvidenceCause.CandidateGuardFunctionTableRva
+            or SetupEvidenceCause.CandidateGuardNameTableRva
+            or SetupEvidenceCause.CandidateGuardOrdinalTableRva
+            or SetupEvidenceCause.CandidateGuardFunctionAddresses
+            or SetupEvidenceCause.CandidateGuardDistinctFunctions
+            or SetupEvidenceCause.CandidateGuardPositiveTarget
+            or SetupEvidenceCause.CandidateGuardNonForwardedTarget
+            or SetupEvidenceCause.CandidateGuardExecutableTarget
+            or SetupEvidenceCause.CandidateGuardOrdinalIndexes
+            or SetupEvidenceCause.CandidateGuardOrdinalPermutation
+            or SetupEvidenceCause.CandidateGuardNameRvas
+            or SetupEvidenceCause.CandidateGuardNameData
+            or SetupEvidenceCause.CandidateGuardNameTerminator
+            or SetupEvidenceCause.CandidateGuardNameAscii
+            or SetupEvidenceCause.CandidateGuardExportNames
+            or SetupEvidenceCause.CandidateGuardFunctionCountRead
+            or SetupEvidenceCause.CandidateGuardNameCountRead) &&
         Fault == ObservationFault.None &&
         ErrorKind == StartupEvidenceErrorKind.None && ErrorCode == 0;
 

@@ -100,6 +100,20 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Guard PE inspection retains exact rejection-site evidence
+
+- **Changed:** The independently source-approved instrumentation reports only the first existing PE predicate/read site. Count mismatches remain distinct from count-read exceptions; original policy, exception identity/type/message and privacy limits remain.
+- **Validation:** Parent passes 959 Setup cases, including 38 new policy-oracle/boundary controls, and 2,182 Core. Root/Windows cross-builds are warning-free; all static controls pass. A fresh C# author repairs a malformed CLR fixture while retaining its exact intended assertion.
+- **Boundary:** Frozen pre-instrumentation policy comparison is not producer proof. No actual export count, names, binary hash equality or approval outcome is inferred yet.
+- **Next:** Publish and read the first exact predicate from normal Windows execution; any producer-compatibility correction requires fresh ownership and evidence.
+
+### 2026-10-21 - Real guard rejection occurs before hash approval
+
+- **Evidence:** Published `0bb6699` run `39536905926` returns stage 10/cause 42 with zero auxiliary fields and no protocol/diagnostic error. Guard input bounds return; GuardImageInspection.Read rejects before the approved-hash check is reached.
+- **Validation:** All 57 native cases, both compiled language/admin-row checks, both complete 699-warning validations, both supported OS jobs and Tray pass. First SDK-free Install remains Refused; publication is skipped.
+- **Boundary:** No particular PE predicate, export count, embedded hash equality or approval mismatch is inferred. Recover reports NoRecoveryPending and cleanup has no failures. Draft PR #30 now records the current evidence; main remains unchanged.
+- **Next:** Identify only the first existing PE rejection predicate with fixed numeric evidence, preserving the strict image and callback policy.
+
 ### 2026-10-21 - Guard rejection preserves strict inspection and hash boundaries
 
 - **Changed:** The source-approved diagnostic distinguishes PE inspection from the later approved-hash check with only two fixed numeric causes. Input bounds and all PE/export/hash/ABI/callback policy, catches and evidence priority remain unchanged.

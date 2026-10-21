@@ -25,22 +25,22 @@ public sealed partial class SetupEvidenceTests
         var changed = world.New.Authoring.Guard([0], approveSyntheticImage);
         Assert.Throws<BadImageFormatException>(() =>
             GuardImageInspection.Read(changed.Snapshot.RequireBinary("HermesServicingGuard")));
-        await AssertGuardRefusedAsync(world, changed, SetupEvidenceCause.CandidateGuardInspection);
+        await AssertGuardRefusedAsync(world, changed, SetupEvidenceCause.CandidateGuardPeHeaders);
     }
 
     [Theory]
-    [InlineData(0x314, 3u)]
-    [InlineData(0x318, 3u)]
-    [InlineData(0x340, 0x1100u)]
+    [InlineData(0x314, 3u, 55)]
+    [InlineData(0x318, 3u, 56)]
+    [InlineData(0x340, 0x1100u, 63)]
     public async Task StrictExportInspectionStillRejectsHashApprovedSyntheticImages(
-        int offset, uint value)
+        int offset, uint value, int expectedCause)
     {
         using var world = new RootFixture();
         var bytes = AuthoringFixture.NativeImage();
         AuthoringFixture.Put32(bytes, offset, value);
         var changed = world.New.Authoring.Guard(bytes, approveSyntheticImage: true);
         Assert.Contains(PackageMediaReader.Hash(bytes), changed.Approved.Sha256, changed.Approved.Sha256.KeyComparer);
-        await AssertGuardRefusedAsync(world, changed, SetupEvidenceCause.CandidateGuardInspection);
+        await AssertGuardRefusedAsync(world, changed, (SetupEvidenceCause)expectedCause);
     }
 
     [Fact]

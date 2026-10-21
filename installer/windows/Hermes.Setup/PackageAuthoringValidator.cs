@@ -455,7 +455,7 @@ internal static partial class PackageAuthoringValidator
         var bytes = snapshot.RequireBinary(GuardBinary);
         Require(bytes.Length <= 32 * 1024 * 1024);
         var observation = point.Read(CandidateGuardInspection,
-            () => GuardImageInspection.Read(bytes));
+            () => GuardImageInspection.Read(bytes, point));
         point.Check(CandidateGuardApprovedHash,
             () => Require(approved.Sha256.Contains(observation.Sha256)));
         return observation;

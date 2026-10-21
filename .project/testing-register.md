@@ -2,6 +2,25 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Exact guard PE predicates preserve the pre-instrumentation policy
+
+The reviewed refinement identifies the first existing PE predicate or read
+site with fixed causes 44–73. In particular, 55/56 mean successfully read
+function/name counts failed equality with two; 72/73 mean those reads threw.
+No count value, name, bytes, paths or hashes are emitted. All acceptance
+checks, short-circuit order, checked conversions, exception type/message/
+HResult and original catch boundaries remain unchanged.
+
+Thirty-eight new cases compare the instrumented parser with a frozen copy
+of the original policy, verify genuine validator/entry refusals and exercise
+positive variants, precedence, identity, native priority and closed transport.
+A fresh C# author fixes the synthetic CLR header to reach its intended
+nonnull-header check, retaining the exact cause assertion.
+
+Parent passes all 959 Setup cases, 2,182 Core, warning-free root/Windows
+cross-builds and all static controls. The frozen parser and synthetic images
+are policy regressions, not NativeAOT producer compatibility evidence.
+
 ## Guard refusal distinguishes inspection from approved-hash membership
 
 Actual cause 35 leaves guard acquisition/bounds, PE inspection and approval
