@@ -335,10 +335,15 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IRestrictedO
 
     private static ImmutableArray<SidAndAttributes> ReadGroups(TokenBuffer data)
     {
+        if (data.Length < sizeof(uint))
+            throw RestrictedOwnerToken.Failure(13);
         var count = Marshal.ReadInt32(data.Pointer);
+        if (count == 0)
+            return [];
         // TOKEN_GROUPS aligns its SID_AND_ATTRIBUTES array to pointer alignment.
         var offset = sizeof(nint);
-        if (count < 0 || count > (data.Length - offset) / sizeof(SidAndAttributes))
+        if (count < 0 || data.Length < offset ||
+            count > (data.Length - offset) / sizeof(SidAndAttributes))
             throw RestrictedOwnerToken.Failure(13);
         return Enumerable.Range(0, count)
             .Select(index => ReadGroup(data, offset + index * sizeof(SidAndAttributes)))
@@ -425,7 +430,9 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IRestrictedO
             uint length = 0;
             var result = GetTokenInformation(token, information, 0, 0, &length);
             var error = Marshal.GetLastPInvokeError();
-            if (result != 0 || error != 122 || length < sizeof(nint) || length > 65536)
+            var minimum = information == (int)AcceptanceSelfTokenInformation.RestrictedSids
+                ? sizeof(uint) : sizeof(nint);
+            if (result != 0 || error != 122 || length < minimum || length > 65536)
                 throw RestrictedOwnerToken.Failure(result == 0 && error != 122 ? error : 13);
             return checked((int)length);
         }

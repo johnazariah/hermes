@@ -398,10 +398,53 @@ public sealed partial class RestrictedOwnerChildTests(ITestOutputHelper output)
         var automatic = ObserveDesktopArm(token, api, 0);
         var existing = ObserveDesktopArm(
             token, api.ExistingParentDesktopForObservation, 1);
+        RequireOwnedSelfCounterfactual(token, api.OwnedSelfControlForObservation);
         // Record BOTH outcomes before asserting either exit. This is not a
         // fallback, nor permission to accept the original DLL-init failure.
         Assert.True(automatic.ExitCode == 37 && existing.ExitCode == 37,
             "Counterfactual recorded; both genuine fixed exits remain required.");
+    }
+
+    private void RequireOwnedSelfCounterfactual(
+        RestrictedOwnerToken token, IAcceptanceChildFactory factory)
+    {
+        try { RequireOwnedSelfProof(token, factory); }
+        catch (Exception error)
+        {
+            WriteDesktopArmFailure(error, 3);
+            throw;
+        }
+    }
+
+    private void RequireOwnedSelfProof(
+        RestrictedOwnerToken token, IAcceptanceChildFactory factory)
+    {
+        var children = new RecordingChildren(factory);
+        var proof = RestrictedOwnerChild.RunInert(token, children);
+        WriteChildAccess(proof.Access, 3);
+        var closed = children.Child.IsClosed && ClosedUseRefused(children.Child);
+        children.Child.Dispose();
+        _ = token.Verify();
+        output.WriteLine(
+            $"HERMES_RESTRICTED_OWNED_SELF_CF v=1 arm=3 objectSecurity=1 completed=1 failed={proof.Facts.FailedPredicates} resumed=1 exit={proof.ExitCode} disposed={(proof.CleanupCompleted ? 1 : 0)} closed={(closed ? 1 : 0)} tokenClosed={(token.IsClosed ? 1 : 0)} error=0");
+        Assert.True(proof.Facts.FailedPredicates == 0 && proof.Thread == MsiContextRead.Absent &&
+            proof.ExitCode == 37 && proof.CleanupCompleted && closed,
+            "Owned-only descriptor counterfactual requires the genuine fixed exit.");
+        Assert.False(token.IsClosed);
+        Assert.True(proof.Access.ResourcesClosed);
+        RequireFullOwnedSelf(proof.Access.Process, AcceptanceChildObject.Process);
+        RequireFullOwnedSelf(proof.Access.Thread, AcceptanceChildObject.Thread);
+    }
+
+    private static void RequireFullOwnedSelf(
+        AcceptanceChildObjectAccess value, AcceptanceChildObject target)
+    {
+        Assert.Equal(target, value.Object);
+        Assert.Equal(AcceptanceChildSubject.ActualTokenVerified, value.Subject);
+        Assert.Equal(new AcceptanceAuthzObservation(
+            AcceptanceAuthzState.Granted, 0, 0, 0x001fffff), value.Authz);
+        Assert.Equal(new AcceptanceMandatoryLabelObservation(
+            AcceptanceMandatoryLabelState.Present, 8192, 3, 0, 0), value.Label);
     }
 
     private RestrictedOwnerChildResult ObserveDesktopArm(

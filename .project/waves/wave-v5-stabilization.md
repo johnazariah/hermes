@@ -100,6 +100,21 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - One owned-only descriptor counterfactual retains all baseline failures
+
+- **Changed:** A source-approved extra arm authors a private descriptor from the actual filtered token's User/Owner/Group/default DACL and restricting profile. It preserves existing ACEs/denials and appends one user-only GENERIC_ALL ACE for kernel mapping at creation of the new owned process/thread. No token default or existing ACL changes.
+- **Evidence:** Unsupported restricting profiles refuse before launch; bounded SID/DACL reads and private token-stamp checks remain internal. The arm requires exit 37, full self grants, unchanged Medium label policy and complete cleanup. Original genuine and both baseline exit-37 assertions remain blocking.
+- **Validation:** Independent C# review approves all eight targets and counts 30 new cases, requiring exactly 324. Mechanical application preserves exact bytes/BOM/LF; warning-free root/Windows cross-builds, 2,182 Core and all static controls pass.
+- **Blockers:** This remains an unexecuted counterfactual, not a correction or identified DLL cause. Previous actual self grants were partial and both baseline starts failed.
+- **Next:** Publish and compare the extra arm's actual grant masks and exit with the unchanged baseline arms.
+
+### 2026-10-21 - Actual child-token access to its own objects is partial
+
+- **Evidence:** Published `e029b8e` run `39583539488`, job `119166730148`, observes process mask 0x161411 and thread mask 0x161848 under the actual verified child token in all three arms. Authz API/reply errors are zero and resources close; these are partial masks, not full 0x1FFFFF access.
+- **Boundary:** Both owned objects have explicit Medium labels (8192), policy 3 (NoWriteUp and NoReadUp), no inheritance flags and error zero. The subject is also Medium. Parent USER-object grants/Low labels remain unchanged. No particular required initialisation operation or loader cause is identified.
+- **Validation:** All 35 new cases pass: 292 of 294 native cases pass, the same two 0xC0000142 failures remain, and none skip. Context, resume, parent security/connection and cleanup still pass. The failed native gate prevents installer lifecycle execution.
+- **Next:** The eligible C# owner traces the private filtered-token default DACL/restricting-SID origin and a minimal owned-only correction or causal counterfactual, preserving the original exit-37 requirements.
+
 ### 2026-10-21 - Owned-child security inventory avoids guessed generic mappings
 
 - **Decision:** The process/thread AccessCheck approach stopped without code because the available primaries did not establish its generic mappings. A fresh specialist instead uses a documented no-audit Authz context from the actual verified child primary token, retaining TOKEN_QUERY only.

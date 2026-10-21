@@ -269,7 +269,7 @@ internal static class AcceptanceDesktopDacl
             ace is not KnownAce known ||
             (unchecked((uint)known.AccessMask) & 0xf0000000) != 0);
 
-    private static void RequireUnconditionalAccess(RawAcl? acl, bool required)
+    internal static void RequireUnconditionalAccess(RawAcl? acl, bool required)
     {
         if (required && acl is { } present && present.Cast<GenericAce>().Any(ace =>
             ace is not CommonAce

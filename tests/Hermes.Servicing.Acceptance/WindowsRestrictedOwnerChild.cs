@@ -90,7 +90,8 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IAcceptanceC
     }
 
     private sealed class OwnedInertChild(
-        AcceptanceDesktopSelection desktop = AcceptanceDesktopSelection.Automatic)
+        AcceptanceDesktopSelection desktop = AcceptanceDesktopSelection.Automatic,
+        bool ownedSelfControl = false)
         : IAcceptanceOwnedChild
     {
         private SafeChildHandle? _job;
@@ -124,28 +125,40 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IAcceptanceC
             var directory = SystemDirectory();
             var application = Path.Combine(directory, "cmd.exe");
             var command = $"\"{application}\" /d /q /c exit 37\0".ToCharArray();
-            Launch(FilteredHandle(token), application, command, directory);
+            var descriptor = ownedSelfControl ? ReadOwnedSelfDescriptor(token) : null;
+            Launch(FilteredHandle(token), application, command, directory, descriptor);
             _state = ChildState.Suspended;
         }
 
         private void Launch(
             SafeAccessTokenHandle token, string application,
-            char[] command, string directory)
+            char[] command, string directory, byte[]? descriptor)
         {
             var selected = AcceptanceChildDesktop.Resolve(desktop, Instance);
             fixed (char* desktopName = selected)
             fixed (char* mutableCommand = command)
+            fixed (byte* security = descriptor)
             {
                 var startup = new ChildStartupInfo(
                     (uint)sizeof(ChildStartupInfo), Desktop: (nint)desktopName);
-                var process = default(ChildProcessInformation);
-                if (CreateProcessAsUserW(token, application, mutableCommand,
-                    0, 0, 0, 0x00000004 | 0x08000000,
-                    0, directory, &startup, &process) == 0)
-                    throw NativeFailure();
-                _process = new(process.Process);
-                _thread = new(process.Thread);
+                StartOwned(token, application, mutableCommand, directory, &startup, security);
             }
+        }
+
+        private void StartOwned(
+            SafeAccessTokenHandle token, string application, char* command,
+            string directory, ChildStartupInfo* startup, byte* security)
+        {
+            var attributes = new AcceptanceOwnedObjectAttributes(
+                (uint)sizeof(AcceptanceOwnedObjectAttributes), (nint)security, 0);
+            var supplied = security == null ? 0 : (nint)(&attributes);
+            var process = default(ChildProcessInformation);
+            if (CreateProcessAsUserW(token, application, command,
+                supplied, supplied, 0, 0x00000004 | 0x08000000,
+                0, directory, startup, &process) == 0)
+                throw NativeFailure();
+            _process = new(process.Process);
+            _thread = new(process.Thread);
         }
 
         public void AssignJob()

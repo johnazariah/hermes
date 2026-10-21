@@ -2,6 +2,26 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Owned-only descriptor counterfactual preserves the failing baselines
+
+The existing A/B test adds one controlled child with an explicit private
+process/thread descriptor. Its filtered token's actual User, Owner, Group,
+default DACL and restricting SIDs supply the inputs. Unsupported restricting
+profiles refuse before launch. Existing ACE order and denials remain; one
+actual-user GENERIC_ALL ACE is appended for Windows to map at new-object
+creation. Neither token defaults nor existing object ACLs are modified.
+
+Thirty new preservation/profile/parser/bounds/ABI cases raise the exact native
+gate to 324. Original genuine-child and both baseline A/B exit-37 assertions
+remain unchanged. The additional arm requires exit 37, full self DACL grants,
+the original Medium label policy, complete cleanup and unchanged token state.
+It cannot make the gate green while either baseline fails.
+
+Independent C# source review approves the patch. Parent root/Windows
+cross-builds pass without warnings, all 2,182 Core cases and installer static
+controls pass. Actual counterfactual execution remains pending; the latest
+292/294 native result measured only partial self grants and two startup failures.
+
 ## Owned-child security inventory uses the actual child token
 
 Before resuming the existing inert child, the reviewed probe retains its
