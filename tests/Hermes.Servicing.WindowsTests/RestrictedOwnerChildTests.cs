@@ -398,14 +398,11 @@ public sealed partial class RestrictedOwnerChildTests(ITestOutputHelper output)
         var automatic = ObserveDesktopArm(token, api, 0);
         var existing = ObserveDesktopArm(
             token, api.ExistingParentDesktopForObservation, 1);
-        var detached = ObserveDesktopArm(
-            token, api.DetachedProcessForObservation, 4);
         RequireOwnedSelfCounterfactual(token, api.OwnedSelfControlForObservation);
         // Record BOTH outcomes before asserting either exit. This is not a
         // fallback, nor permission to accept the original DLL-init failure.
         Assert.True(automatic.ExitCode == 37 && existing.ExitCode == 37,
             "Counterfactual recorded; both genuine fixed exits remain required.");
-        Assert.Equal(37u, detached.ExitCode);
     }
 
     private void RequireOwnedSelfCounterfactual(

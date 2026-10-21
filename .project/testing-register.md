@@ -2,6 +2,23 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Detached creation is the normal fixed-child path
+
+Actual run 39589130087 compares the same restricted subject, command,
+descriptor, labels, environment and cleanup: the detached arm exits 37 while
+the CREATE_NO_WINDOW arms exit 0xC0000142. The detached arm retains the
+baseline partial self DACL grants, so no permission expansion is needed for
+this successful startup.
+
+The reviewed correction uses constant CREATE_SUSPENDED|DETACHED_PROCESS
+(0x0000000C) for ordinary, explicit-desktop and owned-descriptor inert children.
+The temporary selector/factory/duplicate arm are removed. Original genuine
+exit-37, full-self-descriptor, parent and cleanup assertions remain; exactly
+324 cases are still required. No token, ACL, privilege or inherited-handle
+policy changes. Parent warning-free root/Windows cross-builds, 2,182 Core and
+installer static controls pass. Promoted-head execution and PowerShell/MSI/UI
+startup remain separate pending proofs.
+
 ## Detached console-policy arm changes only creation flags
 
 The existing failing A/B test now records arm 4 before the owned-descriptor

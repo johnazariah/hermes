@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Detached execution genuinely starts the restricted child
+
+- **Evidence:** Published `d5fd646` run `39589130087`, job `119185383021`, records arm 4 exiting 37 with verified restricted context, original partial self grants, unchanged Medium labels and complete cleanup. All CREATE_NO_WINDOW arms still exit 0xC0000142, including the full-self-DACL arm; parent security/connection remain unchanged.
+- **Changed:** The eligible C# owner promotes constant CREATE_SUSPENDED|DETACHED_PROCESS for every fixed inert child, removing the temporary selector/factory/duplicate arm. No permission, token, default descriptor, environment, job or inheritance policy changes. All original exit-37/full-self/parent/cleanup assertions remain.
+- **Validation:** Fresh independent source review approves the two-file correction; warning-free root/Windows cross-builds, 2,182 Core cases and all static controls pass. Source discovery remains 324; actual promoted-head acceptance is pending.
+- **Blockers:** A successful fixed cmd arm is not PowerShell, MSI or installed UI proof. Whole-lifecycle Medium routing and separate administrative provider bootstrap remain unimplemented.
+- **Next:** Publish the normal detached path and require all original native startup assertions to pass before wiring the separately scoped lifecycle launcher.
+
 ### 2026-10-21 - Detached execution isolates one creation-policy factor
 
 - **Changed:** One extra owned arm uses CREATE_SUSPENDED|DETACHED_PROCESS (0x0000000C) instead of baseline CREATE_SUSPENDED|CREATE_NO_WINDOW (0x08000004). Command, automatic desktop, baseline descriptor, environment, restricted token, job and cleanup stay unchanged.
