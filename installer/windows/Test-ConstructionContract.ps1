@@ -35,4 +35,93 @@ foreach ($required in @('Assert-HermesNativeGuard', 'Get-HermesCompiledGuardTrus
     'Assert-HermesSdkFreeRuntime', 'moduleVersionId', 'LocalApplicationData/Hermes/App', 'github-hosted')) {
     if (-not $gate.Contains($required)) { throw 'The replacement construction gate lacks a required actual-artifact check.' }
 }
+& {
+    function Assert-PackageLanguageSource([xml]$Document) {
+        $namespaces = [Xml.XmlNamespaceManager]::new($Document.NameTable)
+        $namespaces.AddNamespace('w', 'http://wixtoolset.org/schemas/v4/wxs')
+        $packages = @($Document.SelectNodes('/w:Wix/w:Package', $namespaces))
+        $overrides = @($Document.SelectNodes('//w:Property[@Id="ProductLanguage"]', $namespaces))
+        if ($packages.Count -ne 1 -or $packages[0].GetAttribute('Language') -cne '1033' -or $overrides.Count -ne 0) {
+            throw 'Package must author Language="1033" without a ProductLanguage override.'
+        }
+    }
+
+    function Refuse-LanguageChange([scriptblock]$Action, [string]$Expected) {
+        $refused = $false
+        try { & $Action | Out-Null } catch {
+            if ($_.Exception.Message -cne $Expected) { throw }
+            $refused = $true
+        }
+        if (-not $refused) { throw 'A changed package language passed its contract check.' }
+    }
+
+    $sourceRefusal = 'Package must author Language="1033" without a ProductLanguage override.'
+    $source = [xml](Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Package.wxs') -Raw)
+    Assert-PackageLanguageSource $source
+    foreach ($value in @($null, '', '0', '1031', '$(var.HermesLanguage)', '!(loc.PackageLanguage)')) {
+        $changed = [xml]$source.CloneNode($true)
+        $package = $changed.GetElementsByTagName('Package', $changed.DocumentElement.NamespaceURI)[0]
+        if ($null -eq $value) { $package.RemoveAttribute('Language') }
+        else { $package.SetAttribute('Language', $value) }
+        Refuse-LanguageChange { Assert-PackageLanguageSource $changed } $sourceRefusal
+    }
+    foreach ($value in @('1033', '0')) {
+        $changed = [xml]$source.CloneNode($true)
+        $package = $changed.GetElementsByTagName('Package', $changed.DocumentElement.NamespaceURI)[0]
+        $override = $changed.CreateElement('Property', $package.NamespaceURI)
+        $override.SetAttribute('Id', 'ProductLanguage')
+        $override.SetAttribute('Value', $value)
+        [void]$package.AppendChild($override)
+        Refuse-LanguageChange { Assert-PackageLanguageSource $changed } $sourceRefusal
+    }
+
+    $finalizer = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Finalize-PackageIdentity.ps1') -Raw
+    $tokens = $null
+    $errors = $null
+    $ast = [Management.Automation.Language.Parser]::ParseInput($finalizer, [ref]$tokens, [ref]$errors)
+    if ($errors.Count) { throw 'The producer language finalization gate must parse.' }
+    $helpers = @($ast.FindAll({
+        param($node)
+        $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Assert-HermesPackageLanguage'
+    }, $true))
+    $calls = @($ast.FindAll({
+        param($node)
+        $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq 'Assert-HermesPackageLanguage'
+    }, $true))
+    $readOnly = $finalizer.IndexOf('$database = $installer.OpenDatabase((Resolve-Path -LiteralPath $PackagePath).Path, 0)', [StringComparison]::Ordinal)
+    if ($helpers.Count -ne 1 -or $calls.Count -ne 1 -or $readOnly -lt 0 -or $calls[0].Extent.StartOffset -le $readOnly) {
+        throw 'The producer language helper must run once after the fresh read-only database is opened.'
+    }
+    . ([scriptblock]::Create($helpers[0].Extent.Text))
+
+    function Get-RowValues([string]$Query, [int]$Columns) {
+        if ($Query -cne "SELECT ``Value`` FROM ``Property`` WHERE ``Property``='ProductLanguage'" -or $Columns -ne 1) {
+            throw 'ProductLanguage readback must use the existing scalar row query.'
+        }
+        foreach ($row in $languageRows) { ,$row }
+    }
+
+    $compiledRefusal = 'Bound MSI ProductLanguage must be exactly 1033.'
+    $languageRows = @(,@('1033'))
+    Assert-HermesPackageLanguage
+    $languageRows = @()
+    Refuse-LanguageChange { Assert-HermesPackageLanguage } $compiledRefusal
+    foreach ($value in @($null, '', '0', '1031', '01033', '1033 ')) {
+        $languageRows = @(,@($value))
+        Refuse-LanguageChange { Assert-HermesPackageLanguage } $compiledRefusal
+    }
+    foreach ($extra in @('1033', '0')) {
+        $languageRows = @(
+            ,@('1033')
+            ,@($extra)
+        )
+        Refuse-LanguageChange { Assert-HermesPackageLanguage } $compiledRefusal
+        $languageRows = @(
+            ,@($extra)
+            ,@('1033')
+        )
+        Refuse-LanguageChange { Assert-HermesPackageLanguage } $compiledRefusal
+    }
+}
+Write-Output 'Producer language source and compiled-row controls passed; no MSI was opened.'
 Write-Output 'Construction contract and corrective-repair source controls passed; no coordinator, native guard, MSI or profile operation was executed.'

@@ -34,6 +34,13 @@ function Get-RowValues([string]$Query, [int]$Columns) {
     } finally { [void]$view.Close(); [Runtime.InteropServices.Marshal]::FinalReleaseComObject($view) | Out-Null }
 }
 
+function Assert-HermesPackageLanguage {
+    $rows = @(Get-RowValues "SELECT ``Value`` FROM ``Property`` WHERE ``Property``='ProductLanguage'" 1)
+    if ($rows.Count -ne 1 -or $rows[0][0] -cne '1033') {
+        throw 'Bound MSI ProductLanguage must be exactly 1033.'
+    }
+}
+
 $phase = 'product-properties'
 try {
     $database = $installer.OpenDatabase((Resolve-Path -LiteralPath $PackagePath).Path, 1)
@@ -86,6 +93,8 @@ try {
     $summary = $database.GetType().InvokeMember('SummaryInformation', [Reflection.BindingFlags]::GetProperty, $null, $database, @(0))
     $actual = $summary.GetType().InvokeMember('Property', [Reflection.BindingFlags]::GetProperty, $null, $summary, @(9))
     if ($null -eq $actual -or [Guid]$actual -ne [Guid]$identity.packageCode) { throw 'MSI summary PackageCode was not persisted.' }
+    $phase = 'product-language-readback'
+    Assert-HermesPackageLanguage
 } catch {
     [Console]::Error.WriteLine("MSI finalization failed during $phase; source line $($_.InvocationInfo.ScriptLineNumber).")
     @($_.ScriptStackTrace -split '\r?\n' | Select-Object -First 4) | ForEach-Object {

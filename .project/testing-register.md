@@ -2,6 +2,25 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Producer language is pinned and read back from the final MSI
+
+The reviewed producer correction explicitly authors Package Language 1033,
+matching the unchanged strict C# property contract. Pinned WiX v6 sources
+prove that explicit language bypasses the nullable-context fallback. This
+does not retrospectively observe the failed candidate's language value.
+
+Finalization now requires exactly one ProductLanguage row equal to 1033 from
+the fresh read-only MSI, after persisted PackageCode verification and before
+ICE/receipt completion. The fixed refusal prints no observed value. Static
+controls invoke the source validator and actual extracted production helper
+against positive, missing, neutral, other, unresolved, override, null,
+noncanonical and duplicate cases.
+
+Parent passes all static controls, 2,182 Core and the unchanged 864 Setup
+cases; root build is warning-free. The three-file correction has independent
+source approval. Actual compiled readback and lifecycle acceptance remain
+for the normal exact-head Windows run.
+
 ## Four property predicates retain the original closed contract
 
 Actual cause 26 narrows the rejection to ValidateProperties. The

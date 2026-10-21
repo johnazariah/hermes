@@ -9,6 +9,7 @@
   <Package Name="$(ProductName)"
            ProductCode="$(var.HermesProductCode)"
            Version="$(ProductVersion)"
+           Language="1033"
            Manufacturer="$(ProductManufacturer)"
            UpgradeCode="$(UpgradeCode)"
            InstallerVersion="500"

@@ -100,6 +100,20 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Producer language explicitly matches the strict property contract
+
+- **Changed:** Fresh specialist authoring pins Package Language to 1033. The finalizer requires exactly one matching ProductLanguage row in the fresh read-only MSI before ICE/receipt completion. The C# validator and all refusal policy remain unchanged.
+- **Evidence:** Pinned WiX compiler/binder and concrete resolver sources establish that explicit language bypasses nullable fallback. The old failed MSI's actual language is not claimed. Independent source review approves the three-file correction.
+- **Validation:** Parent passes warning-free root build, 2,182 Core, unchanged 864 Setup cases and all static controls, including actual-helper source/compiled-row adverse controls.
+- **Next:** Publish and require actual compiled readback plus the complete normal Windows lifecycle; source alignment alone does not close installed acceptance.
+
+### 2026-10-21 - Actual property refusal is a scalar comparison
+
+- **Evidence:** Published `16aa71c` run `39530787351` returns stage 10/cause 41 with zero auxiliary fields and no protocol/diagnostic error. The property count passes and the current row name is known; its scalar comparison rejects. Short-circuiting does not prove every later row was visited.
+- **Validation:** All 57 native Windows cases, both complete 699-warning MSI validations, both supported OS jobs and Tray pass. First SDK-free Install still refuses; publication is skipped.
+- **Boundary:** Pinned compiler/binder sources derive the same nine property names and eight values; the language path depends on a nullable resolved LCID while the validator requires 1033. The original candidate's actual language value is not logged or inferred.
+- **Next:** A fresh specialist closes the concrete resolver default and pins the producer's intended language, with an actual compiled-value gate and strict controls rather than a relaxed validator.
+
 ### 2026-10-21 - Property rejection retains its exact predicate and strict contract
 
 - **Changed:** The source-approved refinement identifies only count, closed-name, secure-set or scalar rejection with fixed numeric codes. The single original Require and its short-circuit/comparison order remain; no names, values, counts or rows are logged.
