@@ -2,6 +2,27 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Read-only MSI caller context distinguishes privilege from authoring
+
+The reviewed observation samples the actual Setup process-primary token and
+calling thread immediately before the MSI API: elevation/type, integrity,
+enabled Administrator membership, thread-token presence and linked-token
+presence/owner equality/elevation. All output is numeric; failed, absent and
+unobserved are distinct and unknown values remain -1. Token handles and
+identity wrappers are disposed; SIDs, names and handles are not emitted.
+
+Caller metadata travels in bounded internal MSI diagnostic version 2,
+retaining exact version-1 compatibility, the public five-field schema at
+version 1 and the 4096-character stderr limit. Actual save/final consumers
+validate both forms. First context/callback programming-fault order and the
+old canonical native-failure receipt contract remain tested.
+
+Parent passes 133 Control, 1,087 Setup, 2,182 Core, warning-free root/Windows
+cross-builds and all static controls. The new real-Windows token query uses
+an inert native delegate and installs nothing; CI requires exactly 59 cases,
+preserving all 58 existing definitions and zero skips. No actual token facts,
+launcher, privilege mutation or relaxed elevated guard is claimed yet.
+
 ## Native preflight hints reach saved evidence without becoming authority
 
 The source-reviewed numeric INFO observation begins before session reading

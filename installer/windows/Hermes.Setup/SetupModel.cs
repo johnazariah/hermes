@@ -1,5 +1,6 @@
 ﻿using System.Collections.Immutable;
 using Hermes.Servicing;
+using Hermes.Installer.Control;
 
 namespace Hermes.Setup;
 
@@ -204,9 +205,16 @@ internal sealed record MsiFailureEvidence(
     bool OwnPreflight,
     bool OwnTransaction)
 {
-    internal string ToDiagnosticLine() => string.Create(
-        System.Globalization.CultureInfo.InvariantCulture,
-        $"HERMES_SETUP_MSI v=1 action={Action} error={ErrorId} readFailed={(RecordReadFailed ? 1 : 0)} preflight={(OwnPreflight ? 1 : 0)} fence={(OwnTransaction ? 1 : 0)}");
+    // Ephemeral caller observation, not serialized into the public report/journal.
+    internal MsiCallContextObservation? CallContext { get; init; }
+
+    internal string ToDiagnosticLine()
+    {
+        var version = CallContext is null ? 1 : 2;
+        var line = string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"HERMES_SETUP_MSI v={version} action={Action} error={ErrorId} readFailed={(RecordReadFailed ? 1 : 0)} preflight={(OwnPreflight ? 1 : 0)} fence={(OwnTransaction ? 1 : 0)}");
+        return CallContext is { } context ? line + context.ToDiagnosticSuffix() : line;
+    }
 }
 
 // Source 1 is UNTRUSTED active-MSI-callback data, not native writer provenance.

@@ -62,23 +62,24 @@ internal sealed class GuardedInstallerCall : IAsyncDisposable
 
     internal InstallerCallReceipt Execute() => _authority.Execute(
         () => ExternalUiScope.Open(_authority, _authority.Plan.Quiet),
-        () => Invoke(_authority.Plan, RunId),
+        () => Invoke(_authority.Plan, RunId, _authority),
         receipt => ControlFiles.PublishReceipt(_paths.ReceiptPath, receipt));
 
-    private static uint Invoke(ControlPlan plan, Guid run)
+    private static uint Invoke(ControlPlan plan, Guid run, CallAuthority authority)
     {
         var properties = Properties(plan, run);
-        return plan.Operation switch
+        Func<uint> invoke = plan.Operation switch
         {
             MaintenanceKind.Install when plan.PackagePath is { } package =>
-                MsiNative.InstallProduct(package, properties),
-            MaintenanceKind.Repair => MsiNative.ConfigureProduct(
+                () => MsiNative.InstallProduct(package, properties),
+            MaintenanceKind.Repair => () => MsiNative.ConfigureProduct(
                 plan.ProductCode.ToString("B"), 0, 5,
                 $"{properties} REINSTALL=ALL REINSTALLMODE=amus"),
-            MaintenanceKind.Uninstall => MsiNative.ConfigureProduct(
+            MaintenanceKind.Uninstall => () => MsiNative.ConfigureProduct(
                 plan.ProductCode.ToString("B"), 0, 2, properties),
             _ => throw new InvalidOperationException("Unsupported installer call.")
         };
+        return authority.InvokeObserved(WindowsMsiCallContextTokens.Instance, invoke);
     }
 
     private static string Properties(ControlPlan plan, Guid run) =>

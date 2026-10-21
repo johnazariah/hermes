@@ -7,6 +7,8 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Hermes.Servicing/Hermes.Servicing.csproj" />
+    <Compile Include="../../installer/windows/Hermes.Installer.Control/MsiCallContextObservation.cs"
+             Link="Production/MsiCallContextObservation.cs" />
     <Compile Include="../../installer/windows/Hermes.Setup/SetupModel.cs"
              Link="Production/SetupModel.cs" />
     <Compile Include="../../installer/windows/Hermes.Setup/SetupRefusalEvidence.cs"

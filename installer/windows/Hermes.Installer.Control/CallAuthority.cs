@@ -26,6 +26,9 @@ internal sealed class CallAuthority(
     private readonly MsiFailureTrace _msiFailure = new();
     private NativePreflightObservation _nativePreflight = NativePreflightObservation.Missing;
     private ExceptionDispatchInfo? _msiFailureFault;
+    private MsiCallContextObservation _callContext = MsiCallContextObservation.Missing;
+    private ExceptionDispatchInfo? _firstObservationFault;
+    private bool _contextCaptured;
     private bool _active;
     private bool _finished;
     private bool _faulted;
@@ -61,8 +64,10 @@ internal sealed class CallAuthority(
             try { _msiFailure.Observe(message, record, records); }
             catch (Exception error)
             {
-                // Retain only the first new diagnostic fault; never cross the native boundary.
+                // Stop subsequent callback reads, but retain the first programming
+                // fault across caller-context capture and MSI callbacks.
                 _msiFailureFault = ExceptionDispatchInfo.Capture(error);
+                _firstObservationFault ??= _msiFailureFault;
             }
         }
     }
@@ -94,6 +99,29 @@ internal sealed class CallAuthority(
 
     private bool Live => _active && !_finished && !_faulted && gate.IsHeldAndClosed;
 
+    internal uint InvokeObserved(IMsiCallContextTokens tokens, Func<uint> invoke)
+    {
+        CaptureCallContext(tokens);
+        return invoke();
+    }
+
+    private void CaptureCallContext(IMsiCallContextTokens tokens)
+    {
+        lock (_sync)
+        {
+            if (!_active || _finished || _contextCaptured)
+                return;
+            _contextCaptured = true;
+            try { _callContext = MsiCallContextObservation.Read(tokens); }
+            catch (Exception error)
+            {
+                // Optional observation cannot prevent the native call. Programming
+                // faults retain identity and are handed off after its receipt.
+                _firstObservationFault ??= ExceptionDispatchInfo.Capture(error);
+            }
+        }
+    }
+
     internal InstallerCallReceipt Execute(
         Func<IDisposable> openUi, Func<uint> invoke,
         Action<InstallerCallReceipt> publish)
@@ -118,7 +146,9 @@ internal sealed class CallAuthority(
     private void ThrowMsiFailure()
     {
         lock (_sync)
-            _msiFailureFault?.Throw();
+        {
+            _firstObservationFault?.Throw();
+        }
     }
 
     internal void Begin()
@@ -241,7 +271,8 @@ internal sealed class CallAuthority(
             {
                 ObservationFaults = Volatile.Read(ref _observationFaults),
                 MsiFailure = _msiFailure.Snapshot,
-                NativePreflight = _nativePreflight
+                NativePreflight = _nativePreflight,
+                CallContext = _callContext
             };
         }
     }

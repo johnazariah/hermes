@@ -67,6 +67,8 @@ internal sealed record InstallerCallReceipt(
     internal MsiFailureObservation? MsiFailure { get; init; }
     internal NativePreflightObservation NativePreflight { get; init; } =
         NativePreflightObservation.Missing;
+    internal MsiCallContextObservation CallContext { get; init; } =
+        MsiCallContextObservation.Missing;
 
     internal bool MayEvaluateRecovery =>
         ApiEntered && ApiReturned && MsiExitCode == 0 && !ControlFaulted &&

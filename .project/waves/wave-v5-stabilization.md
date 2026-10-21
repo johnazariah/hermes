@@ -100,6 +100,21 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - MSI caller privilege context is measured without mutation
+
+- **Changed:** The source-approved read-only observation samples actual Setup process/thread token context immediately before the MSI API. Numeric status distinguishes absent, failed and unobserved; identity comparisons stay internal and no token/privilege/property is changed.
+- **Integration:** Internal bounded diagnostic version 2 carries context through existing MSI evidence/save/final consumers while version 1 and the public five-field schema remain compatible. Original Install/recovery data and chronological first programming-fault priority are preserved.
+- **Validation:** Parent passes 133 Control, 1,087 Setup, 2,182 Core, warning-free root/Windows cross-builds and all static controls. The new genuine Windows query test is inert with respect to MSI; the exact native gate becomes 59 without changing the existing 58 cases.
+- **Boundary:** The package already passes the LUA WordCount-10 gate. That does not prove runtime caller privilege; no unprivileged launcher or guard relaxation is introduced before actual token evidence.
+- **Next:** Publish, obtain the original Install's numeric process/thread/linked-token context, then select the minimal correct acceptance execution context.
+
+### 2026-10-21 - Saved native hint selects the elevation context predicate
+
+- **Evidence:** Published `910542b` run `39554481075` saves separate Install and failure-Recover hints with source 1/observed 1/point 2/reason 12. This untrusted active-callback hint selects the existing MsiRunningElevated context predicate; it is not native provenance, a fence, or independent caller-token proof.
+- **Validation:** All 58 native cases execute/pass with zero skips, preserving the original 57 definitions. Both compiled language/admin-row checks, both complete 699-warning validations, both supported OS jobs and Tray pass.
+- **Boundary:** RecoveryRequired/1603/Ready-false, absent own receipts and unsafe-completed-cleanup reporting remain. The elevation predicate is not relaxed and no runtime property is forged.
+- **Next:** A fresh specialist checks actual operator token, MSI package privilege semantics and the disposable acceptance context before choosing a least-privilege harness correction.
+
 ### 2026-10-21 - Native preflight context hints have a complete evidence thread
 
 - **Changed:** The source-approved numeric observation precedes session reading and distinguishes context/private-exchange points without becoming a fence or native-provenance claim. Original criteria and private signal/permit behaviour remain; the hint is explicitly untrusted active-call data.

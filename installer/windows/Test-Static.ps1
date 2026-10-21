@@ -52,6 +52,7 @@ try {
     & (Join-Path $PSScriptRoot 'Test-ConstructionContract.ps1')
     & (Join-Path $PSScriptRoot 'Test-AcceptanceReport.ps1')
     & (Join-Path $PSScriptRoot 'Test-NativePreflightEvidence.ps1')
+    & (Join-Path $PSScriptRoot 'Test-MsiCallContextEvidence.ps1')
     & dotnet msbuild installer/windows/tests/PublishInventory.proj -t:WriteHermesPublishInventory -nologo -v:q
     if ($LASTEXITCODE -ne 0) { throw 'MSBuild publish inventory task failed.' }
     $fields = (Get-Content -LiteralPath installer/windows/obj/static-publish-inventory.txt -Raw).Trim().Split('|')

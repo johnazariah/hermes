@@ -45,6 +45,71 @@ function ConvertFrom-HermesNativePreflightLine {
     }
 }
 
+function Test-HermesMsiCallContext {
+    param($Value)
+    if ($Value -isnot [pscustomobject]) { return $false }
+    $names = @($Value.PSObject.Properties.Name | Sort-Object)
+    if (($names -join ',') -cne 'admin,elevated,elevationType,integrity,linked,linkedElevated,process,sameOwner,thread,v') {
+        return $false
+    }
+    foreach ($name in $names) {
+        if ($Value.$name -isnot [int] -and $Value.$name -isnot [long]) { return $false }
+    }
+    if ($Value.v -ne 1 -or $Value.process -notin @(0, 1, 2) `
+        -or $Value.thread -notin @(0, 1, 2, 3) -or $Value.linked -notin @(0, 1, 2, 3)) {
+        return $false
+    }
+    if ($Value.process -eq 1) {
+        if ($Value.elevated -notin @(0, 1) -or $Value.elevationType -notin @(1, 2, 3) `
+            -or $Value.integrity -lt 0 -or $Value.integrity -gt 65535 -or $Value.admin -notin @(0, 1)) {
+            return $false
+        }
+    } elseif ($Value.elevated -ne -1 -or $Value.elevationType -ne -1 `
+        -or $Value.integrity -ne -1 -or $Value.admin -ne -1) { return $false }
+    if ($Value.linked -eq 1) {
+        if ($Value.sameOwner -notin @(0, 1) -or $Value.linkedElevated -notin @(0, 1)) { return $false }
+    } elseif ($Value.sameOwner -ne -1 -or $Value.linkedElevated -ne -1) { return $false }
+    if ($Value.process -eq 0) {
+        return $Value.thread -eq 0 -and $Value.linked -eq 0
+    }
+    return $Value.thread -ne 0 -and $Value.linked -ne 0
+}
+
+function ConvertTo-HermesMsiContextSuffix {
+    param($Value)
+    if (-not (Test-HermesMsiCallContext $Value)) { throw 'Invalid coordinator MSI observation.' }
+    [string]::Format([Globalization.CultureInfo]::InvariantCulture,
+        ' context=1 process={0} elevated={1} elevationType={2} integrity={3} admin={4} thread={5} linked={6} sameOwner={7} linkedElevated={8}',
+        [object[]]@($Value.process, $Value.elevated, $Value.elevationType, $Value.integrity,
+            $Value.admin, $Value.thread, $Value.linked, $Value.sameOwner, $Value.linkedElevated))
+}
+
+function ConvertFrom-HermesMsiObservationLine {
+    param([string]$Line)
+    $pattern = '\AHERMES_SETUP_MSI v=(?<v>[12]) action=(?<action>0|[1-9][0-9]{0,3}) error=(?<error>0|[1-9][0-9]{0,4}) readFailed=(?<readFailed>[01]) preflight=(?<preflight>[01]) fence=(?<fence>[01])(?<context> context=1 process=(?<process>[0-3]) elevated=(?<elevated>-1|[01]) elevationType=(?<elevationType>-1|[1-3]) integrity=(?<integrity>-1|0|[1-9][0-9]{0,4}) admin=(?<admin>-1|[01]) thread=(?<thread>[0-3]) linked=(?<linked>[0-3]) sameOwner=(?<sameOwner>-1|[01]) linkedElevated=(?<linkedElevated>-1|[01]))?\z'
+    if ($Line.Length -gt 320 -or $Line -cnotmatch $pattern) { return $null }
+    $hasContext = $Matches.ContainsKey('context')
+    if (([int]$Matches.v -eq 2) -ne $hasContext) { return $null }
+    $value = [pscustomobject]@{
+        v = [int]$Matches.v; action = [int]$Matches.action; error = [int]$Matches.error
+        readFailed = [int]$Matches.readFailed
+        preflight = [int]$Matches.preflight; fence = [int]$Matches.fence
+    }
+    if ($hasContext) {
+        $context = [pscustomobject]@{
+            v = 1; process = [int]$Matches.process; elevated = [int]$Matches.elevated
+            elevationType = [int]$Matches.elevationType; integrity = [int]$Matches.integrity
+            admin = [int]$Matches.admin; thread = [int]$Matches.thread
+            linked = [int]$Matches.linked; sameOwner = [int]$Matches.sameOwner
+            linkedElevated = [int]$Matches.linkedElevated
+        }
+        if (-not (Test-HermesMsiCallContext $context)) { return $null }
+        # Non-authoritative caller measurements remain inside the MSI observation.
+        $value | Add-Member -NotePropertyName context -NotePropertyValue $context
+    }
+    return $value
+}
+
 function ConvertFrom-HermesSetupProcessOutput {
     param([string]$StandardOutput, [string]$StandardError, [int]$ExitCode,
         [ValidateSet('install', 'repair', 'uninstall', 'recover')][string]$Operation)
@@ -97,25 +162,21 @@ function ConvertFrom-HermesSetupProcessOutput {
         if ($msiCandidates.Count -gt 1) {
             if ($null -eq $diagnosticError) { $diagnosticError = 'DuplicateCoordinatorMsiEvidence' }
         } elseif ($msiCandidates.Count -eq 1) {
-            $pattern = '\AHERMES_SETUP_MSI v=1 action=(?<action>0|[1-9][0-9]{0,3}) error=(?<error>0|[1-9][0-9]{0,4}) readFailed=(?<readFailed>[01]) preflight=(?<preflight>[01]) fence=(?<fence>[01])\z'
-            if ($msiCandidates[0].Length -gt 160 -or $msiCandidates[0] -cnotmatch $pattern) {
+            $observation = ConvertFrom-HermesMsiObservationLine $msiCandidates[0]
+            if ($null -eq $observation) {
                 if ($null -eq $diagnosticError) { $diagnosticError = 'InvalidCoordinatorMsiEvidence' }
             } else {
                 $allowedActions = @(0, 25, 50, 100, 700, 800, 900, 1000, 1300, 1399, 1400, 1500, 1501, 1502,
                     1600, 1800, 2600, 3200, 3500, 3600, 3700, 3900, 4000, 4500, 5000, 6000, 6100, 6300, 6400, 6600)
-                if ([int]$Matches.action -notin $allowedActions -or [int]$Matches.error -gt 65535 `
+                if ($observation.action -notin $allowedActions -or $observation.error -gt 65535 `
                     -or $null -eq $report -or $report.outcome -cne 'RecoveryRequired' -or $report.ready `
                     -or $null -eq $report.msiExitCode -or $ExitCode -ne 1603 `
                     -or $report.msiExitCode -in @(1605, 1618, 3010, 1641) `
                     -or $codes.Count -ne 1 -or $codes[0] -cne 'TransactionFenceMissing' `
-                    -or [int]$Matches.fence -ne 0) {
+                    -or $observation.fence -ne 0) {
                     if ($null -eq $diagnosticError) { $diagnosticError = 'InvalidCoordinatorMsiEvidence' }
                 } else {
-                    $msiFailureEvidence = [pscustomobject]@{
-                        v = 1; action = [int]$Matches.action; error = [int]$Matches.error
-                        readFailed = [int]$Matches.readFailed
-                        preflight = [int]$Matches.preflight; fence = [int]$Matches.fence
-                    }
+                    $msiFailureEvidence = $observation
                 }
             }
         }
@@ -172,10 +233,16 @@ function Assert-HermesCoordinatorMsiEvidence {
     if ($null -eq $value) { return }
     if ($value -isnot [pscustomobject]) { throw $invalid }
     $names = @($value.PSObject.Properties.Name | Sort-Object)
-    if (($names -join ',') -cne 'action,error,fence,preflight,readFailed,v') { throw $invalid }
+    $hasContext = $null -ne $value.PSObject.Properties['context']
+    $expectedNames = if ($hasContext) { 'action,context,error,fence,preflight,readFailed,v' } `
+        else { 'action,error,fence,preflight,readFailed,v' }
+    if (($names -join ',') -cne $expectedNames) { throw $invalid }
     foreach ($name in @('v', 'action', 'error', 'readFailed', 'preflight', 'fence')) {
         if ($value.$name -isnot [int] -and $value.$name -isnot [long]) { throw $invalid }
     }
+    if ($hasContext) {
+        if ($value.v -ne 2 -or -not (Test-HermesMsiCallContext $value.context)) { throw $invalid }
+    } elseif ($value.v -ne 1) { throw $invalid }
     foreach ($name in @('exitCode', 'report', 'diagnosticCodes', 'protocolError', 'diagnosticError', 'refusalEvidence')) {
         if ($null -eq $Result.PSObject.Properties[$name]) { throw $invalid }
     }
@@ -191,6 +258,7 @@ function Assert-HermesCoordinatorMsiEvidence {
     $line = [string]::Format([Globalization.CultureInfo]::InvariantCulture,
         'HERMES_SETUP_MSI v={0} action={1} error={2} readFailed={3} preflight={4} fence={5}',
         [object[]]@($value.v, $value.action, $value.error, $value.readFailed, $value.preflight, $value.fence))
+    if ($hasContext) { $line += ConvertTo-HermesMsiContextSuffix $value.context }
     $parsed = ConvertFrom-HermesSetupProcessOutput `
         -StandardOutput ($Result.report | ConvertTo-Json -Depth 8 -Compress) `
         -StandardError ("Hermes Setup: TransactionFenceMissing.`n" + $line) `
