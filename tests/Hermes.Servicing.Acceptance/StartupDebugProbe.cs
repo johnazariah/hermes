@@ -76,8 +76,9 @@ internal interface IAcceptanceStartupChild
 
 internal interface IStartupDebugControl
 {
-    void AwaitArming(
+    void AwaitCreated(
         StartupDebugIdentity identity, CancellationToken cancellationToken);
+    void Resumed(StartupDebugIdentity identity);
 }
 
 internal sealed class StartupDebugChildren(
@@ -99,7 +100,8 @@ internal sealed class StartupDebugChildren(
 }
 
 // The existing RestrictedOwnerChild sequence still owns verification and cleanup.
-// Only this closed diagnostic substitutes the wait and inserts an arming barrier.
+// CREATED permits only this owned diagnostic's checked Win32 Resume. It is not
+// loader-flag, debugger-continuation, trace-ready, or installed-acceptance evidence.
 internal sealed class StartupDebugChild(
     IAcceptanceOwnedChild child,
     IStartupDebugControl control,
@@ -109,6 +111,8 @@ internal sealed class StartupDebugChild(
     private MsiContextRead _thread = MsiContextRead.NotObserved;
     private StartupDebugIdentity _identity = StartupDebugIdentity.Empty;
     private bool _resumeAttempted;
+    private bool _receiptPublished;
+    private bool _waitAttempted;
 
     internal StartupDebugIdentity Identity => _identity;
     public bool IsClosed => child.IsClosed;
@@ -141,23 +145,42 @@ internal sealed class StartupDebugChild(
             throw RestrictedOwnerToken.Failure(13);
         _resumeAttempted = true;
         facts.Require();
-        _identity = startup.ReadStartupIdentity();
-        _identity.Require();
-        control.AwaitArming(_identity, cancellationToken);
-        cancellationToken.ThrowIfCancellationRequested();
+        PrepareResume(startup);
         child.Resume();
+        control.Resumed(_identity);
+        _receiptPublished = true;
     }
 
-    public uint Wait(CancellationToken cancellationToken) =>
-        child is IAcceptanceStartupChild startup
-            ? startup.WaitForStartupTrace(cancellationToken)
-            : throw RestrictedOwnerToken.Failure(13);
+    private void PrepareResume(IAcceptanceStartupChild startup)
+    {
+        _identity = startup.ReadStartupIdentity();
+        _identity.Require();
+        control.AwaitCreated(_identity, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        var current = startup.ReadStartupIdentity();
+        current.Require();
+        if (current != _identity)
+            throw RestrictedOwnerToken.Failure(13);
+        cancellationToken.ThrowIfCancellationRequested();
+    }
+
+    public uint Wait(CancellationToken cancellationToken)
+    {
+        if (!_receiptPublished || _waitAttempted ||
+            child is not IAcceptanceStartupChild startup)
+            throw RestrictedOwnerToken.Failure(13);
+        _waitAttempted = true;
+        return startup.WaitForStartupTrace(cancellationToken);
+    }
 
     public void Dispose() => child.Dispose();
 }
 
 internal sealed record StartupDebugOutcome(
-    uint Exit, bool Cleanup, int Error, int CleanupError);
+    uint Exit, bool Cleanup, int Error, int CleanupError)
+{
+    internal static StartupDebugOutcome Pending { get; } = new(0, false, 0, 0);
+}
 
 internal sealed class WindowsStartupDebugHost : IStartupDebugHost
 {

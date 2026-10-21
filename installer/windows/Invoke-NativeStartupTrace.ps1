@@ -111,14 +111,13 @@ function New-TraceCommands {
     $null = Assert-TraceCommandPath $Extension
     $cpr = Assert-TraceCommandPath (Join-Path $root 'startup-cpr.cdb')
     $epr = Assert-TraceCommandPath (Join-Path $root 'startup-epr.cdb')
+    $ibp = Assert-TraceCommandPath (Join-Path $root 'startup-ibp.cdb')
     # $$>< takes a filename (spaces permitted), not script arguments. Refuse
     # its semicolon separator and the enclosing -c quote delimiter in paths.
     # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/-----------------------a---run-script-file-
     # The measured -c parse removes unescaped backslashes. Encode the
     # validated callback paths; sx readback must retain their literal separators.
-    # Diagnostic control experiment: force callback breaks, then read filters.
     # Neither registration nor its readback establishes runtime target binding.
-    # One-factor quoted .load encoding trial, not a proven native loader cause.
     # Microsoft explains escaping quoted load-path separators here:
     # https://github.com/microsoft/WinDbg-Feedback/issues/26#issuecomment-512359949
     # Keep validation and pins canonical; encode only the command string.
@@ -126,7 +125,7 @@ function New-TraceCommands {
         ('.load "' + $Extension.Replace('\', '\\') + '"'),
         '.chain',
         '.printf "HERMES_CDB v=1 kind=0 pid=%u\n", @$tpid',
-        'sxd ibp',
+        ('sxe -c "$$><' + $ibp.Replace('\', '\\') + '" ibp'),
         ('sxe -c "$$><' + $cpr.Replace('\', '\\') + '" cpr'),
         ('sxe -c "$$><' + $epr.Replace('\', '\\') + '" epr'),
         'sx',
@@ -140,23 +139,26 @@ function New-TraceCommands {
 }
 
 function New-TraceEventCommands {
-    # C++ supplies @$peb as PEB*: read its field without an explicit module cast.
-    # This expression control does not establish availability at create-process.
-    # Only a four-byte field may produce this readback; missing types/memory
-    # leave the v2 create block unarmed, even if !gflag printed a valid value.
+    # CREATED has no loader-flag claim. Only a runtime ibp callback can query
+    # the four-byte field; missing types/memory remain unavailable, not zero.
     # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/c---numbers-and-operators
     # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/pseudo-register-syntax
     # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/-printf
     # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/-if
     # $$>< condenses this file into a command program. Contain query errors,
-    # not its closing marker or debugger g; neither releases Win32 suspension.
+    # not the closing marker. The ibp callback deliberately has no final g.
     # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/-catch
     [ordered]@{
         'startup-cpr.cdb' = (@(
-            '.printf "HERMES_CDB v=2 kind=1 pid=%u\n", @$tpid',
+            '.printf "HERMES_CDB v=3 kind=1 pid=%u\n", @$tpid',
+            '.lastevent', '|.',
+            '.printf "HERMES_CDB v=3 kind=2 pid=%u\n", @$tpid', 'g'
+        ) -join "`r`n") + "`r`n"
+        'startup-ibp.cdb' = (@(
+            '.printf "HERMES_CDB v=3 kind=5 pid=%u\n", @$tpid',
             '.lastevent', '|.', '!gflag +sls', '!gflag',
             '.catch { .if (@@c++(sizeof(@$peb->NtGlobalFlag)) == 4) { .printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(@$peb->NtGlobalFlag) } }',
-            '.printf "HERMES_CDB v=2 kind=2 pid=%u\n", @$tpid', 'g'
+            '.printf "HERMES_CDB v=3 kind=6 pid=%u\n", @$tpid'
         ) -join "`r`n") + "`r`n"
         'startup-epr.cdb' = (@(
             '.printf "HERMES_CDB v=1 kind=3 pid=%u\n", @$tpid',
@@ -199,10 +201,12 @@ function Publish-TraceCommands {
     $state.CommandSha256 = $hashes['startup.cdb']
     $state.CreateCommandSha256 = $hashes['startup-cpr.cdb']
     $state.ExitCommandSha256 = $hashes['startup-epr.cdb']
+    $state.InitialCommandSha256 = $hashes['startup-ibp.cdb']
     $state.ExtensionExpected = $Extension
     # Compare sx readback with the fixed, fully verified publication only.
-    $state.FilterExpected.Cpr = 'Command: "$$><' + (Join-Path $root 'startup-cpr.cdb') + '"'
-    $state.FilterExpected.Epr = 'Command: "$$><' + (Join-Path $root 'startup-epr.cdb') + '"'
+    $state.FilterExpected.Cpr = 'Command: "$$><' + (Join-Path $root 'startup-cpr.cdb').Replace('\', '\\') + '"'
+    $state.FilterExpected.Epr = 'Command: "$$><' + (Join-Path $root 'startup-epr.cdb').Replace('\', '\\') + '"'
+    $state.FilterExpected.Ibp = 'Command: "$$><' + (Join-Path $root 'startup-ibp.cdb').Replace('\', '\\') + '"'
     return Join-Path $root 'startup.cdb'
 }
 
@@ -293,6 +297,10 @@ function Read-TraceControl {
             $count += $read
         }
         if ($count -gt 2048) { $state.Protocol = 1; return }
+        if (@($buffer[0..([Math]::Max(0, $count - 1))] | Where-Object { $_ -gt 127 }).Count -ne 0) {
+            $state.Protocol = 1
+            return
+        }
         Update-HermesStartupRows $state ([Text.Encoding]::ASCII.GetString($buffer, 0, $count))
     } finally { $stream.Dispose() }
 }
@@ -335,6 +343,7 @@ function Invoke-TraceCollection {
         Receive-TraceRead $state.Err $debugger.StandardError $false
         if ($state.Bounds -ne 0) { return }
         Read-TraceControl (Join-Path $root 'helper.rows')
+        Publish-TraceCreated
         Publish-TraceArm
         if ($debugger.HasExited) {
             if ($exitObservedAt -lt 0) { $exitObservedAt = $elapsed.ElapsedMilliseconds }
@@ -351,13 +360,13 @@ function Invoke-TraceCollection {
     elseif ($debugger.ExitCode -ne 0) { $state.Error = 13 }
 }
 
-function Publish-TraceArm {
-    if ($state.Acked -or -not (Test-HermesStartupArm $state)) { return }
+function Publish-TraceCreated {
+    if (-not (Test-HermesStartupCreated $state)) { return }
     $row = [string]::Format([Globalization.CultureInfo]::InvariantCulture,
-        "HERMES_STARTUP_ARM v=1 pid={0} born={1}`n",
-        [object[]]@($state.Target.pid, $state.Target.born))
-    $pending = Join-Path $root 'armed.pending'
-    $armed = Join-Path $root 'armed.row'
+        "HERMES_STARTUP_CREATED v=2 phase=created helper={0} pid={1} born={2}`n",
+        [object[]]@($state.Target.helper, $state.Target.pid, $state.Target.born))
+    $pending = Join-Path $root 'created.pending'
+    $created = Join-Path $root 'created.row'
     $stream = [IO.File]::Open($pending, [IO.FileMode]::CreateNew,
         [IO.FileAccess]::Write, [IO.FileShare]::None)
     try {
@@ -366,9 +375,15 @@ function Publish-TraceArm {
         $stream.Flush($true)
     } finally { $stream.Dispose() }
     [IO.File]::SetAttributes($pending, [IO.FileAttributes]::ReadOnly)
-    [IO.File]::Move($pending, $armed)
-    $null = Open-TracePin $armed
-    Set-HermesStartupArmAcknowledged $state
+    [IO.File]::Move($pending, $created)
+    $null = Open-TracePin $created
+    Set-HermesStartupCreatedAcknowledged $state
+}
+
+function Publish-TraceArm {
+    if (-not $debugger.HasExited -and (Test-HermesStartupArm $state)) {
+        Invoke-HermesStartupContinue $state $debugger.StandardInput
+    }
 }
 
 function Stop-TraceDebugger {
@@ -428,6 +443,7 @@ try {
     $start.UseShellExecute = $false
     $start.CreateNoWindow = $true
     $start.RedirectStandardInput = $true
+    $start.StandardInputEncoding = [Text.Encoding]::ASCII
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
     foreach ($name in @('_NT_SYMBOL_PATH', '_NT_ALT_SYMBOL_PATH',
@@ -443,7 +459,6 @@ try {
     if (-not $debugger.Start()) { throw 'Owned debugger did not start.' }
     $started = $true
     $heldDebuggerHandle = $debugger.SafeHandle
-    $debugger.StandardInput.Close()
     Set-HermesStartupTracePoint $state 26 # Owned output collection.
     Start-TraceRead $state.Out $debugger.StandardOutput
     Start-TraceRead $state.Err $debugger.StandardError
@@ -452,6 +467,14 @@ try {
     # Never print debugger output, exception text, paths, identities, or commands.
     Set-HermesStartupTraceFault $state
 } finally {
+    if ($started -and $state.NativeProtocol -and -not $state.InputClosed) {
+        $closed = $true
+        foreach ($owned in @($debugger.StandardInput.BaseStream, $debugger.StandardInput)) {
+            try { $owned.Dispose() }
+            catch { $closed = $false; $state.CleanupFault = 13 }
+        }
+        $state.InputClosed = $closed
+    }
     try {
         Stop-TraceDebugger
         $debuggerEnded = -not $started -or $debugger.HasExited
@@ -476,8 +499,18 @@ try {
             if (-not $drainsEnded) { $state.CleanupFault = 13 }
         } catch { $state.CleanupFault = 13 }
         foreach ($reader in @($debugger.StandardOutput, $debugger.StandardError)) {
-            try { $reader.BaseStream.Dispose(); $reader.Dispose() }
-            catch { $state.CleanupFault = 13 }
+            foreach ($owned in @($reader.BaseStream, $reader)) {
+                try { $owned.Dispose() }
+                catch { $state.CleanupFault = 13 }
+            }
+        }
+        if ($state.NativeProtocol) {
+            foreach ($stream in @($state.Out, $state.Err)) {
+                if ($null -ne $stream.Pending) {
+                    try { $null = $stream.Pending.Wait(1000) } catch {}
+                    if (-not $stream.Pending.IsCompleted) { $state.CleanupFault = 13 }
+                }
+            }
         }
     }
     try { $debugger.Dispose() } catch { $state.CleanupFault = 13 }

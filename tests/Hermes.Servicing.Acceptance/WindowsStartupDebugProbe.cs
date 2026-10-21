@@ -48,6 +48,10 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens
                 StartupGetProcessTimes(process, &born, &exited, &kernel, &user) == 0 ||
                 StartupCheckRemoteDebuggerPresent(process, &debugged) == 0)
                 throw NativeFailure();
+            // Both identity reads use this same retained process handle. The
+            // image was verified by the unchanged fixed-create implementation.
+            if (exited != 0)
+                throw RestrictedOwnerToken.Failure(13);
             return new(pid, born, _powerShellImageMatched, debugged == 1);
         }
 

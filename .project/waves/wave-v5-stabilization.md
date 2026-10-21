@@ -100,6 +100,15 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Separate synthetic diagnostic execution from pre-DllMain trace arming
+
+- **Evidence:** Published `f5979cc`, run `39676486281`, still produces no typed loader-flag value at process creation. Both supported OS jobs and Tray pass; native acceptance remains 460/461 with only the original PowerShell exit-37 case failing.
+- **Decision:** CREATED permits one owned synthetic diagnostic's checked Win32 Resume. Accepted trace evidence requires the actual matching child initial breakpoint, stopped state, typed flag bit 2 and Resumed receipt before one fixed debugger continuation. Child `ibp` dispatch is discovered on the actual SDK, not assumed for every version.
+- **Changed:** The v2 helper revalidates retained identity and emits Ready/Resumed/Final rows. Four pinned debugger command files and the controller keep CREATED, historical ARMED and the single `g\n` write distinct. No product, MSI or owner-authentication gate is relaxed.
+- **Validation:** Fresh independent C# review approves source and original-intent preservation. Root build and 2,184 tests, 1,277 portable Setup tests, warning-free Windows cross-build, all 312 pure PowerShell controls and installer static controls pass. Discovery is 501: unchanged baseline 439, startup 58 and real adapter 4; CI requires every group without skips.
+- **Blockers:** Actual pre-DllMain stop/flag readback and the PowerShell failure cause remain unproved. Whole-Medium installed acceptance is still pending; PR #30 remains draft and unmerged.
+- **Next:** Publish the coherent helper/controller pair and inspect actual Windows callback, continuation and cleanup evidence before changing the failing startup path.
+
 ### 2026-10-22 - Use the debugger's native PEB type for the fixed field read
 
 - **Evidence:** Published `12c592e`, run `39674762741`, job `119481586348`, contains query errors and closes create/exit callbacks. No typed value is produced, so the actual target remains unarmed; this is unavailable evidence, not measured zero.

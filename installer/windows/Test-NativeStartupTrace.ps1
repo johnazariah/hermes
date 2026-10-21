@@ -5,9 +5,111 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'Native-StartupTrace.psm1') -Force
 
+# The original negative/parser controls remain explicit legacy controls only.
+# The real no-argument driver and the v2 protocol cases below use native state.
+function New-HermesStartupState {
+    Native-StartupTrace\New-HermesStartupState -LegacyParserControls
+}
+
 $targetRow = 'HERMES_STARTUP v=1 stage=1 helper=11 pid=22 born=123 image=1 debug=1 context=1 flags=134742020 exit=0 parent=0 cleanup=0 fault=0 cleanupFault=0'
 $finalRow = 'HERMES_STARTUP v=1 stage=2 helper=11 pid=22 born=123 image=1 debug=1 context=1 flags=134742020 exit=3221225794 parent=1 cleanup=1 fault=0 cleanupFault=0'
 $failureLine = '16:1 @ 00000000 - LdrpCallInitRoutine - ERROR: DLL_PROCESS_ATTACH for dll "C:\Windows\System32\sample.dll" (InitRoutine: 0000000012345678) failed.'
+$readyV2 = 'HERMES_STARTUP v=2 stage=1 helper=11 pid=22 born=123 image=1 debug=1 context=1 flags=134742020 resumed=0 exit=0 parent=0 cleanup=0 fault=0 cleanupFault=0'
+$resumedV2 = $readyV2.Replace('stage=1', 'stage=2').Replace('resumed=0', 'resumed=1')
+$finalV2 = $resumedV2.Replace('stage=2', 'stage=3').Replace('exit=0 parent=0 cleanup=0',
+    'exit=3221225794 parent=1 cleanup=1')
+
+function New-ControlNativeCreated {
+    param([bool]$Acknowledge = $true, [bool]$WithResumed = $true)
+    $native = Native-StartupTrace\New-HermesStartupState
+    $native.CommandSha256 = 'a' * 64
+    $sources = New-TraceEventCommands
+    foreach ($name in @('Cpr', 'Epr', 'Ibp')) {
+        $native.FilterExpected[$name] = 'Command: "$$><D:\\owned\\startup-' + $name.ToLowerInvariant() + '.cdb"'
+        $label = switch ($name) { 'Cpr' { 'Create process' }; 'Epr' { 'Exit process' }; 'Ibp' { 'Initial breakpoint' } }
+        Add-HermesStartupLine $native ($name.ToLowerInvariant() + ' - ' + $label + ' - break')
+        Add-HermesStartupLine $native $native.FilterExpected[$name]
+        $field = switch ($name) { 'Cpr' { 'CreateCommandSha256' }; 'Epr' { 'ExitCommandSha256' }; 'Ibp' { 'InitialCommandSha256' } }
+        $native[$field] = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+            [Text.Encoding]::ASCII.GetBytes($sources['startup-' + $name.ToLowerInvariant() + '.cdb']))).ToLowerInvariant()
+    }
+    foreach ($line in @(
+        'HERMES_CDB v=1 kind=0 pid=11',
+        'HERMES_CDB v=3 kind=1 pid=22',
+        'Last event: 16.1: Create process 1:16',
+        'HERMES_CDB v=3 kind=2 pid=22'
+    )) { Add-HermesStartupLine $native $line }
+    Update-HermesStartupRows $native ($readyV2 + "`n")
+    if ($Acknowledge) {
+        Set-HermesStartupCreatedAcknowledged $native
+        if ($WithResumed) {
+            Update-HermesStartupRows $native ($readyV2 + "`n" + $resumedV2 + "`n")
+        }
+    }
+    return $native
+}
+
+function New-ControlNativeStopped {
+    param(
+        [string]$Flags = '00000002', [bool]$WithResumed = $true,
+        [string]$EventLine = 'Last event: 16.1: Break instruction exception - code 80000003 (first chance)',
+        [string]$Prompt = '1:000> '
+    )
+    $native = New-ControlNativeCreated -WithResumed $WithResumed
+    Add-HermesStartupLine $native 'HERMES_CDB v=3 kind=5 pid=22'
+    Add-HermesStartupLine $native $EventLine
+    if ($Flags -cne '') {
+        Add-HermesStartupLine $native ('HERMES_NTGLOBALFLAG v=1 pid=22 value=' + $Flags)
+    }
+    Add-HermesStartupLine $native 'HERMES_CDB v=3 kind=6 pid=22'
+    Add-HermesStartupText $native $native.Out $Prompt $true
+    return $native
+}
+
+function Complete-ControlNative {
+    param([hashtable]$Native, [string]$Final = $finalV2)
+    foreach ($line in @(
+        'HERMES_CDB v=1 kind=3 pid=22',
+        'Last event: 16.1: Exit process 1:16, code c0000142',
+        'HERMES_CDB v=1 kind=4 pid=22',
+        'HERMES_CDB v=1 kind=3 pid=11',
+        'Last event: b.1: Exit process 0:b, code 0',
+        'HERMES_CDB v=1 kind=4 pid=11'
+    )) { Add-HermesStartupLine $Native $line }
+    Update-HermesStartupRows $Native ($readyV2 + "`n" + $resumedV2 + "`n" + $Final + "`n")
+    New-HermesStartupReport $Native $true $true
+}
+
+class StartupControlWriteStream : IO.MemoryStream {
+    [int]$Mode
+    [int]$Writes = 0
+    [int]$Closes = 0
+    [bool]$Closed = $false
+    [scriptblock]$AfterWrite
+    [Threading.Tasks.TaskCompletionSource]$Pending = [Threading.Tasks.TaskCompletionSource]::new()
+
+    StartupControlWriteStream([int]$mode) { $this.Mode = $mode }
+
+    [Threading.Tasks.Task] WriteAsync(
+        [byte[]]$bytes, [int]$offset, [int]$count, [Threading.CancellationToken]$token) {
+        if ($this.Closed) { throw 'Closed fake physical stream.' }
+        $this.Writes++
+        if ($this.Mode -eq 1) {
+            return [Threading.Tasks.Task]::FromException([IO.IOException]::new('Synthetic write fault.'))
+        }
+        if ($this.Mode -eq 3) { return $this.Pending.Task }
+        $this.Write($bytes, $offset, $count)
+        if ($null -ne $this.AfterWrite) { $null = $this.AfterWrite.Invoke() }
+        return [Threading.Tasks.Task]::CompletedTask
+    }
+
+    [void] Dispose([bool]$disposing) {
+        $this.Closes++
+        if ($this.Mode -eq 2) { throw 'Synthetic close fault.' }
+        $this.Closed = $true
+        if ($this.Mode -eq 3) { $null = $this.Pending.TrySetCanceled() }
+    }
+}
 
 function Assert-Control {
     param([bool]$Value)
@@ -97,6 +199,38 @@ class StartupControlIdleReader : IO.StreamReader {
             return [Threading.Tasks.Task]::FromResult($this.FirstText.Length)
         }
         return $this.Idle.Task
+    }
+}
+
+class StartupControlContinueReader : IO.StreamReader {
+    [string]$FirstText
+    [string]$AfterText
+    [char[]]$HeldBuffer
+    [int]$HeldOffset
+    [int]$Reads = 0
+    [Threading.Tasks.TaskCompletionSource[int]]$Gate = [Threading.Tasks.TaskCompletionSource[int]]::new()
+
+    StartupControlContinueReader([string]$first, [string]$after) : base([IO.MemoryStream]::new()) {
+        $this.FirstText = $first
+        $this.AfterText = $after
+    }
+
+    [Threading.Tasks.Task[int]] ReadAsync([char[]]$buffer, [int]$offset, [int]$count) {
+        $this.Reads++
+        if ($this.Reads -eq 1) {
+            $this.FirstText.CopyTo(0, $buffer, $offset, $this.FirstText.Length)
+            return [Threading.Tasks.Task]::FromResult($this.FirstText.Length)
+        }
+        if ($this.Reads -eq 2) {
+            $this.HeldBuffer = $buffer; $this.HeldOffset = $offset
+            return $this.Gate.Task
+        }
+        return [Threading.Tasks.Task]::FromResult(0)
+    }
+
+    [void] Release() {
+        $this.AfterText.CopyTo(0, $this.HeldBuffer, $this.HeldOffset, $this.AfterText.Length)
+        $null = $this.Gate.TrySetResult($this.AfterText.Length)
     }
 }
 
@@ -192,6 +326,7 @@ function Read-TraceControl {
 }
 
 function Publish-TraceArm { $script:controlArms++ }
+function Publish-TraceCreated {}
 
 function Start-Sleep {
     param([int]$Milliseconds)
@@ -282,7 +417,7 @@ function Get-TraceHash {
 function Write-TraceCommandFile {
     param([string]$Path, [byte[]]$Bytes)
     Assert-Control ($state.TracePoint -eq 24 -and $state.ToolRole -eq 0 `
-        -and $Path -cin @('startup-cpr.cdb', 'startup-epr.cdb', 'startup.cdb' |
+        -and $Path -cin @('startup-cpr.cdb', 'startup-ibp.cdb', 'startup-epr.cdb', 'startup.cdb' |
             ForEach-Object { Join-Path $root $_ }) `
         -and -not $script:controlCommandFiles.ContainsKey($Path))
     $script:controlCommandWrites.Add($Path)
@@ -329,7 +464,7 @@ function Get-HermesSetupPublishFiles {
     }
 }
 
-$cases = 1..212 # Original 210 plus fixed-query containment and unavailable cleanup controls.
+$cases = 1..312 # Original 212 intents plus the closed CREATED/resumed/ibp protocol.
 $passed = 0
 foreach ($case in $cases) {
     $state = $null
@@ -366,7 +501,7 @@ foreach ($case in $cases) {
             $debugger | Add-Member ScriptMethod Dispose { $script:controlDisposed++ }
             $debugger | Add-Member ScriptProperty StartInfo { $script:controlStartInfo } {
                 param($value)
-                Assert-Control ($pins.Count -eq 3 -and $script:controlCommandHashes -eq 3 `
+                Assert-Control ($pins.Count -eq 4 -and $script:controlCommandHashes -eq 4 `
                     -and $state.CommandSha256 -cmatch '\A[0-9a-f]{64}\z' `
                     -and $state.CreateCommandSha256 -cmatch '\A[0-9a-f]{64}\z' `
                     -and $state.ExitCommandSha256 -cmatch '\A[0-9a-f]{64}\z')
@@ -376,6 +511,11 @@ foreach ($case in $cases) {
                 $script:controlLaunchBindings++
                 $script:controlStartInfo = $value
             }
+        }
+        if ($case -ge 213) {
+            $state.Out.Hash.Dispose()
+            $state.Err.Hash.Dispose()
+            $state = $null
         }
         switch ($case) {
             1 {
@@ -1166,7 +1306,7 @@ foreach ($case in $cases) {
             77 {
                 $state = New-HermesStartupState
                 foreach ($line in @(
-                    'HERMES_CDB v=3 kind=1 pid=22',
+                    'HERMES_CDB v=4 kind=1 pid=22',
                     '0:000> HERMES_CDB v=1 kind=1 pid=22',
                     'HERMES_CDB v=1 kind=9 pid=22 C:\private\secret S-1-5-21-123 --command',
                     '0:000> .printf "HERMES_CDB v=1 kind=1 pid=%u\n", @$tpid'
@@ -1356,10 +1496,11 @@ foreach ($case in $cases) {
                     'startup.cdb' = 'commandSha256'
                     'startup-cpr.cdb' = 'createCommandSha256'
                     'startup-epr.cdb' = 'exitCommandSha256'
+                    'startup-ibp.cdb' = 'initialCommandSha256'
                 }
-                Assert-Control ($script:controlCommandWrites.Count -eq 3 `
-                    -and $script:controlCommandPins.Count -eq 3 `
-                    -and $script:controlCommandHashes -eq 3 -and $script:controlLaunchBindings -eq 1 `
+                Assert-Control ($script:controlCommandWrites.Count -eq 4 `
+                    -and $script:controlCommandPins.Count -eq 4 `
+                    -and $script:controlCommandHashes -eq 4 -and $script:controlLaunchBindings -eq 1 `
                     -and $script:controlStops -eq 1 -and $script:controlDisposed -eq 1 `
                     -and $report.tracePoint -eq 25 -and $report.toolRole -eq 0 `
                     -and $report.error -eq 0 -and $report.cleanupFault -eq 0 `
@@ -1383,13 +1524,15 @@ foreach ($case in $cases) {
                     -and $arguments[6] -ceq 'startup-debug-probe' `
                     -and $script:controlStartInfo.FileName -ceq (Join-Path $kits 'cdb.exe') `
                     -and $script:controlStartInfo.WorkingDirectory -ceq $kits `
+                    -and $script:controlStartInfo.StandardInputEncoding.CodePage -eq 20127 `
                     -and -not $script:controlStartInfo.UseShellExecute `
                     -and $arguments -cnotcontains '-g' -and $arguments -cnotcontains '-G')
                 $lines = @($sources['startup.cdb'] -split "`n")
                 Assert-Control ($lines.Count -eq 9 -and $lines[0] -ceq ('.load "' + $extension.Replace('\', '\\') + '"') `
                     -and $lines[1] -ceq '.chain' `
                     -and $lines[2] -ceq '.printf "HERMES_CDB v=1 kind=0 pid=%u\n", @$tpid' `
-                    -and $lines[3] -ceq 'sxd ibp' -and $lines[6] -ceq 'sx' `
+                    -and $lines[3] -ceq ('sxe -c "$$><' + (Join-Path $root 'startup-ibp.cdb').Replace('\', '\\') + '" ibp') `
+                    -and $lines[6] -ceq 'sx' `
                     -and $lines[7] -ceq 'g' -and $lines[8] -ceq '')
                 foreach ($line in $lines[4..5]) {
                     Assert-Control ($line -cmatch '\Asxe -c "\$\$><[^";\r\n]+" (?:cpr|epr)\z' `
@@ -1403,17 +1546,23 @@ foreach ($case in $cases) {
             91 {
                 $sources = New-TraceEventCommands
                 $expectedCreate = @(
-                    '.printf "HERMES_CDB v=2 kind=1 pid=%u\n", @$tpid',
+                    '.printf "HERMES_CDB v=3 kind=1 pid=%u\n", @$tpid',
+                    '.lastevent', '|.',
+                    '.printf "HERMES_CDB v=3 kind=2 pid=%u\n", @$tpid', 'g'
+                )
+                $expectedInitial = @(
+                    '.printf "HERMES_CDB v=3 kind=5 pid=%u\n", @$tpid',
                     '.lastevent', '|.', '!gflag +sls', '!gflag',
                     '.catch { .if (@@c++(sizeof(@$peb->NtGlobalFlag)) == 4) { .printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(@$peb->NtGlobalFlag) } }',
-                    '.printf "HERMES_CDB v=2 kind=2 pid=%u\n", @$tpid', 'g'
+                    '.printf "HERMES_CDB v=3 kind=6 pid=%u\n", @$tpid'
                 )
                 $expectedExit = @(
                     '.printf "HERMES_CDB v=1 kind=3 pid=%u\n", @$tpid', '.lastevent',
                     '.printf "HERMES_CDB v=1 kind=4 pid=%u\n", @$tpid', 'g'
                 )
-                Assert-Control ($sources.Count -eq 2 `
+                Assert-Control ($sources.Count -eq 3 `
                     -and $sources['startup-cpr.cdb'] -ceq (($expectedCreate -join "`r`n") + "`r`n") `
+                    -and $sources['startup-ibp.cdb'] -ceq (($expectedInitial -join "`r`n") + "`r`n") `
                     -and $sources['startup-epr.cdb'] -ceq (($expectedExit -join "`r`n") + "`r`n"))
                 foreach ($text in $sources.Values) {
                     Assert-Control (-not $text.Contains('\"', [StringComparison]::Ordinal) `
@@ -1426,9 +1575,10 @@ foreach ($case in $cases) {
                 $script:controlCommandFaultName = @('startup-cpr.cdb', 'startup-epr.cdb', 'startup.cdb')[$sourceIndex]
                 . $controlCommandDriver
                 $report = New-HermesStartupReport $state $debuggerEnded $drainsEnded
+                $sourceIndex = @(0, 2, 3)[$sourceIndex]
                 $expectedPins = $sourceIndex + [int]($script:controlCommandFault -ne 1)
                 $expectedHashes = $sourceIndex + [int]($script:controlCommandFault -eq 2)
-                Assert-Control ($script:controlCommandWrites.Count -eq 3 `
+                Assert-Control ($script:controlCommandWrites.Count -eq 4 `
                     -and $script:controlCommandPins.Count -eq $expectedPins `
                     -and $script:controlCommandHashes -eq $expectedHashes `
                     -and $script:controlLaunchBindings -eq 0 -and $null -eq $script:controlStartInfo `
@@ -1447,7 +1597,7 @@ foreach ($case in $cases) {
                 $script:controlCommandFaultName = 'startup-epr.cdb'
                 . $controlCommandDriver
                 $report = New-HermesStartupReport $state $debuggerEnded $drainsEnded
-                Assert-Control ($script:controlCommandWrites.Count -eq 2 `
+                Assert-Control ($script:controlCommandWrites.Count -eq 3 `
                     -and $script:controlCommandPins.Count -eq 0 -and $script:controlCommandHashes -eq 0 `
                     -and $script:controlLaunchBindings -eq 0 -and $report.tracePoint -eq 24 `
                     -and $report.status -eq 8 -and $report.error -eq 13 -and $report.completed -eq 0 `
@@ -1535,7 +1685,7 @@ foreach ($case in $cases) {
                     ('.load "' + $extension.Replace('\', '\\') + '"'),
                     '.chain',
                     '.printf "HERMES_CDB v=1 kind=0 pid=%u\n", @$tpid',
-                    'sxd ibp',
+                    ('sxe -c "$$><' + (Join-Path $root 'startup-ibp.cdb').Replace('\', '\\') + '" ibp'),
                     ('sxe -c "$$><' + (Join-Path $root 'startup-cpr.cdb').Replace('\', '\\') + '" cpr'),
                     ('sxe -c "$$><' + (Join-Path $root 'startup-epr.cdb').Replace('\', '\\') + '" epr'),
                     'sx', 'g'
@@ -1550,14 +1700,17 @@ foreach ($case in $cases) {
                     -and $report.commandSha256 -ceq $expectedHash `
                     -and $script:controlCommandPins -ccontains $path `
                     -and $script:controlStartInfo.ArgumentList[2] -ceq $path `
-                    -and $script:controlLaunchBindings -eq 1 -and $script:controlCommandHashes -eq 3 `
+                    -and $script:controlLaunchBindings -eq 1 -and $script:controlCommandHashes -eq 4 `
                     -and $report.error -eq 0 -and $report.completed -eq 0 `
                     -and $report.armingVerified -eq 0 -and $report.firstFailureKind -eq 0)
                 $events = New-TraceEventCommands
-                foreach ($text in $events.Values) {
+                foreach ($eventSource in $events.GetEnumerator()) {
+                    $text = $eventSource.Value
                     $lines = @($text.TrimEnd("`r", "`n") -split "`r`n")
-                    Assert-Control ($lines[-1] -ceq 'g' `
-                        -and @($lines | Where-Object { $_ -ceq 'g' }).Count -eq 1 `
+                    $continues = [int]($eventSource.Key -cne 'startup-ibp.cdb')
+                    Assert-Control (@($lines | Where-Object { $_ -ceq 'g' }).Count -eq $continues `
+                        -and (($continues -eq 1 -and $lines[-1] -ceq 'g') `
+                            -or ($continues -eq 0 -and $lines[-1].Contains('kind=6'))) `
                         -and $text -notmatch 'sx[edinx-]|(?<!\r)\n')
                 }
             }
@@ -1571,8 +1724,8 @@ foreach ($case in $cases) {
                 Assert-Control ($script:controlCommandFiles[$path].Length -eq $expectedBytes.Length `
                     -and [Convert]::ToHexString($script:controlCommandFiles[$path]) `
                         -cne [Convert]::ToHexString($expectedBytes) `
-                    -and $script:controlCommandWrites.Count -eq 3 -and $script:controlCommandPins.Count -eq 3 `
-                    -and $script:controlCommandHashes -eq 3 -and $script:controlLaunchBindings -eq 0 `
+                    -and $script:controlCommandWrites.Count -eq 4 -and $script:controlCommandPins.Count -eq 4 `
+                    -and $script:controlCommandHashes -eq 4 -and $script:controlLaunchBindings -eq 0 `
                     -and $null -eq $script:controlStartInfo -and $state.TraceFaulted `
                     -and $report.tracePoint -eq 24 -and $report.error -eq 13 -and $report.status -eq 8 `
                     -and $report.commandSha256 -ceq '' -and $report.createCommandSha256 -ceq '' `
@@ -2186,7 +2339,7 @@ foreach ($case in $cases) {
                         param([string]$Path)
                         Assert-Control ($Path -cin @($extension,
                             ($root + '\startup.cdb'), ($root + '\startup-cpr.cdb'),
-                            ($root + '\startup-epr.cdb')))
+                            ($root + '\startup-ibp.cdb'), ($root + '\startup-epr.cdb')))
                         return $Path
                     }
                     $root = 'D:\a\_temp\hermes-native-startup-trace'
@@ -2216,15 +2369,15 @@ foreach ($case in $cases) {
                         ('.load "' + $extension.Replace('\', '\\') + '"'),
                         '.chain',
                         '.printf "HERMES_CDB v=1 kind=0 pid=%u\n", @$tpid',
-                        'sxd ibp',
+                        ('sxe -c "$$><' + (Join-Path $root 'startup-ibp.cdb').Replace('\', '\\') + '" ibp'),
                         ('sxe -c "$$><' + $encodedRoot + '\\startup-cpr.cdb" cpr'),
                         ('sxe -c "$$><' + $encodedRoot + '\\startup-epr.cdb" epr'),
                         'sx', 'g'
                     )
                     $expectedText = ($expectedLines -join "`n") + "`n"
                     Assert-Control ((New-TraceCommands $extension) -ceq $expectedText `
-                        -and $script:controlCommandWrites.Count -eq 3 `
-                        -and $script:controlCommandPins.Count -eq 3 `
+                        -and $script:controlCommandWrites.Count -eq 4 `
+                        -and $script:controlCommandPins.Count -eq 4 `
                         -and $script:controlStops -eq 1 -and $script:controlDisposed -eq 1 `
                         -and $report.cleanupFault -eq 0 -and $report.completed -eq 0 `
                         -and $report.armingVerified -eq 0 -and $report.firstFailureKind -eq 0 `
@@ -2236,7 +2389,7 @@ foreach ($case in $cases) {
                         Assert-Control ($actual -ceq $expectedText.Replace('.load "C:\\', '.load "C:\ ') `
                             -and $actual.Length -eq $expectedText.Length -and $actual -cne $expectedText `
                             -and ($actualLines[1..7] -join "`n") -ceq ($expectedLines[1..7] -join "`n") `
-                            -and $script:controlCommandHashes -eq 3 -and $script:controlLaunchBindings -eq 0 `
+                            -and $script:controlCommandHashes -eq 4 -and $script:controlLaunchBindings -eq 0 `
                             -and $null -eq $script:controlStartInfo -and $state.TraceFaulted `
                             -and $report.tracePoint -eq 24 -and $report.status -eq 8 -and $report.error -eq 13 `
                             -and $report.commandSha256 -ceq '' -and $report.createCommandSha256 -ceq '' `
@@ -2252,7 +2405,7 @@ foreach ($case in $cases) {
                         Assert-Control ([Text.Encoding]::ASCII.GetString(
                                 $script:controlCommandFiles[$path]) -ceq $unsafeText `
                             -and $unsafeText -cne $expectedText `
-                            -and $script:controlCommandHashes -eq 2 `
+                            -and $script:controlCommandHashes -eq 3 `
                             -and $script:controlLaunchBindings -eq 0 `
                             -and $null -eq $script:controlStartInfo -and $state.TraceFaulted `
                             -and $report.tracePoint -eq 24 -and $report.status -eq 8 `
@@ -2269,6 +2422,7 @@ foreach ($case in $cases) {
                         'startup.cdb' = 'commandSha256'
                         'startup-cpr.cdb' = 'createCommandSha256'
                         'startup-epr.cdb' = 'exitCommandSha256'
+                        'startup-ibp.cdb' = 'initialCommandSha256'
                     }
                     foreach ($source in $sources.GetEnumerator()) {
                         $sourcePath = $root + '\' + $source.Key
@@ -2281,7 +2435,7 @@ foreach ($case in $cases) {
                             -and $script:controlCommandPins -ccontains $sourcePath `
                             -and $report[$hashFields[$source.Key]] -ceq $expectedHash)
                     }
-                    Assert-Control ($script:controlCommandHashes -eq 3 `
+                    Assert-Control ($script:controlCommandHashes -eq 4 `
                         -and $script:controlLaunchBindings -eq 1 -and $report.error -eq 0 `
                         -and $state.ExtensionExpected -ceq $extension `
                         -and $script:controlStartInfo.ArgumentList[2] -ceq $path)
@@ -2332,7 +2486,7 @@ foreach ($case in $cases) {
                             Assert-Control ((ConvertFrom-HermesStartupCommandEscapes `
                                 $encoded $dropUnknown) -ceq $logical)
                         }
-                        Assert-Control ($state.FilterExpected[$name] -ceq ('Command: "' + $logical + '"'))
+                        Assert-Control ($state.FilterExpected[$name] -ceq ('Command: "' + $logical.Replace('\', '\\') + '"'))
                         $header = if ($name -ceq 'Cpr') {
                             'cpr - Create process - break'
                         } else { 'epr - Exit process - break' }
@@ -2340,13 +2494,13 @@ foreach ($case in $cases) {
                             Add-HermesStartupLine $state $header
                             Add-HermesStartupLine $state ('Command: "' + $payload + '"')
                             $observed = New-HermesStartupObservations $state
-                            $exact = $payload -ceq $logical
+                            $exact = $payload -ceq $encoded
                             Assert-Control ($observed[$name + 'CommandShape'] -eq $(if ($exact) { 1 } else { 6 }) `
                                 -and $observed[$name + 'Filter'] -eq $(if ($exact) { 9 } else { 1 }) `
-                                -and $observed[$name + 'SourceLength'] -eq $logical.Length `
+                                -and $observed[$name + 'SourceLength'] -eq $encoded.Length `
                                 -and $observed[$name + 'PayloadLength'] -eq ($payload.Length + 2) `
                                 -and $observed[$name + 'CommandTransform'] -eq $(
-                                    if ($exact) { 2 } elseif ($payload -ceq $encoded) { 6 } else { 9 }) `
+                                    if ($exact) { 2 } elseif ($payload -ceq $logical) { 11 } else { 9 }) `
                                 -and $observed.ArmPresent -eq 0 -and $observed.BlockPresent -eq 0 `
                                 -and -not (Test-HermesStartupArm $state) -and -not $state.Acked)
                         }
@@ -2577,8 +2731,8 @@ foreach ($case in $cases) {
                 $actual = [Text.Encoding]::ASCII.GetString($script:controlCommandFiles[$path])
                 $report = New-HermesStartupReport $state $debuggerEnded $drainsEnded
                 Assert-Control ($actual -ceq $expected.Replace("`n.chain`n", "`n.echo `n") `
-                    -and $actual -cne $expected -and $script:controlCommandWrites.Count -eq 3 `
-                    -and $script:controlCommandPins.Count -eq 3 -and $script:controlCommandHashes -eq 3 `
+                    -and $actual -cne $expected -and $script:controlCommandWrites.Count -eq 4 `
+                    -and $script:controlCommandPins.Count -eq 4 -and $script:controlCommandHashes -eq 4 `
                     -and $script:controlLaunchBindings -eq 0 -and $script:controlStops -eq 1 `
                     -and $script:controlDisposed -eq 1 -and $state.TraceFaulted `
                     -and $report.tracePoint -eq 24 -and $report.error -eq 13 `
@@ -3155,7 +3309,7 @@ foreach ($case in $cases) {
             }
             199 {
                 $state = New-ControlTypedBlock
-                $sourceLines = (New-TraceEventCommands)['startup-cpr.cdb'] -split "`r`n"
+                $sourceLines = (New-TraceEventCommands)['startup-ibp.cdb'] -split "`r`n"
                 Add-HermesStartupLine $state ('1:000> ' + $sourceLines[5])
                 Assert-Control ($state.Block.Flags -eq -1 -and $state.Protocol -eq 0)
                 Add-HermesStartupLine $state 'Current NtGlobalFlag contents: 0x00000002'
@@ -3258,9 +3412,12 @@ foreach ($case in $cases) {
                 . $controlCommandDriver
                 $report = New-HermesStartupReport $state $debuggerEnded $drainsEnded
                 $bytes = $script:controlCommandFiles[(Join-Path $root 'startup-cpr.cdb')]
-                Assert-Control ($bytes.Length -eq 292 `
-                    -and $report.createCommandSha256 -ceq 'f9669bade43b6f4c0784738783d9fe4f806558b2110a3368e2cacb2c265ebe25' `
-                    -and $script:controlCommandPins.Count -eq 3 -and $script:controlCommandHashes -eq 3 `
+                $initialBytes = $script:controlCommandFiles[(Join-Path $root 'startup-ibp.cdb')]
+                Assert-Control ($bytes.Length -eq 119 `
+                    -and $report.createCommandSha256 -ceq '5fb09e6b92ea4344099598c8057ef775745ebf2994662651cabf052d67dc7d7f' `
+                    -and $initialBytes.Length -eq 289 `
+                    -and $report.initialCommandSha256 -ceq '13be3b23c1d7300a3f194497cfd64b9e6562169082404ff9f8646833c7e82ee0' `
+                    -and $script:controlCommandPins.Count -eq 4 -and $script:controlCommandHashes -eq 4 `
                     -and $script:controlLaunchBindings -eq 1 -and $script:controlStops -eq 1 `
                     -and $script:controlDisposed -eq 1 -and $report.armingVerified -eq 0)
             }
@@ -3305,9 +3462,9 @@ foreach ($case in $cases) {
                 Assert-Control ($state.Bounds -eq 1 -and $state.Block.Flags -eq -1)
             }
             211 {
-                $source = (New-TraceEventCommands)['startup-cpr.cdb']
+                $source = (New-TraceEventCommands)['startup-ibp.cdb']
                 $lines = $source -split "`r`n"
-                Assert-Control ($lines.Count -eq 9 -and $lines[5].StartsWith('.catch { .if (') `
+                Assert-Control ($lines.Count -eq 8 -and $lines[5].StartsWith('.catch { .if (') `
                     -and $lines[5].EndsWith(') } }') `
                     -and $lines[5].Contains('@@c++(sizeof(@$peb->NtGlobalFlag)) == 4') `
                     -and $lines[5].Contains('@@c++(@$peb->NtGlobalFlag)') `
@@ -3317,10 +3474,10 @@ foreach ($case in $cases) {
                     -and @($lines[5].ToCharArray() | Where-Object { $_ -eq '{' }).Count -eq 2 `
                     -and @($lines[5].ToCharArray() | Where-Object { $_ -eq '}' }).Count -eq 2 `
                     -and $lines[5] -notmatch 'HERMES_CDB|;|\b(?:g|r|ed|ew|eb|eq|ep)\b' `
-                    -and $lines[6] -ceq '.printf "HERMES_CDB v=2 kind=2 pid=%u\n", @$tpid' `
-                    -and $lines[7] -ceq 'g' -and $lines[8] -ceq '')
+                    -and $lines[6] -ceq '.printf "HERMES_CDB v=3 kind=6 pid=%u\n", @$tpid' `
+                    -and $lines[7] -ceq '' -and $source -notmatch '(?m)^g\r?$')
                 $condensed = $source.Replace("`r", ';').Replace("`n", '')
-                Assert-Control ($condensed.Contains(') } };.printf "HERMES_CDB v=2 kind=2 pid=%u\n", @$tpid;g;'))
+                Assert-Control ($condensed.Contains(') } };.printf "HERMES_CDB v=3 kind=6 pid=%u\n", @$tpid;'))
             }
             212 {
                 # Model .catch returning after a query error, not native CDB
@@ -3355,6 +3512,491 @@ foreach ($case in $cases) {
                     -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0 `
                     -and [Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
                     -and $json -notmatch 'private|query-address|Memory access|ntdll|_PEB')
+            }
+            213 {
+                $state = New-ControlNativeStopped
+                Assert-Control ((Test-HermesStartupArm $state) -and -not $state.Acked `
+                    -and $state.CreatedAcked -and $state.Resumed.resumed -eq 1)
+                $physical = [StartupControlWriteStream]::new(0)
+                Invoke-HermesStartupContinue $state ([IO.StreamWriter]::new($physical))
+                Add-HermesStartupLine $state $failureLine
+                $report = Complete-ControlNative $state
+                Assert-Control ($report.completed -eq 1 -and $report.armingVerified -eq 1 `
+                    -and $report.cleanupComplete -eq 1 -and $report.parentUnchanged -eq 1 `
+                    -and $report.firstFailureKind -eq 1 -and $report.nativeAcceptance -eq 0 `
+                    -and $report.originalGatePassed -eq 0 -and $physical.Writes -eq 1 `
+                    -and $physical.Closed -and [Text.Encoding]::ASCII.GetString($physical.ToArray()) -ceq "g`n")
+            }
+            214 {
+                $state = New-ControlNativeCreated
+                Assert-Control ($state.CreatedAcked -and $null -eq $state.Arm `
+                    -and -not $state.Acked -and -not (Test-HermesStartupArm $state) `
+                    -and (New-HermesStartupReport $state $false $false).armingVerified -eq 0)
+            }
+            215 {
+                $state = Native-StartupTrace\New-HermesStartupState
+                Update-HermesStartupRows $state ($targetRow + "`n")
+                Assert-Control ($state.Protocol -eq 1 -and $null -eq $state.Target)
+            }
+            216 {
+                $state = Native-StartupTrace\New-HermesStartupState
+                Add-HermesStartupLine $state 'HERMES_CDB v=1 kind=0 pid=11'
+                Add-HermesStartupLine $state 'HERMES_CDB v=2 kind=1 pid=22'
+                Assert-Control ($state.Protocol -eq 1 -and $null -eq $state.Block `
+                    -and -not (Test-HermesStartupCreated $state))
+            }
+            217 {
+                $state = New-ControlNativeCreated -Acknowledge $false
+                Assert-Control ((Test-HermesStartupCreated $state) -and $state.Created.Flags -eq -1 `
+                    -and $state.Unknown -eq 0 -and -not (Test-HermesStartupArm $state))
+            }
+            218 {
+                $state = New-ControlNativeCreated -Acknowledge $false
+                $definition = @($driverAst.FindAll({
+                    param($n)
+                    $n -is [Management.Automation.Language.FunctionDefinitionAst] `
+                        -and $n.Name -ceq 'Publish-TraceCreated'
+                }, $true))
+                Assert-Control ($definition.Count -eq 1)
+                & {
+                    . ([scriptblock]::Create($definition[0].Extent.Text))
+                    function Open-TracePin {
+                        param([string]$Path)
+                        $pin = [IO.File]::Open($Path, [IO.FileMode]::Open,
+                            [IO.FileAccess]::Read, [IO.FileShare]::Read)
+                        $pins.Add($pin)
+                        return $pin
+                    }
+                    $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "../../.artifacts/startup-pure-$PID"))
+                    Assert-Control (-not [IO.Directory]::Exists($root))
+                    $null = [IO.Directory]::CreateDirectory($root)
+                    $pins = [Collections.Generic.List[IO.Stream]]::new()
+                    try {
+                        Publish-TraceCreated
+                        $path = Join-Path $root 'created.row'
+                        Assert-Control ([IO.File]::ReadAllText($path) -ceq
+                            "HERMES_STARTUP_CREATED v=2 phase=created helper=11 pid=22 born=123`n")
+                        Assert-Control ($pins.Count -eq 1 -and $pins[0].CanRead `
+                            -and -not $pins[0].CanWrite -and $state.CreatedAcked -and -not $state.Acked `
+                            -and ([IO.File]::GetAttributes($path) -band [IO.FileAttributes]::ReadOnly) -ne 0 `
+                            -and -not [IO.File]::Exists((Join-Path $root 'armed.row')))
+                        Publish-TraceCreated
+                        Assert-Control ($pins.Count -eq 1)
+                    } finally {
+                        foreach ($pin in $pins) { $pin.Dispose() }
+                        Remove-Item -LiteralPath $root -Recurse -Force
+                    }
+                }
+            }
+            219 {
+                $state = New-ControlNativeCreated
+                Set-HermesStartupCreatedAcknowledged $state
+                Assert-Control ($state.Protocol -eq 1 -and -not (Test-HermesStartupArm $state))
+            }
+            { $_ -in 220..229 } {
+                $state = Native-StartupTrace\New-HermesStartupState
+                $invalid = @(
+                    ($readyV2.Replace('v=2', 'v=1')), ($readyV2 + "`r"),
+                    ([string][char]0xfeff + $readyV2), ($readyV2 + [char]233),
+                    ($readyV2 + ' extra=1'), ($readyV2.Replace('pid=22', 'pid=022')),
+                    ($readyV2.Replace('flags=134742020', 'flags=2')),
+                    ($readyV2.Replace('resumed=0', 'resumed=1')),
+                    ($readyV2.Replace('stage=1', 'stage=4')), ($readyV2 + ('x' * 385))
+                )[$case - 220]
+                Update-HermesStartupRows $state ($invalid + "`n")
+                Assert-Control ($state.Protocol -eq 1 -and $null -eq $state.Target `
+                    -and -not (Test-HermesStartupArm $state))
+            }
+            { $_ -in 230..237 } {
+                $state = New-ControlNativeCreated -WithResumed $false
+                $invalid = @(
+                    ($resumedV2.Replace('helper=11', 'helper=12')),
+                    ($resumedV2.Replace('pid=22', 'pid=23')),
+                    ($resumedV2.Replace('born=123', 'born=124')),
+                    ($resumedV2.Replace('image=1', 'image=0')),
+                    ($resumedV2.Replace('debug=1', 'debug=0')),
+                    ($resumedV2.Replace('context=1', 'context=0')),
+                    ($resumedV2.Replace('resumed=1', 'resumed=0')), $resumedV2
+                )[$case - 230]
+                if ($case -eq 237) {
+                    $state.RowsText = ''; $state.Target = $null
+                    Update-HermesStartupRows $state ($invalid + "`n")
+                } else {
+                    Update-HermesStartupRows $state ($readyV2 + "`n" + $invalid + "`n")
+                }
+                Assert-Control ($state.Protocol -eq 1 -and $null -eq $state.Resumed `
+                    -and -not (Test-HermesStartupArm $state))
+            }
+            238 {
+                $state = New-ControlNativeCreated
+                Update-HermesStartupRows $state ($readyV2 + "`n" + $resumedV2 + "`n" + $resumedV2 + "`n")
+                Assert-Control ($state.Protocol -eq 1)
+            }
+            239 {
+                $state = New-ControlNativeCreated
+                Update-HermesStartupRows $state ($readyV2 + "`n")
+                Assert-Control ($state.Protocol -eq 1)
+            }
+            240 {
+                $state = Native-StartupTrace\New-HermesStartupState
+                Update-HermesStartupRows $state ('x' * 2049)
+                Assert-Control ($state.Protocol -eq 1 -and $state.RowsText -ceq '')
+            }
+            241 {
+                $state = New-ControlNativeCreated -WithResumed $false
+                $failedFinal = $finalV2.Replace('resumed=1', 'resumed=0').Replace('fault=0', 'fault=13')
+                Update-HermesStartupRows $state ($readyV2 + "`n" + $failedFinal + "`n")
+                Assert-Control ($state.Protocol -eq 0 -and $state.Final.resumed -eq 0 `
+                    -and $null -eq $state.Resumed -and -not (Test-HermesStartupArm $state))
+            }
+            242 {
+                $state = New-ControlNativeCreated -WithResumed $false
+                Update-HermesStartupRows $state ($readyV2 + "`n" + $finalV2 + "`n")
+                Assert-Control ($state.Protocol -eq 0 -and $state.Final.resumed -eq 1 `
+                    -and $null -eq $state.Resumed -and -not (Test-HermesStartupArm $state))
+            }
+            243 {
+                $state = New-ControlNativeCreated
+                Update-HermesStartupRows $state ($readyV2 + "`n" + $resumedV2 + "`n" + $finalV2 + "`n" + $finalV2 + "`n")
+                Assert-Control ($state.Protocol -eq 1)
+            }
+            { $_ -in 244..253 } {
+                $state = New-ControlNativeCreated -Acknowledge $false
+                $name = if ($case -eq 245) { 'Cpr' } elseif ($case -eq 251) { 'Epr' } else { 'Ibp' }
+                $label = switch ($name) { 'Cpr' { 'Create process' }; 'Epr' { 'Exit process' }; 'Ibp' { 'Initial breakpoint' } }
+                $header = $name.ToLowerInvariant() + ' - ' + $label + ' - '
+                if ($case -in @(244, 245)) {
+                    Add-HermesStartupLine $state ($header + 'ignore')
+                    Add-HermesStartupLine $state $state.FilterExpected[$name]
+                } elseif ($case -eq 250) {
+                    $state.InitialCommandSha256 = ''
+                } elseif ($case -eq 251) {
+                    $state.FilterVerified.Epr = $false
+                } elseif ($case -eq 252) {
+                    $state.CommandSha256 = 'not-a-pinned-hash'
+                } elseif ($case -eq 253) {
+                    $state.FilterVerified.Ibp = $false
+                    Add-HermesStartupLine $state 'bpe - Breakpoint - break'
+                    Add-HermesStartupLine $state $state.FilterExpected.Ibp
+                } else {
+                    Add-HermesStartupLine $state ($header + 'break')
+                    $command = switch ($case) {
+                        246 { $state.FilterExpected.Ibp.Replace('startup-ibp', 'startup-epr') }
+                        247 { $state.FilterExpected.Ibp.Replace('\\', '\') }
+                        248 { $state.FilterExpected.Ibp.Replace('Command:', 'Command1:') }
+                        249 { 'unrecognised line' }
+                    }
+                    Add-HermesStartupLine $state $command
+                    if ($case -eq 249) { Add-HermesStartupLine $state $state.FilterExpected.Ibp }
+                }
+                Assert-Control (-not (Test-HermesStartupCreated $state) -and -not $state.CreatedAcked `
+                    -and -not (Test-HermesStartupArm $state))
+            }
+            { $_ -in 254..260 } {
+                $eventLine = @(
+                    'Last event: 17.1: Break instruction exception - code 80000003 (first chance)',
+                    'Last event: 16.1: Break instruction exception - code 80000003 (second chance)',
+                    'Last event: 16.1: Exception - code 80000003 (first chance)',
+                    'Last event: 16.1: Break instruction exception - code 80000004 (first chance)',
+                    'Last event: 16.1: Create process 1:16',
+                    'Last event: 16.1: Break instruction exception - code 80000003 (first chance) extra',
+                    'Last event: 16.1: Break instruction exception - code 80000003 (first chance)'
+                )[$case - 254]
+                $state = New-ControlNativeStopped -Flags '' -EventLine $eventLine
+                if ($case -eq 260) { Add-HermesStartupLine $state 'HERMES_CDB v=3 kind=5 pid=22' }
+                Assert-Control (-not (Test-HermesStartupArm $state) -and -not $state.Acked)
+            }
+            { $_ -in 261..268 } {
+                $prompt = @('', '1:000>', '0:000> arbitrary', '1:000> ;g',
+                    '1:000> ', '1:000> ', '1:000> ', '7:123> ')[$case - 261]
+                $state = New-ControlNativeStopped -Prompt $prompt
+                if ($case -eq 265) {
+                    $state.Stopped = $false; $state.Out.End = $true
+                    Set-HermesStartupStoppedPrompt $state '1:000> '
+                } elseif ($case -eq 266) {
+                    $state.Stopped = $false; $state.Out.Tail = ''
+                    foreach ($piece in @('1:', '000', '> ')) {
+                        Add-HermesStartupText $state $state.Out $piece $true
+                    }
+                    Assert-Control ((Test-HermesStartupArm $state))
+                    Add-HermesStartupText $state $state.Out 'not-a-prompt' $true
+                    Assert-Control (-not (Test-HermesStartupArm $state) -and -not $state.Stopped)
+                    $state.Out.Tail = ''
+                    Add-HermesStartupText $state $state.Out '1:000> ' $true
+                } elseif ($case -eq 267) {
+                    $state.Stopped = $false; $state.Out.Tail = ''
+                    Add-HermesStartupText $state $state.Err '1:000> ' $false
+                }
+                Assert-Control ((Test-HermesStartupArm $state) -eq ($case -in @(266, 268)) `
+                    -and -not $state.Acked)
+            }
+            { $_ -in 269..274 } {
+                $flags = @('00000000', '', '00000001', '00000004', '00000002', 'ffffffff')[$case - 269]
+                $state = New-ControlNativeStopped -Flags $flags
+                if ($case -eq 273) {
+                    Assert-Control ((Get-HermesStartupTypedFlags $state) -eq 2 -and (Test-HermesStartupArm $state))
+                } elseif ($case -eq 274) {
+                    Assert-Control ((Get-HermesStartupTypedFlags $state) -eq [long][uint32]::MaxValue `
+                        -and (Test-HermesStartupArm $state))
+                } else {
+                    Assert-Control (-not (Test-HermesStartupArm $state) -and $state.Unknown -eq 1)
+                    Assert-Control ((Get-HermesStartupTypedFlags $state) -eq $(if ($flags -ceq '') { -1 } else { [long][Convert]::ToUInt32($flags, 16) }))
+                }
+            }
+            { $_ -in 275..279 } {
+                $state = New-ControlNativeCreated
+                Add-HermesStartupLine $state 'HERMES_CDB v=3 kind=5 pid=22'
+                if ($case -ne 275) {
+                    Add-HermesStartupLine $state 'Last event: 16.1: Break instruction exception - code 80000003 (first chance)'
+                }
+                $flagLine = switch ($case) {
+                    276 { 'HERMES_NTGLOBALFLAG v=1 pid=23 value=00000002' }
+                    277 { 'HERMES_NTGLOBALFLAG v=1 pid=22 value=000000002' }
+                    278 { 'HERMES_NTGLOBALFLAG v=1 pid=22 value=0000000A' }
+                    default { 'HERMES_NTGLOBALFLAG v=1 pid=22 value=00000002' }
+                }
+                Add-HermesStartupLine $state $flagLine
+                if ($case -eq 279) { Add-HermesStartupLine $state $flagLine }
+                Assert-Control ($state.Protocol -eq 1 -and -not (Test-HermesStartupArm $state))
+            }
+            { $_ -in 280..288 } {
+                $state = New-ControlNativeStopped
+                $mode = switch ($case) { 285 { 1 }; 286 { 2 }; 287 { 3 }; default { 0 } }
+                $physical = [StartupControlWriteStream]::new($mode)
+                $writer = [IO.StreamWriter]::new($physical)
+                switch ($case) {
+                    281 { $state.Stopped = $false }
+                    282 { $state.Resumed = $null }
+                    283 { $state.CreatedAcked = $false }
+                    288 { $state.InputClosed = $true }
+                }
+                $refused = $false
+                try { Invoke-HermesStartupContinue $state $writer } catch { $refused = $true }
+                if ($case -in @(281, 282, 283, 288)) {
+                    Assert-Control ($refused -and $physical.Writes -eq 0 -and -not $state.Acked)
+                    $writer.Dispose()
+                } elseif ($case -in @(280, 284)) {
+                    Assert-Control (-not $refused -and $physical.Writes -eq 1 -and $state.Continued `
+                        -and $state.Acked -and $state.InputClosed -and $physical.Closed `
+                        -and $physical.ToArray().Length -eq 2 `
+                        -and [Text.Encoding]::ASCII.GetString($physical.ToArray()) -ceq "g`n")
+                    if ($case -eq 284) {
+                        $refused = $false
+                        try { Invoke-HermesStartupContinue $state $writer } catch { $refused = $true }
+                        Assert-Control ($refused -and $physical.Writes -eq 1)
+                    }
+                } elseif ($case -eq 286) {
+                    Assert-Control ($physical.Writes -eq 1 -and $state.CleanupFault -eq 13 `
+                        -and -not $state.InputClosed -and (New-HermesStartupReport $state $true $true).completed -eq 0)
+                } else {
+                    Assert-Control ($refused -and $physical.Writes -eq 1 -and $state.Acked `
+                        -and -not $state.Continued -and $state.Error -eq 13 -and $state.InputClosed `
+                        -and $physical.Closed -and $state.InputPending.IsCompleted `
+                        -and $state.CleanupFault -eq 0)
+                }
+            }
+            289 {
+                $state = New-ControlNativeStopped
+                Invoke-HermesStartupContinue $state ([IO.StreamWriter]::new([StartupControlWriteStream]::new(0)))
+                Add-HermesStartupLine $state $failureLine
+                Add-HermesStartupLine $state '16:1 @ 00000000 - LdrpInitializeProcess - ERROR: Process initialization failed with status 0xc0000142'
+                Assert-Control ($state.Failure.Kind -eq 1 -and $state.Failure.Status -eq 0)
+            }
+            290 {
+                $state = New-ControlNativeCreated
+                Add-HermesStartupLine $state $failureLine
+                Assert-Control ($state.Protocol -eq 1 -and $null -eq $state.Failure -and -not $state.Acked)
+            }
+            291 {
+                $state = New-ControlNativeStopped
+                Invoke-HermesStartupContinue $state ([IO.StreamWriter]::new([StartupControlWriteStream]::new(0)))
+                $null = Complete-ControlNative $state
+                Add-HermesStartupLine $state $failureLine
+                Assert-Control ($state.Protocol -eq 1 -and $null -eq $state.Failure)
+            }
+            292 {
+                $state = New-ControlNativeStopped
+                Invoke-HermesStartupContinue $state ([IO.StreamWriter]::new([StartupControlWriteStream]::new(0)))
+                Add-HermesStartupLine $state $failureLine
+                $report = Complete-ControlNative $state ($finalV2.Replace('born=123', 'born=124'))
+                Assert-Control ($state.Protocol -eq 1 -and $report.completed -eq 0)
+            }
+            293 {
+                $state = New-ControlNativeStopped
+                $state.InitialCommandSha256 = 'f' * 64
+                Assert-Control (-not (Test-HermesStartupArm $state))
+            }
+            294 {
+                $state = New-ControlNativeStopped
+                Invoke-HermesStartupContinue $state ([IO.StreamWriter]::new([StartupControlWriteStream]::new(0)))
+                Add-HermesStartupLine $state $failureLine
+                $report = Complete-ControlNative $state ($finalV2.Replace('parent=1', 'parent=0'))
+                Assert-Control ($report.completed -eq 0 -and $report.parentUnchanged -eq 0 `
+                    -and $report.cleanupComplete -eq 1)
+            }
+            { $_ -in 295..300 } {
+                $state = New-ControlNativeStopped
+                $before = Get-ControlStreamSnapshot $state.Out
+                $state.AcceptedUtf8Bytes = [long]8388607
+                $chunk = if ($case -eq 296) { 'xx' } else { "`n" }
+                $stream = if ($case -eq 297) { $state.Err } else { $state.Out }
+                Add-HermesStartupText $state $stream $chunk $true
+                Assert-Control ($state.Bounds -eq 1 -and -not (Test-HermesStartupArm $state))
+                $hashBefore = [Convert]::ToHexString($state.Out.Hash.GetCurrentHash())
+                if ($case -eq 298) { Add-HermesStartupLine $state 'HERMES_CDB v=3 kind=5 pid=22' }
+                if ($case -eq 299) { Update-HermesStartupRows $state ('x' * 2049) }
+                if ($case -eq 300) { Add-HermesStartupText $state $state.Out ('x' * 4096) $true }
+                Assert-Control ($state.Protocol -eq 0 -and $state.Out.Tail -ceq '1:000> ' `
+                    -and [Convert]::ToHexString($state.Out.Hash.GetCurrentHash()) -ceq $hashBefore)
+                if ($case -eq 296) {
+                    Assert-Control ((Get-ControlStreamSnapshot $state.Out) -ceq $before)
+                } else {
+                    Assert-Control ($state.AcceptedUtf8Bytes -eq 8388608)
+                }
+            }
+            { $_ -in 301..303 } {
+                $state = Native-StartupTrace\New-HermesStartupState
+                $script:controlCommandFault = $case - 300
+                $script:controlCommandFaultName = 'startup-ibp.cdb'
+                . $controlCommandDriver
+                $report = New-HermesStartupReport $state $debuggerEnded $drainsEnded
+                Assert-Control ($report.completed -eq 0 -and $report.error -eq 13 `
+                    -and $report.initialCommandSha256 -ceq '' -and $script:controlLaunchBindings -eq 0 `
+                    -and $script:controlCommandWrites.Count -eq 4 `
+                    -and $script:controlCommandPins.Count -eq $(if ($case -eq 301) { 1 } else { 2 }))
+            }
+            304 {
+                $state = New-ControlNativeStopped -WithResumed $false
+                Assert-Control (-not (Test-HermesStartupArm $state) -and $state.Stopped)
+                Update-HermesStartupRows $state ($readyV2 + "`n" + $resumedV2 + "`n")
+                Assert-Control ((Test-HermesStartupArm $state))
+            }
+            305 {
+                $state = New-ControlNativeStopped
+                $state.Resumed.born = 124
+                Assert-Control (-not (Test-HermesStartupArm $state))
+            }
+            306 {
+                $state = New-ControlNativeStopped
+                foreach ($line in @(
+                    'HERMES_CDB v=1 kind=3 pid=22',
+                    'Last event: 16.1: Exit process 1:16, code 25',
+                    'HERMES_CDB v=1 kind=4 pid=22'
+                )) { Add-HermesStartupLine $state $line }
+                Assert-Control (-not (Test-HermesStartupArm $state) `
+                    -and (New-HermesStartupReport $state $true $true).powershellExit37 -eq 1 `
+                    -and (New-HermesStartupReport $state $true $true).completed -eq 0)
+            }
+            307 {
+                $state = New-ControlNativeStopped
+                $state.Out.Tail = ''
+                Add-HermesStartupLine $state 'HERMES_CDB v=3 kind=5 pid=22'
+                Assert-Control ($state.Protocol -eq 1 -and -not (Test-HermesStartupArm $state))
+            }
+            308 {
+                $state = New-ControlNativeStopped
+                Invoke-HermesStartupContinue $state ([IO.StreamWriter]::new([StartupControlWriteStream]::new(0)))
+                Add-HermesStartupLine $state '16:1 @ 00000000 - LdrpInitializeProcess - ERROR: Process initialization failed with status 0xc0000142'
+                $report = Complete-ControlNative $state
+                foreach ($name in @('DebuggerSha256', 'HelperSha256', 'CommandSha256',
+                        'CreateCommandSha256', 'ExitCommandSha256', 'InitialCommandSha256')) {
+                    $state[$name] = 'f' * 64
+                }
+                foreach ($name in @($state.Observations.Keys)) { $state.Observations[$name] = 8388608 }
+                $json = New-HermesStartupReport $state $true $true | ConvertTo-Json -Depth 4 -Compress
+                Assert-Control ($report.completed -eq 1 -and $report.firstFailureKind -eq 2 `
+                    -and $report.firstFailureStatus -eq 3221225794 -and $report.nativeAcceptance -eq 0 `
+                    -and [Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
+                    -and $json -notmatch 'D:|owned|startup-ibp|80000003|00000000|\.cdb|sample\.dll')
+            }
+            { $_ -in 309..310 } {
+                $state = New-ControlNativeCreated
+                & {
+                    $armDefinition = @($driverAst.FindAll({
+                        param($n)
+                        $n -is [Management.Automation.Language.FunctionDefinitionAst] `
+                            -and $n.Name -ceq 'Publish-TraceArm'
+                    }, $true))
+                    . ([scriptblock]::Create($armDefinition[0].Extent.Text))
+                    function Start-Sleep { param([int]$Milliseconds) }
+                    function Read-TraceControl {
+                        param([string]$Path)
+                        if ($physical.Closed -or $case -eq 310) {
+                            Update-HermesStartupRows $state ($readyV2 + "`n" + $resumedV2 + "`n" + $finalV2 + "`n")
+                        }
+                    }
+                    $first = @(
+                        'HERMES_CDB v=3 kind=5 pid=22',
+                        'Last event: 16.1: Break instruction exception - code 80000003 (first chance)',
+                        'HERMES_NTGLOBALFLAG v=1 pid=22 value=00000002',
+                        'HERMES_CDB v=3 kind=6 pid=22'
+                    ) -join "`r`n"
+                    $first += "`r`n1:000> "
+                    $after = @(
+                        'g', $failureLine,
+                        'HERMES_CDB v=1 kind=3 pid=22',
+                        'Last event: 16.1: Exit process 1:16, code c0000142',
+                        'HERMES_CDB v=1 kind=4 pid=22',
+                        'HERMES_CDB v=1 kind=3 pid=11',
+                        'Last event: b.1: Exit process 0:b, code 0',
+                        'HERMES_CDB v=1 kind=4 pid=11'
+                    ) -join "`r`n"
+                    $after += "`r`n"
+                    $outReader = if ($case -eq 309) {
+                        [StartupControlContinueReader]::new($first, $after)
+                    } else { New-ControlReader ($first + $after) }
+                    $physical = [StartupControlWriteStream]::new(0)
+                    if ($case -eq 309) {
+                        $physical.AfterWrite = { $outReader.Release() }.GetNewClosure()
+                    }
+                    $debugger = [pscustomobject]@{
+                        StandardInput = [IO.StreamWriter]::new($physical)
+                        StandardOutput = $outReader; StandardError = New-ControlReader ''
+                        ExitCode = 0
+                    }
+                    $debugger | Add-Member ScriptProperty HasExited { $case -eq 310 -or $physical.Closed }
+                    $debugger | Add-Member ScriptMethod Dispose {}
+                    $script:controlStops = 0; $script:controlStopFault = $false
+                    $started = $true; $rootCreated = $false
+                    $debuggerEnded = $false; $drainsEnded = $false
+                    Start-TraceRead $state.Out $debugger.StandardOutput
+                    Start-TraceRead $state.Err $debugger.StandardError
+                    . $controlDriver
+                    $report = New-HermesStartupReport $state $debuggerEnded $drainsEnded
+                    if ($case -eq 309) {
+                        Assert-Control ($physical.Writes -eq 1 -and $physical.Closed `
+                            -and $state.InputClosed -and $state.Continued -and $report.completed -eq 1 `
+                            -and $report.cleanupComplete -eq 1 -and $report.firstFailureKind -eq 1 `
+                            -and $state.Out.End -and $state.Err.End -and $script:controlStops -eq 1)
+                    } else {
+                        Assert-Control ($physical.Writes -eq 0 -and $physical.Closed `
+                            -and -not $state.Acked -and $report.completed -eq 0 `
+                            -and $report.firstFailureKind -eq 0 -and $state.Protocol -eq 1)
+                    }
+                }
+            }
+            311 {
+                $state = New-ControlNativeCreated
+                Update-HermesStartupRows $state ($readyV2 + "`n" + $resumedV2 + "`n" + $finalV2 + "`ntrailing")
+                Assert-Control ($state.Protocol -eq 1 -and -not (Test-HermesStartupArm $state))
+            }
+            312 {
+                $state = New-ControlNativeCreated
+                foreach ($line in @(
+                    'HERMES_CDB v=1 kind=3 pid=22',
+                    'Last event: 16.1: Exit process 1:16, code 25',
+                    'HERMES_CDB v=1 kind=4 pid=22',
+                    'HERMES_CDB v=1 kind=3 pid=11',
+                    'Last event: b.1: Exit process 0:b, code 0',
+                    'HERMES_CDB v=1 kind=4 pid=11'
+                )) { Add-HermesStartupLine $state $line }
+                Update-HermesStartupRows $state ($readyV2 + "`n" + $resumedV2 + "`n" +
+                    $finalV2.Replace('exit=3221225794', 'exit=37') + "`n")
+                $report = New-HermesStartupReport $state $true $true
+                Assert-Control ($report.completed -eq 0 -and $report.status -eq 3 `
+                    -and $report.armingVerified -eq 0 -and $report.powershellExit37 -eq 1 `
+                    -and $report.firstFailureKind -eq 0 -and $report.cleanupComplete -eq 1 `
+                    -and $report.parentUnchanged -eq 1 -and $report.nativeAcceptance -eq 0)
             }
         }
         $passed++

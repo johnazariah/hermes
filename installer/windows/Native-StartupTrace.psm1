@@ -13,7 +13,13 @@ function New-HermesStartupStream {
 }
 
 function New-HermesStartupState {
+    param([switch]$LegacyParserControls)
     @{
+        NativeProtocol = -not $LegacyParserControls
+        Created = $null; CreatedBinding = $null; CreatedAcked = $false
+        Resumed = $null; ResumedText = ''; RowsText = ''
+        Stopped = $false; ContinueAttempted = $false; Continued = $false
+        InputClosed = $false; InputPending = $null
         Initial = [uint32]0; Arm = $null; Block = $null; Exits = @{}
         Target = $null; Final = $null; TargetText = ''; FinalText = ''
         Acked = $false; ArmedBinding = $null
@@ -22,7 +28,9 @@ function New-HermesStartupState {
         Timeout = 0; Error = 0; CleanupFault = 0
         TracePoint = 0; ToolRole = 0; TraceFaulted = $false
         TraceFaultPoint = 0; TraceFaultRole = 0
-        FilterPending = ''; FilterExpected = @{ Cpr = ''; Epr = '' }; ExtensionExpected = ''
+        FilterPending = ''; FilterExpected = @{ Cpr = ''; Epr = ''; Ibp = '' }; ExtensionExpected = ''
+        FilterVerified = @{ Cpr = $false; Epr = $false; Ibp = $false }
+        IbpBreak = $false
         ChainPending = $false; ChainCollecting = $false
         Observations = @{
             Marker0 = 0; Marker1 = 0; Marker2 = 0; Marker3 = 0; Marker4 = 0
@@ -42,7 +50,7 @@ function New-HermesStartupState {
         }
         Out = (New-HermesStartupStream); Err = (New-HermesStartupStream)
         DebuggerSha256 = ''; HelperSha256 = ''; CommandSha256 = ''
-        CreateCommandSha256 = ''; ExitCommandSha256 = ''
+        CreateCommandSha256 = ''; ExitCommandSha256 = ''; InitialCommandSha256 = ''
     }
 }
 
@@ -108,29 +116,277 @@ function Set-HermesStartupTraceFault {
 
 function ConvertFrom-HermesStartupRow {
     param([string]$Line)
-    $pattern = '\AHERMES_STARTUP v=1 stage=(?<stage>[12]) helper=(?<helper>0|[1-9][0-9]{0,9}) pid=(?<pid>0|[1-9][0-9]{0,9}) born=(?<born>0|[1-9][0-9]{0,18}) image=(?<image>[01]) debug=(?<debug>[01]) context=(?<context>[01]) flags=134742020 exit=(?<exit>0|[1-9][0-9]{0,9}) parent=(?<parent>[01]) cleanup=(?<cleanup>[01]) fault=(?<fault>0|[1-9][0-9]{0,4}) cleanupFault=(?<cleanupFault>0|[1-9][0-9]{0,4})\z'
+    $pattern = '\AHERMES_STARTUP v=(?<version>[12]) stage=(?<stage>[123]) helper=(?<helper>0|[1-9][0-9]{0,9}) pid=(?<pid>0|[1-9][0-9]{0,9}) born=(?<born>0|[1-9][0-9]{0,18}) image=(?<image>[01]) debug=(?<debug>[01]) context=(?<context>[01]) flags=134742020(?: resumed=(?<resumed>[01]))? exit=(?<exit>0|[1-9][0-9]{0,9}) parent=(?<parent>[01]) cleanup=(?<cleanup>[01]) fault=(?<fault>0|[1-9][0-9]{0,4}) cleanupFault=(?<cleanupFault>0|[1-9][0-9]{0,4})\z'
     if ($Line.Length -gt 384 -or $Line -cnotmatch $pattern) { return $null }
     $captures = $Matches
     $row = @{}
     try {
-        foreach ($name in @('stage', 'helper', 'pid', 'born', 'image', 'debug',
+        foreach ($name in @('version', 'stage', 'helper', 'pid', 'born', 'image', 'debug',
                 'context', 'exit', 'parent', 'cleanup', 'fault', 'cleanupFault')) {
             $row[$name] = [long]::Parse($captures[$name],
                 [Globalization.CultureInfo]::InvariantCulture)
         }
     } catch { return $null }
+    if ($row.version -eq 2) {
+        if (-not $captures.ContainsKey('resumed')) { return $null }
+        $row.resumed = [int]$captures.resumed
+    } elseif ($captures.ContainsKey('resumed') -or $row.stage -gt 2) { return $null }
     if ($row.helper -le 0 -or $row.helper -gt [uint32]::MaxValue `
         -or $row.pid -gt [uint32]::MaxValue -or $row.exit -gt [uint32]::MaxValue `
         -or $row.fault -gt 65535 -or $row.cleanupFault -gt 65535) { return $null }
-    if ($row.stage -eq 1 -and ($row.pid -eq 0 -or $row.born -eq 0 `
+    if (($row.stage -eq 1 -or ($row.version -eq 2 -and $row.stage -eq 2)) `
+        -and ($row.pid -eq 0 -or $row.born -eq 0 `
         -or $row.image -ne 1 -or $row.debug -ne 1 -or $row.context -ne 1 `
         -or $row.exit -ne 0 -or $row.parent -ne 0 -or $row.cleanup -ne 0 `
         -or $row.fault -ne 0 -or $row.cleanupFault -ne 0)) { return $null }
+    if ($row.version -eq 2 -and (($row.stage -eq 1 -and $row.resumed -ne 0) `
+        -or ($row.stage -eq 2 -and $row.resumed -ne 1))) { return $null }
     return $row
+}
+
+function Update-HermesStartupNativeRows {
+    param([hashtable]$State, [string]$Text)
+    if ($State.Bounds -ne 0) { return }
+    if ($Text.Length -gt 2048 -or $Text -cmatch '[^\x20-\x7e\n]' `
+        -or -not $Text.StartsWith($State.RowsText, [StringComparison]::Ordinal)) {
+        $State.Protocol = 1
+        return
+    }
+    $State.RowsText = $Text
+    $lines = @($Text -split "`n")
+    $complete = @($lines | Select-Object -SkipLast 1)
+    if ($complete.Count -gt 3 -or $lines[-1].Length -gt 384) {
+        $State.Protocol = 1
+        return
+    }
+    $previous = 0
+    foreach ($line in $complete) {
+        $row = ConvertFrom-HermesStartupRow $line
+        if ($null -eq $row -or $row.version -ne 2 -or $row.stage -le $previous `
+            -or ($row.stage -eq 2 -and $previous -ne 1)) {
+            $State.Protocol = 1
+            return
+        }
+        if ($null -ne $State.Target) {
+            foreach ($name in @('helper', 'pid', 'born', 'image', 'debug', 'context')) {
+                if ($row[$name] -ne $State.Target[$name]) { $State.Protocol = 1; return }
+            }
+        }
+        switch ($row.stage) {
+            1 { $State.Target = $row; $State.TargetText = $line }
+            2 { $State.Resumed = $row; $State.ResumedText = $line }
+            3 {
+                if (($previous -eq 2 -and $row.resumed -ne 1) `
+                    -or ($previous -eq 0 -and $row.resumed -ne 0)) {
+                    $State.Protocol = 1
+                    return
+                }
+                $State.Final = $row; $State.FinalText = $line
+            }
+        }
+        $previous = $row.stage
+    }
+    if ($previous -eq 3 -and $lines[-1].Length -ne 0) { $State.Protocol = 1 }
+}
+
+function Test-HermesStartupCreatedBinding {
+    param([hashtable]$State)
+    $target = $State.Target
+    $created = $State.Created
+    return $State.NativeProtocol -and $State.Protocol -eq 0 -and $State.Unknown -eq 0 `
+        -and $State.Bounds -eq 0 -and $null -ne $target -and $null -ne $created `
+        -and $State.Initial -eq $target.helper -and $target.pid -ne $target.helper `
+        -and $target.born -gt 0 -and $target.image -eq 1 -and $target.debug -eq 1 `
+        -and $target.context -eq 1 -and $created.Kind -eq 1 -and $created.Version -eq 3 `
+        -and $created.Event -eq 1 -and $created.Pid -eq $target.pid `
+        -and $created.EventPid -eq $target.pid `
+        -and $State.FilterVerified.Cpr -and $State.FilterVerified.Ibp -and $State.IbpBreak `
+        -and $State.FilterVerified.Epr -and $State.Observations.CprFilter -eq 9 `
+        -and $State.Observations.EprFilter -eq 9 `
+        -and $State.CommandSha256 -cmatch '\A[0-9a-f]{64}\z' `
+        -and $State.CreateCommandSha256 -cmatch '\A[0-9a-f]{64}\z' `
+        -and $State.InitialCommandSha256 -cmatch '\A[0-9a-f]{64}\z' `
+        -and $State.ExitCommandSha256 -cmatch '\A[0-9a-f]{64}\z'
+}
+
+function Test-HermesStartupCreated {
+    param([hashtable]$State)
+    return (Test-HermesStartupCreatedBinding $State) `
+        -and -not $State.CreatedAcked -and $null -eq $State.CreatedBinding `
+        -and $null -eq $State.Block -and $null -eq $State.Final `
+        -and $null -eq $State.Resumed `
+        -and -not $State.Exits.ContainsKey([string]$State.Target.pid) `
+        -and -not $State.Exits.ContainsKey([string]$State.Target.helper)
+}
+
+function Set-HermesStartupCreatedAcknowledged {
+    param([hashtable]$State)
+    if (-not (Test-HermesStartupCreated $State)) {
+        $State.Protocol = 1
+        return
+    }
+    $State.CreatedBinding = @{
+        Helper = $State.Target.helper; Pid = $State.Target.pid; Born = $State.Target.born
+        RootHash = $State.CommandSha256; CreateHash = $State.CreateCommandSha256
+        InitialHash = $State.InitialCommandSha256; ExitHash = $State.ExitCommandSha256
+    }
+    $State.CreatedAcked = $true
+}
+
+function Test-HermesStartupInitialBinding {
+    param([hashtable]$State)
+    $bound = $State.CreatedBinding
+    $arm = $State.Arm
+    if ($null -ne $State.Target -and $null -ne $State.Resumed) {
+        foreach ($name in @('helper', 'pid', 'born', 'image', 'debug', 'context')) {
+            if ($State.Resumed[$name] -ne $State.Target[$name]) { return $false }
+        }
+    }
+    return (Test-HermesStartupCreatedBinding $State) `
+        -and $State.CreatedAcked -and $null -ne $bound -and $null -ne $State.Resumed `
+        -and $State.Resumed.resumed -eq 1 `
+        -and $bound.Helper -eq $State.Target.helper -and $bound.Pid -eq $State.Target.pid `
+        -and $bound.Born -eq $State.Target.born `
+        -and $bound.RootHash -ceq $State.CommandSha256 `
+        -and $bound.CreateHash -ceq $State.CreateCommandSha256 `
+        -and $bound.InitialHash -ceq $State.InitialCommandSha256 `
+        -and $bound.ExitHash -ceq $State.ExitCommandSha256 `
+        -and $null -ne $arm -and $arm.Kind -eq 5 -and $arm.Version -eq 3 `
+        -and $arm.Event -eq 1 -and $arm.Pid -eq $bound.Pid -and $arm.EventPid -eq $bound.Pid `
+        -and $arm.Flags -ge 0 -and $arm.Flags -le [uint32]::MaxValue `
+        -and ($arm.Flags -band 2) -eq 2
+}
+
+function Add-HermesStartupNativeMarker {
+    param([hashtable]$State, [int]$Kind, [uint32]$Pid, [int]$Version)
+    if ($Pid -eq 0 -or $State.Bounds -ne 0 -or $State.Protocol -ne 0) {
+        $State.Protocol = 1
+        return
+    }
+    if ($Kind -eq 0 -and $Version -eq 1) {
+        if ($State.Initial -ne 0 -or $null -ne $State.Block) { $State.Protocol = 1 }
+        else { $State.Initial = $Pid }
+        return
+    }
+    $valid = ($Kind -in @(1, 2, 5, 6) -and $Version -eq 3) `
+        -or ($Kind -in @(3, 4) -and $Version -eq 1)
+    if (-not $valid -or $State.Initial -eq 0) { $State.Protocol = 1; return }
+    if ($Kind -in @(1, 3, 5)) {
+        if ($null -ne $State.Block -or ($Kind -eq 1 -and $null -ne $State.Created) `
+            -or ($Kind -eq 5 -and ($null -ne $State.Arm -or -not $State.CreatedAcked)) `
+            -or $State.Exits.ContainsKey([string]$Pid)) { $State.Protocol = 1; return }
+        $State.Stopped = $false
+        $State.Block = @{
+            Kind = $Kind; Version = $Version; Pid = $Pid; EventPid = [uint32]0
+            Flags = [long]-1; Code = [long]-1; Event = 0
+        }
+        return
+    }
+    $block = $State.Block
+    if ($null -eq $block -or $block.Pid -ne $Pid -or $block.Kind -ne $Kind - 1 `
+        -or $block.Version -ne $Version -or $block.Event -ne 1 -or $block.EventPid -ne $Pid) {
+        $State.Protocol = 1; $State.Block = $null
+        return
+    }
+    switch ($Kind) {
+        2 { $State.Created = $block }
+        6 {
+            $State.Arm = $block
+            if ($block.Flags -lt 0 -or ($block.Flags -band 2) -ne 2) { $State.Unknown = 1 }
+        }
+        4 {
+            if ($block.Code -lt 0) { $State.Protocol = 1 }
+            else { $State.Exits[[string]$Pid] = $block.Code }
+        }
+    }
+    $State.Block = $null
+}
+
+function Add-HermesStartupNativeLastEvent {
+    param([hashtable]$State, [string]$Line)
+    $block = $State.Block
+    if ($null -eq $block -or $block.Event -ne 0) { $State.Protocol = 1; return }
+    $prefix = '\ALast event: (?<pid>[0-9a-fA-F]{1,8})\.[0-9a-fA-F]{1,8}: '
+    $pattern = switch ($block.Kind) {
+        1 { $prefix + 'Create process (?:[0-9]+:)?(?<id>[0-9a-fA-F]{1,8})\z' }
+        3 { $prefix + 'Exit process (?:[0-9]+:)?(?<id>[0-9a-fA-F]{1,8}), code (?:0x)?(?<code>[0-9a-fA-F]{1,8})\z' }
+        # The exception descriptor qualifies only inside this registered ibp
+        # callback. A bpe callback or bare exception code cannot open the block.
+        5 { $prefix + '(?:Initial breakpoint|Break instruction exception) - code 80000003 \(first chance\)\z' }
+    }
+    if ($Line -cnotmatch $pattern) { $State.Unknown = 1; return }
+    $pidValue = [Convert]::ToUInt32($Matches.pid, 16)
+    if ($block.Kind -ne 5 -and $pidValue -ne [Convert]::ToUInt32($Matches.id, 16)) {
+        $State.Unknown = 1
+        return
+    }
+    $block.EventPid = $pidValue
+    $block.Event = 1
+    if ($block.Kind -eq 1) { Add-HermesStartupObservation $State 'CreateEventAccepted' }
+    if ($block.Kind -eq 3) {
+        Add-HermesStartupObservation $State 'ExitEventAccepted'
+        $block.Code = [long][Convert]::ToUInt32($Matches.code, 16)
+    }
+}
+
+function Set-HermesStartupStoppedPrompt {
+    param([hashtable]$State, [string]$Text)
+    if ($State.NativeProtocol -and -not $State.ContinueAttempted) { $State.Stopped = $false }
+    if ($State.NativeProtocol -and $State.Bounds -eq 0 -and $State.Protocol -eq 0 `
+        -and $State.Unknown -eq 0 -and -not $State.Out.End `
+        -and $null -ne $State.Arm -and $State.Arm.Kind -eq 5 `
+        -and $null -eq $State.Block -and $null -eq $State.Final `
+        -and -not $State.ContinueAttempted -and $Text -cmatch '\A[0-9]{1,3}:[0-9a-f]{3}> \z' `
+        -and -not $State.Exits.ContainsKey([string]$State.Arm.Pid) `
+        -and -not $State.Exits.ContainsKey([string]$State.Initial)) {
+        $State.Stopped = $true
+    }
+}
+
+function Invoke-HermesStartupContinue {
+    param([hashtable]$State, [IO.StreamWriter]$Writer)
+    if (-not (Test-HermesStartupArm $State)) { throw 'Startup continuation refused.' }
+    # Record historical ARMED before the only possible continuation write.
+    Set-HermesStartupArmAcknowledged $State
+    $State.ContinueAttempted = $true
+    $State.Stopped = $false
+    $cancellation = [Threading.CancellationTokenSource]::new(2000)
+    try {
+        $State.InputPending = $Writer.BaseStream.WriteAsync(
+            [byte[]]@(103, 10), 0, 2, $cancellation.Token)
+        if (-not $State.InputPending.Wait(2000)) { throw 'Startup continuation timed out.' }
+        $null = $State.InputPending.GetAwaiter().GetResult()
+        $State.Continued = $true
+    } catch {
+        $State.Error = 13
+        throw 'Startup continuation failed.'
+    } finally {
+        if ($null -ne $State.InputPending -and -not $State.InputPending.IsCompleted) {
+            try { $cancellation.Cancel() } catch { $State.CleanupFault = 13 }
+        }
+        $closed = $true
+        foreach ($owned in @($Writer.BaseStream, $Writer)) {
+            try { $owned.Dispose() }
+            catch { $closed = $false; $State.CleanupFault = 13 }
+        }
+        $State.InputClosed = $closed
+        if ($null -ne $State.InputPending) {
+            try {
+                if (-not $State.InputPending.Wait(5000)) { $State.CleanupFault = 13 }
+            } catch {
+                if (-not $State.InputPending.IsCompleted) { $State.CleanupFault = 13 }
+            }
+        }
+        $cancellation.Dispose()
+    }
 }
 
 function Update-HermesStartupRows {
     param([hashtable]$State, [string]$Text)
+    if ($State.NativeProtocol) {
+        Update-HermesStartupNativeRows $State $Text
+        return
+    }
     if ($Text.Length -gt 2048 -or $Text.IndexOf([char]0) -ge 0) {
         $State.Protocol = 1
         return
@@ -169,6 +425,7 @@ function Update-HermesStartupRows {
 
 function Test-HermesStartupBinding {
     param([hashtable]$State)
+    if ($State.NativeProtocol) { return Test-HermesStartupInitialBinding $State }
     return $null -ne $State.Target -and $null -ne $State.Arm `
         -and $State.Protocol -eq 0 -and $State.Unknown -eq 0 `
         -and $State.Initial -eq $State.Target.helper `
@@ -185,6 +442,16 @@ function Test-HermesStartupBinding {
 
 function Test-HermesStartupArm {
     param([hashtable]$State)
+    if ($State.NativeProtocol) {
+        return (Test-HermesStartupInitialBinding $State) `
+            -and $State.Stopped -and -not $State.ContinueAttempted `
+            -and -not $State.Out.End -and $State.Out.Tail -cmatch '\A[0-9]{1,3}:[0-9a-f]{3}> \z' `
+            -and -not $State.InputClosed -and -not $State.Acked `
+            -and $null -eq $State.ArmedBinding -and $null -eq $State.Block `
+            -and $null -eq $State.Final `
+            -and -not $State.Exits.ContainsKey([string]$State.Target.pid) `
+            -and -not $State.Exits.ContainsKey([string]$State.Target.helper)
+    }
     # Eligibility NOW, before publishing the acknowledgement. Never use this
     # predicate to invalidate an earlier acknowledgement after normal exit.
     return (Test-HermesStartupBinding $State) `
@@ -224,6 +491,10 @@ function Test-HermesStartupArmed {
 
 function Add-HermesStartupMarker {
     param([hashtable]$State, [int]$Kind, [uint32]$Pid, [int]$Version = 1)
+    if ($State.NativeProtocol) {
+        Add-HermesStartupNativeMarker $State $Kind $Pid $Version
+        return
+    }
     if ($Pid -eq 0 -or $Version -notin @(1, 2) `
         -or ($Version -eq 2 -and $Kind -notin @(1, 2))) {
         $State.Protocol = 1
@@ -272,6 +543,10 @@ function Add-HermesStartupMarker {
 
 function Add-HermesStartupLastEvent {
     param([hashtable]$State, [string]$Line)
+    if ($State.NativeProtocol) {
+        Add-HermesStartupNativeLastEvent $State $Line
+        return
+    }
     $block = $State.Block
     if ($null -eq $block -or $block.Event -ne 0) {
         $State.Protocol = 1
@@ -334,7 +609,8 @@ function Add-HermesStartupFailure {
     } else { $State.Unknown = 1; return }
     # Recognising a grammar does not establish its event ordering. In
     # particular, no new failure evidence may be accepted after either exit.
-    if (-not (Test-HermesStartupArmed $State) -or $null -ne $State.Block `
+    if (-not (Test-HermesStartupArmed $State) `
+        -or ($State.NativeProtocol -and -not $State.Continued) -or $null -ne $State.Block `
         -or $State.Exits.ContainsKey([string]$State.Target.pid) `
         -or $State.Exits.ContainsKey([string]$State.Target.helper)) {
         $State.Protocol = 1
@@ -435,22 +711,33 @@ function Get-HermesStartupFilterCommandShape {
 
 function Add-HermesStartupFilterReadback {
     param([hashtable]$State, [string]$Line)
-    # sx readback is diagnostic only, never event/arming evidence.
+    # Registration is necessary, but never substitutes for a runtime callback.
     # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/sx--sxd--sxe--sxi--sxn--sxr--sx---set-exceptions-
     $pending = $State.FilterPending
     $State.FilterPending = ''
+    if ($pending -cin @('Cpr', 'Epr', 'Ibp')) {
+        $expected = $State.FilterExpected[$pending]
+        $State.FilterVerified[$pending] = $expected -is [string] `
+            -and $expected.Length -gt 11 -and $Line.Trim() -ceq $expected
+    }
     if ($pending -cin @('Cpr', 'Epr')) {
         $State.Observations[$pending + 'CommandShape'] =
             Get-HermesStartupFilterCommandShape $State $pending $Line
     }
-    if ($Line -cmatch '\A[ \t]*(?<event>cpr|epr) - (?<label>Create process|Exit process) - (?<status>[^\r\n]*)\z') {
-        $name = if ($Matches.event -ceq 'cpr') { 'Cpr' } else { 'Epr' }
-        $label = if ($name -ceq 'Cpr') { 'Create process' } else { 'Exit process' }
+    if ($Line -cmatch '\A[ \t]*(?<event>cpr|epr|ibp) - (?<label>Create process|Exit process|Initial breakpoint) - (?<status>[^\r\n]*)\z') {
+        $name = switch -CaseSensitive ($Matches.event) { 'cpr' { 'Cpr' }; 'epr' { 'Epr' }; 'ibp' { 'Ibp' } }
+        $label = switch ($name) { 'Cpr' { 'Create process' }; 'Epr' { 'Exit process' }; 'Ibp' { 'Initial breakpoint' } }
         $status = switch -CaseSensitive ($Matches.status.TrimEnd()) {
             'break' { 1 }; 'second-chance break' { 2 }
             'output' { 3 }; 'ignore' { 4 }; default { 5 }
         }
         if ($Matches.label -cne $label) { $status = 5 }
+        $State.FilterVerified[$name] = $false
+        if ($name -ceq 'Ibp') {
+            $State.IbpBreak = $status -eq 1
+            $State.FilterPending = $name
+            return
+        }
         $State.Observations[$name + 'Filter'] = $status
         $State.Observations[$name + 'CommandShape'] = 0
         foreach ($field in @('CommandTransform', 'PayloadLength', 'SourceLength')) {
@@ -651,7 +938,8 @@ function Add-HermesStartupTypedFlags {
     $block = $State.Block
     $pattern = '\AHERMES_NTGLOBALFLAG v=1 pid=(?<pid>[1-9][0-9]{0,9}) value=(?<flags>[0-9a-f]{8})\z'
     if ($Line -cnotmatch $pattern -or $null -eq $block `
-        -or $block.Kind -ne 1 -or $block.Version -ne 2 `
+        -or (($State.NativeProtocol -and ($block.Kind -ne 5 -or $block.Version -ne 3)) `
+            -or (-not $State.NativeProtocol -and ($block.Kind -ne 1 -or $block.Version -ne 2))) `
         -or $block.Event -ne 1 -or $block.EventPid -ne $block.Pid `
         -or [long]$Matches.pid -gt [uint32]::MaxValue `
         -or [long]$Matches.pid -ne $block.Pid -or $block.Pid -eq $State.Initial `
@@ -669,7 +957,9 @@ function Get-HermesStartupTypedFlags {
     $block = if ($null -ne $State.Arm) { $State.Arm } else { $State.Block }
     $target = $State.Target
     if ($State.Protocol -ne 0 -or $null -eq $target -or $null -eq $block `
-        -or $block.Kind -ne 1 -or $block.Version -ne 2 -or $block.Event -ne 1 `
+        -or (($State.NativeProtocol -and ($block.Kind -ne 5 -or $block.Version -ne 3)) `
+            -or (-not $State.NativeProtocol -and ($block.Kind -ne 1 -or $block.Version -ne 2))) `
+        -or $block.Event -ne 1 `
         -or $State.Initial -ne $target.helper -or $target.pid -eq $target.helper `
         -or $target.born -le 0 -or $target.image -ne 1 -or $target.debug -ne 1 `
         -or $target.context -ne 1 -or $block.Pid -ne $target.pid `
@@ -680,7 +970,9 @@ function Get-HermesStartupTypedFlags {
 
 function Add-HermesStartupLine {
     param([hashtable]$State, [string]$Line)
+    if ($State.NativeProtocol -and $State.Bounds -ne 0) { return }
     if ($Line.Length -gt 4096) { $State.Bounds = 1; return }
+    Set-HermesStartupStoppedPrompt $State $Line
     Add-HermesStartupSdkError $State $Line
     Add-HermesStartupChainReadback $State $Line
     Add-HermesStartupFilterReadback $State $Line
@@ -690,11 +982,11 @@ function Add-HermesStartupLine {
         }
         return
     }
-    if ($Line -cmatch '\AHERMES_CDB v=(?<version>[12]) kind=(?<kind>[0-4]) pid=(?<pid>[1-9][0-9]{0,9})\z') {
+    if ($Line -cmatch '\AHERMES_CDB v=(?<version>[123]) kind=(?<kind>[0-6]) pid=(?<pid>[1-9][0-9]{0,9})\z') {
         $version = [int]$Matches.version
         $kind = [int]$Matches.kind
         $pidValue = [long]$Matches.pid
-        Add-HermesStartupObservation $State "Marker$kind"
+        if ($kind -le 4) { Add-HermesStartupObservation $State "Marker$kind" }
         if ($pidValue -gt [uint32]::MaxValue) {
             Add-HermesStartupObservation $State 'MarkerMalformed'
             if ($State.Observations.MarkerMalformedKind -eq 0) {
@@ -764,6 +1056,10 @@ function Add-HermesStartupText {
     }
     $State.AcceptedUtf8Bytes += $byteCount
     $Stream.Count += $Chunk.Length
+    if ($State.NativeProtocol -and $State.AcceptedUtf8Bytes -ge 8388608) {
+        $State.Bounds = 1
+        return
+    }
     $Stream.Hash.AppendData([Text.Encoding]::UTF8.GetBytes($Chunk))
     $keep = [Math]::Min(4096 - $Stream.Prefix.Length, $Chunk.Length)
     if ($keep -gt 0) { $Stream.Prefix += $Chunk.Substring(0, $keep) }
@@ -779,6 +1075,9 @@ function Add-HermesStartupText {
                 $Stream.Tail = ''
                 $Stream.DiscardLine = $true
             }
+        }
+        if ($Parse -and -not $Stream.DiscardLine) {
+            Set-HermesStartupStoppedPrompt $State $Stream.Tail
         }
         if (-not $last) {
             if (-not $Stream.DiscardLine) {
@@ -890,7 +1189,7 @@ function New-HermesStartupObservations {
         $binding = $State[$name]
         $observations[$name + 'Present'] = [int]($null -ne $binding)
         $observations[$name + 'Kind'] = if ($null -ne $binding `
-            -and $binding.Kind -is [int] -and $binding.Kind -in @(1, 3)) { $binding.Kind } else { 0 }
+            -and $binding.Kind -is [int] -and $binding.Kind -in @(1, 3, 5)) { $binding.Kind } else { 0 }
         $observations[$name + 'CurrentMatchesTarget'] = [int]($null -ne $binding `
             -and $null -ne $State.Target -and $binding.Pid -eq $State.Target.pid)
         $observations[$name + 'EventMatchesTarget'] = [int]($null -ne $binding `
@@ -901,6 +1200,18 @@ function New-HermesStartupObservations {
     }
     $observations.TargetRowPresent = [int]($null -ne $State.Target)
     $observations.FinalRowPresent = [int]($null -ne $State.Final)
+    if ($State.NativeProtocol) {
+        $observations.CreatedAcknowledged = [int]$State.CreatedAcked
+        $observations.ResumedRowPresent = [int]($null -ne $State.Resumed)
+        $observations.InitialCallback = [int]($null -ne $State.Arm -and $State.Arm.Kind -eq 5)
+        $observations.InitialStopped = [int]$State.Stopped
+        $observations.Continued = [int]$State.Continued
+        $observations.InputClosed = [int]$State.InputClosed
+        $observations.IbpBreak = [int]$State.IbpBreak
+        $observations.IbpCommandVerified = [int]$State.FilterVerified.Ibp
+        $observations.LastEventUnrecognized = [Math]::Max(0,
+            $observations.LastEventUnrecognized - $observations.InitialCallback)
+    }
     # Actual DWORD only after current/event/helper/held-child row binding.
     # Availability distinguishes a measured zero from no field read at all.
     $typedFlags = Get-HermesStartupTypedFlags $State
@@ -937,7 +1248,9 @@ function New-HermesStartupReport {
     $protocol = $State.Protocol -ne 0 -or $null -ne $State.Block `
         -or ($null -ne $final -and -not $events) `
         -or ($null -ne $helperExit -and $helperExit -ne 0)
-    $evidence = $armed -and $State.Acked -and $State.Unknown -eq 0 `
+    $continued = -not $State.NativeProtocol -or ($State.Continued -and $State.InputClosed `
+        -and $null -ne $State.InputPending -and $State.InputPending.IsCompleted)
+    $evidence = $armed -and $continued -and $State.Acked -and $State.Unknown -eq 0 `
         -and $null -ne $State.Failure
     $status = if ($State.Bounds -ne 0) { 7 } `
         elseif ($State.Timeout -ne 0 -or $fault -in @(1223, 1460)) { 5 } `
@@ -980,6 +1293,7 @@ function New-HermesStartupReport {
         helperSha256 = $State.HelperSha256; commandSha256 = $State.CommandSha256
         createCommandSha256 = $State.CreateCommandSha256
         exitCommandSha256 = $State.ExitCommandSha256
+        initialCommandSha256 = $State.InitialCommandSha256
         observations = (New-HermesStartupObservations $State)
     }
 }

@@ -2,6 +2,35 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Diagnostic continuation requires an observed child initial breakpoint
+
+The version-2 helper separates CREATED permission from trace arming. It
+revalidates the retained child identity before one checked Win32 Resume,
+then publishes a separate Resumed receipt before waiting. The controller
+accepts only the fixed CREATED acknowledgement; the former ARM row cannot
+authorise Resume.
+
+The debugger has four pinned command files. Its child initial-breakpoint
+callback queries the four-byte loader flag and deliberately stops without
+`g`. The controller requires matching helper/child/birth identities, the
+actual Resumed receipt, verified `ibp` registration, flag bit 2 and a bounded
+stdout prompt before recording ARMED and writing exactly `g\n` once. Missing
+runtime callback or flag evidence leaves the diagnostic unavailable.
+
+Independent C# review approves the four-file source delta and preservation of
+the original 18 startup intents. Discovery is now exactly **501 cases**:
+439 unchanged baseline, 58 startup controls (18 retained plus 40 added) and
+four real adapter cases. CI requires every group to pass without skips.
+All **312 pure PowerShell controls** pass, retaining the original 212 intents
+and adding 100 v2 phase, identity, continuation, bound and failure controls.
+
+Local root build, 2,184 Core tests, 1,277 portable Setup tests, Windows
+cross-build and installer static controls pass. These establish source and
+control-level correctness. Actual child `ibp` dispatch, stopped state and
+loader-flag availability still require disposable hosted Windows evidence.
+The original five-arm PowerShell exit-37 gate and installed lifecycle remain
+blocking.
+
 ## Typed PEB query uses the debugger's documented native type
 
 The fixed read now uses `@$peb->NtGlobalFlag` directly. Microsoft's C++

@@ -278,9 +278,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           [xml]$tests = Get-Content -LiteralPath "$PWD/.artifacts/servicing-windows-tests/servicing-windows.trx" -Raw
           $counts = $tests.TestRun.ResultSummary.Counters
-          if ([int]$counts.total -ne 461 -or [int]$counts.executed -ne 461 -or [int]$counts.passed -ne 461 `
+          if ([int]$counts.total -ne 501 -or [int]$counts.executed -ne 501 -or [int]$counts.passed -ne 501 `
               -or [int]$counts.failed -ne 0 -or [int]$counts.notExecuted -ne 0) {
-            throw 'Expected the original 457 Windows cases plus 4 hosted-High OwnedChild adapter cases (461 total), with no skips. The genuine PowerShell case still requires exit 37 in all five arms.'
+            throw 'Expected 439 baseline Windows cases, 58 startup diagnostic cases and 4 hosted-High OwnedChild adapter cases (501 total), with no skips. The genuine PowerShell case still requires exit 37 in all five arms.'
           }
           $adapter = @($tests.TestRun.Results.UnitTestResult | Where-Object {
             $_.testName.StartsWith('Hermes.Servicing.WindowsTests.SetupOwnedChildAdapterTests.', [StringComparison]::Ordinal)
@@ -288,17 +288,21 @@ jobs:
           $original = @($tests.TestRun.Results.UnitTestResult | Where-Object {
             -not $_.testName.StartsWith('Hermes.Servicing.WindowsTests.SetupOwnedChildAdapterTests.', [StringComparison]::Ordinal)
           })
-          if ($adapter.Count -ne 4 -or $original.Count -ne 457 `
+          if ($adapter.Count -ne 4 -or $original.Count -ne 497 `
               -or @($adapter | Where-Object outcome -NE 'Passed').Count -ne 0 `
               -or @($original | Where-Object outcome -NE 'Passed').Count -ne 0) {
-            throw 'All original 457 cases and exactly 4 genuine OwnedChild adapter cases must pass separately.'
+            throw 'All 497 baseline/startup cases and exactly 4 genuine OwnedChild adapter cases must pass separately.'
           }
           $startup = @($tests.TestRun.Results.UnitTestResult | Where-Object {
             $_.testName.StartsWith('Hermes.Servicing.WindowsTests.StartupDebugProbeTests.', [StringComparison]::Ordinal)
           })
-          if ($startup.Count -ne 18 -or $original.Count - $startup.Count -ne 439 `
-              -or @($startup | Where-Object outcome -NE 'Passed').Count -ne 0) {
-            throw 'The original 439 cases and the 18 new diagnostic cases must remain separately accounted for.'
+          $baseline = @($original | Where-Object {
+            -not $_.testName.StartsWith('Hermes.Servicing.WindowsTests.StartupDebugProbeTests.', [StringComparison]::Ordinal)
+          })
+          if ($startup.Count -ne 58 -or $baseline.Count -ne 439 `
+              -or @($startup | Where-Object outcome -NE 'Passed').Count -ne 0 `
+              -or @($baseline | Where-Object outcome -NE 'Passed').Count -ne 0) {
+            throw 'All original 439 baseline cases and exactly 58 startup diagnostic cases must pass separately, with no skips.'
           }
       - name: Inspect fixed native-debugger prerequisites
         id: native-debugger
