@@ -2,6 +2,22 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Fixed CDB callbacks preserve literal Windows path separators
+
+Actual run 39652529830 at `21f3ad2` reports transform 9 for both callbacks:
+their quoted readback equals the pinned source with every backslash removed.
+Source length 58 and displayed payload length 56 account for four removed
+separators and two display quotes. The callback files are never entered.
+
+Only the validated callback paths inside `sxe -c` are now backslash-escaped.
+Logical readback expectations, file pins, extension loading and actual
+PID/event/loader-flag arming remain unchanged.
+
+Four controls exercise the real generator/publication with Windows paths,
+including spaces, source bytes/hashes, quoted decoding, unsafe-source
+rejection and readback without arming. All 147 pure controls and installer
+static controls pass. Actual corrected callback execution remains pending.
+
 ## Component Setup binds complete output and settles owned pipe operations
 
 The real component `MsiCases.MainAsync` now uses the source-linked bounded

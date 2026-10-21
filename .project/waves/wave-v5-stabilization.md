@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Measured callback path mutation selects literal backslash escaping
+
+- **Evidence:** Published `21f3ad2`, run `39652529830`, job `119404282439`, passes 143 pure controls and 456/457 native cases. Both callbacks report transform 9: quoted source with all four path separators removed. No callback event, loader flag or arming is observed.
+- **Changed:** A fresh source owner escapes literal backslashes only in the two validated `sxe -c` callback paths. Logical source/readback identity, extension loading, pins, child context and resume requirements stay unchanged.
+- **Validation:** Parent review, all 147 pure controls and installer static controls pass. New controls use real generation/publication with Windows paths, spaces and adversarial source mutations.
+- **Blockers:** This corrects a measured command-serialization defect; actual callback execution and the PowerShell DLL-initialisation cause are not yet established.
+- **Next:** Publish and inspect actual create-event/PID/loader-flag binding before selecting any child-startup correction.
+
 ### 2026-10-22 - Component output and owned pipe cleanup pass fresh source review
 
 - **Changed:** The real component consumer reads both bounded pipes, requires the complete report/diagnostic/exit contract and independently checks owned-child cleanup. It retains actual drain operations and explicitly closes readers; unsettled cleanup fails with the original fault preserved.

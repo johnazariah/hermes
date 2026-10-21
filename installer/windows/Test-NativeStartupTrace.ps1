@@ -277,7 +277,7 @@ function Write-TraceCommandFile {
             ForEach-Object { Join-Path $root $_ }) `
         -and -not $script:controlCommandFiles.ContainsKey($Path))
     $script:controlCommandWrites.Add($Path)
-    $name = [IO.Path]::GetFileName($Path)
+    $name = ($Path -split '[\\/]')[-1]
     if ($script:controlCommandFaultName -ceq $name -and $script:controlCommandFault -eq 1) { return }
     $copy = [byte[]]$Bytes.Clone()
     if ($script:controlCommandFaultName -ceq $name) {
@@ -293,6 +293,10 @@ function Write-TraceCommandFile {
                 [Text.Encoding]::ASCII.GetString($copy).Replace('sxe -c', 'sxz -c')) }
             8 { $copy = [Text.Encoding]::ASCII.GetBytes(
                 [Text.Encoding]::ASCII.GetString($copy).Replace("`nsx`n", "`n??`n")) }
+            9 { $copy = [Text.Encoding]::ASCII.GetBytes(
+                [Text.Encoding]::ASCII.GetString($copy).Replace('\\', '\')) }
+            10 { $copy = [Text.Encoding]::ASCII.GetBytes(
+                [Text.Encoding]::ASCII.GetString($copy).Replace('\\', '')) }
         }
     }
     $script:controlCommandFiles[$Path] = $copy
@@ -312,7 +316,7 @@ function Get-HermesSetupPublishFiles {
     }
 }
 
-$cases = 1..143
+$cases = 1..147 # Original 143 controls + 4 Windows callback-encoding controls.
 $passed = 0
 foreach ($case in $cases) {
     $state = $null
@@ -1516,8 +1520,8 @@ foreach ($case in $cases) {
                     ('.load "' + $extension + '"'),
                     '.printf "HERMES_CDB v=1 kind=0 pid=%u\n", @$tpid',
                     'sxd ibp',
-                    ('sxe -c "$$><' + (Join-Path $root 'startup-cpr.cdb') + '" cpr'),
-                    ('sxe -c "$$><' + (Join-Path $root 'startup-epr.cdb') + '" epr'),
+                    ('sxe -c "$$><' + (Join-Path $root 'startup-cpr.cdb').Replace('\', '\\') + '" cpr'),
+                    ('sxe -c "$$><' + (Join-Path $root 'startup-epr.cdb').Replace('\', '\\') + '" epr'),
                     'sx', 'g'
                 )
                 $expected = [Text.Encoding]::ASCII.GetBytes(($expectedLines -join "`n") + "`n")
@@ -2152,6 +2156,133 @@ foreach ($case in $cases) {
                     -and $report.armingVerified -eq 0 -and $report.completed -eq 0 `
                     -and $report.firstFailureKind -eq 0 -and $report.nativeAcceptance -eq 0 `
                     -and $script:controlLaunchBindings -eq 0)
+            }
+            { $_ -in 144..147 } {
+                & {
+                    # Stub only Windows path IO; source generation, publication,
+                    # retained pins, hashes and launch/failure bindings stay real.
+                    function Join-Path {
+                        param([string]$Path, [string]$ChildPath)
+                        Assert-Control ($Path -cin @($root, $kits))
+                        return $Path + '\' + $ChildPath
+                    }
+                    function Assert-TraceCommandPath {
+                        param([string]$Path)
+                        Assert-Control ($Path -cin @($extension,
+                            ($root + '\startup.cdb'), ($root + '\startup-cpr.cdb'),
+                            ($root + '\startup-epr.cdb')))
+                        return $Path
+                    }
+                    $root = 'D:\a\_temp\hermes-native-startup-trace'
+                    $encodedRoot = 'D:\\a\\_temp\\hermes-native-startup-trace'
+                    if ($case -eq 145) {
+                        $root = 'C:\Users\Example Name\AppData\Local\Temp\hermes\trace'
+                        $encodedRoot = 'C:\\Users\\Example Name\\AppData\\Local\\Temp\\hermes\\trace'
+                    }
+                    $kits = 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64'
+                    $extension = $kits + '\winxp\exts.dll'
+                    $symbols = $root + '\symbols'
+                    $script:controlArms = 0
+                    if ($case -ge 146) {
+                        $script:controlCommandFault = $case - 137
+                        $script:controlCommandFaultName = 'startup.cdb'
+                    }
+                    . $controlCommandDriver
+                    $report = New-HermesStartupReport $state $debuggerEnded $drainsEnded
+                    $expectedLines = @(
+                        ('.load "' + $extension + '"'),
+                        '.printf "HERMES_CDB v=1 kind=0 pid=%u\n", @$tpid',
+                        'sxd ibp',
+                        ('sxe -c "$$><' + $encodedRoot + '\\startup-cpr.cdb" cpr'),
+                        ('sxe -c "$$><' + $encodedRoot + '\\startup-epr.cdb" epr'),
+                        'sx', 'g'
+                    )
+                    $expectedText = ($expectedLines -join "`n") + "`n"
+                    Assert-Control ((New-TraceCommands $extension) -ceq $expectedText `
+                        -and $script:controlCommandWrites.Count -eq 3 `
+                        -and $script:controlCommandPins.Count -eq 3 `
+                        -and $script:controlStops -eq 1 -and $script:controlDisposed -eq 1 `
+                        -and $report.cleanupFault -eq 0 -and $report.completed -eq 0 `
+                        -and $report.armingVerified -eq 0 -and $report.firstFailureKind -eq 0 `
+                        -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0)
+                    $path = $root + '\startup.cdb'
+                    if ($case -ge 146) {
+                        $unsafeText = if ($case -eq 146) {
+                            $expectedText.Replace('\\', '\')
+                        } else { $expectedText.Replace('\\', '') }
+                        Assert-Control ([Text.Encoding]::ASCII.GetString(
+                                $script:controlCommandFiles[$path]) -ceq $unsafeText `
+                            -and $unsafeText -cne $expectedText `
+                            -and $script:controlCommandHashes -eq 2 `
+                            -and $script:controlLaunchBindings -eq 0 `
+                            -and $null -eq $script:controlStartInfo -and $state.TraceFaulted `
+                            -and $report.tracePoint -eq 24 -and $report.status -eq 8 `
+                            -and $report.error -eq 13 -and $report.commandSha256 -ceq '' `
+                            -and $report.createCommandSha256 -ceq '' -and $report.exitCommandSha256 -ceq '' `
+                            -and $state.FilterExpected.Cpr -ceq '' -and $state.FilterExpected.Epr -ceq '' `
+                            -and -not (Test-HermesStartupArm $state) -and -not $state.Acked)
+                        return
+                    }
+                    $sources = New-TraceEventCommands
+                    $sources['startup.cdb'] = $expectedText
+                    $hashFields = @{
+                        'startup.cdb' = 'commandSha256'
+                        'startup-cpr.cdb' = 'createCommandSha256'
+                        'startup-epr.cdb' = 'exitCommandSha256'
+                    }
+                    foreach ($source in $sources.GetEnumerator()) {
+                        $sourcePath = $root + '\' + $source.Key
+                        $bytes = [Text.Encoding]::ASCII.GetBytes($source.Value)
+                        $expectedHash = [Convert]::ToHexString(
+                            [Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+                        Assert-Control ([Convert]::ToHexString($script:controlCommandFiles[$sourcePath]) `
+                                -ceq [Convert]::ToHexString($bytes) `
+                            -and $script:controlCommandReadOnly[$sourcePath] `
+                            -and $script:controlCommandPins -ccontains $sourcePath `
+                            -and $report[$hashFields[$source.Key]] -ceq $expectedHash)
+                    }
+                    Assert-Control ($script:controlCommandHashes -eq 3 `
+                        -and $script:controlLaunchBindings -eq 1 -and $report.error -eq 0 `
+                        -and $script:controlStartInfo.ArgumentList[2] -ceq $path)
+                    Add-HermesStartupLine $state 'HERMES_CDB v=1 kind=0 pid=11'
+                    Update-HermesStartupRows $state ($targetRow + "`n")
+                    foreach ($index in 3..4) {
+                        $name = if ($index -eq 3) { 'Cpr' } else { 'Epr' }
+                        $suffix = 'startup-' + $name.ToLowerInvariant() + '.cdb'
+                        $logical = '$$><' + $root + '\' + $suffix
+                        $line = $expectedLines[$index]
+                        Assert-Control ($line -cmatch '\Asxe -c "(?<payload>[^"]+)" (?:cpr|epr)\z')
+                        $encoded = $Matches.payload
+                        # Model quoted-command decoding, not native execution:
+                        # paired literal backslashes must recover the exact path.
+                        foreach ($dropUnknown in @($false, $true)) {
+                            Assert-Control ((ConvertFrom-HermesStartupCommandEscapes `
+                                $encoded $dropUnknown) -ceq $logical)
+                        }
+                        Assert-Control ($state.FilterExpected[$name] -ceq ('Command: "' + $logical + '"'))
+                        $header = if ($name -ceq 'Cpr') {
+                            'cpr - Create process - break'
+                        } else { 'epr - Exit process - break' }
+                        foreach ($payload in @($logical.Replace('\', ''), $encoded, $logical)) {
+                            Add-HermesStartupLine $state $header
+                            Add-HermesStartupLine $state ('Command: "' + $payload + '"')
+                            $observed = New-HermesStartupObservations $state
+                            $exact = $payload -ceq $logical
+                            Assert-Control ($observed[$name + 'CommandShape'] -eq $(if ($exact) { 1 } else { 6 }) `
+                                -and $observed[$name + 'Filter'] -eq $(if ($exact) { 9 } else { 1 }) `
+                                -and $observed[$name + 'SourceLength'] -eq $logical.Length `
+                                -and $observed[$name + 'PayloadLength'] -eq ($payload.Length + 2) `
+                                -and $observed[$name + 'CommandTransform'] -eq $(
+                                    if ($exact) { 2 } elseif ($payload -ceq $encoded) { 6 } else { 9 }) `
+                                -and $observed.ArmPresent -eq 0 -and $observed.BlockPresent -eq 0 `
+                                -and -not (Test-HermesStartupArm $state) -and -not $state.Acked)
+                        }
+                    }
+                    $report = New-HermesStartupReport $state $true $true
+                    Assert-Control ($report.armingVerified -eq 0 -and $report.completed -eq 0 `
+                        -and $report.firstFailureKind -eq 0 -and $report.nativeAcceptance -eq 0 `
+                        -and $script:controlArms -eq 0)
+                }
             }
         }
         $passed++
