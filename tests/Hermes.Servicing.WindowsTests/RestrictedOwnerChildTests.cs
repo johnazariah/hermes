@@ -301,6 +301,7 @@ public sealed partial class RestrictedOwnerChildTests(ITestOutputHelper output)
         var comparison = MeasurePowerShellArm(token, api.PowerShellNoWindowForObservation, 6);
         var detachedSelf = MeasurePowerShellArm(token, api.PowerShellDetachedSelfControlForObservation, 7);
         var noWindowSelf = MeasurePowerShellArm(token, api.PowerShellNoWindowSelfControlForObservation, 8);
+        var newConsole = MeasurePowerShellArm(token, api.PowerShellNewConsoleForObservation, 9);
         _ = token.Verify();
         Assert.Equal(RestrictedOwnerTokenFacts.Required, proof.Facts);
         Assert.Equal(MsiContextRead.Absent, proof.Thread);
@@ -313,6 +314,7 @@ public sealed partial class RestrictedOwnerChildTests(ITestOutputHelper output)
         RequirePowerShellArm(noWindowSelf);
         RequireFullOwnedSelf(noWindowSelf.Access.Process, AcceptanceChildObject.Process);
         RequireFullOwnedSelf(noWindowSelf.Access.Thread, AcceptanceChildObject.Thread);
+        RequirePowerShellArm(newConsole);
     }
 
     private static void RequirePowerShellArm(RestrictedOwnerChildResult proof)

@@ -35,6 +35,9 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IAcceptanceC
     internal IAcceptanceChildFactory PowerShellNoWindowForObservation { get; } =
         new PowerShellProbeChildren(AcceptancePowerShellProbeConsole.NoWindow);
 
+    internal IAcceptanceChildFactory PowerShellNewConsoleForObservation { get; } =
+        new PowerShellProbeChildren(AcceptancePowerShellProbeConsole.NewConsole);
+
     internal IAcceptanceChildFactory PowerShellDetachedSelfControlForObservation { get; } =
         new PowerShellProbeChildren(AcceptancePowerShellProbeConsole.Detached, ownedSelfControl: true);
 

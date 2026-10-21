@@ -65,12 +65,16 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens
             }
         }
 
-        private static PowerShellProbeStartupInfoEx PowerShellStartup(
+        private PowerShellProbeStartupInfoEx PowerShellStartup(
             ChildStartupInfo original, nint[] children, nint attributes) =>
             new(original with
             {
                 Size = (uint)sizeof(PowerShellProbeStartupInfoEx),
-                Flags = original.Flags | AcceptancePowerShellProbeIoPolicy.StartupFlags,
+                Flags = original.Flags |
+                    AcceptancePowerShellProbeIoPolicy.StartupFlagsFor(powerShellConsole),
+                ShowWindow = powerShellConsole is AcceptancePowerShellProbeConsole.NewConsole
+                    ? (ushort)0 // SW_HIDE applies only to the new private console.
+                    : original.ShowWindow,
                 StandardInput = children[0],
                 StandardOutput = children[1],
                 StandardError = children[2]

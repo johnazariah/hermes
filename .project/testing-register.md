@@ -2,6 +2,25 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## One hidden private-console arm retains the existing PowerShell matrix
+
+An additional PowerShell-only arm requests CREATE_NEW_CONSOLE with suspended
+extended startup (0x00080014), existing controlled stdio and STARTF_USESHOWWINDOW/
+SW_HIDE. Old detached/no-window policies, descriptors and normal cmd creation
+are unchanged. All five arm observations precede the unchanged exit-37 checks.
+
+Four creation/startup-policy cases raise exact native discovery to 411.
+Independent C# review approves the bounded change; Windows cross-build and
+static controls pass. A root build initially hit a Razor/Roslyn shared-server
+MissingMethodException; isolated `dotnet build --nologo --disable-build-servers
+-p:UseSharedCompilation=false` then passes without warnings, followed by all
+2,182 Core cases. No source workaround was made.
+
+Actual allocation/visibility/cleanup and script exit for the new private
+console remain pending. The latest four-arm run still returns zero detached
+and 0xC0000142 no-window even with full self DACL grants; neither policy nor
+permissions are declared the cause.
+
 ## PowerShell console and owned-descriptor factors are measured together
 
 The existing genuine PowerShell case now collects four arms before asserting:

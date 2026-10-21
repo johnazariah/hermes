@@ -279,17 +279,31 @@ public sealed class RestrictedPowerShellIoTests
     [Theory]
     [InlineData(0, 0x0008000cu)]
     [InlineData(1, 0x08080004u)]
+    [InlineData(2, 0x00080014u)]
     public void Console_comparison_changes_only_the_closed_console_flags(int console, uint expected)
     {
         var flags = AcceptancePowerShellProbeIoPolicy.CreationFlagsFor(
             (AcceptancePowerShellProbeConsole)console);
         Assert.Equal(expected, flags);
-        Assert.Equal(0x00080004u, flags & ~(0x08000000u | 0x00000008u));
+        Assert.Equal(0x00080004u, flags & ~(0x08000000u | 0x00000008u | 0x00000010u));
+    }
+
+    [Theory]
+    [InlineData(0, 0x100u)]
+    [InlineData(1, 0x100u)]
+    [InlineData(2, 0x101u)]
+    public void Only_the_new_private_console_selects_the_hidden_window_startup_flag(
+        int console, uint expected)
+    {
+        var flags = AcceptancePowerShellProbeIoPolicy.StartupFlagsFor(
+            (AcceptancePowerShellProbeConsole)console);
+        Assert.Equal(expected, flags);
+        Assert.Equal(0x100u, flags & ~0x00000001u);
     }
 
     [Theory]
     [InlineData(-1)]
-    [InlineData(2)]
+    [InlineData(3)]
     [InlineData(int.MaxValue)]
     public void Unknown_console_policy_is_refused_without_a_default_arm(int value)
     {
@@ -297,6 +311,10 @@ public sealed class RestrictedPowerShellIoTests
             AcceptancePowerShellProbeIoPolicy.CreationFlagsFor(
                 (AcceptancePowerShellProbeConsole)value));
         Assert.Equal(13, error.NativeErrorCode);
+        var startupError = Assert.Throws<Win32Exception>(() =>
+            AcceptancePowerShellProbeIoPolicy.StartupFlagsFor(
+                (AcceptancePowerShellProbeConsole)value));
+        Assert.Equal(13, startupError.NativeErrorCode);
     }
 
     [Fact]

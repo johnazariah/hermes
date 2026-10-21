@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Hidden private-console comparison is source-ready
+
+- **Evidence:** Published `de69d69` run `39605327219`, job `119239923925`, records all four image-matched, eight-byte-source PowerShell arms with complete pipe/drain EOF and zero output/error bytes. Detached returns zero and no-window 0xC0000142 with both partial and full self grants; 406/407 native cases pass, none skip.
+- **Changed:** One additional owned PowerShell arm requests a new hidden console (creation 0x00080014, startup 0x101/SW_HIDE), with the original descriptor and all existing token/source/stdio/job/cleanup controls. It allocates no shared desktop object or global setting; existing five exit-37 checks remain strict.
+- **Validation:** Independent C# review approves four new policy cases, requiring exactly 411. Windows cross-build/static controls pass. Root's first attempt encounters a Razor/Roslyn shared-server MissingMethodException; isolated build with shared servers disabled passes warning-free, then all 2,182 Core cases pass. No source change masks that tooling failure.
+- **Blockers:** Actual new-console allocation/visibility, script execution and full lifecycle remain unproved.
+- **Next:** Publish this last bounded console-policy comparison and require actual exit 37 before selecting a launch correction.
+
 ### 2026-10-21 - PowerShell descriptor factor joins the closed console comparison
 
 - **Evidence:** Published `af04f41` run `39603408632`, job `119233368753`, passes 406/407 without skips. Both original arms match the actual image path, validate eight script bytes, close stdin/pipes/drains and record zero stdout/stderr bytes with EOF/error zero. DETACHED returns zero; CREATE_NO_WINDOW returns 0xC0000142.

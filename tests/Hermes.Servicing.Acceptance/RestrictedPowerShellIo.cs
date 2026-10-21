@@ -3,7 +3,7 @@ using System.Runtime.ExceptionServices;
 
 namespace Hermes.Servicing.Acceptance;
 
-internal enum AcceptancePowerShellProbeConsole { Detached, NoWindow }
+internal enum AcceptancePowerShellProbeConsole { Detached, NoWindow, NewConsole }
 
 internal interface IAcceptancePowerShellProbeImage
 {
@@ -104,6 +104,17 @@ internal static class AcceptancePowerShellProbeIoPolicy
             AcceptancePowerShellProbeConsole.Detached => CreationFlags,
             AcceptancePowerShellProbeConsole.NoWindow =>
                 (CreationFlags & ~0x00000008u) | 0x08000000u,
+            AcceptancePowerShellProbeConsole.NewConsole =>
+                (CreationFlags & ~0x00000008u) | 0x00000010u,
+            _ => throw RestrictedOwnerToken.Failure(13)
+        };
+
+    internal static uint StartupFlagsFor(AcceptancePowerShellProbeConsole console) =>
+        console switch
+        {
+            AcceptancePowerShellProbeConsole.Detached => StartupFlags,
+            AcceptancePowerShellProbeConsole.NoWindow => StartupFlags,
+            AcceptancePowerShellProbeConsole.NewConsole => StartupFlags | 0x00000001u,
             _ => throw RestrictedOwnerToken.Failure(13)
         };
 
