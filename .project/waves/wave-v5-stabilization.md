@@ -100,6 +100,20 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Existing-desktop binding is tested without relaxing startup success
+
+- **Changed:** The source-approved inert A/B observation varies only NULL versus explicit existing parent station/desktop binding. OS names stay internal; token, pre-resume verification, job, cleanup and all ordinary acceptance settings remain.
+- **Validation:** Parent passes warning-free root/Windows cross-builds, 2,182 Core and all static controls. Twenty parser/capability cases plus one genuine counterfactual require exactly 158 native cases; all original 137 assertions remain, including exit 37.
+- **Boundary:** Numeric outcomes from both arms must precede their success assertion. No ACL denial, DLL cause, permanent default or successful child/MSI execution is inferred before the Windows result.
+- **Next:** Publish one A/B result, then choose only the correction supported by that observed difference while retaining parent-security/connection and cleanup checks.
+
+### 2026-10-21 - Real restricted child verifies but fails loader initialization
+
+- **Evidence:** Published `d0dc2c5` run `39567284420` executes 137 native cases: 136 pass, one genuine child case fails. Its numeric result verifies actual child context before resume, unchanged parent, successful disposal/closed-use refusal and no incomplete cleanup.
+- **Failure:** The child exits with 3221225794 / 0xC0000142, not intended exit 37. This is a loader-initialization failure, not a proved desktop, DLL or environment cause. Successful creation/verification/cleanup is not successful child execution.
+- **Boundary:** No MSI/profile operation is performed by the inert child. Ordinary acceptance does not run after this failed gate; no installer-acceptance artifact is created.
+- **Next:** The specialist's final focused cycle checks documented startup-context semantics or supplies only the missing bounded observation, without changing host ACL/UAC policy or accepting the failing exit as success.
+
 ### 2026-10-21 - Inert restricted-child lifetime is bounded before harness integration
 
 - **Changed:** The source-approved acceptance primitive creates only a fixed inert child suspended, assigns its owned job, verifies actual child token context before one resume and tracks exit/cleanup. No MSI, owner-profile or installer routing is added.

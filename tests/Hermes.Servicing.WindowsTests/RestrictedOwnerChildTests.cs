@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel;
+using System.Runtime.ExceptionServices;
 using System.Runtime.Versioning;
 using Hermes.Installer.Control;
 using Hermes.Servicing.Acceptance;
@@ -262,6 +263,188 @@ public sealed class RestrictedOwnerChildTests(ITestOutputHelper output)
             output.WriteLine(
                 $"HERMES_RESTRICTED_CHILD_TEST v=1 completed=0 error={code} failed={failed} cleanupNotCompleted={(HasCleanupFailure(error) ? 1 : 0)}");
             throw;
+        }
+    }
+
+    [Fact]
+    public void Automatic_desktop_remains_null_without_reading_parent_names()
+    {
+        var names = new FakeDesktopNames(
+            string.Empty, new InvalidOperationException("Synthetic read fault."));
+        Assert.Null(AcceptanceChildDesktop.Resolve(
+            AcceptanceDesktopSelection.Automatic, names));
+        Assert.Equal(0, names.Reads);
+    }
+
+    [Fact]
+    public void Explicit_existing_desktop_reads_one_validated_binding()
+    {
+        var names = new FakeDesktopNames("station\\desktop");
+        Assert.Equal("station\\desktop", AcceptanceChildDesktop.Resolve(
+            AcceptanceDesktopSelection.ExistingParent, names));
+        Assert.Equal(1, names.Reads);
+    }
+
+    [Fact]
+    public void Existing_desktop_read_failure_is_preserved_without_null_fallback()
+    {
+        var fault = new Win32Exception(5, "Synthetic numeric failure.");
+        var names = new FakeDesktopNames(string.Empty, fault);
+        var error = Assert.Throws<Win32Exception>(() =>
+            AcceptanceChildDesktop.Resolve(
+                AcceptanceDesktopSelection.ExistingParent, names));
+        Assert.Same(fault, error);
+        Assert.Equal(1, names.Reads);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(2)]
+    public void Unknown_desktop_selection_is_refused_before_reading_names(int value)
+    {
+        var names = new FakeDesktopNames(
+            string.Empty, new InvalidOperationException("Synthetic read fault."));
+        var error = Assert.Throws<Win32Exception>(() =>
+            AcceptanceChildDesktop.Resolve((AcceptanceDesktopSelection)value, names));
+        Assert.Equal(13, error.NativeErrorCode);
+        Assert.Equal(0, names.Reads);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("station")]
+    [InlineData("\\desktop")]
+    [InlineData("station\\")]
+    [InlineData("station\\desk\\extra")]
+    [InlineData("station\\de\0sk")]
+    [InlineData("station\\de\nsk")]
+    public void Malformed_existing_binding_is_refused_without_substitution(string value)
+    {
+        var names = new FakeDesktopNames(value);
+        var error = Assert.Throws<Win32Exception>(() =>
+            AcceptanceChildDesktop.Resolve(
+                AcceptanceDesktopSelection.ExistingParent, names));
+        Assert.Equal(13, error.NativeErrorCode);
+        Assert.Equal(1, names.Reads);
+    }
+
+    [Fact]
+    public void Existing_desktop_components_are_bounded_without_truncation()
+    {
+        var oversized = new string('x', AcceptanceChildDesktop.NameCapacity);
+        var station = Assert.Throws<Win32Exception>(() =>
+            AcceptanceChildDesktop.RequireName($"{oversized}\\desktop"));
+        var desktop = Assert.Throws<Win32Exception>(() =>
+            AcceptanceChildDesktop.RequireName($"station\\{oversized}"));
+        Assert.Equal(13, station.NativeErrorCode);
+        Assert.Equal(13, desktop.NativeErrorCode);
+    }
+
+    [Fact]
+    public void Object_name_decoder_uses_only_the_reported_terminated_utf16_content()
+    {
+        Assert.Equal("ab", AcceptanceChildDesktop.DecodeName("ab\0\0".AsSpan(), 6));
+    }
+
+    [Theory]
+    [InlineData(0u)]
+    [InlineData(2u)]
+    [InlineData(3u)]
+    [InlineData(10u)]
+    [InlineData(4u)]
+    [InlineData(8u)]
+    public void Invalid_object_name_metadata_is_refused(uint bytes)
+    {
+        var error = Assert.Throws<Win32Exception>(() =>
+            AcceptanceChildDesktop.DecodeName("ab\0\0".AsSpan(), bytes));
+        Assert.Equal(13, error.NativeErrorCode);
+    }
+
+    [Fact]
+    public void Actual_null_and_existing_parent_desktop_counterfactual_preserves_all_guards()
+    {
+        var api = WindowsRestrictedOwnerTokens.Instance;
+        api.RequireDisposableJob();
+        var before = ReadParent();
+        Assert.True(IsActualSource(before), "Required genuine source context absent.");
+        var security = api.ReadParentSecurity();
+        var desktop = api.ReadParentDesktop();
+        var error = Record.Exception(() => RequireDesktopCounterfactual(api));
+        var parent = before == ReadParent() &&
+            security.SameFinalState(api.ReadParentSecurity());
+        var connected = desktop.SameConnection(api.ReadParentDesktop());
+        output.WriteLine(
+            $"HERMES_RESTRICTED_DESKTOP_AB_FINAL v=1 parent={(parent ? 1 : 0)} parentConnection={(connected ? 1 : 0)}");
+        if (error is { } failure)
+            ExceptionDispatchInfo.Capture(failure).Throw();
+        Assert.True(parent && connected, "Counterfactual changed parent final state.");
+    }
+
+    private void RequireDesktopCounterfactual(WindowsRestrictedOwnerTokens api)
+    {
+        using var token = RestrictedOwnerToken.Create(api);
+        var automatic = ObserveDesktopArm(token, api, 0);
+        var existing = ObserveDesktopArm(
+            token, api.ExistingParentDesktopForObservation, 1);
+        // Record BOTH outcomes before asserting either exit. This is not a
+        // fallback, nor permission to accept the original DLL-init failure.
+        Assert.True(automatic.ExitCode == 37 && existing.ExitCode == 37,
+            "Counterfactual recorded; both genuine fixed exits remain required.");
+    }
+
+    private RestrictedOwnerChildResult ObserveDesktopArm(
+        RestrictedOwnerToken token, IAcceptanceChildFactory factory, int arm)
+    {
+        var children = new RecordingChildren(factory);
+        try
+        {
+            var proof = RestrictedOwnerChild.RunInert(token, children);
+            return WriteDesktopArm(proof, children.Child, arm);
+        }
+        catch (Exception error)
+        {
+            WriteDesktopArmFailure(error, arm);
+            throw;
+        }
+    }
+
+    private RestrictedOwnerChildResult WriteDesktopArm(
+        RestrictedOwnerChildResult proof, IAcceptanceOwnedChild child, int arm)
+    {
+        var verified = proof.Facts.FailedPredicates == 0 &&
+            proof.Thread == MsiContextRead.Absent;
+        var closed = child.IsClosed && ClosedUseRefused(child);
+        child.Dispose();
+        output.WriteLine(
+            $"HERMES_RESTRICTED_DESKTOP_AB v=1 arm={arm} completed=1 observed={(verified ? 1 : 0)} failed={proof.Facts.FailedPredicates} resumed=1 exit={proof.ExitCode} disposed={(proof.CleanupCompleted ? 1 : 0)} closed={(closed ? 1 : 0)} error=0");
+        Assert.True(verified && proof.CleanupCompleted && closed,
+            "Counterfactual child verification or cleanup incomplete.");
+        return proof;
+    }
+
+    private void WriteDesktopArmFailure(Exception error, int arm)
+    {
+        var leaves = Leaves(error).ToArray();
+        var code = leaves.OfType<Win32Exception>()
+            .Select(value => value.NativeErrorCode).FirstOrDefault(13);
+        var failed = leaves.OfType<RestrictedOwnerTokenVerificationException>()
+            .Aggregate(0, (mask, value) => mask | value.FailedPredicates);
+        output.WriteLine(
+            $"HERMES_RESTRICTED_DESKTOP_AB v=1 arm={arm} completed=0 error={code} failed={failed} cleanupNotCompleted={(HasCleanupFailure(error) ? 1 : 0)}");
+    }
+
+    private sealed class FakeDesktopNames(string name, Exception? fault = null)
+        : IAcceptanceParentDesktopNames
+    {
+        private int _reads;
+        internal int Reads => _reads;
+
+        public string ReadStartupName()
+        {
+            _reads++;
+            if (fault is { } error)
+                throw error;
+            return name;
         }
     }
 

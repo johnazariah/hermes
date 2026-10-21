@@ -2,6 +2,23 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Inert desktop counterfactual changes only the child startup binding
+
+The reviewed observation compares NULL desktop selection with an explicit
+existing parent station/desktop read internally from Windows. Both arms use
+the same verified restricted token, fixed command, owned job, pre-resume child
+checks and cleanup. It neither mutates ACLs/parent connections nor treats
+object names as proof of access.
+
+Twenty bounded capability/UTF-16 parser cases and one genuine sequential A/B
+case raise the exact native gate to 158. Both numeric exits are recorded
+before requiring both to equal 37; the original failing NULL-desktop
+assertion remains blocking. No old NTSTATUS is accepted as success.
+
+Parent passes warning-free root/Windows cross-builds, 2,182 Core and all static
+controls. Actual A/B execution remains pending. This is a narrow experiment,
+not a permanent default, desktop-access finding or MSI harness reroute.
+
 ## Inert restricted-child supervision awaits actual Windows execution
 
 The reviewed acceptance-only primitive supports one fixed System32 cmd exit

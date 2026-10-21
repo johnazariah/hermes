@@ -88,7 +88,9 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IAcceptanceC
         Exited
     }
 
-    private sealed class OwnedInertChild : IAcceptanceOwnedChild
+    private sealed class OwnedInertChild(
+        AcceptanceDesktopSelection desktop = AcceptanceDesktopSelection.Automatic)
+        : IAcceptanceOwnedChild
     {
         private SafeChildHandle? _job;
         private SafeChildHandle? _process;
@@ -128,20 +130,20 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IAcceptanceC
             SafeAccessTokenHandle token, string application,
             char[] command, string directory)
         {
-            var startup = new ChildStartupInfo((uint)sizeof(ChildStartupInfo));
-            var process = default(ChildProcessInformation);
-            // No inherited handles, STARTF_USESTDHANDLES, console, or desktop
-            // override. NULL environment intentionally inherits the caller's
-            // environment; this inert-only proof has no environment framework.
+            var selected = AcceptanceChildDesktop.Resolve(desktop, Instance);
+            fixed (char* desktopName = selected)
             fixed (char* mutableCommand = command)
             {
+                var startup = new ChildStartupInfo(
+                    (uint)sizeof(ChildStartupInfo), Desktop: (nint)desktopName);
+                var process = default(ChildProcessInformation);
                 if (CreateProcessAsUserW(token, application, mutableCommand,
                     0, 0, 0, 0x00000004 | 0x08000000,
                     0, directory, &startup, &process) == 0)
                     throw NativeFailure();
+                _process = new(process.Process);
+                _thread = new(process.Thread);
             }
-            _process = new(process.Process);
-            _thread = new(process.Thread);
         }
 
         public void AssignJob()
