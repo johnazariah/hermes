@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Owned debugger callbacks request explicit event breaks
+
+- **Evidence:** Published `3c89311` run `39639654798`, job `119359542076`, passes 110 pure controls and 456/457 native cases. Pinned callback sources remove malformed-marker noise, but only the initial helper marker is observed; child marker/event/flag counts remain zero. No arming, initialization or complete cleanup is inferred.
+- **Changed:** Create/exit callbacks request explicit break status, retain their final automatic continuation and add a read-only filter listing. No other command, initial-break, source, identity, token, budget or cleanup behavior changes.
+- **Validation:** Parent direct review and all 116 pure controls pass, including exact registration source/hash, altered status and readback-without-arming negatives. Isolated IL-only root build, 2,182 Core and static controls pass. Native discovery remains 457.
+- **Blockers:** This is one owned-debugger control-factor experiment, not a proven cause or an acceptance substitute.
+- **Next:** Publish and require actual callback markers/current-event binding under explicit break control before selecting another debugger change.
+
 ### 2026-10-22 - Fixed event files remove nested CDB callback quoting
 
 - **Evidence:** Published `722b636` run `39635220944`, job `119343742443`, passes 88 pure controls and 456/457 native cases. CDB observes one valid initial helper marker, five malformed marker lines and four echoes; child callback/event/flag counts are zero. Target resume remains withheld and cleanup fault 5 remains visible.

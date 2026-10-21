@@ -114,12 +114,15 @@ function New-TraceCommands {
     # $$>< takes a filename (spaces permitted), not script arguments. Refuse
     # its semicolon separator and the enclosing -c quote delimiter in paths.
     # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/-----------------------a---run-script-file-
+    # Diagnostic control experiment: force callback breaks, then read filters.
+    # Neither registration nor its readback establishes runtime target binding.
     $commands = @(
         ('.load "' + $Extension + '"'),
         '.printf "HERMES_CDB v=1 kind=0 pid=%u\n", @$tpid',
         'sxd ibp',
-        ('sx- -c "$$><' + $cpr + '" cpr'),
-        ('sx- -c "$$><' + $epr + '" epr'),
+        ('sxe -c "$$><' + $cpr + '" cpr'),
+        ('sxe -c "$$><' + $epr + '" epr'),
+        'sx',
         'g'
     ) -join "`n"
     $commands += "`n"

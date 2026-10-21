@@ -285,6 +285,14 @@ function Write-TraceCommandFile {
             2 { $copy[0] = $copy[0] -bxor 1 }
             3 { $copy = [byte[]]($copy + [byte]0) }
             4 { throw 'C:\private-command S-1-5-21-123 --command readonly failure' }
+            5 { $copy = [Text.Encoding]::ASCII.GetBytes(
+                [Text.Encoding]::ASCII.GetString($copy).Replace('sxe -c', 'sxi -c')) }
+            6 { $copy = [Text.Encoding]::ASCII.GetBytes(
+                [Text.Encoding]::ASCII.GetString($copy).Replace('sxe -c', 'sx- -c')) }
+            7 { $copy = [Text.Encoding]::ASCII.GetBytes(
+                [Text.Encoding]::ASCII.GetString($copy).Replace('sxe -c', 'sxz -c')) }
+            8 { $copy = [Text.Encoding]::ASCII.GetBytes(
+                [Text.Encoding]::ASCII.GetString($copy).Replace("`nsx`n", "`n??`n")) }
         }
     }
     $script:controlCommandFiles[$Path] = $copy
@@ -304,7 +312,7 @@ function Get-HermesSetupPublishFiles {
     }
 }
 
-$cases = 1..110
+$cases = 1..116
 $passed = 0
 foreach ($case in $cases) {
     $state = $null
@@ -1361,11 +1369,12 @@ foreach ($case in $cases) {
                     -and -not $script:controlStartInfo.UseShellExecute `
                     -and $arguments -cnotcontains '-g' -and $arguments -cnotcontains '-G')
                 $lines = @($sources['startup.cdb'] -split "`n")
-                Assert-Control ($lines.Count -eq 7 -and $lines[0] -ceq ('.load "' + $extension + '"') `
+                Assert-Control ($lines.Count -eq 8 -and $lines[0] -ceq ('.load "' + $extension + '"') `
                     -and $lines[1] -ceq '.printf "HERMES_CDB v=1 kind=0 pid=%u\n", @$tpid' `
-                    -and $lines[2] -ceq 'sxd ibp' -and $lines[5] -ceq 'g' -and $lines[6] -ceq '')
+                    -and $lines[2] -ceq 'sxd ibp' -and $lines[5] -ceq 'sx' `
+                    -and $lines[6] -ceq 'g' -and $lines[7] -ceq '')
                 foreach ($line in $lines[3..4]) {
-                    Assert-Control ($line -cmatch '\Asx- -c "\$\$><[^";\r\n]+" (?:cpr|epr)\z' `
+                    Assert-Control ($line -cmatch '\Asxe -c "\$\$><[^";\r\n]+" (?:cpr|epr)\z' `
                         -and @($line.ToCharArray() | Where-Object { $_ -eq '"' }).Count -eq 2 `
                         -and $line -notmatch '\.printf|\.lastevent|!gflag|\\"')
                 }
@@ -1500,6 +1509,96 @@ foreach ($case in $cases) {
                     -and $report.armingVerified -eq 1 -and $report.completed -eq 1 `
                     -and $report.firstFailureKind -eq 1 `
                     -and ($report | ConvertTo-Json -Depth 4 -Compress) -notmatch 'private|\$\$><|printf')
+            }
+            111 {
+                . $controlCommandDriver
+                $expectedLines = @(
+                    ('.load "' + $extension + '"'),
+                    '.printf "HERMES_CDB v=1 kind=0 pid=%u\n", @$tpid',
+                    'sxd ibp',
+                    ('sxe -c "$$><' + (Join-Path $root 'startup-cpr.cdb') + '" cpr'),
+                    ('sxe -c "$$><' + (Join-Path $root 'startup-epr.cdb') + '" epr'),
+                    'sx', 'g'
+                )
+                $expected = [Text.Encoding]::ASCII.GetBytes(($expectedLines -join "`n") + "`n")
+                $path = Join-Path $root 'startup.cdb'
+                $expectedHash = [Convert]::ToHexString(
+                    [Security.Cryptography.SHA256]::HashData($expected)).ToLowerInvariant()
+                $report = New-HermesStartupReport $state $debuggerEnded $drainsEnded
+                Assert-Control ([Convert]::ToHexString($script:controlCommandFiles[$path]) `
+                        -ceq [Convert]::ToHexString($expected) `
+                    -and $report.commandSha256 -ceq $expectedHash `
+                    -and $script:controlCommandPins -ccontains $path `
+                    -and $script:controlStartInfo.ArgumentList[2] -ceq $path `
+                    -and $script:controlLaunchBindings -eq 1 -and $script:controlCommandHashes -eq 3 `
+                    -and $report.error -eq 0 -and $report.completed -eq 0 `
+                    -and $report.armingVerified -eq 0 -and $report.firstFailureKind -eq 0)
+                $events = New-TraceEventCommands
+                foreach ($text in $events.Values) {
+                    $lines = @($text.TrimEnd("`r", "`n") -split "`r`n")
+                    Assert-Control ($lines[-1] -ceq 'g' `
+                        -and @($lines | Where-Object { $_ -ceq 'g' }).Count -eq 1 `
+                        -and $text -notmatch 'sx[edinx-]|(?<!\r)\n')
+                }
+            }
+            { $_ -in 112..115 } {
+                $script:controlCommandFault = $case - 107
+                $script:controlCommandFaultName = 'startup.cdb'
+                . $controlCommandDriver
+                $path = Join-Path $root 'startup.cdb'
+                $expectedBytes = [Text.Encoding]::ASCII.GetBytes((New-TraceCommands $extension))
+                $report = New-HermesStartupReport $state $debuggerEnded $drainsEnded
+                Assert-Control ($script:controlCommandFiles[$path].Length -eq $expectedBytes.Length `
+                    -and [Convert]::ToHexString($script:controlCommandFiles[$path]) `
+                        -cne [Convert]::ToHexString($expectedBytes) `
+                    -and $script:controlCommandWrites.Count -eq 3 -and $script:controlCommandPins.Count -eq 3 `
+                    -and $script:controlCommandHashes -eq 3 -and $script:controlLaunchBindings -eq 0 `
+                    -and $null -eq $script:controlStartInfo -and $state.TraceFaulted `
+                    -and $report.tracePoint -eq 24 -and $report.error -eq 13 -and $report.status -eq 8 `
+                    -and $report.commandSha256 -ceq '' -and $report.createCommandSha256 -ceq '' `
+                    -and $report.exitCommandSha256 -ceq '' -and $report.completed -eq 0 `
+                    -and $report.armingVerified -eq 0 -and $report.firstFailureKind -eq 0 `
+                    -and $report.originalGatePassed -eq 0 -and $report.nativeAcceptance -eq 0)
+            }
+            116 {
+                . $controlCommandDriver
+                Add-HermesStartupLine $state 'HERMES_CDB v=1 kind=0 pid=11'
+                Update-HermesStartupRows $state ($targetRow + "`n")
+                # Readback-shaped text, including an unknown state, is not
+                # parsed as registration proof or a debugger event.
+                foreach ($line in @(
+                    '1:001> sx',
+                    'cpr - Create process - break',
+                    '       Command: "$$><C:\private\startup-cpr.cdb"',
+                    'epr - Exit process - break',
+                    '       Command: "$$><C:\private\startup-epr.cdb"',
+                    'cpr - Create process - unknown C:\private\secret S-1-5-21-123 --command'
+                )) { Add-HermesStartupLine $state $line }
+                Set-HermesStartupTracePoint $state 26
+                Set-HermesStartupTraceFault $state
+                $report = New-HermesStartupReport $state $false $false
+                $observed = $report.observations
+                Assert-Control ($report.helperMatched -eq 1 -and $observed.TargetRowPresent -eq 1 `
+                    -and $observed.FinalRowPresent -eq 0 -and $observed.Marker0 -eq 1 `
+                    -and $observed.Marker1 -eq 0 -and $observed.Marker2 -eq 0 `
+                    -and $observed.Marker3 -eq 0 -and $observed.Marker4 -eq 0 `
+                    -and $observed.LastEventSeen -eq 0 -and $observed.FlagsSeen -eq 0 `
+                    -and $observed.ArmPresent -eq 0 -and $observed.BlockPresent -eq 0 `
+                    -and $observed.ParserProtocol -eq 0 -and $observed.ParserUnknown -eq 0 `
+                    -and $report.commandSha256 -cmatch '\A[0-9a-f]{64}\z' `
+                    -and $report.createCommandSha256 -cmatch '\A[0-9a-f]{64}\z' `
+                    -and $report.exitCommandSha256 -cmatch '\A[0-9a-f]{64}\z' `
+                    -and -not (Test-HermesStartupArm $state) -and -not $state.Acked `
+                    -and $report.tracePoint -eq 26 -and $report.status -eq 8 -and $report.error -eq 13 `
+                    -and $report.cleanupFault -eq 0 -and $report.completed -eq 0 `
+                    -and $report.armingVerified -eq 0 -and $report.firstFailureKind -eq 0 `
+                    -and $report.originalGatePassed -eq 0 -and $report.nativeAcceptance -eq 0)
+                foreach ($value in $observed.Values) {
+                    Assert-Control ($value -is [int])
+                }
+                $json = $report | ConvertTo-Json -Depth 4 -Compress
+                Assert-Control ([Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
+                    -and $json -notmatch 'private|secret|S-1-|--command|Create process|Exit process|\$\$><')
             }
         }
         $passed++
