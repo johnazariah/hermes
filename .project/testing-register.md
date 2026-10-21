@@ -2,6 +2,27 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Closed PowerShell probe owns explicit stdio and bounded drains
+
+Only the fixed PowerShell probe now uses extended startup information with
+an explicit list of three inheritable child stdio handles. Parent pipe ends
+are non-inheritable; parent copies of child ends and the stdin writer close
+while the child is suspended. Normal cmd launches retain their existing
+non-inherited detached path. Token, script lease, descriptor and exit-37
+requirements are unchanged.
+
+Two concurrent drains retain at most 4,096 bytes each, continue draining while
+counting discarded bytes, and publish only numeric facts. Native broken-pipe
+EOF, read failure, cancellation, bounded finish/stop, and original plus cleanup
+faults remain distinct. Job termination/reaping precede I/O and source cleanup.
+
+Forty-seven capability/layout/bounds/lifetime cases raise the exact native
+gate to 394, preserving all previous 347. Independent C# source review and
+parent byte/BOM/LF audit approve the literal patch. Warning-free root/Windows
+cross-builds, all 2,182 Core cases and installer static controls pass. Actual
+PowerShell exit 37 and all 394 cases remain pending; no whole-harness routing
+or MSI/UI success follows from this source approval.
+
 ## Fixed PowerShell startup and read-only reporter acquisition
 
 One new genuine case launches only Program Files PowerShell 7 with the

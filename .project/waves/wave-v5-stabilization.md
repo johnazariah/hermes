@@ -100,6 +100,21 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Fixed PowerShell probe receives controlled stdio
+
+- **Changed:** The final scoped implementation owns three stdio pipes, an explicit inherited-handle list and extended startup information only for the fixed PowerShell probe. Parent copies close before resume, stdin has EOF, concurrent bounded drains report numeric counts/status and checked cleanup retains failures.
+- **Scope:** This is a complete wired probe thread, not the previously overbroad whole-harness bundle. Provider bootstrap, general harness requests/dispatch, final context receipts and actual lifecycle routing remain deferred. Normal cmd, token authority, source lease and the PowerShell exit-37 assertion stay unchanged.
+- **Validation:** Fresh independent C# review approves all five targets and 47 new cases, requiring exactly 394. Mechanical application changes only authorised new-file BOM prefixes; parent byte audit, warning-free root/Windows cross-builds, 2,182 Core and all static controls pass.
+- **Blockers:** Controlled stdio is not yet proved to cure the observed PowerShell exit 0. Actual 394-case execution, Medium observation and the installed lifecycle remain pending.
+- **Next:** Publish and read the real fixed-script exit and bounded pipe/drain facts before generalising this launcher.
+
+### 2026-10-21 - Fixed PowerShell does not yet execute the exit fixture
+
+- **Evidence:** Published `28d9183` run `39593010501`, job `119198389679`, passes 346 of 347 native cases with zero skips. All original 324 and all 22 read-only reporter cases pass; only the new PowerShell case fails.
+- **Outcome:** PowerShell's actual pre-resume restricted context, owned cleanup and parent security/connection checks pass, but its process returns 0 instead of the fixture's required 37. The script execution prerequisite is not established; zero is not accepted as success.
+- **Boundary:** The fixed probe currently inherits no stdio handles. That is an observed launch configuration, not an identified cause. The real lifecycle still has no Medium routing or observer/channel/cache proof.
+- **Next:** The fresh whole-harness owner includes the existing PowerShell probe in the shared controlled-stdio launch path while retaining its exact source lease, actual context and exit-37 assertion. No fallback, skip or assertion relaxation is authorised.
+
 ### 2026-10-21 - All restricted-child tests pass; next context prerequisites are wired
 
 - **Evidence:** Published `e563f80` run `39590722505`, job `119190696185`, passes all 324 native cases without failures/skips. Both real MSI versions again pass complete native ICE with 699 exact prerequisite-bound warnings each.

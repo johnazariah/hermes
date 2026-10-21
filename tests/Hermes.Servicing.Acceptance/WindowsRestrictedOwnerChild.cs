@@ -157,7 +157,7 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IAcceptanceC
         Exited
     }
 
-    private sealed class OwnedInertChild(
+    private sealed partial class OwnedInertChild(
         AcceptanceDesktopSelection desktop = AcceptanceDesktopSelection.Automatic,
         bool ownedSelfControl = false,
         bool powerShellProbe = false)
@@ -213,7 +213,11 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IAcceptanceC
             {
                 var startup = new ChildStartupInfo(
                     (uint)sizeof(ChildStartupInfo), Desktop: (nint)desktopName);
-                StartOwned(token, application, mutableCommand, directory, &startup, security);
+                if (powerShellProbe)
+                    StartPowerShellProbe(
+                        token, application, mutableCommand, directory, &startup, security);
+                else
+                    StartOwned(token, application, mutableCommand, directory, &startup, security);
             }
         }
 
@@ -323,6 +327,7 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IAcceptanceC
             while (elapsed.Elapsed < TimeSpan.FromSeconds(10))
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                _powerShellIo?.Check();
                 var result = WaitForOwnedObject(Handle(_process), 100);
                 if (result == 0)
                     return ReadExit();
@@ -353,6 +358,7 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IAcceptanceC
                 () => _primary?.CloseChecked(),
                 () => _thread?.CloseChecked(),
                 () => _process?.CloseChecked(),
+                () => _powerShellIo?.Dispose(),
                 () => _powerShellSource?.Dispose());
             _cleanupCompleted = true;
         }
