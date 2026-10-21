@@ -100,6 +100,20 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-21 - Remaining validator gains per-call numeric evidence
+
+- **Changed:** A fresh C# specialist adds 14 fixed top-level validator source points, not guard-by-guard observations. Existing call/catch/order, exception identity, native evidence priority, policy and bounds remain. Independent source review approves the seven-file refinement.
+- **Validation:** Parent passes 838 Setup cases, including 19 new real-denial/conversion/precedence controls, and 2,182 Core. Root/Windows cross-builds are warning-free; all static controls pass.
+- **Boundary:** No producer/approval mismatch is proved from source. This diagnostic identifies the next existing validator call; it does not change media acceptance or certify installation.
+- **Next:** Publish and consume one normal exact-head Windows result before choosing the root correction.
+
+### 2026-10-21 - Real refusal is inside the remaining authoring validator
+
+- **Evidence:** Exact published `497b461` run `39526687201` returns stage 10/cause 22 with zero fault/error fields and no protocol/diagnostic error. Candidate media read, authoring read and inventory validation return; the remaining validator, including its expected-exception conversion, rejects.
+- **Validation:** All 57 native Windows cases and both complete 699-warning MSI validations pass again. Both supported OS jobs and Tray pass; the installed lifecycle still fails at first Install and publication is skipped.
+- **Boundary:** Recover reports NoRecoveryPending; cleanup has no failures. Main remains unchanged and PR #30 remains draft.
+- **Next:** A fresh C# specialist traces only the remaining validator steps, without further table-inventory probes or relaxed admission.
+
 ### 2026-10-21 - Candidate-media refusal gains five bounded source points
 
 - **Changed:** A fresh C# author supplies five coarse numeric boundaries, preserving original exception identity/native evidence and all acceptance checks. Independent source review approves the bounded diagnostic; only tagged candidate MediaInvalid emits the new values.

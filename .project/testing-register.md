@@ -2,6 +2,22 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Remaining-validator calls have fixed numeric source points
+
+Actual `497b461` returns candidate cause 22 after media, authoring and inventory
+checks. The source-reviewed refinement adds causes 24–37 for the existing
+top-level validator calls, retaining their order, catches and acceptance
+checks. Tracking is local to each validation; expected exceptions identify
+their enclosing call. Candidate output still requires stage 10 and zero
+auxiliary fields; the original evidence bounds remain unchanged.
+
+Nineteen new cases exercise real denials, malformed JSON/PE conversions,
+precedence, exception identity, unchanged reports and no mutation. All 838
+Setup cases and 2,182 Core pass; root/Windows cross-builds are warning-free
+and all static controls pass. Native Signature pins and all 57 native
+definitions/assertions remain unchanged. Actual inner rejection remains
+for the next normal Windows run.
+
 ## Five bounded candidate-media source points preserve refusal behaviour
 
 The source-reviewed diagnostic adds only five coarse boundaries: media read,

@@ -49,7 +49,21 @@ internal enum SetupEvidenceCause
     CandidateAuthoringRead = 20,
     CandidateValidatorInventory = 21,
     CandidateValidatorRemainder = 22,
-    CandidateResources = 23
+    CandidateResources = 23,
+    CandidateValidatorManifest = 24,
+    CandidateValidatorPayload = 25,
+    CandidateValidatorProperties = 26,
+    CandidateValidatorSearch = 27,
+    CandidateValidatorUpgrade = 28,
+    CandidateValidatorActions = 29,
+    CandidateValidatorSequences = 30,
+    CandidateValidatorDirectories = 31,
+    CandidateValidatorRegistry = 32,
+    CandidateValidatorComponents = 33,
+    CandidateValidatorFeature = 34,
+    CandidateValidatorGuard = 35,
+    CandidateValidatorShortcut = 36,
+    CandidateValidatorRemovals = 37
 }
 
 internal sealed record SetupRefusalEvidence(
@@ -67,7 +81,21 @@ internal sealed record SetupRefusalEvidence(
             or SetupEvidenceCause.CandidateAuthoringRead
             or SetupEvidenceCause.CandidateValidatorInventory
             or SetupEvidenceCause.CandidateValidatorRemainder
-            or SetupEvidenceCause.CandidateResources) &&
+            or SetupEvidenceCause.CandidateResources
+            or SetupEvidenceCause.CandidateValidatorManifest
+            or SetupEvidenceCause.CandidateValidatorPayload
+            or SetupEvidenceCause.CandidateValidatorProperties
+            or SetupEvidenceCause.CandidateValidatorSearch
+            or SetupEvidenceCause.CandidateValidatorUpgrade
+            or SetupEvidenceCause.CandidateValidatorActions
+            or SetupEvidenceCause.CandidateValidatorSequences
+            or SetupEvidenceCause.CandidateValidatorDirectories
+            or SetupEvidenceCause.CandidateValidatorRegistry
+            or SetupEvidenceCause.CandidateValidatorComponents
+            or SetupEvidenceCause.CandidateValidatorFeature
+            or SetupEvidenceCause.CandidateValidatorGuard
+            or SetupEvidenceCause.CandidateValidatorShortcut
+            or SetupEvidenceCause.CandidateValidatorRemovals) &&
         Fault == ObservationFault.None &&
         ErrorKind == StartupEvidenceErrorKind.None && ErrorCode == 0;
 
@@ -117,6 +145,27 @@ internal static class CandidateMediaEvidence
             error.IdentifyCandidateMedia(cause);
             throw;
         }
+    }
+}
+
+// Per-validation diagnostic state only. These calls neither catch exceptions
+// nor change validation policy; the validator's original catches remain authoritative.
+internal sealed class CandidateValidatorSourcePoint
+{
+    private SetupEvidenceCause _cause = SetupEvidenceCause.CandidateValidatorInventory;
+
+    internal SetupEvidenceCause Cause => _cause;
+
+    internal T Read<T>(SetupEvidenceCause cause, Func<T> read)
+    {
+        _cause = cause;
+        return read();
+    }
+
+    internal void Check(SetupEvidenceCause cause, Action check)
+    {
+        _cause = cause;
+        check();
     }
 }
 

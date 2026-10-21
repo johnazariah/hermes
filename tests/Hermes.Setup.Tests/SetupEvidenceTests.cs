@@ -390,7 +390,7 @@ public sealed partial class SetupEvidenceTests
         using var world = new RootFixture(badGuard: true);
         var result = await RunAsync(world, SetupVerb.Install);
         AssertRefused(result, SetupVerb.Install,
-            new(SetupEvidenceStage.CandidatePackage, SetupEvidenceCause.CandidateValidatorRemainder),
+            new(SetupEvidenceStage.CandidatePackage, SetupEvidenceCause.CandidateValidatorGuard),
             SetupCode.MediaInvalid);
         using var report = JsonDocument.Parse(result.Output);
         Assert.Equal("Refused", report.RootElement.GetProperty("outcome").GetString());

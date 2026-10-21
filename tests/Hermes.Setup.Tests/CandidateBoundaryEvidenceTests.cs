@@ -9,25 +9,14 @@ namespace Hermes.Setup.Tests;
 public sealed partial class SetupEvidenceTests
 {
     [Fact]
-    public async Task CandidateBoundariesHaveOnlyFiveFixedBoundedNumericalDiscriminators()
+    public async Task CandidateBoundariesHaveOnlyFixedBoundedNumericalDiscriminators()
     {
         using var world = new RootFixture();
         var source = BoundaryPackagePath(world);
         var causes = Enum.GetValues<SetupEvidenceCause>().Where(cause => (int)cause >= 19).ToArray();
-        Assert.Equal(Enumerable.Range(19, 5), causes.Select(cause => (int)cause));
+        Assert.Equal(Enumerable.Range(19, 19), causes.Select(cause => (int)cause));
         foreach (var cause in causes)
-        {
-            var evidence = BoundaryEvidence(cause);
-            Assert.True(evidence.IsCandidateMedia);
-            Assert.InRange(evidence.ToDiagnosticLine().Length, 1,
-                SetupRefusalEvidence.MaximumDiagnosticLength);
-            Assert.Matches(
-                @"\AHERMES_SETUP_EVIDENCE v=1 stage=10 cause=(19|2[0-3]) fault=0 errorKind=0 error=0\z",
-                evidence.ToDiagnosticLine());
-            var result = await RunAsync(new ThrowingFactory(
-                new SetupIoException(SetupCode.MediaInvalid, evidence)), SetupVerb.Install, source);
-            AssertRefused(result, SetupVerb.Install, evidence, SetupCode.MediaInvalid);
-        }
+            await AssertCandidateBoundaryAsync(cause, source);
     }
 
     [Fact]
@@ -39,7 +28,7 @@ public sealed partial class SetupEvidenceTests
         SetupRefusalEvidence?[] values = [null,
             valid with { Stage = SetupEvidenceStage.CurrentPackage },
             valid with { Cause = SetupEvidenceCause.Rejected },
-            valid with { Cause = (SetupEvidenceCause)24 },
+            valid with { Cause = (SetupEvidenceCause)38 },
             valid with { Fault = ObservationFault.NativeQuery },
             valid with { ErrorKind = StartupEvidenceErrorKind.HResult },
             valid with { ErrorCode = 1 }];
@@ -117,7 +106,7 @@ public sealed partial class SetupEvidenceTests
         var database = new BoundaryDatabase(world.Database,
             authoring: world.New.Authoring.Cell("Property", 5, 1, "sensitive").Snapshot);
         AssertRefused(await RunBoundaryAsync(world, database), SetupVerb.Install,
-            BoundaryEvidence(SetupEvidenceCause.CandidateValidatorRemainder), SetupCode.MediaInvalid);
+            BoundaryEvidence(SetupEvidenceCause.CandidateValidatorProperties), SetupCode.MediaInvalid);
         AssertNoMutation(world);
     }
 
@@ -126,12 +115,14 @@ public sealed partial class SetupEvidenceTests
     {
         using var world = new RootFixture();
         var snapshot = world.New.Authoring.Snapshot;
+        var malformed = ImmutableArray.Create((byte)0);
+        Assert.Throws<BadImageFormatException>(() => GuardImageInspection.Read(malformed));
         var database = new BoundaryDatabase(world.Database, authoring: snapshot with
         {
-            Binaries = snapshot.Binaries.SetItem("HermesServicingGuard", ImmutableArray.Create((byte)0))
+            Binaries = snapshot.Binaries.SetItem("HermesServicingGuard", malformed)
         });
         AssertRefused(await RunBoundaryAsync(world, database), SetupVerb.Install,
-            BoundaryEvidence(SetupEvidenceCause.CandidateValidatorRemainder), SetupCode.MediaInvalid);
+            BoundaryEvidence(SetupEvidenceCause.CandidateValidatorGuard), SetupCode.MediaInvalid);
         AssertNoMutation(world);
     }
 

@@ -202,7 +202,7 @@ foreach ($text in $sourceInvalid) {
     Require (($result | ConvertTo-Json -Depth 8 -Compress) -cnotmatch 'SYNTHETIC_SECRET|token=|HERMES_SETUP|unknown=') 'Invalid source-point diagnostics leaked raw stderr.'
 }
 
-$candidateLines = @(foreach ($cause in 19..23) {
+$candidateLines = @(foreach ($cause in 19..37) {
     "HERMES_SETUP_EVIDENCE v=1 stage=10 cause=$cause fault=0 errorKind=0 error=0"
 })
 foreach ($line in $candidateLines) {
@@ -212,7 +212,7 @@ foreach ($line in $candidateLines) {
         -and $result.diagnosticCodes.Count -eq 1 -and $result.diagnosticCodes[0] -ceq 'MediaInvalid') 'Candidate boundary evidence changed the original refusal or diagnostic marker.'
     $value = $result.refusalEvidence
     Require (($value.PSObject.Properties.Name -join ',') -ceq 'v,stage,cause,fault,errorKind,error' `
-        -and $value.v -eq 1 -and $value.stage -eq 10 -and $value.cause -ge 19 -and $value.cause -le 23 `
+        -and $value.v -eq 1 -and $value.stage -eq 10 -and $value.cause -ge 19 -and $value.cause -le 37 `
         -and $value.fault -eq 0 -and $value.errorKind -eq 0 -and $value.error -eq 0) 'Candidate evidence must contain only the exact fixed numerical combination.'
     Require ($line.Length -le 192 `
         -and $line -ceq "HERMES_SETUP_EVIDENCE v=$($value.v) stage=$($value.stage) cause=$($value.cause) fault=$($value.fault) errorKind=$($value.errorKind) error=$($value.error)") 'Candidate boundary evidence exceeded its bound or failed to round-trip.'
@@ -243,7 +243,7 @@ $candidateInvalid = @(
         $line.Replace(' fault=0', '')
         $line.Replace(' errorKind=0', '')
     }
-    foreach ($cause in @('0', '24', '99', '-1', '019', '+19', '19.0', 'SYNTHETIC_SECRET')) {
+    foreach ($cause in @('0', '38', '99', '-1', '019', '024', '+19', '+24', '19.0', '24.0', 'SYNTHETIC_SECRET')) {
         $candidateLines[0].Replace('cause=19 ', "cause=$cause ")
     }
     ($candidateLines[0] + ('x' * 192))

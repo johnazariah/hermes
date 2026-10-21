@@ -2,6 +2,7 @@
 using System.Globalization;
 using System.Text.Json;
 using Hermes.Servicing;
+using static Hermes.Setup.SetupEvidenceCause;
 
 namespace Hermes.Setup;
 
@@ -133,46 +134,45 @@ internal static partial class PackageAuthoringValidator
         PackageAuthoringMode mode,
         ApprovedGuardProfile approvedGuards)
     {
-        var sourcePoint = SetupEvidenceCause.CandidateValidatorInventory;
+        var sourcePoint = new CandidateValidatorSourcePoint();
         try
         {
             ValidateInputs(mode, approvedGuards);
             ValidateInventory(snapshot);
-            sourcePoint = SetupEvidenceCause.CandidateValidatorRemainder;
-            return Effect<ValidatedPackageProfile>.Ok(Build(snapshot, mode, approvedGuards));
+            return Effect<ValidatedPackageProfile>.Ok(sourcePoint.Read(CandidateValidatorRemainder,
+                () => Build(snapshot, mode, approvedGuards, sourcePoint)));
         }
         catch (SetupIoException error)
         {
             if (error.Code == SetupCode.MediaInvalid)
-                error.IdentifyCandidateMedia(sourcePoint);
+                error.IdentifyCandidateMedia(sourcePoint.Cause);
             return Effect<ValidatedPackageProfile>.Fail(error.Code, error.Evidence);
         }
         catch (Exception error) when (SetupIo.Expected(error))
-        {
-            return Effect<ValidatedPackageProfile>.Fail(SetupCode.MediaInvalid,
-                CandidateMediaEvidence.At(sourcePoint));
-        }
+        { return Effect<ValidatedPackageProfile>.Fail(SetupCode.MediaInvalid,
+            CandidateMediaEvidence.At(sourcePoint.Cause)); }
     }
 
     private static ValidatedPackageProfile Build(
         PackageAuthoringSnapshot snapshot,
         PackageAuthoringMode mode,
-        ApprovedGuardProfile approvedGuards)
+        ApprovedGuardProfile approvedGuards,
+        CandidateValidatorSourcePoint point)
     {
-        var manifest = ReadManifest(snapshot);
-        ValidatePayload(snapshot, manifest, mode);
-        ValidateProperties(snapshot, manifest);
-        ValidateSearch(snapshot);
-        ValidateUpgrade(snapshot, manifest);
-        ValidateActions(snapshot);
-        ValidateSequences(snapshot);
-        ValidateDirectories(snapshot, manifest);
-        var registry = ReadRegistry(snapshot, manifest);
-        var components = ReadComponents(snapshot, manifest, registry);
-        ValidateFeature(snapshot, components);
-        return new(manifest, mode, ReadGuard(snapshot, approvedGuards),
-            components, registry, ReadShortcut(snapshot, manifest),
-            ReadRemovals(snapshot, manifest));
+        var manifest = point.Read(CandidateValidatorManifest, () => ReadManifest(snapshot));
+        point.Check(CandidateValidatorPayload, () => ValidatePayload(snapshot, manifest, mode));
+        point.Check(CandidateValidatorProperties, () => ValidateProperties(snapshot, manifest));
+        point.Check(CandidateValidatorSearch, () => ValidateSearch(snapshot));
+        point.Check(CandidateValidatorUpgrade, () => ValidateUpgrade(snapshot, manifest));
+        point.Check(CandidateValidatorActions, () => ValidateActions(snapshot));
+        point.Check(CandidateValidatorSequences, () => ValidateSequences(snapshot));
+        point.Check(CandidateValidatorDirectories, () => ValidateDirectories(snapshot, manifest));
+        var registry = point.Read(CandidateValidatorRegistry, () => ReadRegistry(snapshot, manifest));
+        var components = point.Read(CandidateValidatorComponents, () => ReadComponents(snapshot, manifest, registry));
+        point.Check(CandidateValidatorFeature, () => ValidateFeature(snapshot, components));
+        return new(manifest, mode, point.Read(CandidateValidatorGuard, () => ReadGuard(snapshot, approvedGuards)),
+            components, registry, point.Read(CandidateValidatorShortcut, () => ReadShortcut(snapshot, manifest)),
+            point.Read(CandidateValidatorRemovals, () => ReadRemovals(snapshot, manifest)));
     }
 
     private static void ValidateInputs(
