@@ -1405,7 +1405,7 @@ foreach ($case in $cases) {
                 $expectedCreate = @(
                     '.printf "HERMES_CDB v=2 kind=1 pid=%u\n", @$tpid',
                     '.lastevent', '|.', '!gflag +sls', '!gflag',
-                    '.catch { .if (@@c++(sizeof(((ntdll!_PEB*)@$peb)->NtGlobalFlag)) == 4) { .printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(((ntdll!_PEB*)@$peb)->NtGlobalFlag) } }',
+                    '.catch { .if (@@c++(sizeof(@$peb->NtGlobalFlag)) == 4) { .printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(@$peb->NtGlobalFlag) } }',
                     '.printf "HERMES_CDB v=2 kind=2 pid=%u\n", @$tpid', 'g'
                 )
                 $expectedExit = @(
@@ -3258,8 +3258,8 @@ foreach ($case in $cases) {
                 . $controlCommandDriver
                 $report = New-HermesStartupReport $state $debuggerEnded $drainsEnded
                 $bytes = $script:controlCommandFiles[(Join-Path $root 'startup-cpr.cdb')]
-                Assert-Control ($bytes.Length -eq 322 `
-                    -and $report.createCommandSha256 -ceq '63583985b0a09497590613a74f8d97f45d1c117981ff8492888d516b2ad6a17a' `
+                Assert-Control ($bytes.Length -eq 292 `
+                    -and $report.createCommandSha256 -ceq 'f9669bade43b6f4c0784738783d9fe4f806558b2110a3368e2cacb2c265ebe25' `
                     -and $script:controlCommandPins.Count -eq 3 -and $script:controlCommandHashes -eq 3 `
                     -and $script:controlLaunchBindings -eq 1 -and $script:controlStops -eq 1 `
                     -and $script:controlDisposed -eq 1 -and $report.armingVerified -eq 0)
@@ -3309,6 +3309,10 @@ foreach ($case in $cases) {
                 $lines = $source -split "`r`n"
                 Assert-Control ($lines.Count -eq 9 -and $lines[5].StartsWith('.catch { .if (') `
                     -and $lines[5].EndsWith(') } }') `
+                    -and $lines[5].Contains('@@c++(sizeof(@$peb->NtGlobalFlag)) == 4') `
+                    -and $lines[5].Contains('@@c++(@$peb->NtGlobalFlag)') `
+                    -and [regex]::Matches($lines[5], '@\$peb->NtGlobalFlag').Count -eq 2 `
+                    -and $lines[5] -notmatch 'ntdll|_PEB|\*|(?<!@)\$peb|0x|(?i:BeingDebugged|Environment)' `
                     -and @($lines | Where-Object { $_ -cmatch '\.catch' }).Count -eq 1 `
                     -and @($lines[5].ToCharArray() | Where-Object { $_ -eq '{' }).Count -eq 2 `
                     -and @($lines[5].ToCharArray() | Where-Object { $_ -eq '}' }).Count -eq 2 `

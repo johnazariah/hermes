@@ -140,7 +140,8 @@ function New-TraceCommands {
 }
 
 function New-TraceEventCommands {
-    # C++ resolves the field through the target's ntdll symbols, never an offset.
+    # C++ supplies @$peb as PEB*: read its field without an explicit module cast.
+    # This expression control does not establish availability at create-process.
     # Only a four-byte field may produce this readback; missing types/memory
     # leave the v2 create block unarmed, even if !gflag printed a valid value.
     # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/c---numbers-and-operators
@@ -154,7 +155,7 @@ function New-TraceEventCommands {
         'startup-cpr.cdb' = (@(
             '.printf "HERMES_CDB v=2 kind=1 pid=%u\n", @$tpid',
             '.lastevent', '|.', '!gflag +sls', '!gflag',
-            '.catch { .if (@@c++(sizeof(((ntdll!_PEB*)@$peb)->NtGlobalFlag)) == 4) { .printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(((ntdll!_PEB*)@$peb)->NtGlobalFlag) } }',
+            '.catch { .if (@@c++(sizeof(@$peb->NtGlobalFlag)) == 4) { .printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(@$peb->NtGlobalFlag) } }',
             '.printf "HERMES_CDB v=2 kind=2 pid=%u\n", @$tpid', 'g'
         ) -join "`r`n") + "`r`n"
         'startup-epr.cdb' = (@(

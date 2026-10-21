@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Use the debugger's native PEB type for the fixed field read
+
+- **Evidence:** Published `12c592e`, run `39674762741`, job `119481586348`, contains query errors and closes create/exit callbacks. No typed value is produced, so the actual target remains unarmed; this is unavailable evidence, not measured zero.
+- **Changed:** A fresh source owner replaces only the explicit module cast with documented native `PEB*` pseudoregister field access. The four-byte guard, `.catch`, identity framing, output limits and flag-2-before-resume remain unchanged.
+- **Validation:** Parent source/primary-documentation review and all 212 pure controls pass. The pinned create callback is 292 bytes; no memory write or new resume authority is added.
+- **Blockers:** Actual field access at creation and the previous query's failure cause remain unproved.
+- **Next:** Publish this single expression control and inspect actual flag availability before choosing any protocol change.
+
 ### 2026-10-22 - Contain typed-query errors without acknowledging missing flags
 
 - **Evidence:** Published `569577c`, run `39673160539`, job `119476024112`, passes 210 pure controls and 460/461 native cases. The target create event binds, but the typed query produces no value or closing marker; no unavailable result is treated as zero.

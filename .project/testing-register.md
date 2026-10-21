@@ -2,6 +2,19 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Typed PEB query uses the debugger's documented native type
+
+The fixed read now uses `@$peb->NtGlobalFlag` directly. Microsoft's C++
+evaluator documentation defines `$peb` as `PEB*`; the explicit module-qualified
+cast is unnecessary. The width guard, error containment, strict PID/birth
+parser and flag-2 acknowledgement remain unchanged.
+
+All 212 pure controls pass. The pinned callback is 292 bytes with SHA-256
+`f9669bade43b6f4c0784738783d9fe4f806558b2110a3368e2cacb2c265ebe25`.
+No new memory write or resume permission is introduced. Actual native
+availability remains pending, and the previous query's failure is not
+attributed to the cast without target-host evidence.
+
 ## Unavailable typed queries cannot abort callback closure
 
 The fixed typed read is now inside the debugger's documented `.catch`
