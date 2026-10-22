@@ -2,6 +2,22 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## CPR-only literal-script execution control
+
+All **373 controls** pass, retaining the prior 369 and adding four
+source/publication/readback mode regressions. Only CPR uses `$$<` literal
+script execution; EPR and IBP retain `$$><` condensed execution. The root
+command hash changes, while all three callback files retain their exact
+bytes, hashes and existing `g` counts. Wrong-mode readback and tampered
+publication refuse before authority or launch.
+
+The actual `ad65fc1` Windows run passes both process-pipe controls and shows
+read initiation at most 10 ms, with measured create collection/check work
+at most 100 ms. The stale 199-to-95 transition remains unexplained.
+Microsoft's documented script-mode distinction grounds this single-factor
+experiment; native correction and loader causality are not claimed.
+Installer static controls, warning-free root build and 2,184 tests pass.
+
 ## Controlled process pipes exercise live collection before producer exit
 
 All **369 controls** pass, preserving the prior 361 and adding two actual

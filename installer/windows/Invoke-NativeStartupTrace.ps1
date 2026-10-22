@@ -112,8 +112,10 @@ function New-TraceCommands {
     $cpr = Assert-TraceCommandPath (Join-Path $root 'startup-cpr.cdb')
     $epr = Assert-TraceCommandPath (Join-Path $root 'startup-epr.cdb')
     $ibp = Assert-TraceCommandPath (Join-Path $root 'startup-ibp.cdb')
-    # $$>< takes a filename (spaces permitted), not script arguments. Refuse
-    # its semicolon separator and the enclosing -c quote delimiter in paths.
+    # $$< and $$>< take filenames (spaces permitted), not script arguments.
+    # Refuse their semicolon separator and the enclosing -c quote delimiter.
+    # Only CPR uses literal linewise input; EPR and IBP remain condensed.
+    # This is a single-factor diagnostic control, not a native correction.
     # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/-----------------------a---run-script-file-
     # The measured -c parse removes unescaped backslashes. Encode the
     # validated callback paths; sx readback must retain their literal separators.
@@ -126,7 +128,7 @@ function New-TraceCommands {
         '.chain',
         '.printf "HERMES_CDB v=1 kind=0 pid=%u\n", @$tpid',
         ('sxe -c "$$><' + $ibp.Replace('\', '\\') + '" ibp'),
-        ('sxe -c "$$><' + $cpr.Replace('\', '\\') + '" cpr'),
+        ('sxe -c "$$<' + $cpr.Replace('\', '\\') + '" cpr'),
         ('sxe -c "$$><' + $epr.Replace('\', '\\') + '" epr'),
         'sx',
         'g'
@@ -145,7 +147,7 @@ function New-TraceEventCommands {
     # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/pseudo-register-syntax
     # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/-printf
     # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/-if
-    # $$>< condenses this file into a command program. Contain query errors,
+    # $$>< condenses the IBP file into a command program. Contain query errors,
     # not the closing marker. The ibp callback deliberately has no final g.
     # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/-catch
     [ordered]@{
@@ -204,7 +206,7 @@ function Publish-TraceCommands {
     $state.InitialCommandSha256 = $hashes['startup-ibp.cdb']
     $state.ExtensionExpected = $Extension
     # Compare sx readback with the fixed, fully verified publication only.
-    $state.FilterExpected.Cpr = 'Command: "$$><' + (Join-Path $root 'startup-cpr.cdb').Replace('\', '\\') + '"'
+    $state.FilterExpected.Cpr = 'Command: "$$<' + (Join-Path $root 'startup-cpr.cdb').Replace('\', '\\') + '"'
     $state.FilterExpected.Epr = 'Command: "$$><' + (Join-Path $root 'startup-epr.cdb').Replace('\', '\\') + '"'
     $state.FilterExpected.Ibp = 'Command: "$$><' + (Join-Path $root 'startup-ibp.cdb').Replace('\', '\\') + '"'
     return Join-Path $root 'startup.cdb'

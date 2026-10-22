@@ -100,6 +100,23 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Pin the CPR-only literal-script experiment
+
+- **Changed:** A fresh owner changes only the create callback invocation/readback from condensed `$$><` to literal `$$<`. EPR/IBP invocation and all callback-file bytes remain unchanged; no debugger continuation or permission is added.
+- **Validation:** Parent review, all 373 controls, installer static controls, warning-free root build and 2,184 tests pass. Four new regressions bind the changed root hash, unchanged callback hashes, exact readback and tamper refusal. Every prior intent remains.
+- **Boundary:** This tests the documented script execution distinction; it does not establish native event-delivery or PowerShell loader causality. Current Final/exit observations still override historical eligibility.
+- **Blockers:** Actual CREATED progress, pre-DllMain arming and genuine PowerShell execution remain unproved.
+- **Next:** Publish the single-factor control and inspect actual phase ordering before proceeding.
+
+### 2026-10-22 - Windows process pipes progress; the stale event is consumed quickly
+
+- **Evidence:** Published `ad65fc1`, run `39700979150`, job `119569855399`, passes all 369 controls, including both actual Windows process-pipe cases. Native results remain 500/501 with only the original restricted PowerShell case failing and no skips.
+- **Observed:** Both read-initiation maxima are at most 10 ms. Create-read age, parsing, receive delay and first-check delay are at most 100 ms; control-file work is at most 10 ms. Ready/create/check masks remain 3/199/95. The measured consumer work does not account for the acknowledgement timeout.
+- **Decision:** A fresh, narrower source control will invoke only the create callback as literal script lines rather than a condensed command block. Microsoft documents that distinction. The callback's fixed bytes and final debugger `g`, all other callbacks and every permission/arming gate remain unchanged.
+- **Boundary:** This is an execution-mode experiment, not proof of a CDB buffering mechanism or a PowerShell loader cause.
+- **Blockers:** No CREATED acknowledgement, native Resume or child initial breakpoint is observed; the diagnostic still reports 1460/cleanup 5.
+- **Next:** Review and run the CPR-only literal-script control on disposable hosted Windows.
+
 ### 2026-10-22 - Exercise actual process pipes and classify the remaining collection delay
 
 - **Changed:** Two finite, source-pinned PowerShell producers exercise the production collector over genuine process handles, including non-owning FileStream adapters on macOS. Both stdout/stderr and live control rows progress before producer exit. Closed monotonic classes distinguish read initiation, read age, parsing, batching, control reads and the first publication check.

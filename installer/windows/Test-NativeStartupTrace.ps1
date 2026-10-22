@@ -56,7 +56,8 @@ function New-ControlNativeCreated {
     $native.CommandSha256 = 'a' * 64
     $sources = New-TraceEventCommands
     foreach ($name in @('Cpr', 'Epr', 'Ibp')) {
-        $native.FilterExpected[$name] = 'Command: "$$><D:\\owned\\startup-' + $name.ToLowerInvariant() + '.cdb"'
+        $token = if ($name -ceq 'Cpr') { '$$<' } else { '$$><' }
+        $native.FilterExpected[$name] = 'Command: "' + $token + 'D:\\owned\\startup-' + $name.ToLowerInvariant() + '.cdb"'
         $label = switch ($name) { 'Cpr' { 'Create process' }; 'Epr' { 'Exit process' }; 'Ibp' { 'Initial breakpoint' } }
         Add-HermesStartupLine $native ($name.ToLowerInvariant() + ' - ' + $label + ' - break')
         Add-HermesStartupLine $native $native.FilterExpected[$name]
@@ -578,6 +579,10 @@ function Write-TraceCommandFile {
                 [Text.Encoding]::ASCII.GetString($copy).Replace("`n.chain`n", "`n.echo `n")) }
             12 { $copy = [Text.Encoding]::ASCII.GetBytes(
                 [Text.Encoding]::ASCII.GetString($copy).Replace('.load "C:\\', '.load "C:\ ')) }
+            13 { $copy = [Text.Encoding]::ASCII.GetBytes(
+                [Text.Encoding]::ASCII.GetString($copy).Replace('sxe -c "$$<', 'sxe -c "$$><')) }
+            14 { $copy = [Text.Encoding]::ASCII.GetBytes(
+                [Text.Encoding]::ASCII.GetString($copy).Replace('sxe -c "$$<', 'sxe -c "$><')) }
         }
     }
     $script:controlCommandFiles[$Path] = $copy
@@ -597,7 +602,7 @@ function Get-HermesSetupPublishFiles {
     }
 }
 
-$cases = 1..369 # Preserve 361 intents; process pipes and closed monotonic work classes.
+$cases = 1..373 # Preserve all 369 intents; literal CPR source/publication/mode controls.
 $passed = 0
 foreach ($case in $cases) {
     $state = $null
@@ -1665,16 +1670,17 @@ foreach ($case in $cases) {
                     -and $lines[1] -ceq '.chain' `
                     -and $lines[2] -ceq '.printf "HERMES_CDB v=1 kind=0 pid=%u\n", @$tpid' `
                     -and $lines[3] -ceq ('sxe -c "$$><' + (Join-Path $root 'startup-ibp.cdb').Replace('\', '\\') + '" ibp') `
+                    -and $lines[4] -ceq ('sxe -c "$$<' + (Join-Path $root 'startup-cpr.cdb').Replace('\', '\\') + '" cpr') `
+                    -and $lines[5] -ceq ('sxe -c "$$><' + (Join-Path $root 'startup-epr.cdb').Replace('\', '\\') + '" epr') `
                     -and $lines[6] -ceq 'sx' `
                     -and $lines[7] -ceq 'g' -and $lines[8] -ceq '')
                 foreach ($line in $lines[4..5]) {
-                    Assert-Control ($line -cmatch '\Asxe -c "\$\$><[^";\r\n]+" (?:cpr|epr)\z' `
-                        -and @($line.ToCharArray() | Where-Object { $_ -eq '"' }).Count -eq 2 `
+                    Assert-Control (@($line.ToCharArray() | Where-Object { $_ -eq '"' }).Count -eq 2 `
                         -and $line -notmatch '\.printf|\.lastevent|!gflag|\\"')
                 }
                 $json = $report | ConvertTo-Json -Depth 4 -Compress
                 Assert-Control ([Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
-                    -and $json -notmatch 'command-root|command root|selected.sdk|fixed-published|startup-cpr|startup-epr|\$\$><|HERMES_CDB')
+                    -and $json -notmatch 'command-root|command root|selected.sdk|fixed-published|startup-cpr|startup-epr|\$\$|HERMES_CDB')
             }
             91 {
                 $sources = New-TraceEventCommands
@@ -1699,7 +1705,7 @@ foreach ($case in $cases) {
                     -and $sources['startup-epr.cdb'] -ceq (($expectedExit -join "`r`n") + "`r`n"))
                 foreach ($text in $sources.Values) {
                     Assert-Control (-not $text.Contains('\"', [StringComparison]::Ordinal) `
-                        -and $text -notmatch '(?<!\r)\n|sx-|sxe|sxd|\.load|\$\$><')
+                        -and $text -notmatch '(?<!\r)\n|sx-|sxe|sxd|\.load|\$\$')
                 }
             }
             { $_ -in 92..100 } {
@@ -1798,7 +1804,7 @@ foreach ($case in $cases) {
                 $state.Out.Hash.Dispose()
                 $state.Err.Hash.Dispose()
                 $state = New-ControlFixture -BeforeExitLines @(
-                    '1:001> $$><C:\private\startup-cpr.cdb',
+                    '1:001> $$<C:\private\startup-cpr.cdb',
                     '1:001> .printf "HERMES_CDB v=1 kind=3 pid=%u\n", @$tpid',
                     '1:001> $$><C:\private\startup-epr.cdb',
                     '1:001> .printf "HERMES_CDB v=1 kind=4 pid=%u\n", @$tpid'
@@ -1810,7 +1816,7 @@ foreach ($case in $cases) {
                     -and $report.observations.ParserUnknown -eq 0 `
                     -and $report.armingVerified -eq 1 -and $report.completed -eq 1 `
                     -and $report.firstFailureKind -eq 1 `
-                    -and ($report | ConvertTo-Json -Depth 4 -Compress) -notmatch 'private|\$\$><|printf')
+                    -and ($report | ConvertTo-Json -Depth 4 -Compress) -notmatch 'private|\$\$|printf')
             }
             111 {
                 . $controlCommandDriver
@@ -1819,7 +1825,7 @@ foreach ($case in $cases) {
                     '.chain',
                     '.printf "HERMES_CDB v=1 kind=0 pid=%u\n", @$tpid',
                     ('sxe -c "$$><' + (Join-Path $root 'startup-ibp.cdb').Replace('\', '\\') + '" ibp'),
-                    ('sxe -c "$$><' + (Join-Path $root 'startup-cpr.cdb').Replace('\', '\\') + '" cpr'),
+                    ('sxe -c "$$<' + (Join-Path $root 'startup-cpr.cdb').Replace('\', '\\') + '" cpr'),
                     ('sxe -c "$$><' + (Join-Path $root 'startup-epr.cdb').Replace('\', '\\') + '" epr'),
                     'sx', 'g'
                 )
@@ -1875,7 +1881,7 @@ foreach ($case in $cases) {
                 foreach ($line in @(
                     '1:001> sx',
                     'cpr - Create process - break',
-                    '       Command: "$$><C:\private\startup-cpr.cdb"',
+                    '       Command: "$$<C:\private\startup-cpr.cdb"',
                     'epr - Exit process - break',
                     '       Command: "$$><C:\private\startup-epr.cdb"',
                     'cpr - Create process - unknown C:\private\secret S-1-5-21-123 --command'
@@ -1904,7 +1910,7 @@ foreach ($case in $cases) {
                 }
                 $json = $report | ConvertTo-Json -Depth 4 -Compress
                 Assert-Control ([Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
-                    -and $json -notmatch 'private|secret|S-1-|--command|Create process|Exit process|\$\$><')
+                    -and $json -notmatch 'private|secret|S-1-|--command|Create process|Exit process|\$\$')
             }
             117 {
                 . $controlCommandDriver
@@ -1932,7 +1938,7 @@ foreach ($case in $cases) {
                     -and $report.observations.ParserProtocol -eq 0 `
                     -and $report.observations.Marker1 -eq 0 -and $report.observations.FlagsSeen -eq 0)
                 Assert-Control (($report | ConvertTo-Json -Depth 4 -Compress) `
-                    -notmatch 'command-root|startup-cpr|startup-epr|\$\$><|Command:|xxxxx')
+                    -notmatch 'command-root|startup-cpr|startup-epr|\$\$|Command:|xxxxx')
             }
             118 {
                 . $controlCommandDriver
@@ -1942,7 +1948,7 @@ foreach ($case in $cases) {
                     ($expected + ' trailing'),
                     $expected.Replace('startup-cpr', 'STARTUP-CPR'),
                     ('0:000> ' + $expected),
-                    $expected.Replace('$$><', '$$<'),
+                    $expected.Replace('$$<', '$$><'),
                     $expected.Replace('"', '')
                 )) {
                     Add-HermesStartupLine $state 'cpr - Create process - break'
@@ -2017,7 +2023,7 @@ foreach ($case in $cases) {
                 $state.Err.Hash.Dispose()
                 $state = New-ControlFixture
                 $before = New-HermesStartupReport $state $true $true
-                $state.FilterExpected.Cpr = 'Command: "$$><C:\private\secret S-1-5-21-123 --command.cdb"'
+                $state.FilterExpected.Cpr = 'Command: "$$<C:\private\secret S-1-5-21-123 --command.cdb"'
                 Add-HermesStartupLine $state 'cpr - Create process - ignore'
                 Add-HermesStartupLine $state $state.FilterExpected.Cpr
                 $report = New-HermesStartupReport $state $true $true
@@ -2028,7 +2034,7 @@ foreach ($case in $cases) {
                 }
                 $json = $report | ConvertTo-Json -Depth 4 -Compress
                 Assert-Control ([Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
-                    -and $json -notmatch 'private|secret|S-1-|--command|\$\$><|Command:')
+                    -and $json -notmatch 'private|secret|S-1-|--command|\$\$|Command:')
             }
             124 {
                 $script:controlCommandFault = 2
@@ -2036,7 +2042,7 @@ foreach ($case in $cases) {
                 . $controlCommandDriver
                 Add-HermesStartupLine $state 'cpr - Create process - break'
                 Add-HermesStartupLine $state (
-                    'Command: "$$><' + (Join-Path $root 'startup-cpr.cdb') + '"')
+                    'Command: "$$<' + (Join-Path $root 'startup-cpr.cdb') + '"')
                 $report = New-HermesStartupReport $state $true $true
                 Assert-Control ($state.FilterExpected.Cpr -ceq '' -and $state.FilterExpected.Epr -ceq '' `
                     -and $report.observations.CprFilter -eq 1 -and $report.status -eq 8 `
@@ -2097,7 +2103,7 @@ foreach ($case in $cases) {
                     ('Command: ' + $quoted.Replace('startup-cpr', 'STARTUP-CPR')),
                     ('Command: ' + $quoted.Replace('startup-cpr', 'startup-epr')),
                     ('Command: ' + $quoted + ';g'),
-                    ('Command: ' + $quoted.Replace('$$><', '$$<'))
+                    ('Command: ' + $quoted.Replace('$$<', '$$><'))
                 )) {
                     Add-HermesStartupLine $state 'cpr - Create process - break'
                     Add-HermesStartupLine $state $text
@@ -2158,7 +2164,7 @@ foreach ($case in $cases) {
                 $state.Err.Hash.Dispose()
                 $state = New-ControlFixture
                 $before = New-HermesStartupReport $state $true $true
-                $state.FilterExpected.Cpr = 'Command: "$$><C:\private\secret S-1-5-21-123 --command.cdb"'
+                $state.FilterExpected.Cpr = 'Command: "$$<C:\private\secret S-1-5-21-123 --command.cdb"'
                 Add-HermesStartupLine $state 'cpr - Create process - break'
                 Add-HermesStartupLine $state ('Command1: ' + $state.FilterExpected.Cpr.Substring(9))
                 $report = New-HermesStartupReport $state $true $true
@@ -2171,7 +2177,7 @@ foreach ($case in $cases) {
                 }
                 $json = $report | ConvertTo-Json -Depth 4 -Compress
                 Assert-Control ([Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
-                    -and $json -notmatch 'private|secret|S-1-|--command|\$\$><|Command1:')
+                    -and $json -notmatch 'private|secret|S-1-|--command|\$\$|Command1:')
             }
             131 {
                 $script:controlCommandFault = 2
@@ -2179,7 +2185,7 @@ foreach ($case in $cases) {
                 . $controlCommandDriver
                 Add-HermesStartupLine $state 'cpr - Create process - break'
                 Add-HermesStartupLine $state (
-                    'Command: "$$><' + (Join-Path $root 'startup-cpr.cdb') + '"')
+                    'Command: "$$<' + (Join-Path $root 'startup-cpr.cdb') + '"')
                 $report = New-HermesStartupReport $state $true $true
                 Assert-Control ($state.FilterExpected.Cpr -ceq '' `
                     -and $report.observations.CprCommandShape -eq 6 `
@@ -2189,9 +2195,9 @@ foreach ($case in $cases) {
             }
             132 {
                 . $controlCommandDriver
-                $source = '$$><D:\a\_temp\hermes\startup-cpr.cdb'
+                $source = '$$<D:\a\_temp\hermes\startup-cpr.cdb'
                 $state.FilterExpected.Cpr = 'Command: "' + $source + '"'
-                $doubled = '$$><D:\\a\\_temp\\hermes\\startup-cpr.cdb'
+                $doubled = '$$<D:\\a\\_temp\\hermes\\startup-cpr.cdb'
                 $payloads = @(
                     $source, ('"' + $source + '"'), ('\"' + $source + '\"'), ('""' + $source + '""'),
                     $doubled, ('"' + $doubled + '"'), ('\"' + $doubled + '\"')
@@ -2212,11 +2218,11 @@ foreach ($case in $cases) {
             }
             133 {
                 . $controlCommandDriver
-                $source = '$$><D:\a\_temp\hermes\startup-cpr.cdb'
+                $source = '$$<D:\a\_temp\hermes\startup-cpr.cdb'
                 $state.FilterExpected.Cpr = 'Command: "' + $source + '"'
-                $removed = '$$><D:a_temphermesstartup-cpr.cdb'
-                $known = '$$><D:' + [string][char]7 + '\_temp\hermes\startup-cpr.cdb'
-                $all = '$$><D:' + [string][char]7 + '_temphermesstartup-cpr.cdb'
+                $removed = '$$<D:a_temphermesstartup-cpr.cdb'
+                $known = '$$<D:' + [string][char]7 + '\_temp\hermes\startup-cpr.cdb'
+                $all = '$$<D:' + [string][char]7 + '_temphermesstartup-cpr.cdb'
                 $payloads = @(
                     $removed, ('"' + $removed + '"'), $known, ('"' + $known + '"'),
                     $all, ('"' + $all + '"')
@@ -2261,12 +2267,12 @@ foreach ($case in $cases) {
             }
             135 {
                 . $controlCommandDriver
-                $source = '$$><D:\a\_temp\hermes\startup-cpr.cdb'
+                $source = '$$<D:\a\_temp\hermes\startup-cpr.cdb'
                 $state.FilterExpected.Cpr = 'Command: "' + $source + '"'
                 foreach ($payload in @(
                     $source.Replace('startup-cpr', 'startup-epr'),
                     $source.Replace('startup-cpr', 'STARTUP-CPR'),
-                    ('"' + $source + '";g'), ('"' + $source.Replace('$$><', '$$<') + '"'),
+                    ('"' + $source + '";g'), ('"' + $source.Replace('$$<', '$$><') + '"'),
                     'CN=private S-1-5-21-123 --command', '""', ''
                 )) {
                     Add-HermesStartupLine $state 'cpr - Create process - break'
@@ -2287,9 +2293,9 @@ foreach ($case in $cases) {
                 . $controlCommandDriver
                 $state.Out = New-HermesStartupStream
                 $state.Err = New-HermesStartupStream
-                $source = '$$><D:\a\_temp\hermes\startup-cpr.cdb'
+                $source = '$$<D:\a\_temp\hermes\startup-cpr.cdb'
                 $state.FilterExpected.Cpr = 'Command: "' + $source + '"'
-                $payload = '"$$><D:\\a\\_temp\\hermes\\startup-cpr.cdb"'
+                $payload = '"$$<D:\\a\\_temp\\hermes\\startup-cpr.cdb"'
                 Add-HermesStartupLine $state 'HERMES_CDB v=1 kind=0 pid=11'
                 Update-HermesStartupRows $state ($targetRow + "`n")
                 Add-HermesStartupText $state $state.Out (('x' * 4095) + "`n") $true
@@ -2308,7 +2314,7 @@ foreach ($case in $cases) {
                     -and $report.armingVerified -eq 0 -and $report.firstFailureKind -eq 0 `
                     -and $report.observations.Marker1 -eq 0 -and $report.completed -eq 0)
                 Assert-Control (($report | ConvertTo-Json -Depth 4 -Compress) `
-                    -notmatch 'startup-cpr|_temp|D:|\$\$><|Command:|xxxxx')
+                    -notmatch 'startup-cpr|_temp|D:|\$\$|Command:|xxxxx')
             }
             137 {
                 . $controlCommandDriver
@@ -2346,9 +2352,9 @@ foreach ($case in $cases) {
                 $state.Err.Hash.Dispose()
                 $state = New-ControlFixture
                 $before = New-HermesStartupReport $state $true $true
-                $state.FilterExpected.Cpr = 'Command: "$$><D:\a\_temp\private S-1-5-21-123.cdb"'
+                $state.FilterExpected.Cpr = 'Command: "$$<D:\a\_temp\private S-1-5-21-123.cdb"'
                 Add-HermesStartupLine $state 'cpr - Create process - break'
-                Add-HermesStartupLine $state 'Command: "$><D:\a\_temp\private S-1-5-21-123.cdb"'
+                Add-HermesStartupLine $state 'Command: "$<D:\a\_temp\private S-1-5-21-123.cdb"'
                 $report = New-HermesStartupReport $state $true $true
                 Assert-Control ($report.observations.CprCommandTransform -eq 15 `
                     -and $report.observations.CprCommandShape -eq 6 -and $report.observations.CprFilter -eq 1 `
@@ -2358,14 +2364,14 @@ foreach ($case in $cases) {
                     Assert-Control ($report[$name] -ceq $before[$name])
                 }
                 Assert-Control (($report | ConvertTo-Json -Depth 4 -Compress) `
-                    -notmatch 'private|S-1-|_temp|\$\$><|D:|Command:')
+                    -notmatch 'private|S-1-|_temp|\$\$|D:|Command:')
             }
             139 {
                 $script:controlCommandFault = 2
                 $script:controlCommandFaultName = 'startup.cdb'
                 . $controlCommandDriver
                 Add-HermesStartupLine $state 'cpr - Create process - break'
-                $payload = '"$$><D:\a\_temp\hermes\startup-cpr.cdb"'
+                $payload = '"$$<D:\a\_temp\hermes\startup-cpr.cdb"'
                 Add-HermesStartupLine $state ('Command: ' + $payload)
                 $observed = New-HermesStartupObservations $state
                 Assert-Control ($observed.CprPayloadLength -eq $payload.Length `
@@ -2416,12 +2422,13 @@ foreach ($case in $cases) {
                 $dropUnknown = $case -eq 143
                 foreach ($name in @('Cpr', 'Epr')) {
                     $suffix = $name.ToLowerInvariant() + '.cdb'
-                    $source = '$$><C:\Users\Example\AppData\Local\Temp\hermes\trace\startup-' + $suffix
+                    $token = if ($name -ceq 'Cpr') { '$$<' } else { '$$><' }
+                    $source = $token + 'C:\Users\Example\AppData\Local\Temp\hermes\trace\startup-' + $suffix
                     $state.FilterExpected[$name] = 'Command: "' + $source + '"'
                     $normalised = if ($dropUnknown) {
-                        '$$><C:UsersExampleAppDataLocalTemphermes' + [string][char]9 + 'racestartup-' + $suffix
+                        $token + 'C:UsersExampleAppDataLocalTemphermes' + [string][char]9 + 'racestartup-' + $suffix
                     } else {
-                        '$$><C:\Users\Example\AppData\Local\Temp\hermes' + [string][char]9 + 'race\startup-' + $suffix
+                        $token + 'C:\Users\Example\AppData\Local\Temp\hermes' + [string][char]9 + 'race\startup-' + $suffix
                     }
                     $appData = if ($dropUnknown) { 'AppData' } else { '\AppData' }
                     $temp = if ($dropUnknown) { 'Temp' } else { '\Temp' }
@@ -2454,7 +2461,7 @@ foreach ($case in $cases) {
                 $json = $report | ConvertTo-Json -Depth 4 -Compress
                 Assert-Control ($report.observations.Count -eq 56 `
                     -and [Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
-                    -and $json -notmatch 'Users|Example|AppData|Temp|Command:|\$\$><' `
+                    -and $json -notmatch 'Users|Example|AppData|Temp|Command:|\$\$' `
                     -and $report.armingVerified -eq 0 -and $report.completed -eq 0 `
                     -and $report.firstFailureKind -eq 0 -and $report.nativeAcceptance -eq 0 `
                     -and $script:controlLaunchBindings -eq 0)
@@ -2503,7 +2510,7 @@ foreach ($case in $cases) {
                         '.chain',
                         '.printf "HERMES_CDB v=1 kind=0 pid=%u\n", @$tpid',
                         ('sxe -c "$$><' + (Join-Path $root 'startup-ibp.cdb').Replace('\', '\\') + '" ibp'),
-                        ('sxe -c "$$><' + $encodedRoot + '\\startup-cpr.cdb" cpr'),
+                        ('sxe -c "$$<' + $encodedRoot + '\\startup-cpr.cdb" cpr'),
                         ('sxe -c "$$><' + $encodedRoot + '\\startup-epr.cdb" epr'),
                         'sx', 'g'
                     )
@@ -2609,7 +2616,8 @@ foreach ($case in $cases) {
                     foreach ($index in 4..5) {
                         $name = if ($index -eq 4) { 'Cpr' } else { 'Epr' }
                         $suffix = 'startup-' + $name.ToLowerInvariant() + '.cdb'
-                        $logical = '$$><' + $root + '\' + $suffix
+                        $token = if ($name -ceq 'Cpr') { '$$<' } else { '$$><' }
+                        $logical = $token + $root + '\' + $suffix
                         $line = $expectedLines[$index]
                         Assert-Control ($line -cmatch '\Asxe -c "(?<payload>[^"]+)" (?:cpr|epr)\z')
                         $encoded = $Matches.payload
@@ -5071,6 +5079,122 @@ foreach ($case in $cases) {
                         }
                     } finally { $debugger.StandardOutput.Dispose(); $debugger.StandardError.Dispose() }
                 }
+            }
+            370 {
+                $state = Native-StartupTrace\New-HermesStartupState
+                . $controlCommandDriver
+                $path = Join-Path $root 'startup.cdb'
+                $actual = [Text.Encoding]::ASCII.GetString($script:controlCommandFiles[$path])
+                $lines = @($actual -split "`n")
+                $literal = 'sxe -c "$$<' + (Join-Path $root 'startup-cpr.cdb').Replace('\', '\\') + '" cpr'
+                $condensed = $literal.Replace('$$<', '$$><')
+                $legacyLines = @(
+                    ('.load "' + $extension.Replace('\', '\\') + '"'),
+                    '.chain', '.printf "HERMES_CDB v=1 kind=0 pid=%u\n", @$tpid',
+                    ('sxe -c "$$><' + (Join-Path $root 'startup-ibp.cdb').Replace('\', '\\') + '" ibp'),
+                    $condensed,
+                    ('sxe -c "$$><' + (Join-Path $root 'startup-epr.cdb').Replace('\', '\\') + '" epr'),
+                    'sx', 'g', ''
+                )
+                $legacy = $legacyLines -join "`n"
+                Assert-Control ($lines.Count -eq 9 -and $lines[4] -ceq $literal `
+                    -and $actual.Replace($literal, $condensed) -ceq $legacy `
+                    -and $actual.Length -eq ($legacy.Length - 1) `
+                    -and @($lines | Where-Object { $_ -ceq 'g' }).Count -eq 1 `
+                    -and $state.FilterExpected.Cpr -ceq ('Command: "' + $literal.Substring(8, $literal.Length - 13) + '"'))
+                $actualHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+                    [Text.Encoding]::ASCII.GetBytes($actual))).ToLowerInvariant()
+                $legacyHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+                    [Text.Encoding]::ASCII.GetBytes($legacy))).ToLowerInvariant()
+                $report = New-HermesStartupReport $state $debuggerEnded $drainsEnded
+                Assert-Control ($report.commandSha256 -ceq $actualHash -and $actualHash -cne $legacyHash `
+                    -and $script:controlCommandWrites.Count -eq 4 -and $script:controlCommandPins.Count -eq 4 `
+                    -and $script:controlCommandHashes -eq 4 -and $script:controlLaunchBindings -eq 1 `
+                    -and $report.completed -eq 0 -and $report.nativeAcceptance -eq 0 `
+                    -and $report.originalGatePassed -eq 0)
+                $fixed = @(
+                    @{ File = 'startup-cpr.cdb'; Field = 'createCommandSha256'; Length = 119
+                        Hash = '5fb09e6b92ea4344099598c8057ef775745ebf2994662651cabf052d67dc7d7f'; Goes = 1 },
+                    @{ File = 'startup-epr.cdb'; Field = 'exitCommandSha256'; Length = 115
+                        Hash = 'f3944355a34ef71d377a79075bc802c8be0e233ea02bcbc94c52d27bbfe02138'; Goes = 1 },
+                    @{ File = 'startup-ibp.cdb'; Field = 'initialCommandSha256'; Length = 289
+                        Hash = '13be3b23c1d7300a3f194497cfd64b9e6562169082404ff9f8646833c7e82ee0'; Goes = 0 }
+                )
+                foreach ($source in $fixed) {
+                    $sourcePath = Join-Path $root $source.File
+                    $bytes = $script:controlCommandFiles[$sourcePath]
+                    $sourceLines = @([Text.Encoding]::ASCII.GetString($bytes) -split "`r`n")
+                    Assert-Control ($bytes.Length -eq $source.Length -and $report[$source.Field] -ceq $source.Hash `
+                        -and @($sourceLines | Where-Object { $_ -ceq 'g' }).Count -eq $source.Goes `
+                        -and $script:controlCommandReadOnly[$sourcePath] `
+                        -and $script:controlCommandPins -ccontains $sourcePath)
+                }
+            }
+            371 {
+                $state = New-ControlNativeCreated -Acknowledge $false
+                Assert-Control ($state.FilterExpected.Cpr -ceq 'Command: "$$<D:\\owned\\startup-cpr.cdb"' `
+                    -and $state.FilterExpected.Epr -ceq 'Command: "$$><D:\\owned\\startup-epr.cdb"' `
+                    -and $state.FilterExpected.Ibp -ceq 'Command: "$$><D:\\owned\\startup-ibp.cdb"' `
+                    -and (Test-HermesStartupCreated $state) -and -not $state.CreatedAcked)
+                $expected = $state.FilterExpected.Cpr
+                # The old condensed CPR mode is now a negative control only.
+                foreach ($text in @(
+                    $expected.Replace('$$<', '$$><'),
+                    $expected.Replace('$$<', '$$>a<'),
+                    $expected.Replace('$$<', '$><'),
+                    $expected.Replace('startup-cpr', 'startup-epr'),
+                    $expected.Replace('startup-cpr', 'STARTUP-CPR'),
+                    $expected.Replace('\\', '\'),
+                    $expected.Replace('.cdb"', '.cdb argument"'),
+                    ($expected + ';g')
+                )) {
+                    Assert-Control ($text -cne $expected)
+                    Add-HermesStartupLine $state 'cpr - Create process - break'
+                    Add-HermesStartupLine $state $text
+                    $observed = New-HermesStartupObservations $state
+                    Assert-Control ($observed.CprFilter -eq 1 -and $observed.CprCommandShape -eq 6 `
+                        -and -not $state.FilterVerified.Cpr -and -not (Test-HermesStartupCreated $state) `
+                        -and -not $state.CreatedAcked -and -not $state.ContinueAttempted `
+                        -and $null -eq $state.InputPending -and $state.Protocol -eq 0)
+                }
+                Add-HermesStartupLine $state 'cpr - Create process - break'
+                Add-HermesStartupLine $state $expected
+                $observed = New-HermesStartupObservations $state
+                Assert-Control ($observed.CprFilter -eq 9 -and $observed.CprCommandShape -eq 1 `
+                    -and $observed.CprCommandTransform -eq 2 -and (Test-HermesStartupCreated $state) `
+                    -and -not $state.CreatedAcked -and -not (Test-HermesStartupArm $state))
+                Update-HermesStartupRows $state ($readyV2 + "`n" + $finalV2.Replace(
+                    'resumed=1', 'resumed=0').Replace('exit=3221225794', 'exit=0') + "`n")
+                Assert-Control (-not (Test-HermesStartupCreated $state) -and -not $state.CreatedAcked `
+                    -and -not $state.ContinueAttempted -and $null -eq $state.InputPending)
+            }
+            { $_ -in 372..373 } {
+                $state = Native-StartupTrace\New-HermesStartupState
+                $script:controlCommandFault = $case - 359
+                $script:controlCommandFaultName = 'startup.cdb'
+                . $controlCommandDriver
+                $path = Join-Path $root 'startup.cdb'
+                $expected = New-TraceCommands $extension
+                $actual = [Text.Encoding]::ASCII.GetString($script:controlCommandFiles[$path])
+                $wrongToken = if ($case -eq 372) { 'sxe -c "$$><' } else { 'sxe -c "$><' }
+                $report = New-HermesStartupReport $state $debuggerEnded $drainsEnded
+                Assert-Control ($actual -ceq $expected.Replace('sxe -c "$$<', $wrongToken) `
+                    -and $actual -cne $expected `
+                    -and $actual.Length -eq ($expected.Length + [int]($case -eq 372)) `
+                    -and $script:controlCommandWrites.Count -eq 4 -and $script:controlCommandPins.Count -eq 4 `
+                    -and $script:controlCommandHashes -eq $(if ($case -eq 372) { 3 } else { 4 }) `
+                    -and $script:controlLaunchBindings -eq 0 -and $null -eq $script:controlStartInfo `
+                    -and $state.TraceFaulted -and $report.tracePoint -eq 24 `
+                    -and $report.status -eq 8 -and $report.error -eq 13 -and $report.cleanupFault -eq 0 `
+                    -and $report.commandSha256 -ceq '' -and $report.createCommandSha256 -ceq '' `
+                    -and $report.exitCommandSha256 -ceq '' -and $report.initialCommandSha256 -ceq '' `
+                    -and $state.FilterExpected.Cpr -ceq '' -and $state.FilterExpected.Epr -ceq '' `
+                    -and $state.FilterExpected.Ibp -ceq '' -and $state.ExtensionExpected -ceq '' `
+                    -and -not (Test-HermesStartupCreated $state) -and -not $state.CreatedAcked `
+                    -and -not (Test-HermesStartupArm $state) -and -not $state.ContinueAttempted `
+                    -and $report.completed -eq 0 -and $report.armingVerified -eq 0 `
+                    -and $report.originalGatePassed -eq 0 -and $report.nativeAcceptance -eq 0 `
+                    -and $script:controlStops -eq 1 -and $script:controlDisposed -eq 1)
             }
         }
         $passed++
