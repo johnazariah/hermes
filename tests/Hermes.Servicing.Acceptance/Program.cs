@@ -4,6 +4,12 @@ internal static class Program
 {
     private static async Task<int> Main(string[] arguments)
     {
+        // Native use of this exact route requires the parent's separately
+        // reviewed fixed worker deadline and private-job supervisor.
+        if (arguments.FirstOrDefault() == CrashEventControl.Command)
+            return await CrashEventControl.DispatchAsync(
+                arguments, WindowsCrashControl.EventEffects, CancellationToken.None);
+
         // Native invocation requires an outer fixed-helper process deadline and
         // disposable job containment. In-process budgets cannot interrupt Start.
         if (arguments.FirstOrDefault() is

@@ -211,8 +211,15 @@ internal static partial class WindowsCrashControl
                 native.Exited, native.Code);
         }
 
-        private CrashImagePins RecheckPins(string path) =>
-            new(publication.RequireSource(path), publication.SourceHash);
+        private CrashImagePins RecheckPins(string path)
+        {
+            var imageHash = publication.RequireSource(path);
+            // Keep the original native Windows admission in addition to the
+            // portable model's explicitly Windows-targeted qualification.
+            if (!Path.IsPathFullyQualified(path))
+                throw new InvalidDataException("Crash-control live identity refused.");
+            return new(imageHash, publication.SourceHash);
+        }
 
         private static unsafe (uint ProcessId, long Born, long Exited, uint Code)
             ReadProcess(SafeProcessHandle handle)

@@ -247,6 +247,24 @@ internal static class CrashChild
     }
 }
 
+// Structural Windows qualification, independent of the executing host.
+// Equivalent to !PathInternal.IsPartiallyQualified in .NET 9; this does not
+// validate, canonicalize, normalize or resolve a path.
+// https://github.com/dotnet/runtime/blob/v9.0.0/src/libraries/Common/src/System/IO/PathInternal.Windows.cs
+internal static class CrashWindowsPath
+{
+    internal static bool IsFullyQualified(string path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        return path.AsSpan() switch
+        {
+            ['\\' or '/', '?' or '\\' or '/', ..] => true,
+            [>= 'A' and <= 'Z' or >= 'a' and <= 'z', ':', '\\' or '/', ..] => true,
+            _ => false
+        };
+    }
+}
+
 internal sealed record CrashIdentity(
     ProcessKey Process, string ImagePath, string ImageSha256,
     string SourceSha256, long ExitFileTime, uint ExitCode)
@@ -259,7 +277,7 @@ internal sealed record CrashIdentity(
     internal void RequireLive()
     {
         if (Process is not { ProcessId: > 0, CreationFileTime: > 0 } ||
-            !Path.IsPathFullyQualified(ImagePath) ||
+            !CrashWindowsPath.IsFullyQualified(ImagePath) ||
             !CrashControl.IsHash(ImageSha256) || !CrashControl.IsHash(SourceSha256) ||
             ExitFileTime != 0 || ExitCode != 259)
             throw new InvalidDataException("Crash-control live identity refused.");

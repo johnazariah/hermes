@@ -15,8 +15,78 @@ public sealed class CrashControlTests
         new(TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(1));
     private static string Hash => new('a', 64);
     private static CrashIdentity Live => new(new ProcessKey(42, 100),
-        Path.Combine(Path.GetTempPath(), "Hermes.Servicing.Acceptance.exe"),
+        @"C:\owned\Hermes.Servicing.Acceptance.exe",
         Hash, new string('b', 64), 0, 259);
+
+    [Theory]
+    [InlineData(@"C:\", true)]
+    [InlineData("c:/", true)]
+    [InlineData(@"Z:\owned\child.exe", true)]
+    [InlineData("z:/owned/child.exe", true)]
+    [InlineData(@"\\server\share\child.exe", true)]
+    [InlineData("//server/share/child.exe", true)]
+    [InlineData(@"\/server\share", true)]
+    [InlineData(@"/\server/share", true)]
+    [InlineData(@"\\", true)]
+    [InlineData("//", true)]
+    [InlineData(@"\/", true)]
+    [InlineData(@"/\", true)]
+    [InlineData(@"\\server", true)]
+    [InlineData(@"\\?\C:\owned\child.exe", true)]
+    [InlineData(@"\\.\C:\owned\child.exe", true)]
+    [InlineData(@"\??\C:\owned\child.exe", true)]
+    [InlineData("//?/C:/owned/child.exe", true)]
+    [InlineData("//./C:/owned/child.exe", true)]
+    [InlineData("/??/C:/owned/child.exe", true)]
+    [InlineData(@"\?", true)]
+    [InlineData("/?", true)]
+    [InlineData(@"\?relative", true)]
+    [InlineData("/?relative", true)]
+    [InlineData("", false)]
+    [InlineData("C", false)]
+    [InlineData(@"C:", false)]
+    [InlineData(@"C:child.exe", false)]
+    [InlineData(@"C: child.exe", false)]
+    [InlineData(@"\child.exe", false)]
+    [InlineData("/child.exe", false)]
+    [InlineData(@"\", false)]
+    [InlineData("/", false)]
+    [InlineData(".", false)]
+    [InlineData("..", false)]
+    [InlineData(@"..\child.exe", false)]
+    [InlineData("child.exe", false)]
+    [InlineData(@"1:\child.exe", false)]
+    [InlineData(@"=:\child.exe", false)]
+    [InlineData(@"@:\child.exe", false)]
+    [InlineData(@"[:\child.exe", false)]
+    [InlineData(@"é:\child.exe", false)]
+    [InlineData(@" C:\child.exe", false)]
+    [InlineData("http://example", false)]
+    public void Qualification_has_Windows_semantics_on_every_host(string path, bool qualified)
+    {
+        Assert.Equal(qualified, CrashWindowsPath.IsFullyQualified(path));
+        var identity = Live with { ImagePath = path };
+        if (qualified)
+            identity.RequireLive();
+        else
+            Assert.Throws<InvalidDataException>(identity.RequireLive);
+        if (OperatingSystem.IsWindows())
+            Assert.Equal(Path.IsPathFullyQualified(path), CrashWindowsPath.IsFullyQualified(path));
+    }
+
+    [Fact]
+    public void Qualification_is_structural_not_path_validity_or_canonicalization()
+    {
+        string[] paths = [@"C:\a\..\*.dll", "C:/bad\0name", @"\\", @"\?"];
+        Assert.All(paths, path =>
+        {
+            Assert.True(CrashWindowsPath.IsFullyQualified(path));
+            (Live with { ImagePath = path }).RequireLive();
+            if (OperatingSystem.IsWindows())
+                Assert.Equal(Path.IsPathFullyQualified(path),
+                    CrashWindowsPath.IsFullyQualified(path));
+        });
+    }
 
     [Fact]
     public async Task Live_image_proof_survives_exit_without_a_postmortem_image_query()
@@ -847,7 +917,8 @@ public sealed class CrashControlTests
     [Fact]
     public void Launch_is_fixed_and_discards_inherited_credentials_and_profile()
     {
-        var start = new ProcessStartInfo(Live.ImagePath);
+        var image = Path.Combine(Path.GetTempPath(), "Hermes.Servicing.Acceptance.exe");
+        var start = new ProcessStartInfo(image);
         start.ArgumentList.Add("arbitrary");
         start.Environment["GITHUB_TOKEN"] = "not-forwarded";
         start.Environment["USERPROFILE"] = "not-forwarded";
@@ -857,7 +928,7 @@ public sealed class CrashControlTests
         Assert.True(start.CreateNoWindow);
         Assert.True(start.RedirectStandardInput && start.RedirectStandardOutput &&
             start.RedirectStandardError);
-        Assert.Equal(Path.GetDirectoryName(Live.ImagePath), start.WorkingDirectory);
+        Assert.Equal(Path.GetDirectoryName(image), start.WorkingDirectory);
         Assert.Equal(12, start.Environment.Count);
         Assert.False(start.Environment.ContainsKey("GITHUB_TOKEN"));
         Assert.False(start.Environment.ContainsKey("USERPROFILE"));

@@ -100,6 +100,25 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-23 - Preserve genuine outcomes in the fixed owned event probe
+
+- **Changed:** The exact new synthetic command binds strict metadata admission to the retained owned child's held scope. Completed bounded queries require one exact identity match and empty birth-minus/plus-one controls. Reports retain separate base-control and event status; original commands and report shape remain intact.
+- **Fidelity:** Expected observer failures retain actual coordinator settlement. Escaping coordinator errors propagate after receipt cleanup instead of publishing default Guard facts. Later receipt faults cannot invent a callback failure. Real-command regressions cover delayed reap, coordinator cleanup, mixed original errors, post-success receipt and publication faults; the nested-error assertion preserves exact object membership without assuming Flatten order.
+- **Portability:** Windows-target path qualification is host-independent, with the original native Windows check retained. Official .NET 9 semantics and always-running cases replace OS-skipped fake successes; native equivalence assertions additionally run on Windows.
+- **Review:** Fresh independent C# review approves the complete integration and final correction. Direct PowerShell review approves the fixed source-bound supervisor, same-job metadata receipt, strict full-report validation and success-only three-file upload under its pre-armed worker deadline/private job.
+- **Validation:** Serial portable and Windows-targeted Release builds and root build pass without warnings/errors. All 384 selected cases, 911 complete Servicing and 2,198 Core cases pass without skips. The exact five-assembly merge measures 16,191/18,656 lines (86.7871%), 16,046/25,538 branches (62.8319%), above unchanged gates. Independent PowerShell controls pass 985/3,120/816; all three fixed diagnostic workflows pass actionlint and changed-source encodings pass.
+- **Boundary:** No native event query has run yet. Completed enumeration is not global log uniqueness; synchronous calls still require external supervision. Original PowerShell and installed acceptance remain unresolved.
+- **Next:** Publish the reviewed fixed workflow and require genuine exact-birth 1 / adjacent-birth 0/0 evidence before any original-event observation.
+
+### 2026-10-23 - Restore genuine supported-host acceptance of the prerequisite checks
+
+- **Evidence:** Published `42975ef`, CI `39834814349`: supported Windows job `120020216988` and macOS job `120020217043` both succeed. The actual SDK 9.0.319 compilation regression is resolved; the strict pinned-peer assertion passes on this head. The older intermittent runtime failure's cause is not established.
+- **Validation:** Both hosts execute all 767 published Servicing cases; Core passes 2,194 selected Windows and all 2,198 macOS cases without failed/skipped executions. The four Windows exclusions remain governed Unix-only cases. Windows coverage artifact `12451645477` independently verifies exactly the five expected assemblies and 15,771/18,186 lines (86.7206%), 15,769/25,286 branches (62.3626%). macOS reports 86.4841% / 62.2953%.
+- **Metadata:** Separate run `39834806743`, job `120020191436`, succeeds with the extended fixed-job admission. No job environment is rewritten.
+- **Boundary:** Installer job `120020216643` still runs 501 native cases: 500 pass and the original PowerShell case fails, with no skips. Its diagnostic also fails; publish remains skipped.
+- **Follow-on:** The unpublished fixed event supervisor passes 816 independent portable controls, plus 985 existing crash and 3,120 metadata controls. Direct review finds no blocking supervision defect. The C# revision needs a host-independent Windows qualification policy to exercise genuine command success on both hosts without skips, while retaining native Windows qualification and all identity/source fences.
+- **Next:** Complete and independently review that bounded policy/outcome revision before publishing or invoking the synthetic event command.
+
 ### 2026-10-23 - Preserve static compilation of pinned discovery controls
 
 - **Evidence:** At `8cd4bc0`, supported Windows job `119960432973` and macOS job `119960432926` refuse the new diagnostic loop with FS3511. Neither reaches the original pinned-peer assertion.

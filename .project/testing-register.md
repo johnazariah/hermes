@@ -2,6 +2,36 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Owned event-command outcomes retain genuine coordinator history
+
+The complete candidate passes **911 Servicing and 2,198 Core cases**, with
+zero failures/skips. Serial portable and Windows-targeted Release builds
+pass without warnings, as do the root build and tests. The focused
+control/query/correlation selection passes all **384 cases**.
+
+Command tests use the real owned coordinator through successful exact/
+adjacent queries, repeated fences, cancellation, post-success receipt
+changes, disposal and publication failures. Coordinator escapes preserve
+their original errors after actual child and receipt cleanup; no default
+Guard history is published. A deferred reap proves cleanup cannot run
+early. Coupled observer/cleanup errors and nested query/fence errors retain
+every original exception object exactly once. Later receipt failure cannot
+invent a callback fault in an otherwise successful control.
+
+Portable identity qualification now models the Windows target independently
+of the test host, grounded in the .NET 9 implementation. Native Windows
+qualification remains required separately. Drive, UNC, device and separator
+cases run without OS skips; Windows additionally checks native equivalence.
+Qualification is not path validity, canonicalisation or source authority.
+
+Fresh independent C# review approves the complete integration and final
+two-file correction. The same five-assembly native Coverlet merge measures
+**16,191/18,656 lines (86.7871%)** and
+**16,046/25,538 branches (62.8319%)**, above unchanged gates and the prior
+local baseline. Both standalone Release suites use byte-identical shared
+Servicing assemblies; mixed Debug/Release line maps are not merged.
+Actual controlled Windows event precision remains pending.
+
 ## Metadata acquisition admits only its two fixed hosted jobs
 
 The metadata-only host guard accepts the exact, case-sensitive job names
@@ -39,6 +69,36 @@ pairings, order and exact expectation; target-SDK compilation and the actual
 peer Result remain pending. The revised source builds without warnings in
 local Debug and Release configurations, with all 54 selected cases passing
 in each configuration on SDK 9.0.313.
+
+At `42975ef`, actual supported Windows job `120020216988` and macOS job
+`120020217043` both pass under hosted SDK 9.0.319. The compilation regression
+is resolved, and the strict pinned-peer case passes on this head. The cause
+of the earlier intermittent macOS runtime refusal is not established.
+Windows runs 2,194 selected Core cases; macOS runs all 2,198, with four
+governed Unix-only exclusions on Windows and no failed/skipped executions.
+Both execute all 767 published Servicing cases. Actual same-five-assembly
+coverage is 86.7206% line / 62.3626% branch on Windows and
+86.4841% / 62.2953% on macOS, above unchanged gates.
+
+## Fixed event supervision preserves separate control and event status
+
+The fixed wrapper, module and workflow pass **816 portable controls**,
+alongside 985 existing crash controls and 3,120 metadata controls. Direct
+source review covers all four new files and their reused publication,
+capture and pinning helpers. No blocking supervision defect is found.
+
+Controls exercise the exact 27-field correlation report and 28-field base
+report, strict numeric/hash/schema admission, same-job source/workflow/run
+receipts and freshness, actual bounded read/wait tasks, closed failure
+projection, pin disposal and checked private-job release. Base success with
+event failure remains distinguishable. The worker deadline precedes helper
+startup; only three fixed bounded files may upload after complete success,
+for three days.
+
+The coupled C# integration now has independent source approval and full local
+validation. No native query precision, forced-timeout teardown, original
+PowerShell success or installed acceptance is claimed. The fixed workflows
+also pass `actionlint`.
 
 ## Fixed crash-event query candidates preserve unproven precision
 

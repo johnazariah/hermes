@@ -16,6 +16,18 @@ namespace Hermes.Servicing.Acceptance;
 // No Task abandonment, async continuation, subscription, or cancellation claim.
 internal static class WindowsCrashEventQuery
 {
+    internal static CrashQueryResult EnumerateCompletedCandidate(
+        CrashQueryRequest request, CrashQueryAdmission admission)
+    {
+        if (!OperatingSystem.IsWindows())
+            return CrashEventQuery.Failure(
+                CrashEventFailureKind.Unavailable, CrashQueryReason.UnsupportedPlatform);
+        if (RuntimeInformation.ProcessArchitecture != Architecture.X64)
+            return CrashEventQuery.Failure(
+                CrashEventFailureKind.Refused, CrashQueryReason.UnsupportedAbi);
+        return CrashEventQuery.EnumerateCompletedCandidate(new Api(), request, admission);
+    }
+
     internal static CrashQueryResult EnumerateCandidate(
         CrashQueryRequest request, CrashQueryAdmission admission)
     {

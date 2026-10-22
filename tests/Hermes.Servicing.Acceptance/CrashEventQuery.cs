@@ -57,6 +57,13 @@ internal sealed record CrashQueryVisited(CrashEventRead Read) : CrashQueryResult
     public override string ToString() => nameof(CrashQueryVisited);
 }
 
+// One first-batch candidate followed by an observed ERROR_NO_MORE_ITEMS
+// end marker on this query. This is not a global/log-snapshot uniqueness claim.
+internal sealed record CrashQueryCompleted(CrashEventRead Read) : CrashQueryResult
+{
+    public override string ToString() => nameof(CrashQueryCompleted);
+}
+
 internal readonly record struct CrashQueryFault(
     CrashEventFailureKind Kind, CrashQueryReason Reason, int NativeError = 0);
 
@@ -122,6 +129,18 @@ internal static class CrashEventQuery
         var expression = Build(request);
         var lifetime = new Lifetime();
         return lifetime.Run(() => Enumerate(api, request, expression, lifetime));
+    });
+
+    internal static CrashQueryResult EnumerateCompletedCandidate(
+        ICrashEventQueryApi api, CrashQueryRequest request,
+        CrashQueryAdmission admission) => Attempt(() =>
+    {
+        Require(admission == CrashQueryAdmission.CallerAttestsFixedProviderAndSchema,
+            CrashQueryReason.AdmissionRequired);
+        var expression = Build(request);
+        var lifetime = new Lifetime();
+        return lifetime.Run(() =>
+            EnumerateCompleted(api, request, expression, lifetime));
     });
 
     internal static CrashQueryFailure Failure(
@@ -204,6 +223,36 @@ internal static class CrashEventQuery
         return call.Handle;
     }
 
+    private static CrashQueryResult EnumerateCompleted(
+        ICrashEventQueryApi api, CrashQueryRequest request,
+        string expression, Lifetime lifetime)
+    {
+        var query = Open(api, expression, lifetime);
+        var events = PrepareEvents(api, query, lifetime);
+        var call = api.Next(query, events, TimeoutMilliseconds, 0);
+        ValidateBatch(call, events, query);
+        if (!call.Success)
+            return EndOrFail(call.Error);
+        if (call.Returned == Capacity)
+            return new CrashQueryAmbiguous();
+        var read = api.Read(events[0], request.Subject);
+        return Complete(api, query, events[0], read, lifetime);
+    }
+
+    private static CrashQueryResult Complete(
+        ICrashEventQueryApi api, nint query, nint first,
+        CrashEventRead read, Lifetime lifetime)
+    {
+        var events = PrepareEvents(api, query, lifetime);
+        var call = api.Next(query, events, TimeoutMilliseconds, 0);
+        ValidateBatch(call, events, query);
+        Require(!events.Contains(first), CrashQueryReason.MalformedBatch, call.Error);
+        if (call.Success)
+            return new CrashQueryAmbiguous();
+        _ = EndOrFail(call.Error);
+        return new CrashQueryCompleted(read);
+    }
+
     private static nint[] PrepareEvents(
         ICrashEventQueryApi api, nint query, Lifetime lifetime)
     {
@@ -211,7 +260,8 @@ internal static class CrashEventQuery
         // Register both slots BEFORE Next, including its exceptional/partial path.
         // LIFO closes slot 1, slot 0, then query. Aliases are closed only once;
         // malformed aliases to the query are left to its sole query owner.
-        var attempted = new HashSet<nint> { 0, -1, query };
+        var attempted = lifetime.EventCloseAttempts;
+        attempted.Add(query);
         foreach (var index in Enumerable.Range(0, Capacity))
             lifetime.Own(() =>
             {
@@ -277,6 +327,8 @@ internal static class CrashEventQuery
     {
         private readonly List<Action> _cleanup = [];
         private readonly List<Exception> _errors = [];
+
+        internal HashSet<nint> EventCloseAttempts { get; } = [0, -1];
 
         internal void Own(Action cleanup) => _cleanup.Add(cleanup);
 
