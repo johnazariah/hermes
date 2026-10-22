@@ -200,6 +200,46 @@ foreach ($path in @('', '.', 'SYNTHETIC_PRIVATE', ($canonical + '/..'), ($canoni
     Assert-SchemaControl (-not (Test-StartupSchemaWorkspace $path $canonical))
 }
 
+# Exercise the actual host guard with local values, never environment changes or OS acquisition.
+$hostGuard = ($definitions | Where-Object Name -CEQ 'Get-StartupSchemaHostStatus').Body.Extent.Text
+$windowsCheck = @'
+[Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
+            [Runtime.InteropServices.OSPlatform]::Windows)
+'@
+Assert-SchemaControl ($hostGuard.Contains($windowsCheck))
+Assert-SchemaControl ($hostGuard.Contains(
+    "`$env:GITHUB_JOB -cnotin @('startup-event-schema', 'installer')"))
+$hostControl = [scriptblock]::Create(
+    'param([bool]$fixtureWindows, [hashtable]$hostFixture)' +
+    $hostGuard.Substring(1, $hostGuard.Length - 2).Replace(
+        $windowsCheck, '$fixtureWindows').Replace('$env:', '$hostFixture.'))
+foreach ($job in @('startup-event-schema', 'installer')) {
+    $hostFixture = @{
+        OS = 'Windows_NT'; GITHUB_ACTIONS = 'true'; RUNNER_OS = 'Windows'
+        RUNNER_ENVIRONMENT = 'github-hosted'; GITHUB_SERVER_URL = 'https://github.com'
+        GITHUB_REPOSITORY = 'johnazariah/hermes'; GITHUB_JOB = $job
+    }
+    Assert-SchemaControl ((& $hostControl $true $hostFixture) -eq 0)
+    Assert-SchemaControl ((& $hostControl $false $hostFixture) -eq 1)
+    foreach ($name in @('OS', 'GITHUB_ACTIONS', 'RUNNER_OS', 'RUNNER_ENVIRONMENT',
+            'GITHUB_SERVER_URL', 'GITHUB_REPOSITORY')) {
+        $caseMismatch = $hostFixture[$name].ToUpperInvariant()
+        if ($caseMismatch -ceq $hostFixture[$name]) { $caseMismatch = $hostFixture[$name].ToLowerInvariant() }
+        foreach ($value in @('', 'SYNTHETIC_PRIVATE', $caseMismatch)) {
+            $rejected = $hostFixture.Clone()
+            $rejected[$name] = $value
+            Assert-SchemaControl ((& $hostControl $true $rejected) -eq 1)
+        }
+    }
+}
+foreach ($job in @($null, '', 'SYNTHETIC_PRIVATE', 'Startup-event-schema', 'STARTUP-EVENT-SCHEMA',
+        'Installer', 'INSTALLER', 'startup-event-schema ', ' installer', 'installer-other',
+        'startup-event-schema,installer')) {
+    $rejected = $hostFixture.Clone()
+    $rejected.GITHUB_JOB = $job
+    Assert-SchemaControl ((& $hostControl $true $rejected) -eq 1)
+}
+
 # Static controls keep the OS boundary fixed without acquiring OS metadata.
 Assert-SchemaControl ($ast.ParamBlock.Parameters.Count -eq 0)
 $commands = @($ast.FindAll({ param($node)
@@ -220,7 +260,7 @@ foreach ($required in @(
         '$settings.MaxCharactersInDocument = 16384', '[IO.FileMode]::CreateNew', '[IO.FileShare]::None',
         '[IO.FileAttributes]::ReparsePoint', '[IO.FileAttributes]::Directory', '$provider.Dispose()',
         "'startup-event-schema.json'", "'installer-evidence'", "'johnazariah/hermes'",
-        "'https://github.com'", "'github-hosted'", "'startup-event-schema'")) {
+        "'https://github.com'", "'github-hosted'", "'startup-event-schema'", "'installer'")) {
     Assert-SchemaControl ($text.Contains($required))
 }
 $entry = ($definitions | Where-Object Name -CEQ 'Invoke-StartupEventSchema').Extent.Text

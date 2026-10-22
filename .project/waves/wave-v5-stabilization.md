@@ -100,6 +100,22 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-23 - Preserve static compilation of pinned discovery controls
+
+- **Evidence:** At `8cd4bc0`, supported Windows job `119960432973` and macOS job `119960432926` refuse the new diagnostic loop with FS3511. Neither reaches the original pinned-peer assertion.
+- **Changed:** A private record replaces only the tagged peer tuple and its destructuring task-loop binder. All four mutations remain sequential and exact, with unchanged typed equality, field/result codes, fixtures and deadlines.
+- **Validation:** Independent F# source review approves. Local SDK 9.0.313 builds Debug and Release without warnings; all 54 selected discovery cases pass in each configuration. The root build also passes without warnings and all 2,198 Core cases pass without skips. Actual hosted SDK 9.0.319 execution remains pending.
+- **Blockers:** The C# correlation candidate compiles and passes 173 selected cases, but independent review rejects its outcome reporting: repeated fence failures can discard genuine control facts, and later receipt failures can fabricate a callback fault. A fresh author owns that revision; no native event invocation is approved.
+- **Next:** Publish the peer-compilation correction after the root quality gate, then inspect its genuine hosted result.
+
+### 2026-10-23 - Admit the fixed installer job for metadata acquisition
+
+- **Changed:** The metadata-only producer admits exactly `startup-event-schema` and `installer`, preserving case-sensitive hosted Windows, repository and server checks. Local guard fixtures do not modify the environment or acquire OS metadata.
+- **Validation:** Independent execution passes all 3,120 assertions, including both admitted jobs and missing, case-changed, whitespace and unknown-job refusals. The largest synthetic report remains 2,487 bytes.
+- **Boundary:** This enables same-job metadata acquisition; native correlation, source-bound invocation and the original PowerShell gate remain unproved.
+- **Blockers:** Exact-head CI `39817704993` fails the new F# diagnostic tests' static state-machine compilation on both supported hosts. The actual pinned-peer Result is still unknown; a language-agent correction is in progress.
+- **Next:** Compile and independently review the owned synthetic correlation integration before native invocation.
+
 ### 2026-10-23 - Expose the pinned discovery failure without relaxing it
 
 - **Evidence:** Reader head `2a8f7bc`, CI `39809031924`, macOS job `119929933520` fails the pinned Send assertion in `rejectBadPeers` line 83. Its generic Result message hides acceptance versus transport/codec failure; the actual case is unknown. Windows succeeds, and the owned-control workflow still succeeds.

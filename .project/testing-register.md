@@ -2,6 +2,20 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Metadata acquisition admits only its two fixed hosted jobs
+
+The metadata-only host guard accepts the exact, case-sensitive job names
+`startup-event-schema` and `installer`. Both retain the same Windows,
+public-hosted runner, repository and server checks. No environment value is
+rewritten, and no event query or process is launched by this change.
+
+The actual guard is exercised with local fixture values: both permitted
+jobs pass, while wrong platform, missing values, case changes, whitespace
+and unknown jobs refuse. All **3,120 portable assertions** pass; the largest
+synthetic report is 2,487 bytes. This enables same-job metadata acquisition
+for the separately supervised correlation control; it does not establish
+native event correlation or publisher provenance.
+
 ## Pinned discovery failures expose only closed field/result codes
 
 Seven new cases retain exact typed
@@ -16,6 +30,15 @@ order with the complete instance pin. The real owned fixture, deadlines and
 cleanup are unchanged. Fresh F# review approves; all 54 selected instrumented
 discovery cases and all 2,198 Core cases pass without skips. This adds
 observability, not a fix or evidence of the actual failing macOS result case.
+
+At published `8cd4bc0`, both hosted SDK 9.0.319 builds refuse the new task
+loop with FS3511 before the diagnostic can run. The revision replaces only
+the tuple-destructuring loop binder with a private named record and simple
+binding. Independent F# source review confirms the same cases, field/peer
+pairings, order and exact expectation; target-SDK compilation and the actual
+peer Result remain pending. The revised source builds without warnings in
+local Debug and Release configurations, with all 54 selected cases passing
+in each configuration on SDK 9.0.313.
 
 ## Fixed crash-event query candidates preserve unproven precision
 

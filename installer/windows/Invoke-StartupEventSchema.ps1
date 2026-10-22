@@ -20,7 +20,7 @@ function Get-StartupSchemaHostStatus {
         -or $env:RUNNER_OS -cne 'Windows' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted' `
         -or $env:GITHUB_SERVER_URL -cne 'https://github.com' `
         -or $env:GITHUB_REPOSITORY -cne 'johnazariah/hermes' `
-        -or $env:GITHUB_JOB -cne 'startup-event-schema') { return 1 }
+        -or $env:GITHUB_JOB -cnotin @('startup-event-schema', 'installer')) { return 1 }
     return 0
 }
 

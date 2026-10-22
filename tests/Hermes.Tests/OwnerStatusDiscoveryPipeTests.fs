@@ -113,22 +113,28 @@ module OwnerStatusDiscoveryPipeTests =
             dispatch target request cancellation
         withOwned target recorded (rejectBeforeDispatch target seen)
 
-    let private badPeers (identity: Identity) : (PeerField * PeerExpectation) list =
+    type private PeerCase =
+        { Field: PeerField
+          Expected: PeerExpectation }
+
+    let private badPeers (identity: Identity) : PeerCase list =
         let expected = peer identity
-        [ PeerField.ProcessId, { expected with ProcessId = expected.ProcessId + 1 }
-          PeerField.ProcessStartTimeUtc,
-              { expected with ProcessStartTimeUtc = expected.ProcessStartTimeUtc.AddSeconds(1.0) }
-          PeerField.Origin, { expected with Origin = expected.Origin.Replace("127.0.0.1", "localhost") }
-          PeerField.ConfigKey,
-              { expected with ConfigKey = OwnerDiscoverySamples.differentKey expected.ConfigKey } ]
+        [ { Field = PeerField.ProcessId
+            Expected = { expected with ProcessId = expected.ProcessId + 1 } }
+          { Field = PeerField.ProcessStartTimeUtc
+            Expected = { expected with ProcessStartTimeUtc = expected.ProcessStartTimeUtc.AddSeconds(1.0) } }
+          { Field = PeerField.Origin
+            Expected = { expected with Origin = expected.Origin.Replace("127.0.0.1", "localhost") } }
+          { Field = PeerField.ConfigKey
+            Expected = { expected with ConfigKey = OwnerDiscoverySamples.differentKey expected.ConfigKey } } ]
 
     let internal rejectBadPeers (client: ClientOnly) cancellation =
         task {
             let! result = client.DiscoverStatus (OwnerPipeFixture.request ()) cancellation
             let identity = (result |> OwnerPipeFixture.ok).Instance
-            for (field, expected) in badPeers identity do
-                let! rejected = client.Send (pinned identity) expected cancellation
-                assertMismatch field rejected
+            for peerCase in badPeers identity do
+                let! rejected = client.Send (pinned identity) peerCase.Expected cancellation
+                assertMismatch peerCase.Field rejected
         }
 
     [<Fact>]
