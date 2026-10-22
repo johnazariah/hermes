@@ -33,6 +33,35 @@ explicit .NET Runtime/1025 reporting does not guarantee Application Error/
 literals, window, WER settings, JSON/telemetry, host policy and acceptance
 remain unchanged; actual exact 1 / adjacent 0/0 proof is still required.
 
+Actual `cb574ad` managed-control run `39866698782`, job `120130567498`,
+succeeds. Artifact `12464905331` independently preserves the exact 591-byte,
+28-field success report and original `0x80131623` exit.
+
+The native event-producer run `39866698746`, job `120130567334`, instead
+returns 80 short, successfully closed empty exact-selector results and
+WindowExpired. No reader runs and no native query fault is reported; the
+last empty return crosses the authoritative post-query deadline. Neither
+producer establishes qualifying-record delivery or server birth precision.
+The proof bits remain unestablished, not observed adjacent-zero results.
+Further candidate-presence expansion is parked under the unchanged
+server-side birth-filter boundary; no explicit diagnostic exception was
+granted. Original PowerShell and installed acceptance remain blocked.
+
+Current-source CI `39866704579` completes at `cb574ad`. macOS job
+`120130588553` passes all 1,039 Servicing, 2,198 Core and 61 browser cases;
+actual coverage is 86.9512% line / 62.5740% branch. Windows job
+`120130588596` passes 1,039 Servicing and 2,194 selected Core cases with
+zero failures/skips, retaining four governed Unix-only exclusions.
+Windows browser smoke passes 60/61: `access.spec.ts:12`, assertion at line
+18, receives `Access: unavailable` with `signal timed out` instead of
+anonymous access. The client imposes a 10-second access-request deadline;
+the timeout cause remains unknown. This differs from the earlier PDF
+page-creation failure. Coverage collection succeeds, but the Windows
+threshold-enforcement step is skipped after browser failure. No retry,
+timeout increase or authentication weakening is introduced. Installer
+job `120130588467` still fails its original gate and diagnostic, and
+publish is skipped.
+
 ## Hosted WER policy is observed without changing it
 
 The same-job metadata step adds one guarded numeric advisory from seven

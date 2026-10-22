@@ -100,6 +100,23 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-23 - Close the current-source stocktake with a separate browser blocker
+
+- **Published source:** `cb574ad39787b3ed38d9a9fcacebfdaa910931b2` is the remote PR #30 head. Remote main remains `e7758a3797dc6ca5d52ae1ac573a2a4802f0a27a`; the PR is draft, open and unmerged. Financial integrity, file-first retrieval, V5 reflow and canonical React/Tray work already merged remain on main.
+- **Actual hosts:** CI `39866704579` completes. macOS job `120130588553` passes 1,039 Servicing, 2,198 Core and 61 browser cases, with 86.9512% line / 62.5740% branch coverage. Windows job `120130588596` passes 1,039 Servicing and 2,194 selected Core cases without failures/skips; four governed Unix-only exclusions remain. Tray and both excluded-surface compatibility builds pass.
+- **Local commit gate:** The root build is rerun and passes with zero warnings/errors; the root test run passes all 2,198 cases without failures/skips. This evidence-only update changes the wave and testing register, not product code or acceptance.
+- **New browser blocker:** Windows passes 60/61 browser cases. `access.spec.ts:12`, assertion at line 18, expects anonymous access but receives the visible unavailable state with `signal timed out`. The access client has a 10-second request deadline. This is distinct from the earlier PDF page-creation failure; the request-timeout cause is not established. Windows coverage collection succeeds, but the subsequent threshold-enforcement step is skipped after browser failure. No retry, timeout increase or authentication weakening is applied.
+- **Remaining work:** Installer job `120130588467` still fails the original native gate and its diagnostic; publish is skipped. Open issues are #16, #18, #28 and #24. Native event expansion remains parked at the explicit correlation boundary recorded below. Current Windows browser acceptance, installed lifecycle acceptance and wave closure are incomplete.
+- **Next:** Obtain bounded request-lifecycle evidence for the Windows access timeout before choosing a fix. Native promotion separately requires an explicit diagnostic exception or an approved suitable acceptance environment. No merge, release, issue closure or wave transition is claimed.
+
+### 2026-10-23 - Park native promotion at the explicit correlation boundary
+
+- **Managed regression:** At `cb574ad`, run `39866698782`, job `120130567498`, succeeds. Artifact `12464905331` independently verifies the original 591-byte, 28-field managed success contract, every required settlement/cleanup bit and `0x80131623`; the new shared factory does not replace that proof.
+- **Native qualification:** Event run `39866698746`, job `120130567334`, yields 80 successfully closed empty fixed-selector returns, no reader or native query fault, and WindowExpired. Its final empty return is rejected after the deadline. The managed/native producer distinction does not establish why no exact candidate qualifies.
+- **Boundary:** Exact-one / adjacent-zero-zero native comparison remains unproved. A candidate-presence diagnostic outside the server-side birth predicate would need an explicit diagnostic exception; the escalation returned only an unavailable-owner autonomous-work directive, not that exception. The strict boundary is retained and further native diagnostic expansion is parked rather than inferred or silently broadened.
+- **Persistent status:** [Issue #16 update](https://github.com/johnazariah/hermes/issues/16#issuecomment-6353071869) records the actual evidence and blocker. PR #30 remains draft and unmerged; original PowerShell, installed Medium lifecycle and final wave closure remain incomplete. Legacy repair #24 remains separately blocked.
+- **Next:** Require an explicit authorised diagnostic boundary or suitable separately approved acceptance environment before resuming native promotion; finish the current-head application/browser CI stocktake without claiming overall completion.
+
 ### 2026-10-23 - Qualify a fixed native producer without rewriting the query
 
 - **Grounding:** Pinned .NET 9 `EventReporter` explicitly reports managed FailFast as .NET Runtime/1025; it does not guarantee the Application Error/1000 record sought by this selector. The actual queued/manual/disabled-task WER metadata is not proof of the empty-query cause. The documented Win32 producer invokes WER if enabled but likewise does not promise record delivery.
