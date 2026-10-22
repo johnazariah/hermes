@@ -100,6 +100,15 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-23 - Measure the access bootstrap without weakening its assertion
+
+- **Evidence:** Existing Windows job `120130588596` logs show the first `/api/access` response completed with HTTP 200 in 42.7537 ms. The browser nevertheless reports its access deadline in the original first smoke case. A slow Service handler is not established; response delivery and client handling need separate observations.
+- **Changed:** The existing case observes its first fixed status request through non-intercepting Playwright request/header/body-finished/failure events. One fixed eight-field numeric line records counts, status and monotonic observer offsets. It exports no request URL, headers, body, identity or error text; no fetch wrapper, mock, warm-up request or extra await changes the path under observation.
+- **Validation:** Four new formatter controls pass, and the complete unit suite passes 106/106 without skips. Lint, web build, discovery and reproducible assets pass. The original targeted case and complete isolated real-Service suite pass 1/1 and 61/61 locally; both fixture ports close afterwards. Root build passes with zero warnings/errors and all 2,198 Core cases pass without failures/skips.
+- **Unchanged-product baseline:** Both supported hosts in documentation-head CI `39869833919` at `621b3f4` pass all 61 browser cases, 1,039 Servicing cases and their complete Core selections. Windows coverage is 87.1887% line / 62.5818% branch; macOS is 86.9512% / 62.8699%. No product change explains this recovery; it does not establish the cause of the earlier timeout. The original installer gate remains red.
+- **Boundary:** Original assertions and their ordering, the 10-second access deadline, zero retries and all authentication/native acceptance rules are unchanged. These local successes do not resolve the actual Windows failure. Native diagnostic expansion remains parked.
+- **Next:** Publish the observational change and inspect actual Windows lifecycle counts before choosing any product fix.
+
 ### 2026-10-23 - Close the current-source stocktake with a separate browser blocker
 
 - **Published source:** `cb574ad39787b3ed38d9a9fcacebfdaa910931b2` is the remote PR #30 head. Remote main remains `e7758a3797dc6ca5d52ae1ac573a2a4802f0a27a`; the PR is draft, open and unmerged. Financial integrity, file-first retrieval, V5 reflow and canonical React/Tray work already merged remain on main.

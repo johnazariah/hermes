@@ -2,6 +2,42 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Access bootstrap diagnostics preserve the original browser assertion
+
+The first anonymous-settings smoke case now observes only its actual fixed
+`GET /api/access` request. Non-intercepting Playwright listeners record
+request, response-header, body-finished and failed counts, HTTP status and
+monotonic observer offsets from the start of the case. It exports one
+fixed eight-field numeric line under 256 bytes, never URLs, headers,
+credentials, bodies or error text. Counts and offsets saturate at stated
+bounds; unobserved offsets use -1, absent status uses 0 and invalid samples
+use -2. Invalid HTTP statuses cannot become valid observed statuses.
+
+Four new pure formatter controls cover exact keys, private-field exclusion,
+rounding, absent/invalid/nonfinite samples, bounds and status validation.
+The complete browser unit suite passes **106/106** without skips. Lint,
+build, discovery and reproducible-asset checks pass. The unchanged
+real-Service browser suite passes **61/61 locally**, with no retries or
+deadline changes; its first status request has one 200 response and one
+body-finished event. Both owned fixture ports close after execution.
+Root build passes without warnings/errors and all **2,198 Core cases**
+pass without failures/skips.
+
+Existing actual Windows logs show the failing case's first status response
+completed at the Service in 42.7537 ms, despite the browser later reporting
+its access deadline. This narrows the investigation but does not identify
+the browser/transport cause. Original assertions, client deadlines, state
+handling, authentication, native diagnostics and acceptance are unchanged.
+The instrumentation is not a timeout fix; actual Windows lifecycle
+observations remain required.
+
+The unchanged-product documentation head `621b3f4`, CI `39869833919`,
+passes both supported hosts: 61 browser cases each, 1,039 Servicing cases
+each and 2,194 selected Windows / 2,198 macOS Core cases. Windows coverage
+is 87.1887% / 62.5818%; macOS is 86.9512% / 62.8699%. No product change
+explains the timeout's non-recurrence. The original installer gate remains
+red; this baseline does not contain the new lifecycle observer.
+
 ## Event-only native fault producer preserves the managed control
 
 The event probe selects one new fixed native child route through the shared

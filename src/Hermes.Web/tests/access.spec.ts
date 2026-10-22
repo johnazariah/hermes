@@ -1,5 +1,6 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Request, type Response } from '@playwright/test';
 import { approveDisplayedPairing, unlock } from './owner';
+import { accessDiagnostic, type AccessDiagnostic } from './access-diagnostic';
 
 const panelName = 'Hermes access';
 function controlURL(baseURL: string | undefined, path: string): string {
@@ -9,19 +10,60 @@ function controlURL(baseURL: string | undefined, path: string): string {
   return url.href;
 }
 
-test('anonymous settings do not fetch protected configuration or mistake denial for onboarding', async ({ page }) => {
+test('anonymous settings do not fetch protected configuration or mistake denial for onboarding', async ({ page, baseURL }) => {
+  if (!baseURL) throw new Error('An owned synthetic Service is required');
+  const target = new URL('/api/access', baseURL).href;
+  const started = performance.now();
+  const diagnostic: AccessDiagnostic = {
+    requests: 0, responses: 0, finished: 0, failed: 0, status: 0,
+    requestMs: -1, headersMs: -1, bodyMs: -1,
+  };
+  let selected: Request | undefined;
+  const requested = (request: Request) => {
+    if (request.url() !== target || request.method() !== 'GET') return;
+    diagnostic.requests++;
+    if (selected) return;
+    selected = request;
+    diagnostic.requestMs = performance.now() - started;
+  };
+  const responded = (response: Response) => {
+    if (response.request() !== selected) return;
+    diagnostic.responses++;
+    diagnostic.status = response.status();
+    diagnostic.headersMs = performance.now() - started;
+  };
+  const finished = (request: Request) => {
+    if (request !== selected) return;
+    diagnostic.finished++;
+    diagnostic.bodyMs = performance.now() - started;
+  };
+  const failed = (request: Request) => {
+    if (request === selected) diagnostic.failed++;
+  };
+  page.on('request', requested);
+  page.on('response', responded);
+  page.on('requestfinished', finished);
+  page.on('requestfailed', failed);
   const protectedReads: string[] = [];
   page.on('request', request => {
     if (/\/api\/(?:settings|preferences|sync\/accounts)(?:[/?]|$)/.test(request.url())) protectedReads.push(request.url());
   });
-  await page.goto('/settings');
-  await expect(page.getByRole('region', { name: panelName })).toContainText('Access: anonymous');
-  await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
-  await expect(page.locator('textarea').first()).toBeDisabled();
-  await expect(page.getByRole('button', { name: 'Save', exact: true }).first()).toBeDisabled();
-  await expect(page.getByRole('button', { name: 'Sync Now', exact: true })).toBeDisabled();
-  await expect(page).toHaveURL(/\/settings$/);
-  expect(protectedReads).toEqual([]);
+  try {
+    await page.goto('/settings');
+    await expect(page.getByRole('region', { name: panelName })).toContainText('Access: anonymous');
+    await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
+    await expect(page.locator('textarea').first()).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Save', exact: true }).first()).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Sync Now', exact: true })).toBeDisabled();
+    await expect(page).toHaveURL(/\/settings$/);
+    expect(protectedReads).toEqual([]);
+  } finally {
+    page.off('request', requested);
+    page.off('response', responded);
+    page.off('requestfinished', finished);
+    page.off('requestfailed', failed);
+    console.info(accessDiagnostic(diagnostic));
+  }
 });
 
 test('real HTTP policy denies anonymous sensitive reads, writes and model calls before provider work', async ({ request, baseURL }) => {
