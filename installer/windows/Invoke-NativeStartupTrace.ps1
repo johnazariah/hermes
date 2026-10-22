@@ -245,7 +245,7 @@ function New-ScopedCreateCommands {
         # completion echo, then resumes after the brace. Neither echo is a flag.
         # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/-catch
         ('.catch { !' + $module + '.gflag +sls; .echo HERMES_ARM_STAGE v=1 stage=1; }'),
-        '.catch { .if (@@c++(sizeof(@$peb->NtGlobalFlag)) == 4) { .printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(@$peb->NtGlobalFlag) }; .echo HERMES_ARM_STAGE v=1 stage=2; }',
+        '.catch { .if (@@c++(sizeof(@$peb->NtGlobalFlag)) == 4) { .printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(@$peb->NtGlobalFlag); }; .echo HERMES_ARM_STAGE v=1 stage=2; }',
         '.printf "HERMES_CDB v=4 kind=8 pid=%u\n", @$tpid'
     ) -join "`r`n") + "`r`n"
     return $sources

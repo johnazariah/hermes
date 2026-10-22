@@ -772,7 +772,9 @@ function Get-ControlScopedQuerySources {
     $start = $query.IndexOf('.printf ', [StringComparison]::Ordinal)
     $end = $query.IndexOf(' }; .echo ', [StringComparison]::Ordinal)
     Assert-Control ($start -gt 0 -and $end -gt $start)
-    return @{ Whole = $query; Read = $query.Substring($start, $end - $start) }
+    $read = $query.Substring($start, $end - $start)
+    Assert-Control ($read -ceq '.printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(@$peb->NtGlobalFlag);')
+    return @{ Whole = $query; Read = $read }
 }
 
 function Invoke-ControlScopedPublisher {
@@ -797,7 +799,7 @@ function Complete-ControlScoped {
     return New-HermesStartupReport $State $true $true
 }
 
-$cases = 1..527 # All 524 prior intents retained, plus frozen first-refusal display controls.
+$cases = 1..530 # All 527 prior intents retained, plus the one-character optional-delimiter controls.
 $passed = 0
 foreach ($case in $cases) {
     $state = $null
@@ -3803,7 +3805,7 @@ foreach ($case in $cases) {
                     -and $lines[4] -cnotmatch '"' `
                     -and $lines[4] -cnotmatch '\.printf|\.if|peb' `
                     -and $lines[5] -ceq ('.catch { .if (@@c++(sizeof(@$peb->NtGlobalFlag)) == 4) { ' +
-                        '.printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(@$peb->NtGlobalFlag) }; ' +
+                        '.printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(@$peb->NtGlobalFlag); }; ' +
                         '.echo HERMES_ARM_STAGE v=1 stage=2; }') `
                     -and [regex]::Matches($lines[5], '@\$peb->NtGlobalFlag').Count -eq 2 `
                     -and $lines[5] -notmatch 'ntdll|_PEB|\*|(?<!@)\$peb|0x|(?i:BeingDebugged|Environment)' `
@@ -7423,8 +7425,8 @@ foreach ($case in $cases) {
             }
             487 {
                 & {
-                    # Four metadata programs stay frozen; only the arm golden
-                    # changes its SDK module-token encoding. No filesystem action.
+                    # Four metadata programs stay frozen. The arm golden includes
+                    # the optional statement delimiter; no filesystem action.
                     function Assert-TraceCommandPath { param([string]$Path) return $Path }
                     function Join-Path { param([string]$Path, [string]$ChildPath) return $Path + '\' + $ChildPath }
                     $root = 'C:\owned\command-root'
@@ -7435,7 +7437,7 @@ foreach ($case in $cases) {
                         @('startup-ibp.cdb', 'c2c6509cc08fab26e327f2aea8abdd950662d2c17534440d6dcca0ab3c374fc7'),
                         @('startup-epr.cdb', 'b99a7cbc74fd6ddd7a03bafa9f021333f62be4455e3e643036a4c8b88601d10f'),
                         @('startup.cdb', '84aa3a9b7176d5b70468db52aa4d0da45c6b7f3cc338a8223a8963457c6c1b23'),
-                        @('startup-arm.cdb', 'f2a2ac1269c8658dad26960dd27ae0bbf6a602e926919a96ac7cf60b5d882ec1')
+                        @('startup-arm.cdb', 'a6f52ada93a19a02859914a635de31a8c50b7cf2e28efce82b096c7ececcbc4e')
                     )) {
                         $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
                             [Text.Encoding]::ASCII.GetBytes($sources[$item[0]]))).ToLowerInvariant()
@@ -8255,7 +8257,7 @@ foreach ($case in $cases) {
                     [Text.Encoding]::UTF8.GetBytes($predicate.Extent.Text))).ToLowerInvariant()
                 Assert-Control ($hash -ceq 'fa7409059885a5a52cf6d59f62ea71d2e81f280db26e5f094271857b37f31a92' `
                     -and (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'Invoke-NativeStartupTrace.ps1') -Algorithm SHA256).Hash `
-                        -ceq '0B89A4203522126F41E307B6058BC1BFA3D81BF3B091E85E495A56394D465D08')
+                        -ceq '2C8E5C3E07E6F066D251F0B074EA413FF17FC043BEF16C4D8D7E82F4FB3C6533')
             }
             509 {
                 & {
@@ -8279,7 +8281,7 @@ foreach ($case in $cases) {
                         @('startup-ibp.cdb', 'c2c6509cc08fab26e327f2aea8abdd950662d2c17534440d6dcca0ab3c374fc7'),
                         @('startup-epr.cdb', 'b99a7cbc74fd6ddd7a03bafa9f021333f62be4455e3e643036a4c8b88601d10f'),
                         @('startup.cdb', '84aa3a9b7176d5b70468db52aa4d0da45c6b7f3cc338a8223a8963457c6c1b23'),
-                        @('startup-arm.cdb', 'c05cf01b2cce5ad85c74c94f6f2eeb13eac665487d2030b57020e12d200461e9')
+                        @('startup-arm.cdb', '6a9d37c362b28e73a9f7f2061a9c2768f1234cdf7588922c5b06fe4db55e0099')
                     )) {
                         $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
                             [Text.Encoding]::ASCII.GetBytes($sources[$item[0]]))).ToLowerInvariant()
@@ -8292,8 +8294,8 @@ foreach ($case in $cases) {
                     $previous = $arm.Replace($statement, $previousStatement)
                     $previousHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
                         [Text.Encoding]::ASCII.GetBytes($previous))).ToLowerInvariant()
-                    Assert-Control ($queryHash -ceq '24ad24cbc14bfbadc69a242ed992df28088f0efb4153534cfe46728711a9ede7' `
-                        -and $previousHash -ceq 'cf18468aaa7f4ac8a2644cf70ddfa8706a00d1f53bf4b7b16f9fe2a1f850e4b9')
+                    Assert-Control ($queryHash -ceq '64c052dbbc805338521bc9dc8d60ffaa1b57f2c73fa5fe846df560dbd69d77a8' `
+                        -and $previousHash -ceq 'd149256f963417243ed2f527df5a2657e9d945a099ca487eaff627ea8082a204')
                 }
             }
             510 {
@@ -8858,7 +8860,12 @@ foreach ($case in $cases) {
                         Assert-Control ($read.Wait(5000) -and $read.GetAwaiter().GetResult() -eq 0 `
                             -and $state.InputClosed -and $state.CleanupFault -eq 0)
                     } finally {
-                        if (-not $IsWindows) { & $module { Remove-Item Function:script:Join-Path } }
+                        if (-not $IsWindows) {
+                            Assert-Control (& $module {
+                                Remove-Item Function:Join-Path
+                                (Get-Command Join-Path).CommandType -eq 'Cmdlet'
+                            })
+                        }
                         $writer.Dispose(); $pipe.Writer.Dispose(); $pipe.Reader.Dispose()
                         if ($null -ne $state) { $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose() }
                     }
@@ -9162,6 +9169,136 @@ foreach ($case in $cases) {
                                 Remove-Variable controlOriginalQueryRefusal, controlOriginalArmFrame -Scope Script
                             }
                         }
+                        Close-HermesStartupScopedInput $state $writer
+                        $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                    }
+                }
+            }
+            528 {
+                & {
+                    # Optional delimiter control, not a missing-semicolon diagnosis:
+                    # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/-if
+                    function Assert-TraceCommandPath { param([string]$Path) return $Path }
+                    function Join-Path { param([string]$Path, [string]$ChildPath) return $Path + '\' + $ChildPath }
+                    $root = 'C:\owned\command-root'
+                    $sdk = 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\winxp\exts.dll'
+                    $arm = (New-ScopedCreateCommands $sdk)['startup-arm.cdb']
+                    $expression = '@@c++(@$peb->NtGlobalFlag)'
+                    $needle = $expression + '; }; .echo'
+                    $position = $arm.IndexOf($needle, [StringComparison]::Ordinal)
+                    Assert-Control ($position -gt 0 -and $position -eq $arm.LastIndexOf($needle, [StringComparison]::Ordinal))
+                    $delimiter = $position + $expression.Length
+                    $prior = $arm.Remove($delimiter, 1)
+                    $priorHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+                        [Text.Encoding]::ASCII.GetBytes($prior))).ToLowerInvariant()
+                    Assert-Control ($arm[$delimiter] -ceq ';' -and $arm -ceq $prior.Insert($delimiter, ';') `
+                        -and $arm.Length -eq ($prior.Length + 1) `
+                        -and $priorHash -ceq 'c05cf01b2cce5ad85c74c94f6f2eeb13eac665487d2030b57020e12d200461e9' `
+                        -and [regex]::Matches($arm, '\.gflag \+sls').Count -eq 1 `
+                        -and [regex]::Matches($arm, [regex]::Escape('@@c++(')).Count -eq 2 `
+                        -and [regex]::Matches($arm, 'sizeof\(@\$peb->NtGlobalFlag\)').Count -eq 1 `
+                        -and [regex]::Matches($arm, 'HERMES_ARM_STAGE v=1 stage=[12]').Count -eq 2)
+                    $driver = [IO.File]::ReadAllText($driverAst.Extent.File)
+                    $position = $driver.IndexOf($needle, [StringComparison]::Ordinal)
+                    Assert-Control ($position -gt 0 -and $position -eq $driver.LastIndexOf($needle, [StringComparison]::Ordinal))
+                    $priorDriver = $driver.Remove(($position + $expression.Length), 1)
+                    $driverHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+                        [Text.Encoding]::UTF8.GetBytes($priorDriver))).ToLowerInvariant()
+                    Assert-Control ($driverHash -ceq '0b89a4203522126f41e307b6058bc1bfa3d81bf3b091e85e495a56394d465d08')
+                }
+            }
+            529 {
+                $expression = '@@c++(@$peb->NtGlobalFlag)'
+                foreach ($replacement in @(
+                    @(($expression + '; }; .echo'), ($expression + ' }; .echo')),
+                    @(($expression + '; }; .echo'), ($expression + ';; }; .echo')),
+                    @(($expression + '; }; .echo'), ($expression + ', }; .echo')),
+                    @('sizeof(@$peb->NtGlobalFlag)) == 4', 'sizeof(@$peb->NtGlobalFlag)) == 8')
+                )) {
+                    $state = New-ControlScopedCreated
+                    $physical = [StartupControlWriteStream]::new(0)
+                    $writer = [IO.StreamWriter]::new($physical)
+                    $debugger = [pscustomobject]@{ HasExited = $false; StandardInput = $writer }
+                    try {
+                        $arm = (Get-TraceSelectedSources $extension)['startup-arm.cdb']
+                        $changed = $arm.Replace($replacement[0], $replacement[1])
+                        Assert-Control ($changed -cne $arm)
+                        $pin = [IO.MemoryStream]::new([Text.Encoding]::ASCII.GetBytes($changed), $false)
+                        $pins.Add($pin)
+                        $hash = Get-ControlCommandHash $pin
+                        $state.CommandPins['startup-arm.cdb'] = $pin
+                        $state.ArmCommandSha256 = $hash
+                        $state.ScopedPublication.ArmCommandSha256 = $hash
+                        $state.CreatedBinding.Scoped.ArmCommandSha256 = $hash
+                        $refused = $false
+                        try { Invoke-ControlScopedPublisher } catch { $refused = $true }
+                        Assert-Control ($refused -and $physical.Writes -eq 0 -and $state.InputTasks.Count -eq 0 `
+                            -and -not $state.ArmAttempted -and -not $state.Acked -and $state.ScopedStages -eq 0)
+                    } finally {
+                        Close-HermesStartupScopedInput $state $writer
+                        $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                    }
+                }
+                $sources = Get-ControlScopedQuerySources $extension
+                foreach ($region in @('Whole', 'Read')) {
+                    $position = $sources[$region].IndexOf(($expression + ';'), [StringComparison]::Ordinal) + $expression.Length
+                    Assert-Control ($sources[$region][$position] -ceq ';')
+                    foreach ($delimiter in @('', ';;', ',')) {
+                        $state = New-ControlScopedCreated
+                        $physical = [StartupControlWriteStream]::new(0)
+                        $writer = [IO.StreamWriter]::new($physical)
+                        $debugger = [pscustomobject]@{ HasExited = $false; StandardInput = $writer }
+                        try {
+                            Invoke-ControlScopedPublisher
+                            Add-HermesStartupText $state $state.Out (
+                                "HERMES_CDB v=4 kind=7 pid=22`nLast event: 16.1: Create process 1:16`nHERMES_ARM_STAGE v=1 stage=1`n") $true
+                            Add-HermesStartupLine $state $sources.Whole
+                            Assert-Control ($state.Protocol -eq 0 -and $state.ScopedStages -eq 1 -and $state.Inventory.Block.Flags -eq -1)
+                            $line = $sources[$region].Remove($position, 1).Insert($position, $delimiter)
+                            Add-HermesStartupLine $state $line
+                            $report = New-HermesStartupReport $state $false $false
+                            Add-HermesStartupText $state $state.Out (Get-ControlScopedReadback) $true
+                            Invoke-ControlScopedPublisher
+                            Assert-Control ($state.Protocol -eq 1 -and $state.ScopedFault.Reason -eq 1 `
+                                -and $report.observations.scopedReadFirstKind -eq 1 -and $report.observations.scopedReadFirstSource -eq 0 `
+                                -and $report.observations.scopedReadFirstTrimKind -eq 0 -and $state.ScopedStages -eq 1 `
+                                -and $state.Inventory.Block.Flags -eq -1 -and $physical.Writes -eq 1 `
+                                -and $state.InputTasks.Count -eq 1 -and -not $state.Acked -and -not $state.Continued)
+                        } finally {
+                            Close-HermesStartupScopedInput $state $writer
+                            $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                        }
+                    }
+                }
+            }
+            530 {
+                foreach ($outcome in @('FieldMissing', 'SdkMissing', 'QueryMissing', 'ZeroFlags', 'OtherFlags', 'Full')) {
+                    $state = New-ControlScopedCreated
+                    $physical = [StartupControlWriteStream]::new(0)
+                    $writer = [IO.StreamWriter]::new($physical)
+                    $debugger = [pscustomobject]@{ HasExited = $false; StandardInput = $writer }
+                    try {
+                        Invoke-ControlScopedPublisher
+                        Add-HermesStartupLine $state (Get-ControlScopedQuerySources $extension).Whole
+                        Assert-Control ($state.ScopedStages -eq 0 -and $null -eq $state.Arm -and $physical.Writes -eq 1)
+                        # A guard that emits no typed field remains unarmed even
+                        # with both completions; synthetic output, not CDB width proof.
+                        $flags = switch ($outcome) { FieldMissing { '' }; ZeroFlags { '00000000' }; OtherFlags { '00000001' }; default { '00000002' } }
+                        $text = Get-ControlScopedReadback -Flags $flags
+                        if ($outcome -ceq 'SdkMissing') { $text = $text.Replace("HERMES_ARM_STAGE v=1 stage=1`n", '') }
+                        if ($outcome -ceq 'QueryMissing') { $text = $text.Replace("HERMES_ARM_STAGE v=1 stage=2`n", '') }
+                        Add-HermesStartupText $state $state.Out $text $true
+                        $allowed = $outcome -ceq 'Full'
+                        Assert-Control ((Test-HermesStartupScopedAction $state Target) -eq $allowed `
+                            -and $state.InputTasks.Count -eq 1 -and -not $state.Acked -and -not $state.Held.Released `
+                            -and [Text.Encoding]::ASCII.GetString($physical.ToArray()) -ceq
+                                ('$$<' + (Join-Path $root 'startup-arm.cdb') + "`n"))
+                        Invoke-ControlScopedPublisher
+                        Assert-Control ($physical.Writes -eq (1 + [int]$allowed) `
+                            -and $state.InputTasks.Count -eq (1 + [int]$allowed) `
+                            -and $state.Acked -eq $allowed -and $state.Continued -eq $allowed `
+                            -and $state.CommandPins.Count -eq 5 -and $state.SourcePins.Count -eq 2)
+                    } finally {
                         Close-HermesStartupScopedInput $state $writer
                         $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
                     }

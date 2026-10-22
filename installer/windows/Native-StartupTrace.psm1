@@ -1619,8 +1619,9 @@ function Set-HermesStartupScopedQueryRefusal {
         -or -not (Test-HermesStartupScopedArmFrame $State)) { return }
     # Fixed-source comparisons describe this refusal only. Neither a family
     # label nor an exact displayed source supplies query or flag authority.
-    $query = '.catch { .if (@@c++(sizeof(@$peb->NtGlobalFlag)) == 4) { .printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(@$peb->NtGlobalFlag) }; .echo HERMES_ARM_STAGE v=1 stage=2; }'
-    $read = '.printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(@$peb->NtGlobalFlag)'
+    $query = '.catch { .if (@@c++(sizeof(@$peb->NtGlobalFlag)) == 4) { .printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(@$peb->NtGlobalFlag); }; .echo HERMES_ARM_STAGE v=1 stage=2; }'
+    # The exact read region includes this fixed program's statement terminator.
+    $read = '.printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(@$peb->NtGlobalFlag);'
     $display = $Line -creplace '\A[0-9]{1,3}:[0-9a-f]{3}> ', ''
     # HorizontalTrim removes edge ASCII spaces/tabs only, after prompt removal.
     $horizontalTrim = $display.Trim([char[]]@(' ', [char]9))

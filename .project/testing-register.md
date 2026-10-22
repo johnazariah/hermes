@@ -2,6 +2,26 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Optional typed-read delimiter is a one-character execution control
+
+All **530 controls** pass, retaining 527 prior intents and adding three
+delimiter groups. The generated typed printf statement gains one explicit
+semicolon before its nested conditional closes. C++ expressions, the
+four-byte guard, SDK operation, completion positions and literal input are
+unchanged. The exact observational read-source region includes that fixed
+terminator; no general semicolon trimming is accepted.
+
+Deleting precisely that character recovers the prior complete arm-program
+and driver hashes. Four metadata goldens and the frame hash are unchanged.
+Changed/missing delimiters or width guards fail source-pin checks before
+input. Missing fields/completions and wrong flags still prevent continuation.
+Real pipe/controller controls remain in place; test-only path-shim cleanup
+now verifies that the original Join-Path cmdlet is restored.
+
+Installer static controls pass. Microsoft's `.if` documentation says the
+final command does not require a semicolon: this control claims neither a
+missing-delimiter bug nor native query success before Windows execution.
+
 ## First query refusal adds frozen lexical and trimmed-family display facts
 
 All **527 controls** pass, retaining 524 prior intents and adding three

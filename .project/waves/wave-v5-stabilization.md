@@ -100,6 +100,24 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Publish the one-character typed-read delimiter control
+
+- **Changed:** One explicit semicolon terminates the unchanged typed printf expression before the nested conditional closes. Exact source constants and affected hashes follow that single byte. Test-only path-shim cleanup now proves restoration of the original cmdlet.
+- **Validation:** Parent full source/test review approves the final independently authored cycle. All 530 controls and installer static controls pass. Root build passes with zero warnings/errors; all 2,184 tests pass without skips.
+- **Preserved:** Removing exactly the semicolon recovers prior whole arm-program and driver hashes. Four metadata goldens, frame hash, both C++ expressions, four-byte guard, SDK operation, completion positions, literal input and all authority/cleanup/budget rules are unchanged.
+- **Boundary:** The delimiter is documented as optional. The change remains an experiment, not a claimed syntax diagnosis. Missing fields/completions and wrong flags still prevent continuation; tampered source refuses before input.
+- **Blockers:** Actual query behaviour, genuine PowerShell exit 37 and installed Medium lifecycle remain unresolved.
+- **Next:** Run the exact published source on disposable Windows; retain an unresolved result as blocking rather than inventing a fourth control variant.
+
+### 2026-10-22 - Isolate the typed-read statement delimiter
+
+- **Evidence:** Published `00d3dc3`, run `39736112447`, job `119682051422`, artifact `12407602118`, passes 527 controls and 500/501 native cases without skips. Accepted SDK completion remains 1. The first query mask is 128: the exact read expression occurs, but the exact sizeof fragment, fixed diagnostic wording, caret and edge-whitespace bits do not. The original query kind/source remain unknown/unavailable.
+- **Decision:** The final literal-control cycle tests one explicit semicolon after the unchanged typed printf expression, before the nested conditional closes. All expressions, the four-byte guard, SDK call, completion positions and target authority stay fixed.
+- **Grounding:** Microsoft's `.if` reference explicitly says the final command before a closing brace does not require a semicolon. This is therefore an optional-delimiter control, not a claimed missing-semicolon bug or syntax diagnosis.
+- **Boundary:** Only the changed program byte and its exact source/hash fixtures may change. There is no additional evaluation, read, stage, input, fallback or widened echo acceptance. Numeric-only reporting remains in force.
+- **Blockers:** The actual refusing text, typed flag readback, PowerShell exit 37 and installed Medium lifecycle remain unresolved.
+- **Next:** Review the one-character control and compare actual Windows evidence; do not invent a fourth variant if it remains unclassified.
+
 ### 2026-10-22 - Retain the literal result and expose only closed first-line display facts
 
 - **Evidence:** Published `b538314`, run `39734265979`, job `119676198634`, artifact `12406373436`, passes 524 controls and 500/501 native cases without skips. Both supported OS jobs and Tray pass. Literal execution retains SDK completion mask 1 but reaches the same unknown query refusal, with no typed candidate, query completion or target continuation.
