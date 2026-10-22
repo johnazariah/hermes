@@ -443,6 +443,130 @@ function Assert-HermesCrashEventPublicationBinding {
         -or $Receipt.metadataSha256 -cne $Metadata.sha256 -or $Receipt.length -ne $Metadata.length) { throw '11' }
 }
 
+# WER snapshot v1: all registry fields use 0 missing; 1..5 present DWORD
+# 0..4 respectively; 6 other DWORD; 7 invalid type; 8 unknown kind; 9 unavailable
+# (read or cleanup failure). Registry view is explicitly 64-bit.
+# queueReporting: 0 missing; 1 disabled; 2 queued; 3 ready; 4 running;
+# 5 unknown state; 6 invalid type; 7 unavailable (read or cleanup failure).
+# status: 0 observed/missing only; 1 advisory unavailable/invalid/unknown.
+# This is policy metadata, not evidence of cause, emission or acceptance.
+function Open-EventWerRegistryBase {
+    param([bool]$CurrentUser)
+    $hive = if ($CurrentUser) { [Microsoft.Win32.RegistryHive]::CurrentUser } else { [Microsoft.Win32.RegistryHive]::LocalMachine }
+    return [Microsoft.Win32.RegistryKey]::OpenBaseKey($hive, [Microsoft.Win32.RegistryView]::Registry64)
+}
+
+function ConvertTo-EventWerRegistryState {
+    param([object]$Kind, [object]$Value)
+    if ($Kind -isnot [Microsoft.Win32.RegistryValueKind] -or $Kind -eq [Microsoft.Win32.RegistryValueKind]::Unknown) { return 8 }
+    if ($Kind -ne [Microsoft.Win32.RegistryValueKind]::DWord -or $Value -isnot [int]) { return 7 }
+    if ($Value -ge 0 -and $Value -le 4) { return (1 + $Value) }
+    return 6
+}
+
+function Get-EventWerRegistryState {
+    param([Parameter(Mandatory)][ValidateRange(1, 7)][int]$Field)
+    $base = $null
+    $key = $null
+    $state = 9
+    try {
+        $path = 'SOFTWARE\Microsoft\Windows\Windows Error Reporting'
+        $name = 'Disabled'
+        switch ($Field) {
+            3 { $name = 'ForceQueue' }
+            4 { $name = 'DontShowUI' }
+            5 { $path = 'SOFTWARE\Microsoft\Windows\Windows Error Reporting\Consent'; $name = 'DefaultConsent' }
+            6 { $path = 'SOFTWARE\Policies\Microsoft\Windows\Windows Error Reporting' }
+            7 { $path = 'SYSTEM\CurrentControlSet\Services\WerSvc'; $name = 'Start' }
+        }
+        $base = Open-EventWerRegistryBase ($Field -eq 2)
+        $key = $base.OpenSubKey($path, $false)
+        $state = 0
+        if ($null -ne $key) {
+            $missing = [object]::new()
+            $value = $key.GetValue($name, $missing, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+            if (-not [object]::ReferenceEquals($value, $missing)) {
+                $state = ConvertTo-EventWerRegistryState ($key.GetValueKind($name)) $value
+            }
+        }
+    } catch { $state = 9 }
+    finally {
+        foreach ($handle in @($key, $base)) {
+            if ($null -ne $handle) {
+                try { $null = $handle.Dispose() } catch { $state = 9 }
+            }
+        }
+    }
+    return $state
+}
+
+function New-EventWerTaskService {
+    return New-Object -ComObject 'Schedule.Service' -ErrorAction Stop
+}
+
+function Close-EventWerTaskObject {
+    param([object]$Value)
+    $null = [Runtime.InteropServices.Marshal]::FinalReleaseComObject($Value)
+}
+
+function ConvertTo-EventWerTaskState {
+    param([object]$Value)
+    if ($Value -isnot [int]) { return 6 }
+    switch ($Value) {
+        1 { return 1 }
+        2 { return 2 }
+        3 { return 3 }
+        4 { return 4 }
+        default { return 5 }
+    }
+}
+
+function Get-EventWerTaskState {
+    $service = $null
+    $folder = $null
+    $task = $null
+    $state = 7
+    $lookup = $false
+    try {
+        $service = New-EventWerTaskService
+        $null = $service.Connect()
+        $lookup = $true
+        $folder = $service.GetFolder('\Microsoft\Windows\Windows Error Reporting')
+        $task = $folder.GetTask('QueueReporting')
+        $value = $task.State
+        if ($null -ne $value) { $state = ConvertTo-EventWerTaskState $value }
+    } catch {
+        $errorValue = $_.Exception.GetBaseException()
+        if ($lookup -and $errorValue -is [Runtime.InteropServices.COMException] `
+            -and $errorValue.ErrorCode -in @(-2147024894, -2147024893)) { $state = 0 }
+    } finally {
+        foreach ($handle in @($task, $folder, $service)) {
+            if ($null -ne $handle) {
+                try { Close-EventWerTaskObject $handle } catch { $state = 7 }
+            }
+        }
+    }
+    return $state
+}
+
+function Get-EventWerPolicySnapshot {
+    Assert-HermesCrashHost
+    $values = @(foreach ($field in 1..7) {
+        try {
+            $value = Get-EventWerRegistryState $field
+            if ($value -is [int] -and $value -ge 0 -and $value -le 9) { $value } else { 9 }
+        } catch { 9 }
+    })
+    try {
+        $task = Get-EventWerTaskState
+        if ($task -isnot [int] -or $task -lt 0 -or $task -gt 7) { $task = 7 }
+    } catch { $task = 7 }
+    $status = [int](@($values | Where-Object { $_ -ge 7 }).Count -gt 0 -or $task -ge 5)
+    return [string]::Format([Globalization.CultureInfo]::InvariantCulture,
+        'HERMES_CRASH_WER_POLICY v=1 status={0} lmDisabled={1} cuDisabled={2} forceQueue={3} dontShowUI={4} consent={5} policyDisabled={6} werSvcStart={7} queueReporting={8} advisory=1 originalGatePassed=0 nativeAcceptance=0',
+        [object[]](@($status) + $values + @($task)))
+}
+
 function Invoke-HermesCrashEventSchemaPublication {
     [CmdletBinding()]
     param()
@@ -465,6 +589,8 @@ function Invoke-HermesCrashEventSchemaPublication {
         $workflowPins = Open-HermesCrashPins $root @($workflow)
         $source = @($checkout.Sources | Where-Object { $_.path -ceq 'installer/windows/Invoke-StartupEventSchema.ps1' })
         if ($source.Count -ne 1) { throw '11' }
+        # Advisory only: unavailable policy reads do not alter metadata gates or receipts.
+        [Console]::Out.WriteLine((Get-EventWerPolicySnapshot))
         $started = [DateTime]::UtcNow.Ticks
         # Invoke the existing fixed metadata-only script in THIS actual installer
         # job. No child process, selector, GITHUB_JOB substitution or raw metadata.

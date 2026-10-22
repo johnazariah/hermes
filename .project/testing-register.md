@@ -2,6 +2,29 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Hosted WER policy is observed without changing it
+
+The same-job metadata step adds one guarded numeric advisory from seven
+fixed 64-bit registry values and the fixed QueueReporting task state.
+Reads distinguish missing, observed DWORD/state, other, invalid, unknown
+and unavailable outcomes; read or cleanup failures cannot become known
+zero. Registry keys and COM objects are closed, no value is expanded, and
+no policy, task, service, ACL, privilege or process is changed.
+
+The observation does not read events, messages, WER queues or report files.
+Its sole line is under 512 bytes and contains no names, paths, identities,
+raw values or exception text. Unavailability is explicitly advisory and
+does not counterfeit or weaken the separate metadata admission.
+
+Pure fake capabilities exercise exact hives/paths/names/read-only mode,
+value types, guards, failure/cleanup paths, state bounds and private-data
+injection. All **3,372 event controls**, 985 original controls, 3,120 metadata
+controls, both cold modes and three targeted workflow lints pass
+independently. Root build passes without warnings/errors and all 2,198 Core
+cases pass without skips. Actual Windows policy remains to be observed;
+neither pinned image-build source nor a queued/disabled setting proves the
+cause of empty event results.
+
 ## Unchanged-query telemetry keeps sampling separate from authority
 
 The complete candidate passes **1,000 Servicing and 2,198 Core cases**,
@@ -176,7 +199,7 @@ coverage is 86.7206% line / 62.3626% branch on Windows and
 
 ## Fixed event supervision preserves separate control and event status
 
-The fixed wrapper, module and workflow pass **3,118 portable controls**,
+The fixed wrapper, module and workflow pass **3,372 portable controls**,
 alongside 985 existing crash controls and 3,120 metadata controls. Direct
 source review covers all four new files and their reused publication,
 capture and pinning helpers. No blocking supervision defect is found.

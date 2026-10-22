@@ -1220,6 +1220,312 @@ function Invoke-Fixture {
     Assert-Control ($accepted -eq ($Name -in @('valid', 'task-contract', 'task-contract-load')))
 }
 
+function Test-WerPolicySnapshot {
+    # Extract definitions into this local scope: every host capability below is
+    # fake, even on Windows. No policy/task/registry read occurs in controls.
+    $tokens = $null
+    $errors = $null
+    $ast = [Management.Automation.Language.Parser]::ParseFile(
+        (Join-Path $PSScriptRoot 'Crash-Event-Control.psm1'), [ref]$tokens, [ref]$errors)
+    Assert-Control ($errors.Count -eq 0)
+    $definitions = @($ast.FindAll({
+        param($node)
+        $node -is [Management.Automation.Language.FunctionDefinitionAst] `
+            -and ($node.Name -cmatch 'EventWer' -or $node.Name -ceq 'Invoke-HermesCrashEventSchemaPublication')
+    }, $false))
+    foreach ($definition in $definitions) { . ([scriptblock]::Create($definition.Extent.Text)) }
+    $private = "private/path`n$([char]27)[31m"
+    $script:wer = @{
+        Calls = [Collections.Generic.List[string]]::new(); Fail = ''; KeyMissing = $false; ValueMissing = $false
+        Kind = [Microsoft.Win32.RegistryValueKind]::DWord; Value = 0; TaskValue = 3; TaskError = 0
+        FailGuard = $false; Guards = 0
+    }
+    $script:wer.Key = [pscustomobject]@{}
+    $script:wer.Key | Add-Member ScriptMethod GetValue {
+        param($Name, $Default, $Options)
+        $script:wer.Calls.Add("value:$Name|$([int]$Options)")
+        if ($script:wer.Fail -ceq 'value') { throw "private/path`n$([char]27)[31m" }
+        if ($script:wer.ValueMissing) { return $Default }
+        return ,$script:wer.Value
+    }
+    $script:wer.Key | Add-Member ScriptMethod GetValueKind {
+        param($Name)
+        $script:wer.Calls.Add("kind:$Name")
+        if ($script:wer.Fail -ceq 'kind') { throw "private/path`n$([char]27)[31m" }
+        return $script:wer.Kind
+    }
+    $script:wer.Key | Add-Member ScriptMethod Dispose {
+        $script:wer.Calls.Add('close:key')
+        if ($script:wer.Fail -ceq 'key-close') { throw "private/path`n$([char]27)[31m" }
+        return 'private/noise'
+    }
+    $script:wer.Base = [pscustomobject]@{}
+    $script:wer.Base | Add-Member ScriptMethod OpenSubKey {
+        param($Path, $Writable)
+        $script:wer.Calls.Add("key:$Path|$([int]$Writable)")
+        if ($script:wer.Fail -ceq 'open-key') { throw "private/path`n$([char]27)[31m" }
+        if ($script:wer.KeyMissing) { return $null }
+        return $script:wer.Key
+    }
+    $script:wer.Base | Add-Member ScriptMethod Dispose {
+        $script:wer.Calls.Add('close:base')
+        if ($script:wer.Fail -ceq 'base-close') { throw "private/path`n$([char]27)[31m" }
+        return 'private/noise'
+    }
+    function Open-EventWerRegistryBase {
+        param([bool]$CurrentUser)
+        $script:wer.Calls.Add("base:$([int]$CurrentUser)")
+        if ($script:wer.Fail -ceq 'open-base') { throw "private/path`n$([char]27)[31m" }
+        return $script:wer.Base
+    }
+    $path = 'SOFTWARE\Microsoft\Windows\Windows Error Reporting'
+    $expected = @(
+        "base:0|key:$path|0|value:Disabled|1|kind:Disabled|close:key|close:base",
+        "base:1|key:$path|0|value:Disabled|1|kind:Disabled|close:key|close:base",
+        "base:0|key:$path|0|value:ForceQueue|1|kind:ForceQueue|close:key|close:base",
+        "base:0|key:$path|0|value:DontShowUI|1|kind:DontShowUI|close:key|close:base",
+        "base:0|key:$path\Consent|0|value:DefaultConsent|1|kind:DefaultConsent|close:key|close:base",
+        'base:0|key:SOFTWARE\Policies\Microsoft\Windows\Windows Error Reporting|0|value:Disabled|1|kind:Disabled|close:key|close:base',
+        'base:0|key:SYSTEM\CurrentControlSet\Services\WerSvc|0|value:Start|1|kind:Start|close:key|close:base'
+    )
+    foreach ($field in 1..7) {
+        $script:wer.Calls.Clear()
+        $rows = @(Get-EventWerRegistryState $field)
+        Assert-Control ($rows.Count -eq 1 -and $rows[0] -is [int] -and $rows[0] -eq 1)
+        Assert-Control (($script:wer.Calls -join '|') -ceq $expected[$field - 1])
+    }
+    foreach ($field in @(-1, 0, 8, [int]::MaxValue)) {
+        $script:wer.Calls.Clear()
+        Assert-Refused { Get-EventWerRegistryState $field }
+        Assert-Control ($script:wer.Calls.Count -eq 0)
+    }
+    foreach ($value in 0..4) {
+        Assert-Control ((ConvertTo-EventWerRegistryState ([Microsoft.Win32.RegistryValueKind]::DWord) $value) -eq (1 + $value))
+    }
+    foreach ($value in @(5, -1, [int]::MinValue, [int]::MaxValue)) {
+        Assert-Control ((ConvertTo-EventWerRegistryState ([Microsoft.Win32.RegistryValueKind]::DWord) $value) -eq 6)
+    }
+    foreach ($kind in [Enum]::GetValues([Microsoft.Win32.RegistryValueKind])) {
+        if ($kind -eq [Microsoft.Win32.RegistryValueKind]::DWord) { continue }
+        $expectedState = if ($kind -eq [Microsoft.Win32.RegistryValueKind]::Unknown) { 8 } else { 7 }
+        Assert-Control ((ConvertTo-EventWerRegistryState $kind $private) -eq $expectedState)
+    }
+    foreach ($value in @($null, $true, '0', $private, 0L, [uint32]0, [double]0, [decimal]0, [byte]0, @(0, 1), [pscustomobject]@{})) {
+        Assert-Control ((ConvertTo-EventWerRegistryState ([Microsoft.Win32.RegistryValueKind]::DWord) $value) -eq 7)
+        $script:wer.Value = $value
+        Assert-Control ((Get-EventWerRegistryState 1) -eq 7)
+    }
+    $script:wer.Value = 0
+    foreach ($kind in @($null, 'DWord', $private, 4, [Microsoft.Win32.RegistryValueOptions]::None)) {
+        Assert-Control ((ConvertTo-EventWerRegistryState $kind 0) -eq 8)
+    }
+    foreach ($missing in @('KeyMissing', 'ValueMissing')) {
+        $script:wer.Calls.Clear()
+        $script:wer[$missing] = $true
+        Assert-Control ((Get-EventWerRegistryState 1) -eq 0)
+        Assert-Control (-not ($script:wer.Calls -join '|').Contains('kind:'))
+        Assert-Control ($script:wer.Calls[$script:wer.Calls.Count - 1] -ceq 'close:base')
+        $script:wer[$missing] = $false
+    }
+    foreach ($failure in @('open-base', 'open-key', 'value', 'kind', 'key-close', 'base-close')) {
+        $script:wer.Calls.Clear()
+        $script:wer.Fail = $failure
+        Assert-Control ((Get-EventWerRegistryState 1) -eq 9)
+        $expectedCloses = switch ($failure) { 'open-base' { '' }; 'open-key' { 'close:base' }; default { 'close:key|close:base' } }
+        Assert-Control ((@($script:wer.Calls | Where-Object { $_.StartsWith('close:') }) -join '|') -ceq $expectedCloses)
+    }
+    $script:wer.Fail = ''
+    $script:wer.Task = [pscustomobject]@{ Id = 'task' }
+    $script:wer.Task | Add-Member ScriptProperty State {
+        $script:wer.Calls.Add('state')
+        if ($script:wer.Fail -ceq 'state') { throw "private/path`n$([char]27)[31m" }
+        return ,$script:wer.TaskValue
+    }
+    $script:wer.Folder = [pscustomobject]@{ Id = 'folder' }
+    $script:wer.Folder | Add-Member ScriptMethod GetTask {
+        param($Name)
+        $script:wer.Calls.Add("task:$Name")
+        if ($script:wer.TaskError -ne 0) { throw [Runtime.InteropServices.COMException]::new('private/path', $script:wer.TaskError) }
+        if ($script:wer.Fail -ceq 'task') { throw "private/path`n$([char]27)[31m" }
+        return $script:wer.Task
+    }
+    $script:wer.Service = [pscustomobject]@{ Id = 'service' }
+    $script:wer.Service | Add-Member ScriptMethod Connect {
+        $script:wer.Calls.Add('connect')
+        if ($script:wer.Fail -ceq 'connect') { throw "private/path`n$([char]27)[31m" }
+        return 'private/noise'
+    }
+    $script:wer.Service | Add-Member ScriptMethod GetFolder {
+        param($Path)
+        $script:wer.Calls.Add("folder:$Path")
+        if ($script:wer.Fail -ceq 'folder') { throw "private/path`n$([char]27)[31m" }
+        return $script:wer.Folder
+    }
+    function New-EventWerTaskService {
+        $script:wer.Calls.Add('service')
+        if ($script:wer.Fail -ceq 'service') { throw "private/path`n$([char]27)[31m" }
+        return $script:wer.Service
+    }
+    function Close-EventWerTaskObject {
+        param([object]$Value)
+        $script:wer.Calls.Add("release:$($Value.Id)")
+        if ($script:wer.Fail -ceq ('release:' + $Value.Id)) { throw "private/path`n$([char]27)[31m" }
+    }
+    $script:wer.Calls.Clear()
+    Assert-Control ((Get-EventWerTaskState) -eq 3)
+    Assert-Control (($script:wer.Calls -join '|') -ceq (
+        'service|connect|folder:\Microsoft\Windows\Windows Error Reporting|task:QueueReporting|state|release:task|release:folder|release:service'))
+    foreach ($value in 1..4) { Assert-Control ((ConvertTo-EventWerTaskState $value) -eq $value) }
+    foreach ($value in @(0, -1, 5, [int]::MinValue, [int]::MaxValue)) {
+        Assert-Control ((ConvertTo-EventWerTaskState $value) -eq 5)
+    }
+    foreach ($value in @($null, $true, '3', $private, 3L, [uint32]3, [double]3, @(3, 4), [pscustomobject]@{})) {
+        Assert-Control ((ConvertTo-EventWerTaskState $value) -eq 6)
+        $script:wer.TaskValue = $value
+        $expectedState = if ($null -eq $value) { 7 } else { 6 }
+        Assert-Control ((Get-EventWerTaskState) -eq $expectedState)
+    }
+    $script:wer.TaskValue = 3
+    foreach ($errorCode in @(-2147024894, -2147024893, -2147024891)) {
+        $script:wer.TaskError = $errorCode
+        $script:wer.Calls.Clear()
+        $expectedState = if ($errorCode -eq -2147024891) { 7 } else { 0 }
+        Assert-Control ((Get-EventWerTaskState) -eq $expectedState)
+        Assert-Control (($script:wer.Calls -join '|').EndsWith('release:folder|release:service'))
+    }
+    $script:wer.TaskError = 0
+    foreach ($failure in @('service', 'connect', 'folder', 'task', 'state', 'release:task', 'release:folder', 'release:service')) {
+        $script:wer.Calls.Clear()
+        $script:wer.Fail = $failure
+        Assert-Control ((Get-EventWerTaskState) -eq 7)
+        $expectedReleases = switch ($failure) {
+            'service' { '' }
+            { $_ -in @('connect', 'folder') } { 'release:service' }
+            'task' { 'release:folder|release:service' }
+            default { 'release:task|release:folder|release:service' }
+        }
+        Assert-Control ((@($script:wer.Calls | Where-Object { $_.StartsWith('release:') }) -join '|') -ceq $expectedReleases)
+    }
+    $script:wer.Fail = ''
+    function Assert-HermesCrashHost {
+        $script:wer.Guards++
+        if ($script:wer.FailGuard) { throw "private/path`n$([char]27)[31m" }
+    }
+    function Get-EventWerRegistryState {
+        param([int]$Field)
+        $script:wer.Calls.Add("registry:$Field")
+        if ($script:wer.Fail -ceq 'registry') { throw "private/path`n$([char]27)[31m" }
+        return ,$script:wer.Value
+    }
+    function Get-EventWerTaskState {
+        $script:wer.Calls.Add('task')
+        if ($script:wer.Fail -ceq 'task') { throw "private/path`n$([char]27)[31m" }
+        return ,$script:wer.TaskValue
+    }
+    function Assert-WerSnapshot {
+        param([int]$Registry, [int]$Task, [int]$Status)
+        $script:wer.Calls.Clear()
+        $rows = @(Get-EventWerPolicySnapshot)
+        Assert-Control ($rows.Count -eq 1 -and $rows[0] -is [string] -and $rows[0].Length -lt 512)
+        Assert-Control ($rows[0] -ceq (
+            "HERMES_CRASH_WER_POLICY v=1 status=$Status lmDisabled=$Registry cuDisabled=$Registry forceQueue=$Registry dontShowUI=$Registry consent=$Registry policyDisabled=$Registry werSvcStart=$Registry queueReporting=$Task advisory=1 originalGatePassed=0 nativeAcceptance=0"))
+        Assert-Control (($script:wer.Calls -join '|') -ceq 'registry:1|registry:2|registry:3|registry:4|registry:5|registry:6|registry:7|task')
+    }
+    foreach ($value in 0..9) {
+        $script:wer.Value = $value
+        Assert-WerSnapshot $value 3 ([int]($value -ge 7))
+    }
+    $script:wer.Value = 0
+    foreach ($value in 0..7) {
+        $script:wer.TaskValue = $value
+        Assert-WerSnapshot 0 $value ([int]($value -ge 5))
+    }
+    foreach ($value in @($null, $true, '0', $private, 0L, -1, 10, [int]::MaxValue, @(0, 1))) {
+        $script:wer.Value = $value
+        $script:wer.TaskValue = $value
+        Assert-WerSnapshot 9 7 1
+    }
+    $script:wer.Value = 0
+    $script:wer.TaskValue = 0
+    foreach ($failure in @('registry', 'task')) {
+        $script:wer.Fail = $failure
+        if ($failure -ceq 'registry') { Assert-WerSnapshot 9 0 1 } else { Assert-WerSnapshot 0 7 1 }
+    }
+    $script:wer.Fail = ''
+    $culture = [Globalization.CultureInfo]::CurrentCulture
+    try {
+        [Globalization.CultureInfo]::CurrentCulture = [Globalization.CultureInfo]::GetCultureInfo('ar-SA')
+        Assert-WerSnapshot 0 0 0
+    } finally { [Globalization.CultureInfo]::CurrentCulture = $culture }
+    $script:wer.FailGuard = $true
+    $script:wer.Calls.Clear()
+    Assert-Refused { Get-EventWerPolicySnapshot }
+    Assert-Control ($script:wer.Calls.Count -eq 0)
+    $writer = [IO.StringWriter]::new([Globalization.CultureInfo]::InvariantCulture)
+    $output = [Console]::Out
+    try {
+        [Console]::SetOut($writer)
+        Assert-Refused { Invoke-HermesCrashEventSchemaPublication }
+    } finally { [Console]::SetOut($output) }
+    try {
+        Assert-Control ($writer.ToString() -ceq ("HERMES_CRASH_EVENT_SCHEMA_PUBLICATION v=1 status=1" + [Environment]::NewLine))
+        Assert-Control ($script:wer.Calls.Count -eq 0)
+    } finally { $writer.Dispose() }
+    if (-not [OperatingSystem]::IsWindows()) {
+        Assert-Refused { & (Get-Module Crash-Event-Control) { Get-EventWerPolicySnapshot } }
+    }
+    Remove-Variable -Name wer -Scope Script
+}
+
+function Test-WerPolicyBoundaries {
+    $tokens = $null
+    $errors = $null
+    $ast = [Management.Automation.Language.Parser]::ParseFile(
+        (Join-Path $PSScriptRoot 'Crash-Event-Control.psm1'), [ref]$tokens, [ref]$errors)
+    $functions = @{}
+    foreach ($node in $ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] }, $false)) {
+        $functions[$node.Name] = $node
+    }
+    $reader = $functions['Get-EventWerRegistryState'].Extent.Text
+    Assert-Control ($reader.Contains('[ValidateRange(1, 7)]') -and $reader.Contains('$base.OpenSubKey($path, $false)') `
+        -and $reader.Contains('[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames') `
+        -and $reader.Contains('[object]::ReferenceEquals($value, $missing)') -and $reader.Contains('$null = $handle.Dispose()'))
+    $paths = @($functions['Get-EventWerRegistryState'].Body.FindAll({
+        param($node)
+        $node -is [Management.Automation.Language.StringConstantExpressionAst] -and $node.Value -cmatch '\A(SOFTWARE|SYSTEM)\\'
+    }, $false) | ForEach-Object { $_.Value })
+    Assert-Control (($paths -join '|') -ceq (
+        'SOFTWARE\Microsoft\Windows\Windows Error Reporting|SOFTWARE\Microsoft\Windows\Windows Error Reporting\Consent|SOFTWARE\Policies\Microsoft\Windows\Windows Error Reporting|SYSTEM\CurrentControlSet\Services\WerSvc'))
+    $open = $functions['Open-EventWerRegistryBase'].Extent.Text
+    Assert-Control ($open.Contains('[Microsoft.Win32.RegistryHive]::CurrentUser') `
+        -and $open.Contains('[Microsoft.Win32.RegistryHive]::LocalMachine') `
+        -and $open.Contains('[Microsoft.Win32.RegistryView]::Registry64'))
+    $task = $functions['Get-EventWerTaskState']
+    Assert-Control ($null -eq $task.Body.ParamBlock `
+        -and $task.Extent.Text.Contains('$null = $service.Connect()') `
+        -and $task.Extent.Text.Contains("`$service.GetFolder('\Microsoft\Windows\Windows Error Reporting')") `
+        -and $task.Extent.Text.Contains("`$folder.GetTask('QueueReporting')") `
+        -and $task.Extent.Text.Contains('@($task, $folder, $service)'))
+    Assert-Control ($functions['New-EventWerTaskService'].Extent.Text.Contains("New-Object -ComObject 'Schedule.Service' -ErrorAction Stop") `
+        -and $functions['Close-EventWerTaskObject'].Extent.Text.Contains('[Runtime.InteropServices.Marshal]::FinalReleaseComObject($Value)'))
+    $snapshot = $functions['Get-EventWerPolicySnapshot']
+    Assert-Control ($null -eq $snapshot.Body.ParamBlock `
+        -and $snapshot.Body.EndBlock.Statements[0].Extent.Text -ceq 'Assert-HermesCrashHost')
+    $publication = $functions['Invoke-HermesCrashEventSchemaPublication'].Extent.Text
+    Assert-Control ([regex]::Matches($publication, 'Get-EventWerPolicySnapshot').Count -eq 1 `
+        -and $publication.IndexOf('Assert-HermesCrashHost', [StringComparison]::Ordinal) -lt
+            $publication.IndexOf('Get-EventWerPolicySnapshot', [StringComparison]::Ordinal) `
+        -and $publication.IndexOf('if ($root -cne', [StringComparison]::Ordinal) -lt
+            $publication.IndexOf('Get-EventWerPolicySnapshot', [StringComparison]::Ordinal) `
+        -and $publication.IndexOf('Get-EventWerPolicySnapshot', [StringComparison]::Ordinal) -lt
+            $publication.IndexOf('$summary = @(', [StringComparison]::Ordinal))
+    foreach ($name in @($functions.Keys | Where-Object { $_ -cmatch 'EventWer' })) {
+        $text = $functions[$name].Extent.Text
+        Assert-Control ($text -cnotmatch '(?i)\$env:|Get-WinEvent|ReadAll|WriteAll|Start-Process|SetValue|CreateSubKey|Delete|Set-|Register-|Enable-|Disable-|\.Run\(|\.Start\(|ChangeService|Get-ChildItem|GetValueNames|\.Definition|\.Xml|\.Actions|\.Principal|\.Settings')
+        Assert-Control (-not (Get-Module Crash-Event-Control).ExportedFunctions.ContainsKey($name))
+    }
+}
+
 function Test-StaticBoundaries {
     $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
     $wrapperPath = Join-Path $PSScriptRoot 'Invoke-CrashEventControl.ps1'
@@ -1350,6 +1656,8 @@ try {
     Test-Publication $scratch
     Test-Lifecycle $scratch
     Test-DiagnosticsAndGuard
+    Test-WerPolicySnapshot
+    Test-WerPolicyBoundaries
     foreach ($name in @('task-contract', 'task-contract-load', 'valid', 'at-cap', 'base-only', 'event-only', 'noise', 'crlf', 'utf8', 'stderr',
             'exit', 'overflow', 'timeout', 'failure', 'failed-guard', 'failed-callback',
             'failed-fence', 'failed-dispose', 'failed-base-success', 'wrapper-failure',

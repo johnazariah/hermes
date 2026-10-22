@@ -100,6 +100,16 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-23 - Ground the next check in empty-query and image-policy evidence
+
+- **Native measurement:** At `1cbc50f`, run `39859837812`, job `120107369986`, returns 78 successfully closed empty fixed-selector results, without native faults or reader calls. Open/Next maxima are 2,276/1,021 microseconds; total delay is 19,637,458 microseconds. Window expiry occurs before the next query, not after rejecting a returned result. This distinguishes repeated emptiness from a stalled call, not production/delivery from filtering semantics.
+- **Host evidence:** The job identifies `windows-2025-vs2026` image `20261021.278.1`. Its exact public source tag forces WER queuing and disables WER scheduled tasks. Those build settings are not a runtime snapshot or a demonstrated cause.
+- **Changed:** A fixed read-only policy advisory is acquired in the same guarded metadata step. Seven registry values and one known task are mapped to bounded state enums; read/cleanup failures are explicit. No queue, report, event or private file is read, and no host setting is changed. Metadata receipts and all query/acceptance contracts remain unchanged.
+- **Validation:** Direct complete-delta review approves the two-file change. Independent original/metadata/event controls pass 985/3,120/3,372; cold modes, targeted actionlint and whitespace checks pass. Root build passes without warnings/errors; all 2,198 Core cases pass without skips.
+- **Application state:** Both supported jobs in CI `39859843192` pass, including all 1,000 Servicing cases, Core selections and 61 browser cases on each host. The older Windows page-creation failure does not recur; its cause is not established and no retry/timeout change is claimed.
+- **Blockers:** Exact native precision, original PowerShell execution and installed acceptance remain unresolved.
+- **Next:** Read the actual same-job policy states before attributing empty results or changing any host/query behaviour.
+
 ### 2026-10-23 - Measure unchanged query outcomes without changing authority
 
 - **Changed:** One bounded failure-only numeric row records attempts/returns, cleaned-up empties, category before the authoritative post-query check, slack/expiry location and fixed native/fence/delay phase durations. No predicate, literal, native flag, child/WER setting, window, identity or acceptance check changes.
