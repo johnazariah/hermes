@@ -100,6 +100,16 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Verify public-wrapper coverage and fixture ports on both supported hosts
+
+- **Evidence:** Published `ea47975`, run `39763777189`: supported Windows job `119774079322` and macOS job `119774079249` both succeed. Windows runs 2,187 selected Core and 318 Servicing tests without skips, plus 102 JavaScript units and 61 real isolated browser journeys; four governed Unix-only exclusions remain explicit.
+- **Coverage:** Actual artifact `12419832470` retains the same five assemblies, reports 86.01% line and 61.37% branch, and records hits on all four public-wrapper lines 130-133. Line coverage exceeds the earlier measured level; branch coverage exceeds the previous 61.26% but not the earlier 61.58% peak. The 85%/60% gates are unchanged; issue #18 is not declared closed.
+- **Outcome:** The deterministic public-extraction and common-fixture port-ownership tasks now have exact-head hosted proof. The native factory and production application remain unchanged.
+- **Native blocker:** Installer job `119774079511`, artifact `12419218935`, retains 541 portable controls and 500/501 native passes. The only native failure is original restricted PowerShell execution. Actual SDK/MASM facts remain bound; the first refusing line records generic error wording only (1), no recognised first token (0), and the read-expression bit. It establishes no loader cause.
+- **Limits:** All relevant controlled-query/evaluator cycles are exhausted. The independent event schema is verified but its safe C# observation command remains unimplemented. No raw diagnostic exception was authorised when the owner was unavailable; numeric-only reporting remains in force.
+- **Stocktake:** Draft PR #30 remains unmerged, remote main remains `e7758a3`, and #16/#18/#28 still require actual acceptance. Protected-namespace legacy repair #24 remains separately blocked. The overall task is incomplete.
+- **Next:** Identify the actual startup/protocol failure through authorised evidence before changing its implementation; retain all original exit, token, integrity, source and installed-lifecycle gates.
+
 ### 2026-10-22 - Publish the final closed refusal fingerprint without another query variant
 
 - **Changed:** Two frozen numeric facts distinguish fixed formatter/error wording and the first fixed syntax-token class, only after earlier actual MASM readback in the bound SDK-completed arm frame. This closes the evaluator owner's final cycle without changing the query or debugger commands.
