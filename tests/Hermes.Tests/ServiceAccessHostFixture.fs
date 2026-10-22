@@ -14,15 +14,20 @@ open Hermes.Core.OwnerControlPipe
 open Hermes.Service
 open Hermes.Tests.ServiceAccessHostTestSupport
 
-let rec private freePort () : int =
-    use listener = new TcpListener(IPAddress.Loopback, 0)
-    listener.Start()
-    let port =
-        match listener.LocalEndpoint with
-        | :? IPEndPoint as endpoint -> endpoint.Port
-        | _ -> invalidOp "Missing owned loopback endpoint."
-    listener.Stop()
-    if port = 21741 || port = 21742 then freePort () else port
+let private issuedPorts = System.Collections.Concurrent.ConcurrentDictionary<int, unit>()
+// Claims survive shutdown and rebind; never probe an already-issued port.
+let issuePort (candidates: int seq) : int =
+    candidates |> Seq.truncate 16384
+    |> Seq.tryFind (fun port ->
+        if not (issuedPorts.TryAdd(port, ())) then false
+        else
+            use listener = new TcpListener(IPAddress.Loopback, port)
+            try listener.Start(); true
+            with :? SocketException as error when error.SocketErrorCode = SocketError.AddressAlreadyInUse -> false)
+    |> Option.defaultWith (fun () -> invalidOp "Host fixture issued-port range exhausted.")
+
+let private freePort () : int =
+    issuePort (seq { 49152 .. 65535 })
 
 let private probe (root: string) : Probe =
     { Root = root; Effects = System.Collections.Concurrent.ConcurrentQueue<Effect>()
@@ -100,9 +105,9 @@ let private runHost
         CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default)
 
 let private start (shutdownBudget: TimeSpan) (extra: WebApplication -> unit) : Server =
+    let port = freePort ()
     let root = Path.Combine(Path.GetTempPath(), "hermes-host-" + Guid.NewGuid().ToString("N"))
     Directory.CreateDirectory(root) |> ignore
-    let port = freePort ()
     let origin = $"http://127.0.0.1:{port}"
     let observations = probe root
     let captured = cell<CapturedHost> ()

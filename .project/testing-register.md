@@ -2,6 +2,31 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Public extraction is measured directly and fixture ports cannot be reissued
+
+The generation-7 public `Stages.extract` regression passes and actual
+Cobertura XML records one hit on each previously missed line 130-133.
+It checks exact extractor bytes/call count, enrichment, unchanged source,
+sidecar and singleton complete FTS publication, unchanged persisted document
+and generation, and no completion-ledger/log effects. Canonical
+`Database.boxVal` supplies the declared row type without null suppressions.
+The uncancellable operation is directly awaited before fixture disposal;
+the test has no local deadline and relies on external runner bounds.
+
+Shared host fixtures atomically claim a candidate port before probing and
+never reissue it during the test process. Allocation is finite, excludes
+service ports and propagates errors other than allocation-time occupancy.
+A real-host regression proves an owned collision still fails the unchanged
+rebind assertion, rejects the issued candidate and keeps another port bound
+while the original rebind succeeds. Foreign and nonparticipating listeners
+remain visible failures; the original collision's owner is not established.
+
+Fresh independent F# reviews approve both final revisions. Parent build
+passes with zero warnings/errors, all **23 instrumented host/canonical-UI/
+wrapper cases** pass and all **2,191 Core tests** pass without skips.
+The two new discovered cases and project entries are registered. Aggregate
+hosted coverage and Windows port semantics still need exact-head proof.
+
 ## Owner-auth startup failure separates transport budget and joins every HTTP task
 
 The host fixture runs its synchronous lifetime on a dedicated, explicitly

@@ -41,6 +41,7 @@
     <Compile Include="ServiceAccessHostSessionSupport.fs" />
     <Compile Include="ServiceAccessHostTests.fs" />
     <Compile Include="ServiceAccessHostHttpTests.fs" />
+    <Compile Include="ServiceAccessHostPortTests.fs" />
     <Compile Include="ServiceAccessHostDrainSupport.fs" />
     <Compile Include="ServiceAccessHostDrainTests.fs" />
     <Compile Include="MemFsTests.fs" />
@@ -131,6 +132,7 @@
     <Compile Include="WorkflowTests.fs" />
     <Compile Include="WorkflowCompletionRegressionTests.fs" />
     <Compile Include="CoreRegressionSupport.fs" />
+    <Compile Include="StagesExtractionRegressionTests.fs" />
     <Compile Include="WorkflowFailureRegressionTests.fs" />
     <Compile Include="WorkflowTerminalRegressionTests.fs" />
     <Compile Include="WorkflowLeaseRegressionTests.fs" />

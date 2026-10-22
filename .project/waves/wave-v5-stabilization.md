@@ -100,6 +100,25 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Publish measured public extraction and non-reissued fixture ports
+
+- **Changed:** A deterministic generation-7 test directly exercises the public extraction wrapper and checks exact bytes, enrichment, sidecar/FTS publication and unchanged stored document/generation/ledger. The actual operation is directly awaited before fixture disposal; there is no local cancellation/deadline claim for this uncancellable API.
+- **Measured:** Filtered Cobertura XML records a hit on each Stages line 130-133. Canonical typed SQL boxing fixes the compiler-verified nullness mismatch without casts or suppressions. Fresh independent F# review approves the final source.
+- **Additional finding:** A full run exposed `AddressAlreadyInUse` during a canonical-UI fixture's real cleanup rebind. The source does not establish who occupied the port. The shared allocator now atomically claims before probing and never reissues its ports within the process; finite allocation still surfaces foreign/nonparticipating collisions.
+- **Regression:** A real joined host and an owned contender prove collision remains visible, the issued candidate cannot be reclaimed, and the original rebind succeeds while a different claimed port is listening. The original final rebind assertion remains unchanged; independent F# review approves.
+- **Validation:** Root build passes with zero warnings/errors; all 23 instrumented host/canonical-UI/wrapper cases and 2,191 full Core tests pass without skips. Exact wrapper-line XML, BOM/LF and diff hygiene were checked. No production, native-factory or coverage-threshold change.
+- **Blockers:** Exact-head hosted aggregate coverage and port behaviour remain unproved. The genuine restricted PowerShell/installed lifecycle and event-diagnostic implementation remain unresolved.
+- **Next:** Publish these test-only revisions and verify supported Windows/macOS results without lowering gates or treating retries as fixes.
+
+### 2026-10-22 - Verify the authentication fix on both supported hosts
+
+- **Evidence:** Published `606debb`, run `39757060356`: supported Windows job `119751624143` and macOS job `119751624157` both succeed, including instrumented Core/Servicing, real isolated browser smoke and unchanged 85%/60% gates. Windows executes 2,185 selected Core tests and 318 Servicing tests without skips; the four governed Unix-only exclusions remain explicit.
+- **Outcome:** The observed startup-failure HTTP timeout is resolved on its actual instrumented Windows acceptance run. The dedicated host lifetime, bounded startup request and failure-path task ownership retain the original teardown proof. Its reproducibility task is now done.
+- **Coverage:** Actual Windows artifact `12417595393` reports 85.98% line and 61.26% branch over the same five assemblies. Both gates pass, but this is below the earlier measured level. Production code is unchanged; exact hit comparison loses Stages lines 130-133 and gains ServiceAccessHost line 384.
+- **Decision:** Add a deterministic regression for the missed stage business path rather than lowering thresholds, editing coverage or assuming all branch variance is meaningful. A fresh F# owner is scoped only to those stage lines.
+- **Blockers:** Genuine restricted PowerShell/installed acceptance remains blocked. The event route still lacks an implementation despite verified metadata; no root-cause claim or merge follows from these host successes.
+- **Next:** Review and measure the deterministic stage regression, preserving the now-verified authentication behaviour.
+
 ### 2026-10-22 - Publish the owned authentication-startup fixture revision
 
 - **Changed:** The fixture joins a dedicated synchronous host task and gives startup health a separate linked 20-second budget; ordinary two-second requests and all production deadlines remain unchanged. The original real 503-before-failure and exact failure/quiescence/authority/port-release proof is preserved.
