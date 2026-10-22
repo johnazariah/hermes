@@ -2,6 +2,33 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Production diagnostic is metadata-only; owned stdin closes through its writer
+
+All **420 controls** pass: 385 prior trace/readiness/transport intents, 29
+inventory cases and six genuine BCL-pipe closure regressions.
+
+Production selects Inventory explicitly, without a command/PID/mode input or
+automatic fallback. Its four pinned command files contain metadata markers,
+`.lastevent` and fixed event continuation only: no flag setter, PEB/type or
+memory read. Controller ARMED continuation and trace acceptance are disabled,
+even if flag/arming state is injected. A private 16-subject ledger records
+complete target/helper/other callback relations, repeats and mismatches.
+Native Final facts require immutable source/row binding. Inventory completion
+is separate from trace completion and native acceptance; reports remain
+numeric/hash-only and below 4,096 bytes.
+
+Parent review rejected the initial input lifetime. A fresh owner corrects
+all three paths to dispose the owning writer before its captured stream,
+while still attempting both closes and preserving faults/pending tasks.
+Actual open-peer pipes now prove checked closure, EOF and exactly `g\n`
+where applicable; genuine encoder-flush faults still refuse clean closure.
+No test closes the peer or rescues a pending operation to manufacture success.
+
+Installer static controls, warning-free root build and 2,184 tests pass.
+The original unfiltered 501-case Windows gate is unchanged. Actual metadata
+inventory and the PowerShell cause remain pending; no flag-setting trace
+will run until its producer is bound to the actual held target.
+
 ## Native Ready grants only the fixed diagnostic's lower execution permit
 
 All **385 controls** pass. The lower v2 permission may now precede a CPR

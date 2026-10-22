@@ -100,6 +100,33 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Approve metadata-only inventory after real stdin-lifetime correction
+
+- **Changed:** Production now explicitly selects an observation-only debugger inventory. Four pinned metadata command files contain no SDK setter or PEB/memory read. A private 16-subject ledger distinguishes complete target/helper/other callbacks, repeats and malformed/mismatched frames; native Final facts retain source/row binding. Inventory cannot arm or accept a trace.
+- **Corrected:** After rejection, a fresh owner fixes all three writer/stream disposal orders. Both close attempts, real failures, cancellation and pending-task bounds remain checked. Six actual BCL-pipe cases prove EOF, exact fixed input and genuine flush-fault refusal without fake disposal or peer rescue.
+- **Validation:** Parent review, all 420 controls, installer static controls, warning-free root build and 2,184 tests pass. The prior 385 intents and all 29 inventory controls remain; report and output bounds are unchanged.
+- **Preserved:** Fixed native subject/context, lower readiness permit, no arbitrary PID action, original 501-case gate and every product/MSI/authentication/exit-37 requirement.
+- **Blockers:** Actual event classification, target-scoped trace production, the PowerShell loader cause and installed Medium acceptance remain unproved.
+- **Next:** Publish the corrected metadata-only diagnostic and inspect the additional event relations without flag writes.
+
+### 2026-10-22 - Catch a real stdin-lifetime failure before publishing the inventory
+
+- **Found:** The observation-only candidate closes its input stream before disposing the owning StreamWriter. A real in-process anonymous-pipe reproduction throws ObjectDisposedException in that order; writer-first disposal reports no error. The candidate would treat this as a fatal closure fault before collecting events.
+- **Review:** Parent review rejects the input-lifetime boundary despite 414 synthetic controls and static controls passing. The fake writer's disposal override does not close its real base and misses this behaviour. The same ordering occurs in the coupled ARMED and fallback-close paths.
+- **Action:** A different source owner is correcting all three owned stdin paths and adding genuine BCL pipe regressions. The rejected author may not revise or advise this artifact. No inventory candidate has been published.
+- **Preserved:** Metadata-only production, no flag setter or PEB reads, immutable source/row bindings, the 16-subject ledger, strict trace refusal and original acceptance gates remain required.
+- **Coverage:** Published `8811ec8` passes both supported OS jobs and Tray; its five-assembly report records 14,739/17,137 lines and 15,205/24,668 branches, above 85%/60%.
+- **Blockers:** Safe input closure, event classification, genuine PowerShell exit 37 and installed Medium acceptance remain pending.
+
+### 2026-10-22 - Native Resume is proved; classify extra debugger events without flag writes
+
+- **Evidence:** Published `8811ec8`, run `39705155167`, job `119583352201`, passes 385 controls and 500/501 native cases without skips. The actual v2 acknowledgement and checked Resumed receipt are both present. Ready/check mask 131 and later create/joint mask 3655 establish the intended lower-permit progression.
+- **Observed:** The stream now contains two create and three exit callback blocks. Only the first create event binds before a protocol fault; no accepted initial breakpoint, flags or ARMED evidence follows. The parent remains unchanged; cleanup is incomplete. The extra event's identity and the PowerShell loader cause are unknown.
+- **Safety decision:** The next run is explicitly observation-only: no SDK flag setter or PEB read, no possible accepted trace, and only bounded numeric target/helper/other event relations. The existing global IBP callback must not write flags for an unclassified additional process.
+- **Scope:** This does not reject the independently approved native-readiness permit. It requires fresh target-scoped producer work before flag-setting traces resume; the original producer author is locked out of that revision.
+- **Blockers:** Original PowerShell exit 37, target-scoped trace production and installed Medium acceptance remain pending.
+- **Next:** Inventory the owned debugger's event stream read-only, then bind any future setter to the actual held target.
+
 ### 2026-10-22 - Implement the native-readiness permit without changing trace authority
 
 - **Changed:** A fresh owner extracts native readiness from actual CPR binding. Lower permission may precede CPR; already-observed wrong callbacks, stale Final/exit, faults, missing source/registration proof and replay still refuse. Stronger initial-breakpoint/ARMED proof continues to require matching post-Resume CPR.

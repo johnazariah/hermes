@@ -50,11 +50,12 @@ function New-ControlNativeCreated {
     param(
         [bool]$Acknowledge = $true, [bool]$WithResumed = $true,
         [ValidateSet('AfterClose', 'BeforeClose', 'Absent')][string]$ReadyOrder = 'AfterClose',
-        [switch]$DeferClose, [switch]$WithoutCreateCallback
+        [switch]$DeferClose, [switch]$WithoutCreateCallback,
+        [ValidateSet('Trace', 'Inventory')][string]$DiagnosticMode = 'Trace'
     )
-    $native = Native-StartupTrace\New-HermesStartupState
+    $native = Native-StartupTrace\New-HermesStartupState -DiagnosticMode $DiagnosticMode
     $native.CommandSha256 = 'a' * 64
-    $sources = New-TraceEventCommands
+    $sources = if ($DiagnosticMode -ceq 'Inventory') { New-InventoryEventCommands } else { New-TraceEventCommands }
     foreach ($name in @('Cpr', 'Epr', 'Ibp')) {
         $token = if ($name -ceq 'Cpr') { '$$<' } else { '$$><' }
         $native.FilterExpected[$name] = 'Command: "' + $token + 'D:\\owned\\startup-' + $name.ToLowerInvariant() + '.cdb"'
@@ -120,6 +121,40 @@ function Complete-ControlNative {
     )) { Add-HermesStartupLine $Native $line }
     Update-HermesStartupRows $Native ($readyV2 + "`n" + $resumedV2 + "`n" + $Final + "`n")
     New-HermesStartupReport $Native $true $true
+}
+
+function Get-ControlInventoryEvent {
+    param(
+        [ValidateSet('Create', 'Exit', 'Initial')][string]$Kind = 'Create',
+        [uint32]$Current = 22, [uint32]$Event = 0, [uint32]$EventId = 0,
+        [uint32]$Close = 0
+    )
+    if ($Event -eq 0) { $Event = $Current }
+    if ($EventId -eq 0) { $EventId = $Event }
+    if ($Close -eq 0) { $Close = $Current }
+    $version = if ($Kind -ceq 'Exit') { 1 } else { 3 }
+    $open = switch ($Kind) { 'Create' { 1 }; 'Exit' { 3 }; 'Initial' { 5 } }
+    $last = switch ($Kind) {
+        'Create' { 'Last event: {0:x}.1: Create process 1:{1:x}' -f $Event, $EventId }
+        'Exit' { 'Last event: {0:x}.1: Exit process 1:{1:x}, code 25' -f $Event, $EventId }
+        'Initial' { 'Last event: {0:x}.1: Break instruction exception - code 80000003 (first chance)' -f $Event }
+    }
+    @(
+        ('HERMES_CDB v={0} kind={1} pid={2}' -f $version, $open, $Current), $last,
+        ('HERMES_CDB v={0} kind={1} pid={2}' -f $version, ($open + 1), $Close), ''
+    ) -join "`n"
+}
+
+function New-ControlInventoryComplete {
+    param([string]$Final = $finalV2.Replace('exit=3221225794', 'exit=37'))
+    $native = New-ControlNativeCreated -DiagnosticMode Inventory -WithoutCreateCallback
+    foreach ($kind in @('Create', 'Initial', 'Exit')) {
+        Add-HermesStartupText $native $native.Out (Get-ControlInventoryEvent -Kind $kind) $true
+    }
+    Add-HermesStartupText $native $native.Out (Get-ControlInventoryEvent -Kind Exit -Current 11) $true
+    Update-HermesStartupRows $native ($readyV2 + "`n" + $resumedV2 + "`n" + $Final + "`n")
+    $native.Out.End = $true; $native.Err.End = $true; $native.InputClosed = $true
+    return $native
 }
 
 class StartupControlWriteStream : IO.MemoryStream {
@@ -345,7 +380,8 @@ $driverAst = [Management.Automation.Language.Parser]::ParseFile(
 Assert-Control ($parseErrors.Count -eq 0)
 foreach ($name in @('Resolve-TraceExtension', 'Confirm-TraceTools',
         'Assert-TraceCommandPath', 'New-TraceCommands', 'New-TraceEventCommands',
-        'Publish-TraceCommands',
+        'New-InventoryEventCommands', 'Get-TraceSelectedSources', 'Confirm-TraceCommandSelection',
+        'Publish-TraceCommands', 'Close-TraceInventoryInput',
         'Confirm-TracePublication',
         'Start-TraceRead', 'Receive-TraceRead', 'Close-TraceRead', 'Invoke-TraceCollection')) {
     $definitions = @($driverAst.FindAll({
@@ -592,6 +628,7 @@ function Write-TraceCommandFile {
                 [Text.Encoding]::ASCII.GetString($copy).Replace('sxe -c "$$<', 'sxe -c "$$><')) }
             14 { $copy = [Text.Encoding]::ASCII.GetBytes(
                 [Text.Encoding]::ASCII.GetString($copy).Replace('sxe -c "$$<', 'sxe -c "$><')) }
+            15 { $copy = [Text.Encoding]::ASCII.GetBytes((New-TraceEventCommands)[$name]) }
         }
     }
     $script:controlCommandFiles[$Path] = $copy
@@ -611,7 +648,7 @@ function Get-HermesSetupPublishFiles {
     }
 }
 
-$cases = 1..385 # Preserve 373 intents; migrate CPR absence to trace authority, add readiness staging controls.
+$cases = 1..420 # Preserve all 414 controls; add real BCL owned-input closure regressions.
 $passed = 0
 foreach ($case in $cases) {
     $state = $null
@@ -5511,6 +5548,494 @@ foreach ($case in $cases) {
                 $json = $report | ConvertTo-Json -Depth 4 -Compress
                 Assert-Control ([Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
                     -and $report.completed -eq 0 -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0)
+            }
+            386 {
+                $state = Native-StartupTrace\New-HermesStartupState -DiagnosticMode Inventory
+                $selection = @($driverAst.FindAll({
+                    param($node)
+                    $node -is [Management.Automation.Language.AssignmentStatementAst] `
+                        -and $node.Left.Extent.Text -ceq '$state'
+                }, $true))
+                Assert-Control ($selection.Count -eq 1 `
+                    -and $selection[0].Right.Extent.Text -ceq 'New-HermesStartupState -DiagnosticMode Inventory' `
+                    -and $driverAst.ParamBlock.Parameters.Count -eq 0)
+                . $controlCommandDriver
+                $expected = Get-TraceSelectedSources $extension
+                Assert-Control ($expected.Count -eq 4 -and $state.PublishedMode -ceq 'Inventory' `
+                    -and $script:controlCommandWrites.Count -eq 4 -and $script:controlCommandPins.Count -eq 4 `
+                    -and $script:controlCommandHashes -eq 4 -and $script:controlLaunchBindings -eq 1)
+                foreach ($entry in $expected.GetEnumerator()) {
+                    $path = Join-Path $root $entry.Key
+                    $actual = [Text.Encoding]::ASCII.GetString($script:controlCommandFiles[$path])
+                    Assert-Control ($actual -ceq $entry.Value -and $script:controlCommandReadOnly[$path] `
+                        -and $script:controlCommandPins -ccontains $path `
+                        -and $actual -cnotmatch '(?i:gflag|peb|sizeof|@@|\.load|\.chain|\.echo|\|\.|\b(?:ed|ew|eb|eq|ep|r|dt|db|dd|dq|k)\b)')
+                    if ($entry.Key -cne 'startup.cdb') {
+                        $lines = @($actual -split "`r`n")
+                        Assert-Control ($lines.Count -eq 5 -and $lines[1] -ceq '.lastevent' `
+                            -and $lines[3] -ceq 'g' -and $lines[4] -ceq '' `
+                            -and $lines[0] -cmatch '\A\.printf "HERMES_CDB v=[13] kind=[135] pid=%u\\n", @\$tpid\z' `
+                            -and $lines[2] -cmatch '\A\.printf "HERMES_CDB v=[13] kind=[246] pid=%u\\n", @\$tpid\z')
+                    }
+                }
+                Assert-Control ($script:controlStartInfo.ArgumentList.Contains('-o') `
+                    -and $script:controlStartInfo.ArgumentList.Contains('startup-debug-probe') `
+                    -and -not $script:controlStartInfo.ArgumentList.Contains('-pd'))
+            }
+            { $_ -in 387..398 } {
+                $state = Native-StartupTrace\New-HermesStartupState -DiagnosticMode Inventory
+                $script:controlCommandFaultName = @(
+                    'startup-cpr.cdb', 'startup-ibp.cdb', 'startup-epr.cdb', 'startup.cdb'
+                )[[int][Math]::Floor(($case - 387) / 3)]
+                $script:controlCommandFault = (($case - 387) % 3) + 1
+                . $controlCommandDriver
+                $report = New-HermesStartupReport $state $false $false
+                Assert-Control ($script:controlCommandWrites.Count -eq 4 -and $script:controlLaunchBindings -eq 0 `
+                    -and $null -eq $script:controlStartInfo -and $state.TraceFaulted -and $report.error -eq 13 `
+                    -and $state.CommandSha256 -ceq '' -and $state.PublishedMode -ceq '' `
+                    -and $report.observationOnly -eq 1 -and $report.completed -eq 0 -and $report.armingVerified -eq 0 `
+                    -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0)
+            }
+            399 {
+                $state = Native-StartupTrace\New-HermesStartupState -DiagnosticMode Inventory
+                $state.DiagnosticMode = 'arbitrary-mode'
+                . $controlCommandDriver
+                Assert-Control ($state.Error -eq 13 -and $script:controlCommandWrites.Count -eq 0 `
+                    -and $script:controlLaunchBindings -eq 0 -and $null -eq $script:controlStartInfo)
+                $refused = $false
+                try { $null = Native-StartupTrace\New-HermesStartupState -DiagnosticMode 'arbitrary-mode' } catch { $refused = $true }
+                Assert-Control ($refused)
+                $refused = $false
+                try { $null = Native-StartupTrace\New-HermesStartupState -LegacyParserControls -DiagnosticMode Inventory } catch { $refused = $true }
+                Assert-Control ($refused)
+            }
+            400 {
+                $state = Native-StartupTrace\New-HermesStartupState -DiagnosticMode Inventory
+                Set-HermesStartupTracePoint $state 24
+                $null = Publish-TraceCommands $extension
+                Confirm-TraceCommandSelection $extension
+                $state.DiagnosticMode = 'Trace'
+                $refused = $false
+                try { Confirm-TraceCommandSelection $extension } catch { $refused = $true }
+                Assert-Control ($refused -and $script:controlLaunchBindings -eq 0 -and $null -eq $script:controlStartInfo)
+                $state.DiagnosticMode = 'Inventory'
+                foreach ($name in @('CommandSha256', 'CreateCommandSha256', 'InitialCommandSha256', 'ExitCommandSha256')) {
+                    $saved = $state[$name]; $state[$name] = 'f' * 64
+                    $refused = $false
+                    try { Confirm-TraceCommandSelection $extension } catch { $refused = $true }
+                    Assert-Control ($refused -and $script:controlLaunchBindings -eq 0)
+                    $state[$name] = $saved
+                }
+            }
+            401 {
+                $state = Native-StartupTrace\New-HermesStartupState -DiagnosticMode Inventory
+                $script:controlCommandFaultName = 'startup-ibp.cdb'; $script:controlCommandFault = 15
+                . $controlCommandDriver
+                $actual = [Text.Encoding]::ASCII.GetString($script:controlCommandFiles[(Join-Path $root 'startup-ibp.cdb')])
+                Assert-Control ($actual -ceq (New-TraceEventCommands)['startup-ibp.cdb'] `
+                    -and $state.Error -eq 13 -and $state.PublishedMode -ceq '' `
+                    -and $script:controlLaunchBindings -eq 0 -and $null -eq $script:controlStartInfo)
+            }
+            402 {
+                $state = New-ControlInventoryComplete
+                foreach ($kind in @('Create', 'Initial', 'Exit')) {
+                    Add-HermesStartupText $state $state.Out (Get-ControlInventoryEvent -Kind $kind -Current 33) $true
+                }
+                $report = New-HermesStartupReport $state $true $true
+                $inventory = $report.inventory
+                Assert-Control ($state.Protocol -eq 1 -and $report.observations.ParserProtocol -eq 1 `
+                    -and $inventory.complete -eq 1 -and $inventory.status -eq 1 -and $inventory.subjects -eq 3 `
+                    -and $inventory.targetCreate -eq 1 -and $inventory.targetInitial -eq 1 -and $inventory.targetExit -eq 1 `
+                    -and $inventory.helperExit -eq 1 -and $inventory.otherCreate -eq 1 -and $inventory.otherInitial -eq 1 `
+                    -and $inventory.otherExit -eq 1 -and $inventory.otherSubjects -eq 1 `
+                    -and $inventory.malformed -eq 0 -and $inventory.mismatch -eq 0 -and $inventory.unclassifiedEvents -eq 0)
+                Assert-Control ($report.observationOnly -eq 1 -and $report.completed -eq 0 -and $report.armingVerified -eq 0 `
+                    -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0 `
+                    -and $report.exitObserved -eq 0 -and $report.powershellExit37 -eq 0 `
+                    -and $inventory.nativeFinalExit -eq 37 -and $inventory.nativeResumedReceipt -eq 1 `
+                    -and $inventory.nativeFinalBound -eq 1 -and $inventory.nativeFinalResumed -eq 1 `
+                    -and $inventory.nativeFinalParent -eq 1 -and $inventory.nativeFinalCleanup -eq 1)
+            }
+            403 {
+                $state = New-ControlInventoryComplete
+                foreach ($current in @(22, 11, 11, 33, 44, 44)) {
+                    Add-HermesStartupText $state $state.Out (Get-ControlInventoryEvent -Current $current) $true
+                }
+                foreach ($current in @(33, 44)) {
+                    Add-HermesStartupText $state $state.Out (Get-ControlInventoryEvent -Kind Exit -Current $current) $true
+                }
+                $inventory = (New-HermesStartupReport $state $true $true).inventory
+                Assert-Control ($inventory.complete -eq 1 -and $inventory.targetCreate -eq 2 -and $inventory.targetCreateRepeat -eq 1 `
+                    -and $inventory.helperCreate -eq 2 -and $inventory.helperCreateRepeat -eq 1 `
+                    -and $inventory.otherCreate -eq 3 -and $inventory.otherCreateRepeat -eq 1 `
+                    -and $inventory.otherSubjects -eq 2 -and $inventory.subjects -eq 4 `
+                    -and $inventory.malformed -eq 0 -and $inventory.mismatch -eq 0)
+            }
+            404 {
+                $valid = Get-ControlInventoryEvent
+                $texts = @(
+                    (Get-ControlInventoryEvent -Event 23), (Get-ControlInventoryEvent -EventId 23),
+                    (Get-ControlInventoryEvent -Close 23),
+                    $valid.Replace('Create process 1:16', 'Exit process 1:16, code 0'),
+                    $valid.Replace("HERMES_CDB v=3 kind=2", "Last event: 16.1: Create process 1:16`nHERMES_CDB v=3 kind=2"),
+                    "HERMES_CDB v=3 kind=2 pid=22`n",
+                    "Last event: 16.1: Create process 1:16`n",
+                    "HERMES_CDB v=3 kind=1 pid=0`n",
+                    "HERMES_CDB v=3 kind=1 pid=4294967296`n",
+                    "HERMES_CDB v=3 kind=1 pid=22`nHERMES_CDB v=3 kind=1 pid=23`n",
+                    "HERMES_CDB v=1 kind=0 pid=11`n"
+                )
+                foreach ($index in 0..($texts.Count - 1)) {
+                    $state = New-ControlNativeCreated -DiagnosticMode Inventory -WithoutCreateCallback
+                    try {
+                        Add-HermesStartupText $state $state.Out $texts[$index] $true
+                        $summary = New-HermesStartupInventorySummary $state $true $true
+                        Assert-Control ($state.Inventory.Subjects.Count -eq 0 -and $summary.complete -eq 0)
+                        if ($index -le 2) { Assert-Control ($summary.mismatch -eq 1 -and $summary.malformed -eq 0) }
+                        else { Assert-Control ($summary.malformed -eq 1 -and $summary.mismatch -eq 0) }
+                    } finally { $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose() }
+                }
+            }
+            405 {
+                $mutations = @(
+                    { $state.Target = $null }, { $state.Final = $null }, { $state.Resumed = $null },
+                    { $state.Inventory.Subjects['22'].Create = 0 }, { $state.Inventory.Subjects['22'].Initial = 0 },
+                    { $state.Inventory.Root = 0 }, { $state.Inventory.Root = 12 },
+                    { $state.Inventory.Subjects['11'].Exit = 0 }
+                )
+                foreach ($mutation in $mutations) {
+                    $state = New-ControlInventoryComplete
+                    try {
+                        . $mutation
+                        $report = New-HermesStartupReport $state $true $true
+                        Assert-Control ($report.inventory.complete -eq 0 -and $report.inventory.status -eq 2 `
+                            -and $report.completed -eq 0 -and $report.armingVerified -eq 0)
+                        if (-not (Test-HermesStartupInventoryBinding $state)) {
+                            Assert-Control ($report.inventory.nativeFinalBound -eq 0 -and $report.inventory.nativeFinalExit -eq 0 `
+                                -and $report.inventory.targetCreate -eq 0 -and $report.inventory.unclassifiedEvents -gt 0)
+                        }
+                    } finally { $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose() }
+                }
+                $state = Native-StartupTrace\New-HermesStartupState -DiagnosticMode Inventory
+                Update-HermesStartupRows $state ($finalV2.Replace('resumed=1', 'resumed=0') + "`n")
+                $report = New-HermesStartupReport $state $true $true
+                Assert-Control ($null -ne $state.Final -and $report.inventory.nativeFinalBound -eq 0 `
+                    -and $report.inventory.nativeFinalExit -eq 0 -and $report.parentUnchanged -eq 0)
+            }
+            406 {
+                $state = New-ControlInventoryComplete
+                foreach ($current in 33..46) {
+                    foreach ($kind in @('Create', 'Exit')) {
+                        Add-HermesStartupText $state $state.Out (Get-ControlInventoryEvent -Kind $kind -Current $current) $true
+                    }
+                }
+                $inventory = (New-HermesStartupReport $state $true $true).inventory
+                Assert-Control ($inventory.complete -eq 1 -and $inventory.subjects -eq 16 -and $inventory.otherSubjects -eq 14)
+                Add-HermesStartupText $state $state.Out (Get-ControlInventoryEvent -Current 47) $true
+                Add-HermesStartupText $state $state.Out (Get-ControlInventoryEvent -Kind Exit -Current 47) $true
+                $inventory = (New-HermesStartupReport $state $true $true).inventory
+                Assert-Control ($inventory.complete -eq 0 -and $inventory.status -eq 4 -and $inventory.limit -eq 1 `
+                    -and $inventory.subjects -eq 16 -and $state.Inventory.Subjects.Count -eq 16 `
+                    -and $inventory.otherCreate -eq 14 -and $inventory.otherExit -eq 14)
+            }
+            407 {
+                $mutations = @(
+                    { $state.Out.End = $false }, { $state.Err.End = $false }, { $state.InputClosed = $false },
+                    { $state.CleanupFault = 13 }, { $state.Timeout = 1 },
+                    { $state.Out.Tail = 'HERMES_CDB v=3 kind=1 pid=' },
+                    { $state.Inventory.Block = @{ Kind = 1; Version = 3; Pid = 22; Event = 0; Valid = $true } }
+                )
+                foreach ($index in 0..($mutations.Count - 1)) {
+                    $state = New-ControlInventoryComplete
+                    try {
+                        . $mutations[$index]
+                        $inventory = (New-HermesStartupReport $state $true $true).inventory
+                        $expected = if ($index -le 3) { 6 } elseif ($index -eq 4) { 5 } else { 2 }
+                        Assert-Control ($inventory.complete -eq 0 -and $inventory.status -eq $expected)
+                    } finally { $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose() }
+                }
+                foreach ($fault in @(1460, 13)) {
+                    $state = New-ControlInventoryComplete -Final ($finalV2.Replace('fault=0', "fault=$fault"))
+                    try {
+                        $inventory = (New-HermesStartupReport $state $true $true).inventory
+                        Assert-Control ($inventory.complete -eq 0 -and $inventory.nativeFinalFault -eq $fault `
+                            -and $inventory.status -eq $(if ($fault -eq 1460) { 5 } else { 8 }))
+                    } finally { $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose() }
+                }
+                $state = New-ControlInventoryComplete -Final ($finalV2.Replace('cleanup=1', 'cleanup=0'))
+                Assert-Control ((New-HermesStartupReport $state $true $true).inventory.status -eq 6)
+                $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                $state = New-ControlInventoryComplete
+                $state.Out.End = $false
+                $reader = New-ControlReader ((Get-ControlInventoryEvent).TrimEnd("`n"))
+                try {
+                    Start-TraceRead $state.Out $reader.BaseStream
+                    Receive-TraceRead $state.Out $reader.BaseStream $true
+                    $inventory = (New-HermesStartupReport $state $true $true).inventory
+                    Assert-Control ($state.Out.End -and $inventory.complete -eq 0 -and $inventory.status -eq 2 `
+                        -and $inventory.partialLine -eq 1 -and $inventory.openBlock -eq 1)
+                } finally { Close-TraceRead $state.Out $reader }
+            }
+            408 {
+                $state = New-ControlInventoryComplete
+                $state.InputClosed = $false
+                $physical = [StartupControlWriteStream]::new(0)
+                $debugger = [pscustomobject]@{ StandardInput = [IO.StreamWriter]::new($physical); HasExited = $false }
+                Close-TraceInventoryInput
+                $closes = $physical.Closes
+                Close-TraceInventoryInput
+                $definition = @($driverAst.FindAll({
+                    param($node)
+                    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Publish-TraceArm'
+                }, $true))
+                . ([scriptblock]::Create($definition[0].Extent.Text))
+                Publish-TraceArm
+                Assert-Control ($state.InputClosed -and $physical.Closed -and $physical.Writes -eq 0 `
+                    -and $physical.Closes -eq $closes -and $state.CleanupFault -eq 0 -and -not $state.ContinueAttempted)
+            }
+            409 {
+                $state = New-ControlInventoryComplete
+                $state.InputClosed = $false
+                $physical = [StartupControlWriteStream]::new(2)
+                $debugger = [pscustomobject]@{ StandardInput = [IO.StreamWriter]::new($physical) }
+                Close-TraceInventoryInput
+                $report = New-HermesStartupReport $state $true $true
+                Assert-Control (-not $state.InputClosed -and $state.CleanupFault -eq 13 -and $physical.Writes -eq 0 `
+                    -and $report.inventory.complete -eq 0 -and $report.inventory.status -eq 6 -and $report.completed -eq 0)
+                $refused = $false
+                try { Invoke-TraceCollection } catch { $refused = $true }
+                Assert-Control ($refused -and $physical.Writes -eq 0 -and -not $state.InputClosed)
+            }
+            410 {
+                $state = New-ControlNativeCreated -DiagnosticMode Inventory -WithoutCreateCallback
+                Add-HermesStartupText $state $state.Out (Get-ControlInventoryEvent) $true
+                $ibp = (Get-ControlInventoryEvent -Kind Initial).Replace(
+                    "HERMES_CDB v=3 kind=6", "HERMES_NTGLOBALFLAG v=1 pid=22 value=00000002`nHERMES_CDB v=3 kind=6")
+                Add-HermesStartupText $state $state.Out $ibp $true
+                Assert-Control ((Test-HermesStartupInventoryBinding $state) -and $state.Arm.Flags -eq 2)
+                $state.Stopped = $true; $state.Out.Tail = '1:000> '
+                $state.Acked = $true; $state.Continued = $true; $state.InputClosed = $true
+                $state.ArmedBinding = @{ Helper = 11; Pid = 22; Born = 123; Flags = 2 }
+                $state.Failure = @{ Kind = 1; Status = 3221225794; ModuleCategory = 1; ModuleSha256 = 'f' * 64 }
+                Assert-Control (-not (Test-HermesStartupInitialBinding $state) -and -not (Test-HermesStartupArm $state) `
+                    -and -not (Test-HermesStartupArmed $state) -and (Get-HermesStartupTypedFlags $state) -eq -1)
+                $physical = [StartupControlWriteStream]::new(0)
+                $writer = [IO.StreamWriter]::new($physical)
+                try {
+                    $refused = $false
+                    try { Invoke-HermesStartupContinue $state $writer } catch { $refused = $true }
+                    Add-HermesStartupLine $state $failureLine
+                    $report = New-HermesStartupReport $state $true $true
+                    Assert-Control ($refused -and $physical.Writes -eq 0 -and $report.observationOnly -eq 1 `
+                        -and $report.completed -eq 0 -and $report.armingVerified -eq 0 -and $report.firstFailureKind -eq 0 `
+                        -and $report.moduleSha256 -ceq '' -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0)
+                } finally { $writer.Dispose() }
+            }
+            411 {
+                $mutations = @(
+                    { $state.Target.born = 124 }, { $state.Final.born = 124 }, { $state.CreatedBinding.Born = 124 },
+                    { $state.CommandSha256 = 'c' * 64 }, { $state.CreateCommandSha256 = 'c' * 64 },
+                    { $state.InitialCommandSha256 = 'c' * 64 }, { $state.ExitCommandSha256 = 'c' * 64 },
+                    { $state.FilterVerified.Cpr = $false },
+                    { Invoke-ControlRowsRead ([IO.MemoryStream]::new([Text.Encoding]::ASCII.GetBytes('x' * 2049))) },
+                    { Invoke-ControlRowsRead ([IO.MemoryStream]::new([byte[]]@(255))) },
+                    {
+                        Update-HermesStartupRows $state ($readyV2 + "`n" + $resumedV2 + "`n" +
+                            $finalV2.Replace('born=123', 'born=124') + "`n")
+                    }
+                )
+                foreach ($mutation in $mutations) {
+                    $state = New-ControlInventoryComplete
+                    try {
+                        . $mutation
+                        $report = New-HermesStartupReport $state $true $true
+                        Assert-Control ($report.inventory.nativeFinalBound -eq 0 -and $report.inventory.nativeFinalExit -eq 0 `
+                            -and $report.inventory.nativeFinalParent -eq 0 -and $report.parentUnchanged -eq 0 `
+                            -and $report.inventory.complete -eq 0 -and $report.completed -eq 0)
+                    } finally { $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose() }
+                }
+            }
+            412 {
+                $state = New-ControlInventoryComplete -Final ($finalV2.Replace('exit=3221225794', 'exit=4294967295').Replace(
+                    'fault=0 cleanupFault=0', 'fault=65535 cleanupFault=65535'))
+                foreach ($current in 33..46) {
+                    foreach ($kind in @('Create', 'Exit')) {
+                        Add-HermesStartupText $state $state.Out (Get-ControlInventoryEvent -Kind $kind -Current $current) $true
+                    }
+                }
+                foreach ($name in @($state.Observations.Keys)) { $state.Observations[$name] = 8388608 }
+                foreach ($name in @('ReadyFirst', 'CreateCloseFirst', 'CreatedJointFirst', 'CreatedCheckFirst')) {
+                    $state.Observations[$name] = 16383
+                }
+                foreach ($subject in $state.Inventory.Subjects.Values) {
+                    foreach ($name in @('Create', 'Exit', 'Initial')) { $subject[$name] = 8388608 }
+                }
+                foreach ($name in @('Malformed', 'Mismatch')) { $state.Inventory[$name] = 8388608 }
+                $state.Observations.CprFilter = 9; $state.Observations.EprFilter = 9
+                Set-HermesStartupTracePoint $state 26
+                foreach ($name in @('DebuggerSha256', 'HelperSha256')) { $state[$name] = 'f' * 64 }
+                foreach ($stream in @($state.Out, $state.Err)) {
+                    $stream.Count = [long]8388608; $stream.Prefix = 'x' * 4096; $stream.Fingerprint = 'f' * 64
+                }
+                $state.AcceptedUtf8Bytes = [long]8388608
+                $report = New-HermesStartupReport $state $true $true
+                $json = $report | ConvertTo-Json -Depth 4 -Compress
+                Assert-Control ([Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
+                    -and $json -notmatch 'private|HERMES_CDB|C:|D:|sample\.dll|S-1-|"Subjects":\{|RootHash|pid' `
+                    -and $report.completed -eq 0 -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0)
+                foreach ($value in $report.inventory.Values) {
+                    Assert-Control (($value -is [int] -or $value -is [long]) -and $value -ge 0 -and $value -le [long][uint32]::MaxValue)
+                }
+                foreach ($bad in @('private --command', $null, $true, -1, 8388609)) {
+                    $state.Inventory.Malformed = $bad
+                    $summary = New-HermesStartupInventorySummary $state $true $true
+                    Assert-Control ($summary.malformed -eq 0)
+                }
+            }
+            413 {
+                $state = New-ControlNativeCreated -DiagnosticMode Inventory -WithoutCreateCallback
+                $before = $state.Inventory.Subjects.Count
+                $state.AcceptedUtf8Bytes = [long]8388607
+                Add-HermesStartupText $state $state.Out "`n" $true
+                $hash = [Convert]::ToHexString($state.Out.Hash.GetCurrentHash())
+                foreach ($line in (Get-ControlInventoryEvent -Current 33) -split "`n") {
+                    Add-HermesStartupInventoryLine $state $line
+                    Add-HermesStartupLine $state $line
+                }
+                Update-HermesStartupRows $state ($readyV2 + "`n" + $resumedV2 + "`n" + $finalV2 + "`n")
+                Assert-Control ($state.Bounds -eq 1 -and $state.AcceptedUtf8Bytes -eq 8388608 `
+                    -and $state.Inventory.Subjects.Count -eq $before -and $null -eq $state.Inventory.Block `
+                    -and $null -eq $state.Final -and $state.Out.Count -eq 1 `
+                    -and [Convert]::ToHexString($state.Out.Hash.GetCurrentHash()) -ceq $hash)
+            }
+            414 {
+                $state = New-ControlNativeCreated -DiagnosticMode Inventory -WithoutCreateCallback
+                & {
+                    foreach ($name in @('Publish-TraceCreated', 'Publish-TraceArm')) {
+                        $definition = @($driverAst.FindAll({
+                            param($node)
+                            $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name
+                        }, $true))
+                        . ([scriptblock]::Create($definition[0].Extent.Text))
+                    }
+                    function Read-TraceControl {
+                        param([string]$Path)
+                        Invoke-ControlRowsRead ([IO.MemoryStream]::new([Text.Encoding]::ASCII.GetBytes(
+                            $readyV2 + "`n" + $resumedV2 + "`n" + $finalV2.Replace('exit=3221225794', 'exit=37') + "`n")))
+                    }
+                    $text = ''
+                    foreach ($current in @(22, 33)) {
+                        foreach ($kind in @('Create', 'Initial', 'Exit')) {
+                            $text += Get-ControlInventoryEvent -Kind $kind -Current $current
+                        }
+                    }
+                    $text += Get-ControlInventoryEvent -Kind Exit -Current 11
+                    $text += "ModLoad: C:\private-inventory\secret.dll S-1-5-21-123`n"
+                    $physical = [StartupControlWriteStream]::new(0)
+                    $debugger = [pscustomobject]@{
+                        StandardInput = [IO.StreamWriter]::new($physical)
+                        StandardOutput = New-ControlReader $text; StandardError = New-ControlReader ''
+                        HasExited = $true; ExitCode = 0
+                    }
+                    try {
+                        Start-TraceRead $state.Out $debugger.StandardOutput.BaseStream
+                        Start-TraceRead $state.Err $debugger.StandardError.BaseStream
+                        Invoke-TraceCollection
+                        $report = New-HermesStartupReport $state $true $true
+                        $json = $report | ConvertTo-Json -Depth 4 -Compress
+                        Assert-Control ($report.inventory.complete -eq 1 -and $state.Protocol -eq 1 `
+                            -and $state.Out.End -and $state.Err.End -and $null -eq $state.Out.Pending -and $null -eq $state.Err.Pending `
+                            -and $physical.Closed -and $physical.Writes -eq 0 -and -not $state.ContinueAttempted `
+                            -and $state.Out.Count -eq $text.Length -and $state.AcceptedUtf8Bytes -eq [Text.Encoding]::UTF8.GetByteCount($text) `
+                            -and $report.inventory.otherCreate -eq 1 -and $report.inventory.otherExit -eq 1 `
+                            -and $report.inventory.targetInitial -eq 1 -and $report.completed -eq 0 `
+                            -and $json -notmatch 'private-inventory|secret|S-1-|HERMES_CDB|pid')
+                    } finally {
+                        Close-TraceRead $state.Out $debugger.StandardOutput
+                        Close-TraceRead $state.Err $debugger.StandardError
+                        $debugger.StandardInput.Dispose()
+                    }
+                }
+            }
+            { $_ -in 415..420 } {
+                $closure = ($case - 415) % 3
+                $flushFault = $case -ge 418
+                $state = if ($closure -eq 1) {
+                    New-ControlNativeStopped
+                } else {
+                    Native-StartupTrace\New-HermesStartupState -DiagnosticMode Inventory
+                }
+                $initialError = if ($flushFault -and $closure -ne 1) { 1460 } else { 0 }
+                $state.Error = $initialError
+                $pipe = New-ControlPipe
+                $handle = $pipe.Writer.SafePipeHandle
+                $encoding = [Text.ASCIIEncoding]::new()
+                if ($flushFault) {
+                    $encoding = [Text.Encoding]::GetEncoding('us-ascii',
+                        [Text.EncoderFallback]::ExceptionFallback, [Text.DecoderFallback]::ExceptionFallback)
+                }
+                $writer = [IO.StreamWriter]::new($pipe.Writer, $encoding)
+                try {
+                    if ($flushFault) {
+                        # Buffered invalid input makes the real writer's final
+                        # flush fail before it can emit any extra pipe bytes.
+                        $writer.Write([char]0x100)
+                    } else { $writer.AutoFlush = $true }
+                    $bytes = [byte[]]::new(3)
+                    $pending = $pipe.Reader.BaseStream.ReadAsync($bytes, 0, $bytes.Length)
+                    Assert-Control (-not $pending.IsCompleted -and -not $handle.IsClosed)
+                    if ($closure -eq 1) {
+                        Invoke-HermesStartupContinue $state $writer
+                    } else {
+                        $debugger | Add-Member -NotePropertyMembers @{
+                            StandardInput = $writer
+                            StandardOutput = New-ControlReader ''
+                            StandardError = New-ControlReader ''
+                            HasExited = $true; ExitCode = 0
+                        }
+                        if ($closure -eq 0) {
+                            Close-TraceInventoryInput
+                        } else {
+                            $started = $true
+                            $script:controlReads = 0
+                            $state.Out.End = $true; $state.Err.End = $true
+                            $inputCleanup = [scriptblock]::Create(
+                                'try {} finally ' + $driverTry.Finally.Extent.Text)
+                            . $inputCleanup
+                        }
+                    }
+                    Assert-Control ($state.InputClosed -eq (-not $flushFault) `
+                        -and $state.CleanupFault -eq $(if ($flushFault) { 13 } else { 0 }) `
+                        -and $state.Error -eq $initialError -and $handle.IsClosed `
+                        -and $pipe.Reader.BaseStream.CanRead)
+                    # These waits only watch for the real bytes/EOF. They do
+                    # not close the peer, complete a task or provide fallback.
+                    Assert-Control ($pending.Wait(5000))
+                    $count = $pending.GetAwaiter().GetResult()
+                    if ($closure -eq 1) {
+                        Assert-Control ($count -eq 2 -and $bytes[0] -eq 103 -and $bytes[1] -eq 10 `
+                            -and $state.Acked -and $state.Continued -and $state.ContinueAttempted `
+                            -and $null -ne $state.InputPending -and $state.InputPending.IsCompletedSuccessfully)
+                        $null = $state.InputPending.GetAwaiter().GetResult()
+                        $eof = $pipe.Reader.BaseStream.ReadAsync($bytes, 0, $bytes.Length)
+                        Assert-Control ($eof.Wait(5000) -and $eof.GetAwaiter().GetResult() -eq 0)
+                    } else {
+                        Assert-Control ($count -eq 0 -and -not $state.ContinueAttempted `
+                            -and -not $state.Acked -and $null -eq $state.InputPending)
+                        if ($closure -eq 2) {
+                            Assert-Control ($script:controlStops -eq 1 -and $script:controlDisposed -eq 1 `
+                                -and $debuggerEnded -and $drainsEnded)
+                        }
+                    }
+                } finally {
+                    $writer.Dispose()
+                    $pipe.Writer.Dispose()
+                    $pipe.Reader.Dispose()
+                    if ($closure -ne 1) {
+                        $debugger.StandardOutput.Dispose()
+                        $debugger.StandardError.Dispose()
+                    }
+                }
             }
         }
         $passed++

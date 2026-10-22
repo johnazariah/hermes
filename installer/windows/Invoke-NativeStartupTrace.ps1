@@ -170,6 +170,59 @@ function New-TraceEventCommands {
     }
 }
 
+function New-InventoryEventCommands {
+    # Metadata only. Every owned event continues the already-authorised inert
+    # diagnostic; none of these callbacks reads or changes loader flags.
+    $sources = [ordered]@{}
+    foreach ($event in @(
+        @{ Name = 'cpr'; Version = 3; Open = 1; Close = 2 },
+        @{ Name = 'ibp'; Version = 3; Open = 5; Close = 6 },
+        @{ Name = 'epr'; Version = 1; Open = 3; Close = 4 }
+    )) {
+        $sources['startup-' + $event.Name + '.cdb'] = (@(
+            ('.printf "HERMES_CDB v={0} kind={1} pid=%u\n", @$tpid' -f $event.Version, $event.Open),
+            '.lastevent',
+            ('.printf "HERMES_CDB v={0} kind={1} pid=%u\n", @$tpid' -f $event.Version, $event.Close),
+            'g'
+        ) -join "`r`n") + "`r`n"
+    }
+    return $sources
+}
+
+function Get-TraceSelectedSources {
+    param([string]$Extension)
+    if ($state.DiagnosticMode -ceq 'Trace') {
+        $sources = New-TraceEventCommands
+        $sources['startup.cdb'] = New-TraceCommands $Extension
+        return $sources
+    }
+    if ($state.DiagnosticMode -cne 'Inventory') { throw 'Diagnostic mode refused.' }
+    $null = Assert-TraceCommandPath $Extension
+    $sources = New-InventoryEventCommands
+    $lines = @('.printf "HERMES_CDB v=1 kind=0 pid=%u\n", @$tpid')
+    foreach ($name in @('ibp', 'cpr', 'epr')) {
+        $path = Assert-TraceCommandPath (Join-Path $root ('startup-' + $name + '.cdb'))
+        $token = if ($name -ceq 'cpr') { '$$<' } else { '$$><' }
+        $lines += 'sxe -c "' + $token + $path.Replace('\', '\\') + '" ' + $name
+    }
+    $sources['startup.cdb'] = ($lines + @('sx', 'g', '') -join "`n")
+    return $sources
+}
+
+function Confirm-TraceCommandSelection {
+    param([string]$Extension)
+    if ($state.PublishedMode -cne $state.DiagnosticMode) { throw 'Published mode changed.' }
+    $sources = Get-TraceSelectedSources $Extension
+    foreach ($item in @(
+        @('startup.cdb', 'CommandSha256'), @('startup-cpr.cdb', 'CreateCommandSha256'),
+        @('startup-ibp.cdb', 'InitialCommandSha256'), @('startup-epr.cdb', 'ExitCommandSha256')
+    )) {
+        $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+            [Text.Encoding]::ASCII.GetBytes($sources[$item[0]]))).ToLowerInvariant()
+        if ($state[$item[1]] -cne $hash) { throw 'Published selection changed.' }
+    }
+}
+
 function Write-TraceCommandFile {
     param([string]$Path, [byte[]]$Bytes)
     $stream = [IO.File]::Open($Path, [IO.FileMode]::CreateNew,
@@ -181,8 +234,7 @@ function Write-TraceCommandFile {
 
 function Publish-TraceCommands {
     param([string]$Extension)
-    $sources = New-TraceEventCommands
-    $sources['startup.cdb'] = New-TraceCommands $Extension
+    $sources = Get-TraceSelectedSources $Extension
     foreach ($source in $sources.GetEnumerator()) {
         $path = Assert-TraceCommandPath (Join-Path $root $source.Key)
         $bytes = [Text.Encoding]::ASCII.GetBytes($source.Value)
@@ -209,6 +261,7 @@ function Publish-TraceCommands {
     $state.FilterExpected.Cpr = 'Command: "$$<' + (Join-Path $root 'startup-cpr.cdb').Replace('\', '\\') + '"'
     $state.FilterExpected.Epr = 'Command: "$$><' + (Join-Path $root 'startup-epr.cdb').Replace('\', '\\') + '"'
     $state.FilterExpected.Ibp = 'Command: "$$><' + (Join-Path $root 'startup-ibp.cdb').Replace('\', '\\') + '"'
+    $state.PublishedMode = $state.DiagnosticMode
     return Join-Path $root 'startup.cdb'
 }
 
@@ -314,9 +367,9 @@ function Read-TraceControl {
                 $state.Observations.RowsFirstDataRead = $count
             }
         }
-        if ($count -gt 2048) { $state.Protocol = 1; return }
+        if ($count -gt 2048) { $state.Protocol = 1; $state.NativeRowsFault = 1; return }
         if (@($buffer[0..([Math]::Max(0, $count - 1))] | Where-Object { $_ -gt 127 }).Count -ne 0) {
-            $state.Protocol = 1
+            $state.Protocol = 1; $state.NativeRowsFault = 1
             return
         }
         $hadReady = $null -ne $state.Target
@@ -429,6 +482,10 @@ function Close-TraceRead {
 }
 
 function Invoke-TraceCollection {
+    if ($state.DiagnosticMode -ceq 'Inventory') {
+        Close-TraceInventoryInput
+        if (-not $state.InputClosed) { throw 'Owned inventory input closure failed.' }
+    }
     $elapsed = [Diagnostics.Stopwatch]::StartNew()
     $exitObservedAt = [long]-1
     while ($state.Bounds -eq 0 -and $elapsed.Elapsed.TotalSeconds -lt 210) {
@@ -483,9 +540,20 @@ function Publish-TraceCreated {
 }
 
 function Publish-TraceArm {
+    if ($state.DiagnosticMode -cne 'Trace') { return }
     if (-not $debugger.HasExited -and (Test-HermesStartupArm $state)) {
         Invoke-HermesStartupContinue $state $debugger.StandardInput
     }
+}
+
+function Close-TraceInventoryInput {
+    if ($state.DiagnosticMode -cne 'Inventory' -or $state.InputClosed) { return }
+    $closed = $true
+    foreach ($owned in @($debugger.StandardInput, $debugger.StandardInput.BaseStream)) {
+        try { $owned.Dispose() }
+        catch { $closed = $false; $state.CleanupFault = 13 }
+    }
+    $state.InputClosed = $closed
 }
 
 function Stop-TraceDebugger {
@@ -496,7 +564,8 @@ function Stop-TraceDebugger {
     if (-not $debugger.WaitForExit(5000)) { throw 'Owned debugger did not end.' }
 }
 
-$state = New-HermesStartupState
+# Fixed production selection; the strict trace path is controls-only for this run.
+$state = New-HermesStartupState -DiagnosticMode Inventory
 $pins = [Collections.Generic.List[IO.FileStream]]::new()
 $debugger = [Diagnostics.Process]::new()
 $started = $false
@@ -557,6 +626,7 @@ try {
             $helper, 'startup-debug-probe')) {
         $start.ArgumentList.Add($argument)
     }
+    Confirm-TraceCommandSelection $extension
     $debugger.StartInfo = $start
     if (-not $debugger.Start()) { throw 'Owned debugger did not start.' }
     $started = $true
@@ -571,7 +641,7 @@ try {
 } finally {
     if ($started -and $state.NativeProtocol -and -not $state.InputClosed) {
         $closed = $true
-        foreach ($owned in @($debugger.StandardInput.BaseStream, $debugger.StandardInput)) {
+        foreach ($owned in @($debugger.StandardInput, $debugger.StandardInput.BaseStream)) {
             try { $owned.Dispose() }
             catch { $closed = $false; $state.CleanupFault = 13 }
         }
