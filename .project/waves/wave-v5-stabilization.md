@@ -100,6 +100,22 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Exercise actual process pipes and classify the remaining collection delay
+
+- **Changed:** Two finite, source-pinned PowerShell producers exercise the production collector over genuine process handles, including non-owning FileStream adapters on macOS. Both stdout/stderr and live control rows progress before producer exit. Closed monotonic classes distinguish read initiation, read age, parsing, batching, control reads and the first publication check.
+- **Validation:** Parent source review, all 369 controls and installer static controls pass. The prior 361 intents remain, including rejection when historical eligibility is overtaken by Final/exit. No blocking defect is reproduced locally.
+- **Boundary:** macOS pipe progress is not Windows/CDB proof; read age does not establish producer emission time. No admission, timeout, fixed continuation, budget or cleanup requirement changes.
+- **Blockers:** Actual Windows collection delay, genuine restricted PowerShell exit 37 and installed Medium acceptance remain unresolved. The scoped source owner has finished its three cycles; no fourth is assigned.
+- **Next:** Inspect actual Windows duration classes and process-pipe controls before choosing a narrower correction.
+
+### 2026-10-22 - Ready is observed live; CREATED becomes stale before the driver check
+
+- **Evidence:** Published `cba34d3`, run `39698114579`, job `119560393829`, passes 361 pure controls and 500/501 native cases with no skips. Only the original PowerShell exit-37 case fails.
+- **Observed:** The first 173-byte Ready row is read before the complete create callback. At callback closure, the retained parser state satisfies CREATED eligibility (mask 199); at the first actual driver check, fresh Final and target-exit observations make it ineligible (mask 95). No acknowledgement or Resume occurs.
+- **Meaning:** Ready is not merely hidden until writer disposal. The remaining discontinuity lies between event consumption and the live publication check; the evidence does not identify CDB buffering, a blocking read initiation or a PowerShell loader cause.
+- **Action:** The source owner is adding a controlled actual-process pipe regression and bounded monotonic classifications. Historical eligibility must not override current Final/exit observations.
+- **Blockers:** The diagnostic still times out with error 1460 and cleanup fault 5. Genuine PowerShell execution and installed Medium acceptance remain unproved.
+
 ### 2026-10-22 - Distinguish live CREATED eligibility from late combined observations
 
 - **Evidence:** Published `0aec2bc`, run `39695158774`, job `119550629480`, passes both supported OS jobs, Tray, all 335 pure controls and 500/501 native cases without skips. Only the original PowerShell case fails. The diagnostic still records no CREATED acknowledgement, error 1460 and cleanup fault 5; the raw-reader correction has not established that timeout's cause.

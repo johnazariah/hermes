@@ -5,7 +5,7 @@ $ErrorActionPreference = 'Stop'
 function New-HermesStartupStream {
     @{
         Count = [long]0; Prefix = ''; Tail = ''; DiscardLine = $false
-        End = $false; Pending = $null; Source = $null; Faulted = $false
+        End = $false; Pending = $null; Source = $null; Faulted = $false; ReadClock = $null
         Bytes = [byte[]]::new(4096); Buffer = [char[]]::new(4096)
         Decoder = [Text.UTF8Encoding]::new($false, $true).GetDecoder()
         Hash = [Security.Cryptography.IncrementalHash]::CreateHash(
@@ -18,7 +18,7 @@ function New-HermesStartupState {
     param([switch]$LegacyParserControls)
     $state = @{
         NativeProtocol = -not $LegacyParserControls
-        Created = $null; CreatedBinding = $null; CreatedAcked = $false
+        Created = $null; CreatedBinding = $null; CreatedAcked = $false; CreateCloseClock = $null
         Resumed = $null; ResumedText = ''; RowsText = ''
         Stopped = $false; ContinueAttempted = $false; Continued = $false
         InputClosed = $false; InputPending = $null
@@ -58,7 +58,9 @@ function New-HermesStartupState {
         foreach ($name in @('ReadyFirst', 'CreateCloseFirst', 'CreatedJointFirst',
                 'CreatedCheckFirst', 'CreatedCheckSeen', 'CreatedPublishAttempted',
                 'RowsReads', 'RowsMissing', 'RowsEmpty', 'RowsFirstDataLength',
-                'RowsFirstDataRead', 'RowsReadyRead')) {
+                'RowsFirstDataRead', 'RowsReadyRead',
+                'OutReadStartMax', 'ErrReadStartMax', 'CreateReadAge', 'CreateParseWork',
+                'CreateReceiveDelay', 'CreateRowsWork', 'CreateCheckDelay')) {
             $state.Observations[$name] = 0
         }
     }
@@ -82,7 +84,9 @@ function Get-HermesStartupObservation {
             'ReadyFirst', 'CreateCloseFirst', 'CreatedJointFirst',
             'CreatedCheckFirst', 'CreatedCheckSeen', 'CreatedPublishAttempted',
             'RowsReads', 'RowsMissing', 'RowsEmpty', 'RowsFirstDataLength',
-            'RowsFirstDataRead', 'RowsReadyRead')]
+            'RowsFirstDataRead', 'RowsReadyRead',
+            'OutReadStartMax', 'ErrReadStartMax', 'CreateReadAge', 'CreateParseWork',
+            'CreateReceiveDelay', 'CreateRowsWork', 'CreateCheckDelay')]
         [string]$Name,
         [long]$Maximum = 8388608
     )
@@ -98,6 +102,33 @@ function Add-HermesStartupObservation {
     param([hashtable]$State, [string]$Name)
     $State.Observations[$Name] = [Math]::Min(
         8388608, (Get-HermesStartupObservation $State $Name) + 1)
+}
+
+function Get-HermesStartupWorkBucket {
+    param([long]$Milliseconds)
+    # Monotonic duration classes only, never timestamps or reported durations:
+    # 0 unavailable; 1 <=10 ms; 2 <=100 ms; 3 <=1 s; 4 <=5 s; 5 <=30 s; 6 >30 s.
+    if ($Milliseconds -lt 0) { return 0 }
+    $limits = @(10, 100, 1000, 5000, 30000)
+    for ($index = 0; $index -lt $limits.Count; $index++) {
+        if ($Milliseconds -le $limits[$index]) { return ($index + 1) }
+    }
+    return 6
+}
+
+function Set-HermesStartupWorkBucket {
+    param(
+        [hashtable]$State,
+        [ValidateSet('OutReadStartMax', 'ErrReadStartMax', 'CreateReadAge', 'CreateParseWork',
+            'CreateReceiveDelay', 'CreateRowsWork', 'CreateCheckDelay')][string]$Name,
+        [long]$Milliseconds,
+        [switch]$First
+    )
+    if (-not $State.NativeProtocol -or $State.Bounds -ne 0 `
+        -or $State.AcceptedUtf8Bytes -ge 8388608) { return }
+    $previous = Get-HermesStartupObservation $State $Name 6
+    if ($First -and $previous -ne 0) { return }
+    $State.Observations[$Name] = [Math]::Max($previous, (Get-HermesStartupWorkBucket $Milliseconds))
 }
 
 function Test-HermesStartupTracePoint {
@@ -276,6 +307,9 @@ function Set-HermesStartupCreatedPhase {
     if ($Name -in @('CreatedJointFirst', 'CreatedCheckFirst') `
         -and ($null -eq $State.Target -or $null -eq $State.Created)) { return }
     $State.Observations[$Name] = Get-HermesStartupCreatedPhase $State
+    if ($Name -ceq 'CreatedCheckFirst' -and $null -ne $State.CreateCloseClock) {
+        Set-HermesStartupWorkBucket $State 'CreateCheckDelay' $State.CreateCloseClock.ElapsedMilliseconds -First
+    }
 }
 
 function Set-HermesStartupCreatedAcknowledged {
@@ -360,6 +394,7 @@ function Add-HermesStartupNativeMarker {
     }
     $State.Block = $null
     if ($Kind -eq 2) {
+        $State.CreateCloseClock = [Diagnostics.Stopwatch]::StartNew()
         Set-HermesStartupCreatedPhase $State 'CreateCloseFirst'
         Set-HermesStartupCreatedPhase $State 'CreatedJointFirst'
     }
@@ -1279,6 +1314,10 @@ function New-HermesStartupObservations {
         }
         foreach ($name in @('RowsFirstDataLength', 'RowsFirstDataRead', 'RowsReadyRead')) {
             $observations[$name] = Get-HermesStartupObservation $State $name 2049
+        }
+        foreach ($name in @('OutReadStartMax', 'ErrReadStartMax', 'CreateReadAge', 'CreateParseWork',
+                'CreateReceiveDelay', 'CreateRowsWork', 'CreateCheckDelay')) {
+            $observations[$name] = Get-HermesStartupObservation $State $name 6
         }
         $observations.CreatedAcknowledged = [int]$State.CreatedAcked
         $observations.ResumedRowPresent = [int]($null -ne $State.Resumed)

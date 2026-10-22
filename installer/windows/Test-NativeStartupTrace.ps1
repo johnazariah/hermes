@@ -1,8 +1,35 @@
 #Requires -Version 7.0
 [CmdletBinding()]
-param()
+param(
+    [ValidateSet(0, 1024, 2048)][int]$PipeFixture = 0,
+    [ValidatePattern('\A(?:[0-9a-f]{32})?\z')][string]$PipeScope = ''
+)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+if ($PipeFixture -ne 0) {
+    if ($PipeScope.Length -ne 32) { throw 'Fixed pipe fixture scope required.' }
+    $root = Join-Path $PSScriptRoot ('obj/startup-pipe-controls/' + $PipeScope)
+    if (-not [IO.Directory]::Exists($root)) { throw 'Owned fixture root required.' }
+    $file = [IO.File]::Open((Join-Path $root 'helper.rows'), [IO.FileMode]::CreateNew,
+        [IO.FileAccess]::Write, [IO.FileShare]::Read)
+    $rows = [IO.StreamWriter]::new($file, [Text.Encoding]::ASCII)
+    try {
+        $rows.AutoFlush = $true
+        $rows.Write("HERMES_STARTUP v=2 stage=1 helper=11 pid=22 born=123 image=1 debug=1 context=1 flags=134742020 resumed=0 exit=0 parent=0 cleanup=0 fault=0 cleanupFault=0`n")
+        [Console]::Out.Write(('x' * $PipeFixture))
+        [Console]::Out.Flush()
+        [Console]::Error.Write(('e' * $PipeFixture))
+        [Console]::Error.Flush()
+        [Threading.Thread]::Sleep(750)
+        [Console]::Out.Write("`nHERMES_CDB v=3 kind=2 pid=22`n")
+        [Console]::Out.Flush()
+        # A fixed producer deadline bounds even a read initiation that blocks
+        # before returning its Task. No input, provider or native API is used.
+        [Threading.Thread]::Sleep(6000)
+    } finally { $rows.Dispose() }
+    exit 0
+}
+if ($PipeScope -cne '') { throw 'Fixture scope is not a normal control argument.' }
 Import-Module (Join-Path $PSScriptRoot 'Native-StartupTrace.psm1') -Force
 
 # The original negative/parser controls remain explicit legacy controls only.
@@ -217,6 +244,20 @@ function Close-ControlPipe {
     param([hashtable]$Stream, [hashtable]$Pipe)
     $Pipe.Writer.Dispose()
     Close-TraceRead $Stream $Pipe.Reader
+}
+
+function New-ControlProcessReader {
+    param([IO.StreamReader]$Reader)
+    if ($Reader.BaseStream -is [IO.FileStream]) { return $Reader }
+    Assert-Control ($Reader.BaseStream -is [IO.Pipes.PipeStream])
+    # Unix Process uses PipeStream; Windows Process uses FileStream. Exercise
+    # that FileStream strategy over the genuine, retained process pipe handle,
+    # without reading its original reader or transferring handle ownership.
+    $handle = [Microsoft.Win32.SafeHandles.SafeFileHandle]::new(
+        $Reader.BaseStream.SafePipeHandle.DangerousGetHandle(), $false)
+    try {
+        [IO.StreamReader]::new([IO.FileStream]::new($handle, [IO.FileAccess]::Read, 4096, $false))
+    } catch { $handle.Dispose(); throw }
 }
 
 class StartupControlIdleStream : IO.MemoryStream {
@@ -556,7 +597,7 @@ function Get-HermesSetupPublishFiles {
     }
 }
 
-$cases = 1..361 # Preserve 335 intents; add closed first-observation/reader controls.
+$cases = 1..369 # Preserve 361 intents; process pipes and closed monotonic work classes.
 $passed = 0
 foreach ($case in $cases) {
     $state = $null
@@ -4664,7 +4705,8 @@ foreach ($case in $cases) {
                 $state.AcceptedUtf8Bytes = [long]8388608
                 $report = New-HermesStartupReport $state $true $true
                 $json = $report | ConvertTo-Json -Depth 4 -Compress
-                Assert-Control ([Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
+                $script:controlReportBoundBytes = [Text.Encoding]::UTF8.GetByteCount($json + "`n")
+                Assert-Control ($script:controlReportBoundBytes -le 4096 `
                     -and $json -notmatch 'private|S-1-|--command|sample\.dll|D:|startup-ibp' `
                     -and $report.advisory -eq 1 -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0)
                 foreach ($name in $phases) { Assert-Control ($report.observations[$name] -eq 16383) }
@@ -4831,6 +4873,204 @@ foreach ($case in $cases) {
                 Assert-Control ($observed.RowsReads -eq 2 -and $observed.RowsMissing -eq 0 -and $observed.RowsEmpty -eq 1 `
                     -and $observed.RowsFirstDataLength -eq $bytes.Length -and $observed.RowsFirstDataRead -eq $bytes.Length `
                     -and $observed.RowsReadyRead -eq $bytes.Length -and $observed.ReadyFirst -eq 199)
+            }
+            { $_ -in 362..363 } {
+                $state = New-ControlNativeCreated -Acknowledge $false -ReadyOrder Absent -DeferClose
+                & {
+                    foreach ($name in @('Assert-TracePath', 'Read-TraceControl')) {
+                        $definition = @($driverAst.FindAll({
+                            param($node)
+                            $node -is [Management.Automation.Language.FunctionDefinitionAst] `
+                                -and $node.Name -ceq $name
+                        }, $true))
+                        Assert-Control ($definition.Count -eq 1)
+                        . ([scriptblock]::Create($definition[0].Extent.Text))
+                    }
+                    function Publish-TraceCreated {
+                        Set-HermesStartupCreatedPhase $state 'CreatedCheckFirst'
+                        if ((Test-HermesStartupCreated $state) -and $state.Err.Count -ge $size) {
+                            $script:controlProcessProgress = $true
+                            throw 'Synthetic live progress reached.'
+                        }
+                    }
+                    function Publish-TraceArm { Assert-Control (-not (Test-HermesStartupArm $state)) }
+                    function Start-Sleep {
+                        param([int]$Milliseconds)
+                        if ($watch.ElapsedMilliseconds -ge 5000) { throw 'Synthetic process watchdog expired.' }
+                        [Threading.Thread]::Sleep($Milliseconds)
+                    }
+                    $scope = [Guid]::NewGuid().ToString('N')
+                    $root = Join-Path $PSScriptRoot ('obj/startup-pipe-controls/' + $scope)
+                    $size = if ($case -eq 362) { 1024 } else { 2048 }
+                    $process = [Diagnostics.Process]::new()
+                    $null = Assert-TracePath $PSCommandPath
+                    $pin = [IO.File]::Open($PSCommandPath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+                    $hash = Get-ControlCommandHash $pin
+                    $script:controlProcessProgress = $false
+                    $started = $false
+                    $debugger = $null
+                    try {
+                        Assert-Control (-not [IO.Directory]::Exists($root))
+                        $null = [IO.Directory]::CreateDirectory($root)
+                        $null = Assert-TracePath $root
+                        $start = [Diagnostics.ProcessStartInfo]::new()
+                        $start.FileName = Join-Path $PSHOME $(if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' })
+                        $start.UseShellExecute = $false
+                        $start.CreateNoWindow = $true
+                        $start.RedirectStandardOutput = $true
+                        $start.RedirectStandardError = $true
+                        foreach ($argument in @('-NoLogo', '-NoProfile', '-NonInteractive', '-File',
+                                $PSCommandPath, '-PipeFixture', [string]$size, '-PipeScope', $scope)) {
+                            $start.ArgumentList.Add($argument)
+                        }
+                        $process.StartInfo = $start
+                        Assert-Control ($process.Start())
+                        $started = $true
+                        $debugger = [pscustomobject]@{
+                            StandardOutput = New-ControlProcessReader $process.StandardOutput
+                            StandardError = New-ControlProcessReader $process.StandardError
+                            Process = $process; ExitCode = 0
+                        }
+                        $debugger | Add-Member ScriptProperty HasExited { $this.Process.HasExited }
+                        Assert-Control ($debugger.StandardOutput.BaseStream -is [IO.FileStream] `
+                            -and $debugger.StandardError.BaseStream -is [IO.FileStream] `
+                            -and -not $debugger.StandardOutput.BaseStream.CanSeek `
+                            -and -not $debugger.StandardError.BaseStream.CanSeek)
+                        $initiate = [Diagnostics.Stopwatch]::StartNew()
+                        Start-TraceRead $state.Out $debugger.StandardOutput.BaseStream
+                        Start-TraceRead $state.Err $debugger.StandardError.BaseStream
+                        Assert-Control ($initiate.ElapsedMilliseconds -lt 1000 -and -not $debugger.HasExited `
+                            -and $null -ne $state.Out.Pending -and $null -ne $state.Err.Pending)
+                        $watch = [Diagnostics.Stopwatch]::StartNew()
+                        $refused = $false
+                        try { Invoke-TraceCollection } catch { $refused = $true }
+                        Assert-Control ($refused -and $script:controlProcessProgress -and -not $debugger.HasExited `
+                            -and -not $state.Out.End -and -not $state.Err.End `
+                            -and $state.Out.Count -ge $size -and $state.Err.Count -eq $size `
+                            -and $state.Out.Prefix.StartsWith(('x' * $size), [StringComparison]::Ordinal) `
+                            -and $state.Err.Prefix -ceq ('e' * $size) -and $state.Observations.RowsReadyRead -gt 0 `
+                            -and (Test-HermesStartupCreated $state) -and -not $state.CreatedAcked `
+                            -and -not $state.ContinueAttempted -and $state.Bounds -eq 0 -and $state.Protocol -eq 0)
+                        Assert-Control ($state.Observations.OutReadStartMax -in 1..3 `
+                            -and $state.Observations.ErrReadStartMax -in 1..3 `
+                            -and $state.Observations.CreateReadAge -in 1..6 `
+                            -and $state.Observations.CreateParseWork -in 1..6 `
+                            -and $state.Observations.CreateReceiveDelay -in 1..6 `
+                            -and $state.Observations.CreateRowsWork -in 1..6 `
+                            -and $state.Observations.CreateCheckDelay -in 1..6)
+                        Assert-Control ($process.WaitForExit(10000) -and $process.ExitCode -eq 0)
+                        Assert-Control ((Get-ControlCommandHash $pin) -ceq $hash)
+                    } finally {
+                        if ($started) {
+                            if (-not $process.HasExited) { $process.Kill() }
+                            Assert-Control ($process.WaitForExit(5000))
+                            if ($null -ne $debugger) {
+                                Close-TraceRead $state.Out $debugger.StandardOutput
+                                Close-TraceRead $state.Err $debugger.StandardError
+                            }
+                            $process.StandardOutput.Dispose(); $process.StandardError.Dispose()
+                        }
+                        $process.Dispose(); $pin.Dispose()
+                        $path = Join-Path $root 'helper.rows'
+                        if ([IO.File]::Exists($path)) { [IO.File]::Delete($path) }
+                        if ([IO.Directory]::Exists($root)) { [IO.Directory]::Delete($root) }
+                    }
+                }
+            }
+            364 {
+                $state = Native-StartupTrace\New-HermesStartupState
+                $samples = @(-1, 0, 10, 11, 100, 101, 1000, 1001, 5000, 5001, 30000, 30001, [long]::MaxValue)
+                $expected = @(0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6)
+                foreach ($index in 0..($samples.Count - 1)) {
+                    $actual = Get-HermesStartupWorkBucket $samples[$index]
+                    Assert-Control ($actual -is [int] -and $actual -eq $expected[$index])
+                }
+            }
+            365 {
+                $state = Native-StartupTrace\New-HermesStartupState
+                foreach ($name in @('OutReadStartMax', 'ErrReadStartMax', 'CreateParseWork', 'CreateRowsWork')) {
+                    foreach ($sample in @(0, 11, 101, 1001, 5001, 30001, 0)) {
+                        Set-HermesStartupWorkBucket $state $name $sample
+                    }
+                    Assert-Control ($state.Observations[$name] -eq 6)
+                }
+                foreach ($name in @('CreateReadAge', 'CreateReceiveDelay', 'CreateCheckDelay')) {
+                    Set-HermesStartupWorkBucket $state $name 11 -First
+                    Set-HermesStartupWorkBucket $state $name 30001 -First
+                    Assert-Control ($state.Observations[$name] -eq 2)
+                }
+                Assert-Control (-not (Test-HermesStartupCreated $state) -and -not $state.CreatedAcked `
+                    -and -not $state.ContinueAttempted -and $null -eq $state.InputPending `
+                    -and $state.Protocol -eq 0 -and $state.AcceptedUtf8Bytes -eq 0)
+            }
+            { $_ -in 366..367 } {
+                $state = Native-StartupTrace\New-HermesStartupState
+                $names = @('OutReadStartMax', 'ErrReadStartMax', 'CreateReadAge', 'CreateParseWork',
+                    'CreateReceiveDelay', 'CreateRowsWork', 'CreateCheckDelay')
+                foreach ($name in $names) { Set-HermesStartupWorkBucket $state $name 0 }
+                if ($case -eq 366) { $state.Bounds = 1 } else { $state.AcceptedUtf8Bytes = [long]8388608 }
+                foreach ($name in $names) {
+                    Set-HermesStartupWorkBucket $state $name 30001
+                    Assert-Control ($state.Observations[$name] -eq 1)
+                }
+                Assert-Control ($state.Protocol -eq 0 -and -not $state.CreatedAcked -and -not $state.ContinueAttempted)
+            }
+            368 {
+                $state = Native-StartupTrace\New-HermesStartupState
+                $names = @('OutReadStartMax', 'ErrReadStartMax', 'CreateReadAge', 'CreateParseWork',
+                    'CreateReceiveDelay', 'CreateRowsWork', 'CreateCheckDelay')
+                foreach ($name in $names) {
+                    foreach ($bad in @('private --command', $true, $null, [long]1, -1, 7, 8388608)) {
+                        $state.Observations[$name] = $bad
+                        Assert-Control ((New-HermesStartupReport $state $true $true).observations[$name] -eq 0)
+                    }
+                    $state.Observations[$name] = 6
+                }
+                $refused = $false
+                try { Set-HermesStartupWorkBucket $state 'arbitrary-field' 0 } catch { $refused = $true }
+                $report = New-HermesStartupReport $state $true $true
+                foreach ($name in $names) { Assert-Control ($report.observations[$name] -ceq 6) }
+                $json = $report | ConvertTo-Json -Depth 4 -Compress
+                Assert-Control ($refused -and $report.completed -eq 0 -and $report.nativeAcceptance -eq 0 `
+                    -and $report.originalGatePassed -eq 0 -and [Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
+                    -and $json -notmatch 'private|--command|Clock|Timestamp|Elapsed|Stopwatch')
+            }
+            369 {
+                $state = New-ControlNativeCreated -Acknowledge $false -ReadyOrder BeforeClose -DeferClose
+                & {
+                    $definition = @($driverAst.FindAll({
+                        param($node)
+                        $node -is [Management.Automation.Language.FunctionDefinitionAst] `
+                            -and $node.Name -ceq 'Publish-TraceCreated'
+                    }, $true))
+                    . ([scriptblock]::Create($definition[0].Extent.Text))
+                    function Read-TraceControl {
+                        param([string]$Path)
+                        $text = $readyV2 + "`n" + $finalV2.Replace(
+                            'resumed=1', 'resumed=0').Replace('exit=3221225794', 'exit=0') + "`n"
+                        Invoke-ControlRowsRead ([IO.MemoryStream]::new([Text.Encoding]::ASCII.GetBytes($text)))
+                    }
+                    $text = (@(
+                        'HERMES_CDB v=3 kind=2 pid=22', 'HERMES_CDB v=1 kind=3 pid=22',
+                        'Last event: 16.1: Exit process 1:16, code 0', 'HERMES_CDB v=1 kind=4 pid=22'
+                    ) -join "`n") + "`n"
+                    $debugger = [pscustomobject]@{
+                        StandardOutput = New-ControlReader $text; StandardError = New-ControlReader ''
+                        HasExited = $true; ExitCode = 0
+                    }
+                    try {
+                        Start-TraceRead $state.Out $debugger.StandardOutput.BaseStream
+                        Start-TraceRead $state.Err $debugger.StandardError.BaseStream
+                        Invoke-TraceCollection
+                        Assert-Control ($state.Observations.ReadyFirst -eq 3 -and $state.Observations.CreateCloseFirst -eq 199 `
+                            -and $state.Observations.CreatedJointFirst -eq 199 -and $state.Observations.CreatedCheckFirst -eq 95 `
+                            -and $state.Observations.CreatedPublishAttempted -eq 0 -and -not $state.CreatedAcked `
+                            -and $state.Protocol -eq 0 -and $state.Bounds -eq 0 -and $state.Exits.Count -eq 1)
+                        foreach ($name in @('CreateReadAge', 'CreateParseWork', 'CreateReceiveDelay', 'CreateRowsWork', 'CreateCheckDelay')) {
+                            Assert-Control ($state.Observations[$name] -in 1..6)
+                        }
+                    } finally { $debugger.StandardOutput.Dispose(); $debugger.StandardError.Dispose() }
+                }
             }
         }
         $passed++

@@ -336,52 +336,78 @@ function Start-TraceRead {
     if ($null -ne $Stream.Pending) { return }
     # Own the fresh process pipe directly. Never consume its StreamReader:
     # ReadAsync(char[], ...) may fill the requested count before returning.
-    $Stream.Pending = $Source.ReadAsync($Stream.Bytes, 0, $Stream.Bytes.Length)
+    $Stream.ReadClock = [Diagnostics.Stopwatch]::StartNew()
+    try { $Stream.Pending = $Source.ReadAsync($Stream.Bytes, 0, $Stream.Bytes.Length) }
+    finally {
+        if ($state.NativeProtocol -and $state.Observations.CreatedCheckFirst -eq 0) {
+            $name = if ([object]::ReferenceEquals($Stream, $state.Out)) { 'OutReadStartMax' } else { 'ErrReadStartMax' }
+            Set-HermesStartupWorkBucket $state $name $Stream.ReadClock.ElapsedMilliseconds
+        }
+    }
 }
 
 function Receive-TraceRead {
     param([hashtable]$Stream, [IO.Stream]$Source, [bool]$Parse)
     if ($state.AcceptedUtf8Bytes -ge 8388608) { $state.Bounds = 1 }
-    for ($iteration = 0; $iteration -lt 16; $iteration++) {
-        if ($state.Bounds -ne 0 -or $Stream.End -or $Stream.Faulted `
-            -or $null -eq $Stream.Pending -or -not $Stream.Pending.IsCompleted) {
-            return
-        }
-        if (-not [object]::ReferenceEquals($Stream.Source, $Source)) {
-            throw 'Owned trace stream changed.'
-        }
-        try {
-            $count = $Stream.Pending.GetAwaiter().GetResult()
-            $Stream.Pending = $null
-            $offset = 0
-            do {
-                $used = 0; $written = 0; $complete = $false
-                # A retained UTF-8 sequence can produce 4097 UTF-16 units
-                # with the next 4096 bytes. Convert drains it in bounded,
-                # scalar-preserving chunks, including the true EOF flush.
-                $Stream.Decoder.Convert($Stream.Bytes, $offset, $count - $offset,
-                    $Stream.Buffer, 0, $Stream.Buffer.Length, ($count -eq 0),
-                    [ref]$used, [ref]$written, [ref]$complete)
-                $offset += $used
-                if ($written -gt 0) {
-                    Add-HermesStartupText $state $Stream (
-                        [string]::new($Stream.Buffer, 0, $written)) $Parse
-                }
-                if ($state.Bounds -ne 0) { return }
-                if (-not $complete -and $used -eq 0 -and $written -eq 0) {
-                    throw 'Trace decoder made no progress.'
-                }
-            } while (-not $complete)
-            if ($count -eq 0) {
-                $Stream.End = $true
-                if ($Parse -and $Stream.Tail.Length -ne 0) { $state.Protocol = 1 }
+    try {
+        for ($iteration = 0; $iteration -lt 16; $iteration++) {
+            if ($state.Bounds -ne 0 -or $Stream.End -or $Stream.Faulted `
+                -or $null -eq $Stream.Pending -or -not $Stream.Pending.IsCompleted) {
                 return
             }
-            Start-TraceRead $Stream $Source
-        } catch {
-            $Stream.Faulted = $true
-            if ($state.Error -eq 0) { $state.Error = 13 }
-            throw
+            if (-not [object]::ReferenceEquals($Stream.Source, $Source)) {
+                throw 'Owned trace stream changed.'
+            }
+            try {
+                # Includes pending I/O and polling delay, not an emission or
+                # task-completion timestamp from the producer.
+                $readAge = if ($null -ne $Stream.ReadClock) { $Stream.ReadClock.ElapsedMilliseconds } else { [long]-1 }
+                $count = $Stream.Pending.GetAwaiter().GetResult()
+                $Stream.Pending = $null
+                $offset = 0
+                do {
+                    $used = 0; $written = 0; $complete = $false
+                    # A retained UTF-8 sequence can produce 4097 UTF-16 units
+                    # with the next 4096 bytes. Convert drains it in bounded,
+                    # scalar-preserving chunks, including the true EOF flush.
+                    $Stream.Decoder.Convert($Stream.Bytes, $offset, $count - $offset,
+                        $Stream.Buffer, 0, $Stream.Buffer.Length, ($count -eq 0),
+                        [ref]$used, [ref]$written, [ref]$complete)
+                    $offset += $used
+                    if ($written -gt 0) {
+                        $createdBefore = $null -ne $state.Created
+                        $parseWork = [Diagnostics.Stopwatch]::StartNew()
+                        Add-HermesStartupText $state $Stream (
+                            [string]::new($Stream.Buffer, 0, $written)) $Parse
+                        if ($state.NativeProtocol -and $null -ne $state.CreateCloseClock `
+                            -and $state.Observations.CreatedCheckFirst -eq 0) {
+                            Set-HermesStartupWorkBucket $state 'CreateParseWork' $parseWork.ElapsedMilliseconds
+                            if (-not $createdBefore -and $null -ne $state.Created) {
+                                Set-HermesStartupWorkBucket $state 'CreateReadAge' $readAge -First
+                            }
+                        }
+                    }
+                    if ($state.Bounds -ne 0) { return }
+                    if (-not $complete -and $used -eq 0 -and $written -eq 0) {
+                        throw 'Trace decoder made no progress.'
+                    }
+                } while (-not $complete)
+                if ($count -eq 0) {
+                    $Stream.End = $true
+                    if ($Parse -and $Stream.Tail.Length -ne 0) { $state.Protocol = 1 }
+                    return
+                }
+                Start-TraceRead $Stream $Source
+            } catch {
+                $Stream.Faulted = $true
+                if ($state.Error -eq 0) { $state.Error = 13 }
+                throw
+            }
+        }
+    } finally {
+        if ($state.NativeProtocol -and $null -ne $state.CreateCloseClock `
+            -and $state.Observations.CreatedCheckFirst -eq 0) {
+            Set-HermesStartupWorkBucket $state 'CreateReceiveDelay' $state.CreateCloseClock.ElapsedMilliseconds -First
         }
     }
 }
@@ -408,7 +434,12 @@ function Invoke-TraceCollection {
         if ($state.Bounds -ne 0) { return }
         Receive-TraceRead $state.Err $debugger.StandardError.BaseStream $false
         if ($state.Bounds -ne 0) { return }
+        $rowsWork = [Diagnostics.Stopwatch]::StartNew()
         Read-TraceControl (Join-Path $root 'helper.rows')
+        if ($state.NativeProtocol -and $null -ne $state.CreateCloseClock `
+            -and $state.Observations.CreatedCheckFirst -eq 0) {
+            Set-HermesStartupWorkBucket $state 'CreateRowsWork' $rowsWork.ElapsedMilliseconds
+        }
         Publish-TraceCreated
         Publish-TraceArm
         if ($debugger.HasExited) {

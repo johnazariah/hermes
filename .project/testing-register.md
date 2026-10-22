@@ -2,6 +2,24 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Controlled process pipes exercise live collection before producer exit
+
+All **369 controls** pass, preserving the prior 361 and adding two actual
+finite PowerShell producer cases plus six closed timing/boundary cases.
+The source-pinned fixture writes 1,024/2,048-character stdout and stderr,
+publishes control rows, and remains alive under its own fixed deadline.
+The production collector observes both streams and live control progress
+before EOF. On macOS, non-owning `FileStream` adapters exercise the genuine
+retained process pipe handles; Windows uses its actual process streams.
+Local initiation stays below one second. Windows execution is still pending.
+
+Seven numeric duration classes distinguish read initiation, pending-read
+age, parsing, receive batching, control-file work and the first driver check.
+Only monotonic buckets are exported; read age includes polling and pending
+I/O and is not a producer timestamp. The existing historical-199/fresh-95
+refusal remains mandatory. Report, output-budget, authority and cleanup
+contracts are unchanged. Installer static controls pass.
+
 ## CREATED diagnostics retain first-observed ordering
 
 All **361 pure controls** pass, preserving the prior 335 and adding 26
