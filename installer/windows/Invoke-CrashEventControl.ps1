@@ -121,6 +121,7 @@ try {
     $script:phase = 8
     $script:capture = Invoke-HermesCrashEventCapture $process -Operations $operations
     Assert-HermesCrashEventSettled $operations
+    Assert-HermesCrashEventTaskBinding $script:capture.Tasks $operations
     $script:phase = 11
     $process.Dispose()
     $process = $null
@@ -150,6 +151,7 @@ try {
     $pinSets = @($sourcePins, $sdkPins, $bundlePins, $receiptPins, $inventoryPins,
         $schemaReceiptPins, $metadataPins, $workflowPins, $baseReportPins, $eventReportPins)
     foreach ($pins in $pinSets) { Assert-HermesCrashPins $pins }
+    Assert-HermesCrashEventTaskBinding $script:capture.Tasks $operations
     Clear-HermesCrashEventCapture $script:capture
     $script:phase = 11
     foreach ($pins in $pinSets) { Close-HermesCrashPins $pins }

@@ -100,6 +100,15 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-23 - Bind cold capture to the authoritative real task list
+
+- **Actual evidence:** At `941a782`, event run `39844283742`, job `120053314203`, refuses task-container check 12 / field 8. The 407-byte four-row shape is observation/observation/base/event. Its diagnostic task count is unavailable because of that type refusal; it does not show absent operations, and the earlier three-observation fixture does not explain this run.
+- **Changed:** Capture builds an exact Object[] from the authoritative task list. Count, order, reference identity and settlement are checked at construction and twice in the wrapper. No enumerable fallback, synthetic completed task, altered success grammar or deadline change is introduced.
+- **Validation:** Independent cold fresh-process fixtures pass with four real tasks, both before and after managed metadata/assembly loading. All 1,151 event, 985 existing crash and 3,120 metadata controls pass. Root build passes without warnings/errors and all 2,198 Core cases pass without skips. Direct review approves the complete three-file delta; actionlint and whitespace checks pass.
+- **Host state:** Both supported jobs in CI `39844295455` pass at `941a782`; the original native installer gate and diagnostic still fail and publish is skipped.
+- **Blockers:** The actual inner event reason and native precision remain unknown. Original PowerShell and installed acceptance remain unresolved.
+- **Next:** Publish the owned task-container correction and inspect genuine numeric event facts.
+
 ### 2026-10-23 - Distinguish native event-report refusals without raw capture
 
 - **Actual evidence:** At `d043a94`, both supported hosts pass all 911 Servicing cases and their complete Core selections. Windows coverage is 87.0176% / 62.4834%; macOS is 86.7871% / 62.3620%. The original owned-control run `39840795553`, job `120040941956`, succeeds; independently checked artifact `12452019121` preserves all 28 success facts and the documented FailFast status.

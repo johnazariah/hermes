@@ -1,7 +1,7 @@
 #Requires -Version 7.0
 [CmdletBinding()]
 param(
-    [ValidateSet('controls', 'fixture')][string]$Mode = 'controls',
+    [ValidateSet('controls', 'fixture', 'task-contract', 'task-contract-load')][string]$Mode = 'controls',
     [ValidateSet('valid', 'at-cap', 'base-only', 'event-only', 'noise', 'crlf', 'utf8', 'stderr',
         'exit', 'overflow', 'timeout', 'failure', 'failed-guard', 'failed-callback',
         'failed-fence', 'failed-dispose', 'failed-base-success', 'wrapper-failure')][string]$Fixture = 'valid'
@@ -38,6 +38,56 @@ function Get-FailedCommandProtocol {
                 $failedEvent.Replace('reason=0', 'reason=4')
         }
         default { throw '1' }
+    }
+}
+if ($Mode -in @('task-contract', 'task-contract-load')) {
+    function Invoke-ColdTaskCapture {
+        Import-Module (Join-Path $PSScriptRoot 'Crash-Control.psm1') -DisableNameChecking
+        Import-Module (Join-Path $PSScriptRoot 'Crash-Event-Control.psm1') -DisableNameChecking
+        if ($Mode -ceq 'task-contract-load') {
+            Import-Module (Join-Path $PSScriptRoot 'Servicing-Build.psm1') -DisableNameChecking
+            $assembly = [Text.Json.JsonDocument].Assembly
+            $null = Get-HermesManagedModuleMvid $assembly.Location
+            $loaded = [Runtime.Loader.AssemblyLoadContext]::Default.LoadFromAssemblyPath($assembly.Location)
+            if (-not [object]::ReferenceEquals($loaded, $assembly)) { throw '1' }
+        }
+        $start = [Diagnostics.ProcessStartInfo]::new()
+        $start.FileName = [Environment]::ProcessPath
+        foreach ($argument in @('-NoLogo', '-NoProfile', '-NonInteractive', '-File',
+                $PSCommandPath, '-Mode', 'fixture', '-Fixture', 'valid')) { $start.ArgumentList.Add($argument) }
+        $start.UseShellExecute = $false
+        $start.RedirectStandardOutput = $true
+        $start.RedirectStandardError = $true
+        $process = [Diagnostics.Process]::new()
+        $process.StartInfo = $start
+        $operations = [Collections.Generic.List[Threading.Tasks.Task]]::new()
+        $capture = $null
+        try {
+            if (-not $process.Start()) { throw '1' }
+            $capture = Invoke-HermesCrashEventCapture $process -Operations $operations
+            if (-not $capture.Tasks.GetType().Equals([object[]]) -or $capture.Tasks.Rank -ne 1 `
+                -or $capture.Tasks.GetLowerBound(0) -ne 0 -or $capture.Tasks.Length -ne $operations.Count) { throw '1' }
+            Assert-HermesCrashEventTaskBinding $capture.Tasks $operations
+            Assert-HermesCrashEventOutcome $capture ([pscustomobject]@{ Exit = [uint32]2148734499 })
+            return $operations.Count
+        } finally {
+            if (-not $process.HasExited) { $process.Kill($true) }
+            if (-not $process.WaitForExit(5000)) { throw '15' }
+            $process.Dispose()
+            $all = [Threading.Tasks.Task]::WhenAll($operations.ToArray())
+            try { $null = $all.Wait(5000) } catch { }
+            Assert-HermesCrashEventSettled $operations
+            Clear-HermesCrashEventCapture $capture
+        }
+    }
+    try {
+        $count = Invoke-ColdTaskCapture
+        $loaded = [int]($Mode -ceq 'task-contract-load')
+        [Console]::Out.WriteLine("HERMES_CRASH_EVENT_TASK_CONTRACT v=1 status=0 loaded=$loaded tasks=$count")
+        exit 0
+    } catch {
+        [Console]::Out.WriteLine('HERMES_CRASH_EVENT_TASK_CONTRACT v=1 status=1 loaded=0 tasks=0')
+        exit 1
     }
 }
 if ($Mode -ceq 'fixture') {
@@ -249,6 +299,70 @@ function Test-CaptureDiagnostics {
         [Globalization.CultureInfo]::CurrentCulture = [Globalization.CultureInfo]::GetCultureInfo('ar-SA')
         Assert-CaptureDiagnostic (New-Capture) 0
     } finally { [Globalization.CultureInfo]::CurrentCulture = $culture }
+}
+
+function Test-TaskContainerContract {
+    $operations = [Collections.Generic.List[Threading.Tasks.Task]]::new()
+    foreach ($index in 1..3) {
+        $source = [Threading.Tasks.TaskCompletionSource[int]]::new()
+        $source.SetResult($index)
+        $operations.Add($source.Task)
+    }
+    $typed = $operations.ToArray()
+    Assert-Control ($typed.GetType().Equals([Threading.Tasks.Task[]]) -and $typed.Rank -eq 1 -and $typed.Length -eq 3)
+    $snapshot = [object[]]::new($operations.Count)
+    for ($index = 0; $index -lt $operations.Count; $index++) { $snapshot[$index] = $operations[$index] }
+    Assert-HermesCrashEventTaskBinding $snapshot $operations
+    Assert-Control ($snapshot.GetType().Equals([object[]]) -and $snapshot.Rank -eq 1 -and $snapshot.GetLowerBound(0) -eq 0)
+    foreach ($index in 0..2) { Assert-Control ([object]::ReferenceEquals($snapshot[$index], $operations[$index])) }
+    $capture = New-Capture
+    $capture.Tasks = $typed
+    Assert-CaptureDiagnostic $capture 12 8
+    Assert-Refused { Assert-HermesCrashEventTaskBinding $typed $operations }
+    # Warm the same consumer call sites with exact object arrays. Typed arrays
+    # must remain refused; the former -is check could change after this order.
+    foreach ($unused in 1..100) { $null = ConvertTo-HermesCrashEventFacts (New-Capture) }
+    Assert-CaptureDiagnostic $capture 12 8
+    Assert-Refused { Assert-HermesCrashEventTaskBinding $typed $operations }
+    $capture.Tasks = $snapshot
+    Assert-CaptureDiagnostic $capture 0
+    Assert-Control (@(Assert-HermesCrashEventOutcome $capture $script:control).Count -eq 0)
+    foreach ($container in @($operations, ([Array]::CreateInstance([object], [int[]]@(3, 1))),
+            ([Array]::CreateInstance([object], [int[]]@(3), [int[]]@(1))))) {
+        $capture.Tasks = $container
+        Assert-CaptureDiagnostic $capture 12 8
+        Assert-Refused { Assert-HermesCrashEventTaskBinding $container $operations }
+    }
+    foreach ($bad in @(
+        ([object[]]@($snapshot[0], $snapshot[1])),
+        ([object[]]@($snapshot[1], $snapshot[0], $snapshot[2])),
+        ([object[]]@($snapshot[0], $snapshot[0], $snapshot[2])),
+        ([object[]]@($snapshot[0], $snapshot[1], [Threading.Tasks.Task]::CompletedTask)),
+        ([object[]]@($snapshot[0], $snapshot[1], $snapshot[2], $snapshot[2]))
+    )) { Assert-Refused { Assert-HermesCrashEventTaskBinding $bad $operations } }
+    $other = [Collections.Generic.List[Threading.Tasks.Task]]::new()
+    foreach ($index in 1..3) {
+        $source = [Threading.Tasks.TaskCompletionSource[int]]::new()
+        $source.SetResult($index)
+        $other.Add($source.Task)
+    }
+    Assert-Refused { Assert-HermesCrashEventTaskBinding $snapshot $other }
+    $pending = [Threading.Tasks.TaskCompletionSource[int]]::new()
+    $operations[1] = $pending.Task
+    $snapshot[1] = $pending.Task
+    Assert-Refused { Assert-HermesCrashEventTaskBinding $snapshot $operations }
+    $pending.SetResult(0)
+    Assert-HermesCrashEventTaskBinding $snapshot $operations
+    Assert-Control $true
+    foreach ($task in @(
+        [Threading.Tasks.Task]::FromException([IO.IOException]::new('synthetic fault')),
+        [Threading.Tasks.Task]::FromCanceled([Threading.CancellationToken]::new($true))
+    )) {
+        $operations[1] = $task
+        $snapshot[1] = $task
+        Assert-Refused { Assert-HermesCrashEventTaskBinding $snapshot $operations }
+        try { $null = $task.GetAwaiter().GetResult() } catch { }
+    }
 }
 
 function Test-Schema {
@@ -730,8 +844,10 @@ function Invoke-Fixture {
     param([string]$Name)
     $start = [Diagnostics.ProcessStartInfo]::new()
     $start.FileName = [Environment]::ProcessPath
-    foreach ($argument in @('-NoLogo', '-NoProfile', '-NonInteractive', '-File', $PSCommandPath,
-            '-Mode', 'fixture', '-Fixture', $Name)) { $start.ArgumentList.Add($argument) }
+    $arguments = @('-NoLogo', '-NoProfile', '-NonInteractive', '-File', $PSCommandPath)
+    if ($Name -in @('task-contract', 'task-contract-load')) { $arguments += '-Mode', $Name }
+    else { $arguments += '-Mode', 'fixture', '-Fixture', $Name }
+    foreach ($argument in $arguments) { $start.ArgumentList.Add($argument) }
     $start.UseShellExecute = $false
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
@@ -747,6 +863,20 @@ function Invoke-Fixture {
         Assert-Control ($capture.Tasks.Count -eq $operations.Count -and @($capture.Tasks | Where-Object {
             -not $operations.Contains($_)
         }).Count -eq 0)
+        Assert-Control ($capture.Tasks.GetType().Equals([object[]]) -and $capture.Tasks.Rank -eq 1 `
+            -and $capture.Tasks.GetLowerBound(0) -eq 0)
+        Assert-HermesCrashEventTaskBinding $capture.Tasks $operations
+        if ($Name -in @('task-contract', 'task-contract-load')) {
+            $loaded = [int]($Name -ceq 'task-contract-load')
+            $text = [Text.UTF8Encoding]::new($false, $true).GetString($capture.Stdout)
+            $match = [regex]::Match($text, "\AHERMES_CRASH_EVENT_TASK_CONTRACT v=1 status=0 loaded=$loaded tasks=([0-9]+)$([Environment]::NewLine)\z")
+            $good = $match.Success -and [int]$match.Groups[1].Value -ge 3 -and [int]$match.Groups[1].Value -le 514 `
+                -and $capture.ExitCode -eq 0 -and $capture.Stderr.Length -eq 0
+            Assert-Control $good
+            if (-not $good) { throw '1' }
+            $accepted = $true
+            return
+        }
         if ($Name -ceq 'at-cap') { Assert-Control ($capture.Stdout.Length -eq 511) }
         if ($Name -ceq 'wrapper-failure') {
             $newline = [Environment]::NewLine
@@ -780,7 +910,7 @@ function Invoke-Fixture {
         Clear-HermesCrashEventCapture $capture
         Assert-Control ($operations.Count -ge 3 -and $all.IsCompleted)
     }
-    Assert-Control ($accepted -eq ($Name -ceq 'valid'))
+    Assert-Control ($accepted -eq ($Name -in @('valid', 'task-contract', 'task-contract-load')))
 }
 
 function Test-StaticBoundaries {
@@ -811,6 +941,11 @@ function Test-StaticBoundaries {
         $wrapper.IndexOf('$process.Start()', [StringComparison]::Ordinal))
     Assert-Control ($wrapper.Contains('Invoke-HermesCrashEventCapture $process -Operations $operations') `
         -and $wrapper.Contains('Assert-HermesCrashEventSettled $operations'))
+    Assert-Control ([regex]::Matches($wrapper, 'Assert-HermesCrashEventTaskBinding \$script:capture.Tasks \$operations').Count -eq 2)
+    Assert-Control ($module.Contains('$tasks = [object[]]::new($Operations.Count)') `
+        -and $module.Contains('$tasks[$index] = $Operations[$index]') `
+        -and $module.Contains('Assert-HermesCrashEventTaskBinding $result.Tasks $Operations') `
+        -and $module.Contains('[object]::ReferenceEquals($Snapshot[$index], $Operations[$index])'))
     Assert-Control ($wrapper.IndexOf('$process.Dispose()', [StringComparison]::Ordinal) -lt
         $wrapper.IndexOf('Complete-HermesCrashEventScope $scope', [StringComparison]::Ordinal))
     Assert-Control ($wrapper.IndexOf('Assert-HermesCrashEventReport (', [StringComparison]::Ordinal) -lt
@@ -889,12 +1024,13 @@ try {
     Test-Schema
     Test-EventReport
     Test-OutcomeAndFacts
+    Test-TaskContainerContract
     Test-FailedCommandProtocols
     Test-CaptureDiagnostics
     Test-Publication $scratch
     Test-Lifecycle $scratch
     Test-DiagnosticsAndGuard
-    foreach ($name in @('valid', 'at-cap', 'base-only', 'event-only', 'noise', 'crlf', 'utf8', 'stderr',
+    foreach ($name in @('task-contract', 'task-contract-load', 'valid', 'at-cap', 'base-only', 'event-only', 'noise', 'crlf', 'utf8', 'stderr',
             'exit', 'overflow', 'timeout', 'failure', 'failed-guard', 'failed-callback',
             'failed-fence', 'failed-dispose', 'failed-base-success', 'wrapper-failure')) { Invoke-Fixture $name }
     Test-StaticBoundaries

@@ -135,6 +135,14 @@ function New-EventProjection {
     return [pscustomobject]@{ Check = $Check; Field = $Field; Facts = $Facts }
 }
 
+function Test-EventTaskArray {
+    param([object]$Tasks)
+    # PowerShell's covariant-array -is result can depend on prior call-site inputs.
+    # The capture contract is an owned exact Object[], not a Task[] or enumerable.
+    return $null -ne $Tasks -and $Tasks.GetType().Equals([object[]]) `
+        -and $Tasks.Rank -eq 1 -and $Tasks.GetLowerBound(0) -eq 0
+}
+
 # Check codes: 0 admitted; 1 inaccessible field; 2 integer type; 3 helper exit;
 # 4 deadline; 5/6 stdout/stderr completion; 7 wait; 8/9 stdout type/length;
 # 10/11 stderr type/length; 12/13 task-array type/count; 14/15 task type/state;
@@ -164,7 +172,7 @@ function Get-EventCaptureCheck {
         if ($Capture.Stderr -isnot [byte[]]) { return New-EventProjection 10 $field }
         if ($Capture.Stderr.Length -ne 0) { return New-EventProjection 11 $field }
         $field = 8
-        if ($Capture.Tasks -isnot [object[]]) { return New-EventProjection 12 $field }
+        if (-not (Test-EventTaskArray $Capture.Tasks)) { return New-EventProjection 12 $field }
         if ($Capture.Tasks.Count -lt 3 -or $Capture.Tasks.Count -gt 514) { return New-EventProjection 13 $field }
         foreach ($task in $Capture.Tasks) {
             if ($task -isnot [Threading.Tasks.Task]) { return New-EventProjection 14 $field }
@@ -192,7 +200,7 @@ function Get-EventCaptureShape {
     try {
         if ($Capture.Stdout -is [byte[]]) { $out = [Math]::Min(512, $Capture.Stdout.Length) }
         if ($Capture.Stderr -is [byte[]]) { $err = [Math]::Min(1, $Capture.Stderr.Length) }
-        if ($Capture.Tasks -is [object[]]) { $tasks = [Math]::Min(515, $Capture.Tasks.Count) }
+        if (Test-EventTaskArray $Capture.Tasks) { $tasks = [Math]::Min(515, $Capture.Tasks.Count) }
     } catch { }
     if ($out -gt 0 -and $out -lt 512) {
         try {
@@ -490,10 +498,15 @@ function Invoke-HermesCrashEventCapture {
         if ($clock.ElapsedMilliseconds -ge $DeadlineMilliseconds -or -not $Process.HasExited) { throw '14' }
         $bytes = [byte[]]::new($output.Count)
         [Array]::Copy($output.Buffer, $bytes, $output.Count)
+        $tasks = [object[]]::new($Operations.Count)
+        for ($index = 0; $index -lt $Operations.Count; $index++) {
+            $tasks[$index] = $Operations[$index]
+        }
         $result = [pscustomobject]@{
             ExitCode = $Process.ExitCode; Deadline = 0; StdoutComplete = 1; StderrComplete = 1
-            WaitSettled = 1; Stdout = $bytes; Stderr = [byte[]]::new(0); Tasks = $Operations.ToArray()
+            WaitSettled = 1; Stdout = $bytes; Stderr = [byte[]]::new(0); Tasks = $tasks
         }
+        Assert-HermesCrashEventTaskBinding $result.Tasks $Operations
         $transferred = $true
         return $result
     } catch {
@@ -521,6 +534,15 @@ function Assert-HermesCrashEventSettled {
     }
 }
 
+function Assert-HermesCrashEventTaskBinding {
+    param([object]$Snapshot, [Collections.Generic.List[Threading.Tasks.Task]]$Operations)
+    Assert-HermesCrashEventSettled $Operations
+    if (-not (Test-EventTaskArray $Snapshot) -or $Snapshot.Length -ne $Operations.Count) { throw '15' }
+    for ($index = 0; $index -lt $Operations.Count; $index++) {
+        if (-not [object]::ReferenceEquals($Snapshot[$index], $Operations[$index])) { throw '15' }
+    }
+}
+
 function Complete-HermesCrashEventScope {
     param([object]$Scope, [object[]]$PinSets,
         [Collections.Generic.List[Threading.Tasks.Task]]$Operations)
@@ -543,4 +565,4 @@ Export-ModuleMember -Function Assert-HermesCrashEventSchema, Assert-HermesCrashE
     Get-HermesCrashEventWorkflowEntry, Assert-HermesCrashEventFreshness, Read-HermesCrashEventPublication,
     Assert-HermesCrashEventPublicationBinding, Invoke-HermesCrashEventSchemaPublication,
     Clear-HermesCrashEventCapture, Invoke-HermesCrashEventCapture, Assert-HermesCrashEventSettled,
-    Complete-HermesCrashEventScope
+    Assert-HermesCrashEventTaskBinding, Complete-HermesCrashEventScope

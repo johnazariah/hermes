@@ -2,6 +2,30 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Cold capture owns an exact snapshot of its real tasks
+
+Actual `941a782` event run `39844283742`, job `120053314203`, reaches
+phase 9 but its advisory refuses at check 12 / field 8: the task-container
+type contract. Its 407-byte, four-row shape is observation/observation/base/
+event. The diagnostic's task count zero is a type-refusal sentinel, not
+evidence that the authoritative operations list was empty. The earlier
+three-observation fixture does not explain this actual refusal.
+
+The producer now constructs an exact, one-dimensional, zero-based Object[]
+snapshot by copying each authoritative real task reference in order.
+Count, reference identity and actual settlement are checked before capture
+returns, after the wrapper receives it, and before release. Typed Task[],
+enumerables, wrong bounds/rank, missing/reordered/duplicated/substituted
+tasks and pending/faulted/cancelled operations refuse.
+
+Fresh-process real-I/O fixtures run before consumer warm-up, both without
+and with managed metadata/assembly loading. Both independently pass with
+four retained actual tasks. All **1,151 event controls**, 985 existing crash
+controls and 3,120 metadata controls pass; root build and all 2,198 Core
+cases pass without skips. Direct complete-delta review, actionlint and
+whitespace checks approve. Native verification and the inner event reason
+remain pending; no completed placeholder task or success fallback is added.
+
 ## Owned event-command outcomes retain genuine coordinator history
 
 The complete candidate passes **911 Servicing and 2,198 Core cases**, with
@@ -117,7 +141,7 @@ coverage is 86.7206% line / 62.3626% branch on Windows and
 
 ## Fixed event supervision preserves separate control and event status
 
-The fixed wrapper, module and workflow pass **1,081 portable controls**,
+The fixed wrapper, module and workflow pass **1,151 portable controls**,
 alongside 985 existing crash controls and 3,120 metadata controls. Direct
 source review covers all four new files and their reused publication,
 capture and pinning helpers. No blocking supervision defect is found.
