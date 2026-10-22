@@ -100,6 +100,15 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Keep the unclassified typed-query refusal blocking
+
+- **Evidence:** Published `38d4503`, run `39731835507`, job `119668402994`, artifact `12404979359`, passes 520 controls and 500/501 native cases without skips. The original restricted PowerShell case still fails. SDK completion remains accepted, but the new query-display family is unknown (kind 1) and its exact-source region is unavailable (0).
+- **Observed:** Native acknowledgement, Resume receipt and one held-target SDK invocation remain bound. No typed candidate, query completion, arm end or target continuation is accepted. The report establishes no type-information, memory, syntax or loader cause.
+- **Decision:** Do not change the query, loosen accepted text, substitute exit 0 or promote the installer on this evidence. A proposed single redacted error-line exception needs an explicit decision; the owner was unavailable, so the numeric-only boundary remains in force.
+- **Stocktake:** Remote main remains `e7758a3`; draft PR #30 contains the authentication/installer work but is unmerged. Issues #16, #18 and #28 remain open pending actual acceptance. Strict legacy repair #24 remains separately blocked by its namespace-authority contract.
+- **Blockers:** The actual typed-query error, genuine PowerShell execution, whole-Medium harness/provider separation and installed lifecycle proof remain unresolved. macOS, Tray and both excluded compatibility jobs pass; the supported Windows job was still running at the last read.
+- **Next:** Obtain an authorised, bounded diagnostic that identifies the actual query refusal before making another semantic change.
+
 ### 2026-10-22 - Prove SDK-stage return and classify the next typed-query refusal
 
 - **Evidence:** Published `66c931d`, run `39729152304`, job `119659939540`, passes 513 controls and 500/501 native cases without skips. Both supported OS jobs and Tray pass. The raw absolute module token reaches accepted SDK completion (mask 1), after native acknowledgement, checked Resume and held-target stop proof.
