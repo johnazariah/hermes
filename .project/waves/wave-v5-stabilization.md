@@ -100,6 +100,24 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-23 - Bind terminal snapshots to verified live-image evidence
+
+- **Changed:** The measured retained-identity policy stores the first live image proof before arming, bound to the same open handle reference and PID/birth key. Terminal reads require successful completion of that reader's actual wait, fresh native exit facts and rechecked image/source pins. They do not call the post-exit image API or catch its failure as success.
+- **Review:** Fresh independent C# review approves the three-file lifetime correction. A separate language author supplies two exact callback-parameter renames for the compiler-proven discard-binding errors; no acceptance predicate is removed.
+- **Validation:** Serial portable/Windows-targeted builds pass with zero warnings/errors; all 142 control and 549 full Servicing cases pass. Actual Model coverage hits all 48 policy lines. Real-policy fakes require two live image queries, zero postmortem queries and five fresh snapshots/pin reads, with negative binding/wait/source/transport/callback/cleanup cases.
+- **Integration:** Root build and all 2,191 Core tests pass. The combined current candidate measures 15,968/18,525 lines (86.1970%) and 15,707/25,385 branches (61.8751%) over the same five assemblies. The separate SQLite-pool test repair is independently reviewed and will be published alongside this correction.
+- **Blockers:** Actual post-correction control completion, supported-Windows pool proof and original PowerShell/installed acceptance remain pending.
+- **Next:** Publish both reviewed corrections and require exact-head hosted results.
+
+### 2026-10-23 - Observe the post-exit image query failure
+
+- **Evidence:** At `cc58b32`, run `39793193663`, job `119874067085`, all 981 Windows controls and fresh publication pass. The actual advisory observation is `exitCheck=10 nativeError=31`: `QueryFullProcessImageName` fails during the retained post-exit identity read.
+- **Finding:** The synthetic FailFast status remains `0x80131623`; the initiating failure is the image query, not the accepted status. This is now an actual observation rather than the earlier synthetic fixture.
+- **Contract:** Image/path/hash proof must be established before arming. The retained process handle, fresh native process/creation/exit facts and rechecked publication pins must continue to bind that proof after termination. Microsoft documents that process code is removed on termination while externally retained kernel objects remain valid.
+- **Ownership:** The control author is implementing an explicit live-proof/terminal-snapshot boundary with negative binding tests; catching error 31 and treating cached data as generic success is prohibited.
+- **Blockers:** Actual control completion and original PowerShell/installed acceptance remain unresolved.
+- **Next:** Independently review that lifetime correction and rerun the control.
+
 ### 2026-10-23 - Preserve exit gates while observing their first refusing predicate
 
 - **Changed:** Independent C# authoring adds fixed check IDs for the exit stage, retained native reads, pinned publication and identity predicates. Operational failures retain their location and direct Win32 code; cancellation and unexpected exceptions retain their existing treatment. Failure-only advisory output gains the observation; the success summary and strict 28-field report are unchanged.

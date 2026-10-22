@@ -265,17 +265,106 @@ internal sealed record CrashIdentity(
             throw new InvalidDataException("Crash-control live identity refused.");
     }
 
-    internal void RequireExit(CrashIdentity original, uint actualExit)
+    internal void RequireSameInstance(CrashIdentity original)
     {
         CrashExitChecks.Require(CrashExitCheck.IdentityProcess, Process == original.Process);
         CrashExitChecks.Require(CrashExitCheck.IdentityPath,
             string.Equals(ImagePath, original.ImagePath, StringComparison.OrdinalIgnoreCase));
         CrashExitChecks.Require(CrashExitCheck.IdentityImage, ImageSha256 == original.ImageSha256);
         CrashExitChecks.Require(CrashExitCheck.IdentitySource, SourceSha256 == original.SourceSha256);
+    }
+
+    internal void RequireExit(CrashIdentity original, uint actualExit)
+    {
+        RequireSameInstance(original);
         CrashExitChecks.Require(CrashExitCheck.ExitTimePresent, ExitFileTime != 0);
         CrashExitChecks.Require(CrashExitCheck.ExitTimeOrder, ExitFileTime >= Process.CreationFileTime);
         CrashExitChecks.Require(CrashExitCheck.ExitCodeMatch, ExitCode == actualExit);
     }
+}
+
+internal sealed record CrashProcessSnapshot(
+    SafeProcessHandle Handle, ProcessKey Process, long ExitFileTime, uint ExitCode);
+
+internal sealed record CrashImagePins(string ImageSha256, string SourceSha256);
+
+internal sealed record CrashRetainedIdentityEffects(
+    Func<CrashProcessSnapshot> ReadProcess,
+    Func<SafeProcessHandle, string> ReadLoadedImage,
+    Func<string, CrashImagePins> RecheckPins,
+    Func<CancellationToken, Task<uint>> Wait);
+
+// Image evidence is established while live, never reconstructed after termination.
+// Capabilities borrow the same owned process and publication until coordinator cleanup.
+internal sealed class CrashRetainedIdentity(CrashRetainedIdentityEffects effects) : IDisposable
+{
+    private sealed record LiveProof(SafeProcessHandle Handle, CrashIdentity Identity);
+
+    private LiveProof? _proof;
+    private Task<uint>? _wait;
+    private bool _disposed;
+
+    internal Task<uint> WaitAsync(CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        return _wait ??= effects.Wait(cancellationToken);
+    }
+
+    internal CrashIdentity Read()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        var snapshot = effects.ReadProcess();
+        RequireHandle(snapshot.Handle);
+        if (_proof is { } proof)
+            RequireBinding(snapshot, proof);
+        return _wait is { IsCompletedSuccessfully: true } wait
+            ? ReadTerminal(snapshot, wait.Result) : ReadLive(snapshot);
+    }
+
+    private CrashIdentity ReadLive(CrashProcessSnapshot snapshot)
+    {
+        if (snapshot.Process is not { ProcessId: > 0, CreationFileTime: > 0 } ||
+            snapshot.ExitFileTime != 0 || snapshot.ExitCode != 259)
+            throw new InvalidDataException("Crash-control live process snapshot refused.");
+        var path = effects.ReadLoadedImage(snapshot.Handle);
+        var current = BindImage(snapshot, path);
+        current.RequireLive();
+        if (_proof is { } proof)
+            current.RequireSameInstance(proof.Identity);
+        _proof ??= new(snapshot.Handle, current);
+        return current;
+    }
+
+    private CrashIdentity ReadTerminal(CrashProcessSnapshot snapshot, uint exit)
+    {
+        if (_proof is not { } proof)
+            throw new CrashExitException(CrashExitCheck.Lifetime);
+        var current = BindImage(snapshot, proof.Identity.ImagePath);
+        current.RequireExit(proof.Identity, exit);
+        return current;
+    }
+
+    private CrashIdentity BindImage(CrashProcessSnapshot snapshot, string path)
+    {
+        var pins = effects.RecheckPins(path);
+        RequireHandle(snapshot.Handle);
+        return new(snapshot.Process, path, pins.ImageSha256, pins.SourceSha256,
+            snapshot.ExitFileTime, snapshot.ExitCode);
+    }
+
+    private static void RequireBinding(CrashProcessSnapshot snapshot, LiveProof proof)
+    {
+        CrashExitChecks.Require(CrashExitCheck.Handle,
+            ReferenceEquals(snapshot.Handle, proof.Handle));
+        CrashExitChecks.Require(CrashExitCheck.IdentityProcess,
+            snapshot.Process == proof.Identity.Process);
+    }
+
+    private static void RequireHandle(SafeProcessHandle handle) =>
+        CrashExitChecks.Require(CrashExitCheck.Handle,
+            handle is { IsClosed: false, IsInvalid: false });
+
+    public void Dispose() => _disposed = true;
 }
 
 internal sealed record CrashResult

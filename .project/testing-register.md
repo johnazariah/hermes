@@ -54,7 +54,7 @@ publication, containment and control execution still require a hosted run.
 
 ## Owned crash-control lifetime and shared native-handle ownership
 
-The fixed crash-control command has **112 portable cases** covering exact
+The fixed crash-control command has **142 portable cases** covering exact
 ready/arm framing, retained identity, one arm, actual exit observation,
 post-exit handle retention, joined operations and explicit cleanup/report
 failures. Unknown commands, guard refusal, malformed output and incomplete
@@ -68,6 +68,15 @@ values, ordinary/refusal exits, `0xC0000142` and `0xFFFFFFFF` remain rejected.
 The observed status does not bypass any readiness, identity, held-observation,
 hash, settlement or cleanup requirement.
 
+The retained-identity policy separates live proof from terminal facts.
+Before arming, two real-image reads must agree on the first immutable proof.
+After successful completion of the same wait task, reads require the same
+open handle object, PID/birth key, fresh exit time/code and rechecked pins;
+they never query a removed image. The measured Model policy has 48/48 line
+hits. Fakes reject post-exit image queries with Windows error 31 and verify
+zero such queries, five snapshot/pin reads, missing/stale/substituted proof,
+failed/cancelled waits and callback/transport/cleanup refusals.
+
 Current-step containment has **89 portable cases**, including twelve shared
 native-owner cases for partial release, persistent close errors, termination
 errors, combined cleanup failures and prevention of double-close, plus twelve
@@ -78,10 +87,10 @@ finalization can retain a raw resource until process exit. Portable tests do
 not invoke Windows job APIs or crash a process.
 
 The measured candidate passes both portable and Windows-targeted builds with
-zero warnings/errors, **519/519 Servicing tests** and **2,191/2,191 Core
+zero warnings/errors, **549/549 Servicing tests** and **2,191/2,191 Core
 tests**, without skips. The existing native Coverlet runner and flush hook
-measure the same five assemblies at **15,908/18,465 lines (86.1522%)** and
-**15,653/25,357 branches (61.7305%)**; unchanged 85%/60% gates pass.
+measure the same five assemblies at **15,968/18,525 lines (86.1970%)** and
+**15,707/25,385 branches (61.8751%)**; unchanged 85%/60% gates pass.
 This local branch aggregate remains below the earlier 61.9530% measurement.
 The prior exact-status source has actual supported-Windows proof at
 86.4182% line and 62.0364% branch; the new observation source still requires

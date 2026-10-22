@@ -185,6 +185,8 @@ internal static partial class WindowsCrashControl
 
         internal CrashOwnedChild Open()
         {
+            var identity = new CrashRetainedIdentity(new(
+                ReadSnapshot, ReadImage, RecheckPins, WaitAsync));
             return new(
                 new(memory => ReadPipe(
                     CrashWire.BorrowHandle(process.StandardOutput.BaseStream), memory)),
@@ -193,10 +195,10 @@ internal static partial class WindowsCrashControl
                 token => CrashWire.WriteArmAsync(process.StandardInput.BaseStream, token),
                 process.StandardInput.BaseStream.Dispose,
                 process.StandardOutput.Dispose, process.StandardError.Dispose,
-                ReadIdentity, WaitAsync, Stop, Dispose);
+                identity.Read, identity.WaitAsync, Stop, () => Dispose(identity));
         }
 
-        private CrashIdentity ReadIdentity()
+        private CrashProcessSnapshot ReadSnapshot()
         {
             _handle ??= CrashExitChecks.Read(CrashExitCheck.Handle, () => process.SafeHandle);
             if (_handle is not { IsClosed: false, IsInvalid: false } handle)
@@ -205,11 +207,12 @@ internal static partial class WindowsCrashControl
             CrashExitChecks.Require(CrashExitCheck.ProcessIdMatch,
                 native.ProcessId == CrashExitChecks.Read(
                     CrashExitCheck.ProcessIdMatch, () => checked((uint)process.Id)));
-            var path = ReadImage(handle);
-            var hash = publication.RequireSource(path);
-            return new(new(native.ProcessId, native.Born), path, hash,
-                publication.SourceHash, native.Exited, native.Code);
+            return new(handle, new(native.ProcessId, native.Born),
+                native.Exited, native.Code);
         }
+
+        private CrashImagePins RecheckPins(string path) =>
+            new(publication.RequireSource(path), publication.SourceHash);
 
         private static unsafe (uint ProcessId, long Born, long Exited, uint Code)
             ReadProcess(SafeProcessHandle handle)
@@ -250,8 +253,9 @@ internal static partial class WindowsCrashControl
                 process.Kill(entireProcessTree: false);
         }
 
-        private void Dispose()
+        private void Dispose(CrashRetainedIdentity identity)
         {
+            identity.Dispose();
             try { process.Dispose(); }
             finally { publication.Dispose(); }
         }

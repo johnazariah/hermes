@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Hermes.Servicing.Acceptance;
 using Hermes.Servicing.Acceptance.Model;
+using Microsoft.Win32.SafeHandles;
 using Xunit;
 
 namespace Hermes.Servicing.Tests;
@@ -16,6 +17,320 @@ public sealed class CrashControlTests
     private static CrashIdentity Live => new(new ProcessKey(42, 100),
         Path.Combine(Path.GetTempPath(), "Hermes.Servicing.Acceptance.exe"),
         Hash, new string('b', 64), 0, 259);
+
+    [Fact]
+    public async Task Live_image_proof_survives_exit_without_a_postmortem_image_query()
+    {
+        var child = new Child();
+        var source = new LiveImageSource(child);
+        CrashObservation? retained = null;
+        var result = await RunWithProof(child, source, (scope, _) =>
+        {
+            retained = scope;
+            Assert.False(source.HandleClosed);
+            Assert.Equal(CrashExit, scope.Recheck().ExitCode);
+            return Task.CompletedTask;
+        });
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal((2, 0, 5, 5),
+            (source.ImageQueries, source.TerminalQueries, source.PinReads, source.SnapshotReads));
+        Assert.True(source.HandleClosed);
+        Assert.NotNull(retained);
+        Assert.Throws<ObjectDisposedException>(() => retained.Recheck());
+        AssertSettled(child, result);
+    }
+
+    [Fact]
+    public async Task Live_image_query_error_31_still_refuses_before_arm()
+    {
+        var child = new Child();
+        var source = new LiveImageSource(child)
+        {
+            Image = _ => throw new System.ComponentModel.Win32Exception(31)
+        };
+        var result = await RunWithProof(child, source);
+        Assert.Equal(CrashFault.Binding, result.Error);
+        Assert.Equal(1, result.ExitCode);
+        Assert.Equal(0, child.Writes);
+        Assert.Equal((1, 0, 0), (source.ImageQueries, source.TerminalQueries, source.PinReads));
+        AssertSettled(child, result);
+    }
+
+    [Fact]
+    public async Task Successful_wait_without_live_image_proof_cannot_mint_terminal_identity()
+    {
+        var child = new Child();
+        var source = new LiveImageSource(child);
+        var owned = source.Wrap(child.Open());
+        try
+        {
+            owned.Stop();
+            await owned.Wait(CancellationToken.None);
+            var failure = Assert.Throws<CrashExitException>(() => owned.ReadIdentity());
+            Assert.Equal(CrashExitCheck.Lifetime, failure.Check);
+            Assert.Equal((0, 0), (source.ImageQueries, source.PinReads));
+        }
+        finally { owned.Dispose(); }
+    }
+
+    [Fact]
+    public async Task Terminal_snapshot_requires_completion_of_this_readers_wait()
+    {
+        var child = new Child();
+        var source = new LiveImageSource(child);
+        var owned = source.Wrap(child.Open());
+        try
+        {
+            _ = owned.ReadIdentity();
+            owned.Stop();
+            Assert.Throws<InvalidDataException>(() => owned.ReadIdentity());
+            await owned.Wait(CancellationToken.None);
+            Assert.Equal(CrashExit, owned.ReadIdentity().ExitCode);
+            Assert.Equal((1, 0, 2), (source.ImageQueries, source.TerminalQueries, source.PinReads));
+        }
+        finally { owned.Dispose(); }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Faulted_or_cancelled_wait_cannot_authorize_terminal_identity(bool cancelled)
+    {
+        var child = new Child();
+        var source = new LiveImageSource(child);
+        var failed = cancelled
+            ? Task.FromCanceled<uint>(new CancellationToken(true))
+            : Task.FromException<uint>(new IOException());
+        var owned = source.Wrap(child.Open() with { Wait = _ => failed });
+        try
+        {
+            _ = owned.ReadIdentity();
+            owned.Stop();
+            Assert.Same(failed, owned.Wait(CancellationToken.None));
+            await Assert.ThrowsAnyAsync<Exception>(() => failed);
+            Assert.Throws<InvalidDataException>(() => owned.ReadIdentity());
+            Assert.Equal((1, 0), (source.ImageQueries, source.TerminalQueries));
+        }
+        finally { owned.Dispose(); }
+    }
+
+    [Fact]
+    public async Task Changed_loaded_image_before_arm_cannot_replace_live_proof()
+    {
+        var child = new Child();
+        var source = new LiveImageSource(child)
+        {
+            Image = read => read == 1 ? Live.ImagePath : Live.ImagePath + ".other"
+        };
+        var result = await RunWithProof(child, source);
+        Assert.Equal(CrashFault.Binding, result.Error);
+        Assert.Equal(1, result.ExitCode);
+        Assert.Equal(0, child.Writes);
+        Assert.False(result.Held);
+        AssertSettled(child, result);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task Changed_image_or_source_pins_never_replace_proof(
+        bool afterExit, bool changeImage)
+    {
+        var child = new Child();
+        var reads = 0;
+        var source = new LiveImageSource(child)
+        {
+            Pins = () => (afterExit ? child.Exited : ++reads > 1)
+                ? ChangedPins(changeImage) : new(Live.ImageSha256, Live.SourceSha256)
+        };
+        var result = await RunWithProof(child, source);
+        Assert.Equal(afterExit ? CrashFault.Exit : CrashFault.Binding, result.Error);
+        Assert.Equal(1, result.ExitCode);
+        Assert.Equal(afterExit ? 1 : 0, child.Writes);
+        Assert.False(result.Held);
+        Assert.Equal((2, 0), (source.ImageQueries, source.TerminalQueries));
+        AssertSettled(child, result);
+    }
+
+    [Fact]
+    public async Task Closed_publication_pins_refuse_terminal_identity()
+    {
+        var child = new Child();
+        var source = new LiveImageSource(child) { PinsOpen = () => !child.Exited };
+        var result = await RunWithProof(child, source);
+        Assert.Equal(CrashFault.Exit, result.Error);
+        Assert.Equal(CrashExitCheck.Pins, result.ExitCheck);
+        Assert.Equal(1, result.ExitCode);
+        Assert.False(result.Held);
+        Assert.True(result.Cleanup);
+        AssertSettled(child, result);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_different_handle_cannot_reuse_the_same_process_key(bool afterExit)
+    {
+        using var other = new SafeProcessHandle(new nint(43), ownsHandle: false);
+        var child = new Child();
+        var reads = 0;
+        var source = new LiveImageSource(child)
+        {
+            HandleOverride = handle => (afterExit ? child.Exited : ++reads == 2) ? other : handle
+        };
+        var result = await RunWithProof(child, source);
+        Assert.Equal(afterExit ? CrashFault.Exit : CrashFault.Binding, result.Error);
+        Assert.Equal(1, result.ExitCode);
+        Assert.Equal(afterExit ? 1 : 0, child.Writes);
+        Assert.False(result.Held);
+        Assert.True(source.HandleClosed);
+        AssertSettled(child, result);
+    }
+
+    [Theory]
+    [InlineData(43u, 100L)]
+    [InlineData(42u, 101L)]
+    public async Task Terminal_pid_or_birth_change_cannot_reuse_live_image_proof(uint pid, long born)
+    {
+        var child = new Child
+        {
+            ExitedIdentity = () => Live with
+                { Process = new(pid, born), ExitFileTime = 200, ExitCode = CrashExit }
+        };
+        var source = new LiveImageSource(child);
+        var result = await RunWithProof(child, source);
+        Assert.Equal(CrashFault.Exit, result.Error);
+        Assert.Equal(CrashExitCheck.IdentityProcess, result.ExitCheck);
+        Assert.Equal(1, result.ExitCode);
+        Assert.False(result.Held);
+        Assert.Equal((2, 0), (source.ImageQueries, source.TerminalQueries));
+        AssertSettled(child, result);
+    }
+
+    [Theory]
+    [InlineData((int)CrashExitCheck.ExitTimeOrder)]
+    [InlineData((int)CrashExitCheck.ExitTimePresent)]
+    [InlineData((int)CrashExitCheck.ExitCodeMatch)]
+    public async Task Terminal_time_and_code_must_be_fresh_and_match_actual_wait(int check)
+    {
+        var child = new Child { ExitedIdentity = () => InvalidExit((CrashExitCheck)check) };
+        var source = new LiveImageSource(child);
+        var result = await RunWithProof(child, source);
+        Assert.Equal(CrashFault.Exit, result.Error);
+        Assert.Equal((CrashExitCheck)check, result.ExitCheck);
+        Assert.Equal(1, result.ExitCode);
+        Assert.False(result.Held);
+        Assert.Equal((2, 0), (source.ImageQueries, source.TerminalQueries));
+        AssertSettled(child, result);
+    }
+
+    [Fact]
+    public async Task Closing_retained_handle_during_callback_refuses_postcheck()
+    {
+        var child = new Child();
+        var source = new LiveImageSource(child);
+        var result = await RunWithProof(child, source, (scope, cancellationToken) =>
+        {
+            _ = scope.Recheck();
+            source.CloseHandle();
+            return Task.CompletedTask;
+        });
+        Assert.Equal(CrashFault.Callback, result.Error);
+        Assert.Equal(1, result.ExitCode);
+        Assert.False(result.Held);
+        Assert.True(result.Cleanup);
+        Assert.Equal((2, 0), (source.ImageQueries, source.TerminalQueries));
+        AssertSettled(child, result);
+    }
+
+    [Fact]
+    public async Task Source_pins_are_rechecked_after_actual_callback()
+    {
+        var changed = false;
+        var child = new Child();
+        var source = new LiveImageSource(child)
+        {
+            Pins = () => changed ? ChangedPins(false) : new(Live.ImageSha256, Live.SourceSha256)
+        };
+        var result = await RunWithProof(child, source, (scope, cancellationToken) =>
+        {
+            _ = scope.Recheck();
+            changed = true;
+            return Task.CompletedTask;
+        });
+        Assert.Equal(CrashFault.Callback, result.Error);
+        Assert.Equal(1, result.ExitCode);
+        Assert.False(result.Held);
+        Assert.True(result.Cleanup);
+        AssertSettled(child, result);
+    }
+
+    [Theory]
+    [InlineData((int)CrashCleanup.Input)]
+    [InlineData((int)CrashCleanup.Kill)]
+    [InlineData((int)CrashCleanup.Output)]
+    [InlineData((int)CrashCleanup.Error)]
+    [InlineData((int)CrashCleanup.Dispose)]
+    public async Task Live_image_policy_does_not_bypass_cleanup_failures(int value)
+    {
+        var failure = (CrashCleanup)value;
+        var child = new Child { CleanupFailure = failure };
+        var source = new LiveImageSource(child);
+        var result = await RunWithProof(child, source);
+        Assert.True(result.CleanupError.HasFlag(failure));
+        Assert.False(result.Cleanup);
+        Assert.Equal(1, result.ExitCode);
+        Assert.True(source.HandleClosed);
+        Assert.Equal(0, source.TerminalQueries);
+        AssertSettled(child, result);
+    }
+
+    [Theory]
+    [InlineData("bad", false, (int)CrashFault.Stdout, 0)]
+    [InlineData(CrashControl.Ready, true, (int)CrashFault.Arm, 2)]
+    public async Task Live_image_policy_preserves_readiness_and_arm_refusals(
+        string ready, bool writeFailure, int fault, int queries)
+    {
+        var child = new Child(ready) { WriteFailure = writeFailure };
+        var source = new LiveImageSource(child);
+        var result = await RunWithProof(child, source);
+        Assert.Equal((CrashFault)fault, result.Error);
+        Assert.Equal(1, result.ExitCode);
+        Assert.False(result.Armed);
+        Assert.Equal((queries, 0), (source.ImageQueries, source.TerminalQueries));
+        AssertSettled(child, result);
+    }
+
+    [Fact]
+    public async Task Live_image_policy_does_not_bypass_stderr_drain_failure()
+    {
+        var child = new Child { ErrorBytes = CrashControl.MaximumStderrBytes + 1 };
+        var source = new LiveImageSource(child);
+        var result = await RunWithProof(child, source);
+        Assert.Equal(CrashFault.Stderr, result.Error);
+        Assert.Equal(1, result.ExitCode);
+        Assert.Equal(0, child.Writes);
+        AssertSettled(child, result);
+    }
+
+    [Fact]
+    public async Task Live_image_policy_keeps_success_report_at_28_fields_and_native_acceptance_zero()
+    {
+        var child = new Child();
+        var result = await RunWithProof(child, new LiveImageSource(child));
+        using var document = JsonDocument.Parse(CrashReport.Encode(result));
+        var report = document.RootElement;
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(28, report.EnumerateObject().Count());
+        Assert.Equal(0, report.GetProperty("status").GetInt32());
+        Assert.Equal(2148734499u, report.GetProperty("exit").GetUInt32());
+        Assert.Equal(0, report.GetProperty("originalGatePassed").GetInt32());
+        Assert.Equal(0, report.GetProperty("nativeAcceptance").GetInt32());
+        Assert.Equal(Live.ImageSha256, report.GetProperty("imageSha256").GetString());
+        Assert.Equal(Live.SourceSha256, report.GetProperty("sourceSha256").GetString());
+    }
 
     [Theory]
     [InlineData("")]
@@ -648,6 +963,8 @@ public sealed class CrashControlTests
         Assert.Same(assembly, typeof(CrashCommands).Assembly);
         Assert.Same(assembly, typeof(CrashWire).Assembly);
         Assert.Same(assembly, typeof(CrashExitChecks).Assembly);
+        Assert.Same(assembly, typeof(CrashRetainedIdentity).Assembly);
+        Assert.Same(assembly, typeof(CrashProcessSnapshot).Assembly);
         Assert.Same(assembly, typeof(OwnedCrashControl).Assembly);
         Assert.NotSame(typeof(CrashControlTests).Assembly, assembly);
     }
@@ -806,6 +1123,10 @@ public sealed class CrashControlTests
         Assert.DoesNotContain("crash", calls);
     }
 
+    private static CrashImagePins ChangedPins(bool image) => new(
+        image ? new string('c', 64) : Live.ImageSha256,
+        image ? Live.SourceSha256 : new string('c', 64));
+
     private static CrashIdentity InvalidExit(CrashExitCheck check)
     {
         var identity = Live with { ExitFileTime = 200, ExitCode = CrashExit };
@@ -842,6 +1163,13 @@ public sealed class CrashControlTests
         OwnedCrashControl.RunAsync(
             child.Start, observe ?? NoObservation, Limits, CancellationToken.None);
 
+    private static Task<CrashResult> RunWithProof(
+        Child child, LiveImageSource source,
+        Func<CrashObservation, CancellationToken, Task>? observe = null) =>
+        OwnedCrashControl.RunAsync(
+            (adopt, token) => child.Start(owned => adopt(source.Wrap(owned)), token),
+            observe ?? NoObservation, Limits, CancellationToken.None);
+
     private static void AssertSettled(Child child, CrashResult result)
     {
         Assert.True(child.Disposed);
@@ -851,6 +1179,72 @@ public sealed class CrashControlTests
         Assert.True(result.WriteSettled);
         Assert.True(result.CallbackSettled);
         Assert.Equal(1, child.InputCloses);
+    }
+
+    private sealed class LiveImageSource(Child child)
+    {
+        // Non-owning sentinels: no OS process handle is opened or released by this fake.
+        private readonly SafeProcessHandle _handle = new(new nint(42), ownsHandle: false);
+        internal Func<int, string> Image { get; init; } = static _ => Live.ImagePath;
+        internal Func<CrashImagePins> Pins { get; init; } =
+            static () => new(Live.ImageSha256, Live.SourceSha256);
+        internal Func<bool> PinsOpen { get; init; } = static () => true;
+        internal Func<SafeProcessHandle, SafeProcessHandle>? HandleOverride { get; init; }
+        internal int ImageQueries { get; private set; }
+        internal int TerminalQueries { get; private set; }
+        internal int PinReads { get; private set; }
+        internal int SnapshotReads { get; private set; }
+        internal bool HandleClosed => _handle.IsClosed;
+
+        internal CrashOwnedChild Wrap(CrashOwnedChild owned)
+        {
+            var identity = new CrashRetainedIdentity(new(
+                () => ReadSnapshot(owned.ReadIdentity), QueryImage, RecheckPins, owned.Wait));
+            return owned with
+            {
+                ReadIdentity = identity.Read, Wait = identity.WaitAsync,
+                Dispose = () => Dispose(identity, owned.Dispose)
+            };
+        }
+
+        internal void CloseHandle() => _handle.Dispose();
+
+        private CrashProcessSnapshot ReadSnapshot(Func<CrashIdentity> read)
+        {
+            SnapshotReads++;
+            var current = read();
+            var handle = HandleOverride is { } select ? select(_handle) : _handle;
+            return new(handle, current.Process, current.ExitFileTime, current.ExitCode);
+        }
+
+        private string QueryImage(SafeProcessHandle handle)
+        {
+            ImageQueries++;
+            CrashExitChecks.Require(CrashExitCheck.Handle, ReferenceEquals(handle, _handle));
+            if (child.Exited)
+            {
+                TerminalQueries++;
+                throw new CrashExitException(CrashExitCheck.ImageQuery,
+                    new System.ComponentModel.Win32Exception(31));
+            }
+            return CrashExitChecks.Read(CrashExitCheck.ImageQuery, () => Image(ImageQueries));
+        }
+
+        private CrashImagePins RecheckPins(string path)
+        {
+            PinReads++;
+            CrashExitChecks.Require(CrashExitCheck.Pins, PinsOpen());
+            CrashExitChecks.Require(CrashExitCheck.PublicationPath,
+                string.Equals(path, Live.ImagePath, StringComparison.OrdinalIgnoreCase));
+            return Pins();
+        }
+
+        private void Dispose(CrashRetainedIdentity identity, Action dispose)
+        {
+            identity.Dispose();
+            try { dispose(); }
+            finally { _handle.Dispose(); }
+        }
     }
 
     private sealed class Pipe(string text)
