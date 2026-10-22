@@ -4,6 +4,7 @@ param()
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $script:failureReported = $false
+$script:capture = $null
 # 0 bootstrap, 1 guard, 2 receipt, 3 checkout, 4 inventory, 5 load,
 # 6 begin, 7 start, 8 capture, 9 report, 10 recheck, 11 release, 12 output.
 $script:phase = 0
@@ -15,6 +16,11 @@ function Write-CrashFailure {
     $diagnostic = "HERMES_CRASH_DIAGNOSTIC v=1 phase=$script:phase family=0 reason=0 nativeError=0"
     try { $diagnostic = ConvertTo-HermesCrashDiagnostic -Phase $script:phase -Failure $Failure } catch { }
     [Console]::Out.WriteLine($diagnostic)
+    if ($script:phase -eq 9 -and $null -ne $script:capture) {
+        try {
+            [Console]::Out.WriteLine((ConvertTo-HermesCrashControlFacts -Capture $script:capture))
+        } catch { }
+    }
     [Console]::Out.Flush()
 }
 trap { Write-CrashFailure $_; exit 1 }
@@ -93,7 +99,7 @@ try {
     if (-not $process.Start()) { throw '1' }
     $process.StandardInput.Close()
     $script:phase = 8
-    $capture = Invoke-HermesCrashCapture $process
+    $script:capture = Invoke-HermesCrashCapture $process
     $script:phase = 11
     $process.Dispose()
     $process = $null

@@ -487,6 +487,48 @@ function Assert-HermesCrashOutcome {
     if ($text -cne $expected) { throw '16' }
 }
 
+function ConvertTo-HermesCrashControlFacts {
+    param([object]$Capture)
+    $unavailable = 'HERMES_CRASH_CONTROL_FACTS v=1 available=0 status=0 exit=0 error=0 cleanupError=0 reportError=0 nativeAcceptance=0'
+    try {
+        foreach ($name in @('ExitCode', 'Deadline', 'StdoutComplete', 'StderrComplete', 'WaitSettled')) {
+            if ($Capture.$name -isnot [int]) { return $unavailable }
+        }
+        if ($Capture.ExitCode -notin @(0, 1) -or $Capture.Deadline -ne 0 `
+            -or $Capture.StdoutComplete -ne 1 -or $Capture.StderrComplete -ne 1 -or $Capture.WaitSettled -ne 1 `
+            -or $Capture.Stdout -isnot [byte[]] -or $Capture.Stdout.Length -lt 1 -or $Capture.Stdout.Length -gt 511 `
+            -or $Capture.Stderr -isnot [byte[]] -or $Capture.Stderr.Length -ne 0 `
+            -or $Capture.Tasks -isnot [object[]] -or $Capture.Tasks.Count -lt 3 -or $Capture.Tasks.Count -gt 514) {
+            return $unavailable
+        }
+        foreach ($operation in $Capture.Tasks) {
+            if ($operation -isnot [Threading.Tasks.Task] `
+                -or $operation.Status -ne [Threading.Tasks.TaskStatus]::RanToCompletion) { return $unavailable }
+            $null = $operation.GetAwaiter().GetResult()
+        }
+        $text = [Text.UTF8Encoding]::new($false, $true).GetString($Capture.Stdout)
+        $uint = '(0|[1-9][0-9]{0,9})'
+        $match = [regex]::Match($text, (
+            "\AHERMES_CRASH_CONTROL v=1 status=([01]) exit=$uint error=$uint cleanupError=$uint reportError=$uint nativeAcceptance=0\n\z"))
+        if (-not $match.Success) { return $unavailable }
+        $values = [uint32[]]::new(5)
+        for ($index = 0; $index -lt $values.Length; $index++) {
+            [uint32]$value = 0
+            if (-not [uint32]::TryParse($match.Groups[$index + 1].Value,
+                    [Globalization.NumberStyles]::None, [Globalization.CultureInfo]::InvariantCulture, [ref]$value)) {
+                return $unavailable
+            }
+            $values[$index] = $value
+        }
+        if ($values[0] -ne $Capture.ExitCode -or $values[2] -gt 11 `
+            -or $values[3] -gt 255 -or $values[4] -gt 1) { return $unavailable }
+        # Advisory observations only: reconstruct numeric fields, never echo the captured line.
+        return [string]::Format([Globalization.CultureInfo]::InvariantCulture,
+            'HERMES_CRASH_CONTROL_FACTS v=1 available=1 status={0} exit={1} error={2} cleanupError={3} reportError={4} nativeAcceptance=0',
+            [object[]]$values)
+    } catch { return $unavailable }
+}
+
 function Assert-HermesCrashReportAbsent {
     param([string]$Workspace)
     $artifacts = Join-Path $Workspace '.artifacts'
@@ -550,4 +592,4 @@ Export-ModuleMember -Function Assert-HermesCrashHost, Assert-HermesCrashHash, As
     Assert-HermesCrashTree, Read-HermesCrashInventory, Get-HermesCrashCheckout, Read-HermesCrashBytes,
     Read-HermesCrashReceipt, Assert-HermesCrashReceiptBinding, Assert-HermesCrashReport, Invoke-HermesCrashCapture,
     Assert-HermesCrashOutcome, Assert-HermesCrashReportAbsent, Import-HermesCrashSupervisor,
-    Assert-HermesCrashAssemblies, ConvertTo-HermesCrashDiagnostic
+    Assert-HermesCrashAssemblies, ConvertTo-HermesCrashDiagnostic, ConvertTo-HermesCrashControlFacts

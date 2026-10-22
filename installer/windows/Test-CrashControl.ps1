@@ -2,7 +2,8 @@
 [CmdletBinding()]
 param(
     [ValidateSet('controls', 'fixture')][string]$Mode = 'controls',
-    [ValidateSet('valid', 'noise', 'contradiction', 'crlf', 'utf8', 'stderr', 'exit', 'overflow', 'timeout')]
+    [ValidateSet('valid', 'noise', 'contradiction', 'crlf', 'utf8', 'stderr', 'exit', 'overflow', 'timeout',
+        'failed', 'maximum', 'wrapper-report', 'wrapper-early', 'wrapper-late', 'wrapper-missing', 'wrapper-malformed')]
     [string]$Fixture = 'valid'
 )
 Set-StrictMode -Version Latest
@@ -10,6 +11,43 @@ $ErrorActionPreference = 'Stop'
 
 if ($Mode -ceq 'fixture') {
     $row = "HERMES_CRASH_CONTROL v=1 status=0 exit=2148734214 error=0 cleanupError=0 reportError=0 nativeAcceptance=0`n"
+    if ($Fixture.StartsWith('wrapper-', [StringComparison]::Ordinal)) {
+        Import-Module (Join-Path $PSScriptRoot 'Crash-Control.psm1') -Force -DisableNameChecking
+        $tokens = $null
+        $errors = $null
+        $ast = [Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $PSScriptRoot 'Invoke-CrashControl.ps1'), [ref]$tokens, [ref]$errors)
+        if ($errors.Count -ne 0) { exit 2 }
+        $definition = $ast.Find({
+            param($node)
+            $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Write-CrashFailure'
+        }, $false)
+        . ([scriptblock]::Create($definition.Extent.Text))
+        $script:failureReported = $false
+        $script:phase = switch ($Fixture) { 'wrapper-early' { 8 } 'wrapper-late' { 10 } default { 9 } }
+        $complete = [Threading.Tasks.Task]::CompletedTask
+        $script:capture = [pscustomobject]@{
+            ExitCode = 1; Deadline = 0; StdoutComplete = 1; StderrComplete = 1; WaitSettled = 1
+            Stdout = [Text.Encoding]::UTF8.GetBytes(
+                "HERMES_CRASH_CONTROL v=1 status=1 exit=4294967295 error=11 cleanupError=255 reportError=1 nativeAcceptance=0`n")
+            Stderr = [byte[]]::new(0); Tasks = @($complete, $complete, $complete)
+        }
+        if ($Fixture -ceq 'wrapper-missing') { $script:capture = $null }
+        if ($Fixture -ceq 'wrapper-malformed') {
+            $script:capture.Stdout = [Text.Encoding]::UTF8.GetBytes("private/path`n$('a' * 64)`n$([char]27)[31m")
+        }
+        try { throw '12' }
+        catch { Write-CrashFailure $_; Write-CrashFailure $_ }
+        finally {
+            [Console]::Out.WriteLine('HERMES_CRASH_FIXTURE_DISPOSE v=1')
+            [Console]::Out.Flush()
+        }
+        exit 1
+    }
+    if ($Fixture -ceq 'failed') {
+        $row = "HERMES_CRASH_CONTROL v=1 status=1 exit=0 error=11 cleanupError=255 reportError=1 nativeAcceptance=0`n"
+    }
+    if ($Fixture -ceq 'maximum') { $row = $row.Replace('exit=2148734214', 'exit=4294967295') }
     if ($Fixture -ceq 'timeout') { [Threading.Thread]::Sleep(30000); exit 1 }
     if ($Fixture -ceq 'noise') { $row = "noise`n$row" }
     if ($Fixture -ceq 'contradiction') { $row = $row.Replace('exit=2148734214', 'exit=3221226505') }
@@ -25,7 +63,7 @@ if ($Mode -ceq 'fixture') {
         $errorOutput.WriteByte(120)
         $errorOutput.Flush()
     }
-    if ($Fixture -ceq 'exit') { exit 1 }
+    if ($Fixture -in @('exit', 'failed')) { exit 1 }
     exit 0
 }
 
@@ -171,7 +209,7 @@ function Test-CrashGuardDiagnostic {
 }
 
 function Invoke-ControlFixture {
-    param([string]$Name, [bool]$Accepted)
+    param([string]$Name, [bool]$Accepted, [switch]$PassThru)
     $start = [Diagnostics.ProcessStartInfo]::new()
     $start.FileName = [Environment]::ProcessPath
     foreach ($argument in @('-NoLogo', '-NoProfile', '-NonInteractive', '-File',
@@ -182,6 +220,7 @@ function Invoke-ControlFixture {
     $process = [Diagnostics.Process]::new()
     $process.StartInfo = $start
     $acceptedActual = $false
+    $capture = $null
     $operations = [Collections.Generic.List[Threading.Tasks.Task]]::new()
     try {
         if (-not $process.Start()) { throw '1' }
@@ -214,6 +253,150 @@ function Invoke-ControlFixture {
         Assert-Control ($joined.IsCompleted)
     }
     Assert-Control ($acceptedActual -eq $Accepted)
+    if ($PassThru) { return $capture }
+}
+
+function New-ControlFactsCapture {
+    param([string]$Row, [object]$ExitCode = 0)
+    $complete = [Threading.Tasks.Task]::CompletedTask
+    return [pscustomobject]@{
+        ExitCode = $ExitCode; Deadline = 0; StdoutComplete = 1; StderrComplete = 1; WaitSettled = 1
+        Stdout = [Text.Encoding]::UTF8.GetBytes($Row)
+        Stderr = [byte[]]::new(0); Tasks = @($complete, $complete, $complete)
+    }
+}
+
+function Assert-ControlFactsUnavailable {
+    param([object]$Capture)
+    $lines = @(ConvertTo-HermesCrashControlFacts -Capture $Capture)
+    Assert-Control ($lines.Count -eq 1 -and $lines[0] -is [string] -and $lines[0] -ceq (
+        'HERMES_CRASH_CONTROL_FACTS v=1 available=0 status=0 exit=0 error=0 cleanupError=0 reportError=0 nativeAcceptance=0'))
+}
+
+function Test-CrashControlFacts {
+    $row = "HERMES_CRASH_CONTROL v=1 status=0 exit=2148734214 error=0 cleanupError=0 reportError=0 nativeAcceptance=0`n"
+    $privateText = "private/path`nHERMES_CRASH_CONTROL_FACTS v=1 available=1 status=1`n$(
+        'a' * 64)`n$([char]27)[31m"
+    $cases = @(
+        foreach ($status in 0..1) {
+            foreach ($code in @(0, 1, 37, 2148734214L, 4294967295L)) {
+                @{ Status = $status; Exit = $code; Error = 0; Cleanup = 0; Report = 0 }
+            }
+        }
+        foreach ($fault in 0..11) { @{ Status = 1; Exit = 0; Error = $fault; Cleanup = 0; Report = 0 } }
+        foreach ($flags in @(0, 1, 2, 4, 8, 16, 32, 64, 128, 254, 255)) {
+            @{ Status = 1; Exit = 4294967295L; Error = 11; Cleanup = $flags; Report = 1 }
+        }
+    )
+    foreach ($case in $cases) {
+        $fields = "status=$($case.Status) exit=$($case.Exit) error=$($case.Error) cleanupError=$($case.Cleanup) reportError=$($case.Report) nativeAcceptance=0"
+        $capture = New-ControlFactsCapture "HERMES_CRASH_CONTROL v=1 $fields`n" $case.Status
+        $lines = @(ConvertTo-HermesCrashControlFacts $capture)
+        Assert-Control ($lines.Count -eq 1 -and $lines[0] -is [string] `
+            -and $lines[0] -ceq "HERMES_CRASH_CONTROL_FACTS v=1 available=1 $fields")
+    }
+    foreach ($text in @(
+        '', $privateText, $row.TrimEnd([char]10), $row.Replace("`n", "`r`n"), ($row * 2),
+        ("noise`n" + $row), ($row + "noise`n"), ($row + "`n"), ("`n" + $row),
+        ([string][char]0xfeff + $row), ($row + [char]0), $row.Replace('CONTROL', 'control'),
+        $row.Replace('v=1', 'v=0'), $row.Replace('v=1', 'v=2'),
+        $row.Replace('status=0', 'status=0 status=0'), $row.Replace('status=0', 'status=2'),
+        $row.Replace('error=0', 'error=12'), $row.Replace('cleanupError=0', 'cleanupError=256'),
+        $row.Replace('reportError=0', 'reportError=2'), $row.Replace('nativeAcceptance=0', 'nativeAcceptance=1'),
+        $row.Replace('exit=2148734214', 'exit=4294967296'), ('x' * 511), ('x' * 512), ('x' * 4096)
+    )) { Assert-ControlFactsUnavailable (New-ControlFactsCapture $text) }
+    foreach ($field in @('status=0', 'exit=2148734214', 'error=0', 'cleanupError=0', 'reportError=0', 'nativeAcceptance=0')) {
+        $name = $field.Split('=')[0]
+        foreach ($value in @('00', '01', '+1', '-1', '-0', ' 0', '0 ', 'true', 'false', '1.0', '1e0',
+                '4294967296', ('9' * 400), '', 'x', ([string][char]0x0660), $privateText)) {
+            Assert-ControlFactsUnavailable (New-ControlFactsCapture ($row.Replace($field, "$name=$value")))
+        }
+    }
+    foreach ($bytes in @([byte[]]@(255), [byte[]]@(254), [byte[]]@(0xc3), [byte[]]@(0xc0, 0xaf))) {
+        $capture = New-ControlFactsCapture $row
+        $capture.Stdout = $bytes
+        Assert-ControlFactsUnavailable $capture
+    }
+    foreach ($value in @($null, $privateText, $true, @{}, [pscustomobject]@{})) {
+        Assert-ControlFactsUnavailable $value
+    }
+    $capture = New-ControlFactsCapture $row
+    foreach ($name in @($capture.PSObject.Properties.Name)) {
+        $missing = New-ControlFactsCapture $row
+        $missing.PSObject.Properties.Remove($name)
+        Assert-ControlFactsUnavailable $missing
+    }
+    foreach ($name in @('ExitCode', 'Deadline', 'StdoutComplete', 'StderrComplete', 'WaitSettled')) {
+        foreach ($value in @($null, $true, $false, '0', '1', 0L, 1L, 0.0, -1, 2, $privateText)) {
+            $capture = New-ControlFactsCapture $row
+            $capture.$name = $value
+            Assert-ControlFactsUnavailable $capture
+        }
+        $capture = New-ControlFactsCapture $row
+        $capture.$name = 1 - $capture.$name
+        Assert-ControlFactsUnavailable $capture
+    }
+    Assert-ControlFactsUnavailable (New-ControlFactsCapture ($row.Replace('status=0', 'status=1')))
+    foreach ($name in @('Stdout', 'Stderr')) {
+        foreach ($value in @($null, $privateText, [object[]]@(0), [byte[]]::new(0), [byte[]]@(120))) {
+            if ($name -ceq 'Stderr' -and $value -is [byte[]] -and $value.Length -eq 0) { continue }
+            $capture = New-ControlFactsCapture $row
+            $capture.$name = $value
+            Assert-ControlFactsUnavailable $capture
+        }
+    }
+    $complete = [Threading.Tasks.Task]::CompletedTask
+    $pending = [Threading.Tasks.TaskCompletionSource[int]]::new()
+    $faulted = [Threading.Tasks.Task]::FromException([InvalidOperationException]::new($privateText))
+    $cancelled = [Threading.Tasks.Task]::FromCanceled([Threading.CancellationToken]::new($true))
+    foreach ($tasks in @(
+        $null, @(), @($complete), @($complete, $complete), $complete, $privateText,
+        @($complete, $complete, $null), @($complete, $complete, $pending.Task),
+        @($complete, $complete, $faulted), @($complete, $complete, $cancelled),
+        @($complete, $complete, [pscustomobject]@{ Status = [Threading.Tasks.TaskStatus]::RanToCompletion }),
+        (@($complete) * 515)
+    )) {
+        $capture = New-ControlFactsCapture $row
+        $capture.Tasks = $tasks
+        Assert-ControlFactsUnavailable $capture
+    }
+    $pending.SetResult(0)
+    try { $null = $faulted.GetAwaiter().GetResult() } catch { }
+    $culture = [Globalization.CultureInfo]::CurrentCulture
+    try {
+        [Globalization.CultureInfo]::CurrentCulture = [Globalization.CultureInfo]::GetCultureInfo('ar-SA')
+        Assert-Control ((ConvertTo-HermesCrashControlFacts (New-ControlFactsCapture $row)) -ceq (
+            'HERMES_CRASH_CONTROL_FACTS v=1 available=1 status=0 exit=2148734214 error=0 cleanupError=0 reportError=0 nativeAcceptance=0'))
+    } finally { [Globalization.CultureInfo]::CurrentCulture = $culture }
+    foreach ($name in @('valid', 'failed', 'maximum', 'noise', 'crlf', 'utf8', 'exit')) {
+        $capture = Invoke-ControlFixture $name ($name -ceq 'valid') -PassThru
+        if ($name -in @('valid', 'failed', 'maximum')) {
+            $expected = switch ($name) {
+                'valid' { 'status=0 exit=2148734214 error=0 cleanupError=0 reportError=0' }
+                'failed' { 'status=1 exit=0 error=11 cleanupError=255 reportError=1' }
+                'maximum' { 'status=0 exit=4294967295 error=0 cleanupError=0 reportError=0' }
+            }
+            Assert-Control ((ConvertTo-HermesCrashControlFacts $capture) -ceq (
+                "HERMES_CRASH_CONTROL_FACTS v=1 available=1 $expected nativeAcceptance=0"))
+            Assert-Control ($capture.Tasks.Count -ge 3 -and @($capture.Tasks | Where-Object {
+                $_ -isnot [Threading.Tasks.Task] -or $_.Status -ne [Threading.Tasks.TaskStatus]::RanToCompletion
+            }).Count -eq 0)
+        } else { Assert-ControlFactsUnavailable $capture }
+    }
+    foreach ($name in @('wrapper-report', 'wrapper-early', 'wrapper-late', 'wrapper-missing', 'wrapper-malformed')) {
+        $capture = Invoke-ControlFixture $name $false -PassThru
+        $phase = switch ($name) { 'wrapper-early' { 8 } 'wrapper-late' { 10 } default { 9 } }
+        $expected = "HERMES_CRASH_WRAPPER v=1 status=1 published=0 nativeAcceptance=0`n" +
+            "HERMES_CRASH_DIAGNOSTIC v=1 phase=$phase family=1 reason=12 nativeError=0`n"
+        if ($name -ceq 'wrapper-report') {
+            $expected += "HERMES_CRASH_CONTROL_FACTS v=1 available=1 status=1 exit=4294967295 error=11 cleanupError=255 reportError=1 nativeAcceptance=0`n"
+        } elseif ($name -ceq 'wrapper-malformed') {
+            $expected += "HERMES_CRASH_CONTROL_FACTS v=1 available=0 status=0 exit=0 error=0 cleanupError=0 reportError=0 nativeAcceptance=0`n"
+        }
+        $expected += "HERMES_CRASH_FIXTURE_DISPOSE v=1`n"
+        Assert-Control ($capture.ExitCode -eq 1 -and $capture.Stderr.Length -eq 0 `
+            -and [Text.UTF8Encoding]::new($false, $true).GetString($capture.Stdout) -ceq $expected)
+    }
 }
 
 function Invoke-CheckoutFixtureGit {
@@ -602,6 +785,7 @@ try {
     [IO.File]::Delete($existingReport)
     [IO.Directory]::CreateDirectory($existingReport) | Out-Null
     Assert-Refused { Assert-HermesCrashReportAbsent $scratch }
+    Test-CrashControlFacts
 } finally { Remove-Item -LiteralPath $scratch -Recurse -Force }
 [Console]::Out.WriteLine("HERMES_CRASH_TESTS v=1 passed=$script:passed failed=$script:failed")
 if ($script:failed -ne 0) { exit 1 }

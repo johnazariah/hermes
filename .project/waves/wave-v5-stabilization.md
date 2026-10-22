@@ -100,6 +100,21 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Project the fixed helper summary after report refusal
+
+- **Changed:** A fresh author adds an advisory projection only when phase-9 failure retains completed capture. Exact UTF-8 grammar, actual exit/status coherence, settled tasks, empty stderr and closed numeric fields precede reconstruction; unavailable data becomes a fixed `available=0` row. Raw text is never echoed.
+- **Validation:** Parent reviews the complete three-file delta; all 738 macOS controls, workflow lint and diff hygiene pass. Real owned fixtures verify successful and refused projections, malformed input and exactly-once output before cleanup. Strict success/report validation and upload eligibility are unchanged.
+- **Blockers:** The actual helper fault is still unknown until the published projection runs on Windows. No control success, event correlation or original acceptance claim follows from portable fixtures.
+- **Next:** Publish the projection and fix the demonstrated helper boundary.
+
+### 2026-10-22 - Locate the hosted control refusal at report validation
+
+- **Evidence:** Published `1a0e716`, run `39784272929`, job `119843175079`: all 422 selected Windows controls and fresh source-bound publication pass. The flushed diagnostic is `phase=9 family=1 reason=12 nativeError=0`.
+- **Observed:** The path reaches actual private-job admission, fixed controller launch and completed bounded capture before strict report/summary validation refuses. It does not identify which child/result fact failed. No accepted control success, normal scope-release proof or PowerShell cause follows; upload remains skipped.
+- **Changed:** A fresh author owns a strict advisory projection of the already captured helper's finite numeric summary. The ended wrapper author is not reused. Raw output remains private, and success validation is unchanged.
+- **Supported hosts:** At wrapper head `86d631c`, run `39782062555`, both supported jobs succeed again; its installer job still fails the native gate and diagnostic. Main remains unmerged.
+- **Next:** Observe the typed helper refusal and fix only the demonstrated failing boundary.
+
 ### 2026-10-22 - Bound wrapper failure facts and verify both supported hosts
 
 - **Changed:** The wrapper flushes one closed numeric phase/failure row before its assigned-scope cleanup. Classification uses a fixed exact-type family, bounded wrapper depth, exact internal reasons and UInt32 Win32 codes; unknowns remain zero. Success, source pins, report validation and upload eligibility are unchanged.
