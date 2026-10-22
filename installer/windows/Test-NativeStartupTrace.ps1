@@ -788,7 +788,7 @@ function Complete-ControlScoped {
     return New-HermesStartupReport $State $true $true
 }
 
-$cases = 1..508 # All 500 prior intents retained, plus first stage-refusal observations.
+$cases = 1..513 # All 508 prior intents retained, plus raw SDK module-token controls.
 $passed = 0
 foreach ($case in $cases) {
     $state = $null
@@ -3789,8 +3789,9 @@ foreach ($case in $cases) {
             211 {
                 $source = (New-ScopedCreateCommands $extension)['startup-arm.cdb']
                 $lines = $source -split "`r`n"
-                Assert-Control ($lines.Count -eq 8 -and $lines[4].StartsWith('.catch { !"') `
-                    -and $lines[4].EndsWith('".gflag +sls; .echo HERMES_ARM_STAGE v=1 stage=1; }') `
+                Assert-Control ($lines.Count -eq 8 -and $lines[4].StartsWith('.catch { !') `
+                    -and $lines[4].EndsWith('.gflag +sls; .echo HERMES_ARM_STAGE v=1 stage=1; }') `
+                    -and $lines[4] -cnotmatch '"' `
                     -and $lines[4] -cnotmatch '\.printf|\.if|peb' `
                     -and $lines[5] -ceq ('.catch { .if (@@c++(sizeof(@$peb->NtGlobalFlag)) == 4) { ' +
                         '.printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(@$peb->NtGlobalFlag) }; ' +
@@ -6256,7 +6257,8 @@ foreach ($case in $cases) {
                     if ($mode -ceq 'ScopedCreateV1') {
                         Assert-Control ($sources.Count -eq 5 -and $sources['startup.cdb'] -cnotmatch 'gflag|peb|\.load|\.chain' `
                             -and $sources['startup-arm.cdb'] -match '\.load "' `
-                            -and [regex]::Matches(($sources.Values -join ''), '!"[^\r\n"]+"\.gflag \+sls').Count -eq 1 `
+                            -and [regex]::Matches(($sources.Values -join ''), [regex]::Escape(
+                                '!' + $extension.Substring(0, $extension.Length - 4) + '.gflag +sls')).Count -eq 1 `
                             -and $sources['startup-arm.cdb'] -cnotmatch '(?m)^g\r?$|\|#s')
                     }
                     $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
@@ -6639,6 +6641,10 @@ foreach ($case in $cases) {
                         Set-HermesStartupTracePoint $state 24
                         $null = Publish-TraceCommands $extension
                         Confirm-TraceCommandSelection $extension
+                        Assert-Control ($state.ScopedPublication.QualifiedModule -ceq
+                            $extension.Substring(0, $extension.Length - 4) -and
+                            [IO.File]::ReadAllText((Join-Path $root 'startup-arm.cdb')).Contains(
+                                '.catch { !' + $state.ScopedPublication.QualifiedModule + '.gflag +sls;'))
                         $start = [Diagnostics.ProcessStartInfo]::new()
                         $start.FileName = [Environment]::ProcessPath
                         $start.UseShellExecute = $false
@@ -6771,9 +6777,9 @@ foreach ($case in $cases) {
                     function Assert-TraceCommandPath { param([string]$Path) return $Path }
                     $sdk = 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\winxp\exts.dll'
                     $sources = New-ScopedCreateCommands $sdk
-                    $module = $sdk.Substring(0, $sdk.Length - 4).Replace('\', '\\')
+                    $module = $sdk.Substring(0, $sdk.Length - 4)
                     Assert-Control ($sources['startup-arm.cdb'].Contains(('.load "' + $sdk.Replace('\', '\\') + '"')) `
-                        -and $sources['startup-arm.cdb'].Contains(('!"' + $module + '".gflag +sls')) `
+                        -and $sources['startup-arm.cdb'].Contains(('!' + $module + '.gflag +sls')) `
                         -and $sources['startup-arm.cdb'] -cnotmatch '!exts\.gflag|!gflag|\.loadby|\.extpath|\.setdll' `
                         -and $sources['startup-arm.cdb'] -notmatch '\bg\r?\n')
                     $refused = $false
@@ -6984,7 +6990,7 @@ foreach ($case in $cases) {
                             -and $state.Observations.SdkSelectedExtensionChain -eq [int]($chain -cne '') `
                             -and $state.Observations.SdkChainLines -eq $(if ($chain -ceq '') { 0 } else { 11 }) `
                             -and $state.ScopedInvocation.Source.QualifiedModule -ceq
-                                $extension.Substring(0, $extension.Length - 4).Replace('\', '\\'))
+                                $extension.Substring(0, $extension.Length - 4))
                         Invoke-HermesStartupScopedInput $state $writer Target
                         $report = Complete-ControlScoped $state $writer
                         Assert-Control ($report.completed -eq 1 -and $report.armingVerified -eq 1 `
@@ -7047,7 +7053,7 @@ foreach ($case in $cases) {
                     { $state.ScopedInvocation.Source.Extension += '.wrong' },
                     { $state.ScopedInvocation.Source.QualifiedModule = 'exts' },
                     { $state.ScopedInvocation.Source.QualifiedModule += '.dll' },
-                    { $state.ScopedInvocation.Source.QualifiedModule = 'C:\\other\\exts' },
+                    { $state.ScopedInvocation.Source.QualifiedModule = 'C:\other\exts' },
                     { $state.ScopedInvocation.Source.ExtensionSha256 = 'f' * 64 },
                     { $state.ScopedInvocation.Source.ArmCommandSha256 = 'f' * 64 },
                     { $state.ScopedInvocation.Source = $null },
@@ -7119,16 +7125,17 @@ foreach ($case in $cases) {
             }
             479 {
                 foreach ($replace in @(
-                    '!gflag +sls', '!exts.gflag +sls', '!"C:\\other\\exts".gflag +sls',
-                    ('!"' + $extension.Replace('\', '\\') + '".gflag +sls'),
-                    ('!"' + $extension.Substring(0, $extension.Length - 4).Replace('\', '\\') + '".gflag -sls')
+                    '!gflag +sls', '!exts.gflag +sls', '!C:\other\exts.gflag +sls',
+                    ('!' + $extension + '.gflag +sls'),
+                    ('!' + $extension.Substring(0, $extension.Length - 4) + '.gflag -sls'),
+                    ('!"' + $extension.Substring(0, $extension.Length - 4).Replace('\', '\\') + '".gflag +sls')
                 )) {
                     $state = New-ControlScopedCreated
                     $physical = [StartupControlWriteStream]::new(0)
                     $writer = [IO.StreamWriter]::new($physical)
                     try {
                         $sources = Get-TraceSelectedSources $extension
-                        $qualified = '!"' + $state.ScopedPublication.QualifiedModule + '".gflag +sls'
+                        $qualified = '!' + $state.ScopedPublication.QualifiedModule + '.gflag +sls'
                         $bytes = [Text.Encoding]::ASCII.GetBytes($sources['startup-arm.cdb'].Replace($qualified, $replace))
                         $bad = [IO.MemoryStream]::new($bytes, $false)
                         $pins.Add($bad)
@@ -7408,7 +7415,7 @@ foreach ($case in $cases) {
             487 {
                 & {
                     # Four metadata programs stay frozen; only the arm golden
-                    # gains contained-stage completions. No filesystem action.
+                    # changes its SDK module-token encoding. No filesystem action.
                     function Assert-TraceCommandPath { param([string]$Path) return $Path }
                     function Join-Path { param([string]$Path, [string]$ChildPath) return $Path + '\' + $ChildPath }
                     $root = 'C:\owned\command-root'
@@ -7419,7 +7426,7 @@ foreach ($case in $cases) {
                         @('startup-ibp.cdb', 'c2c6509cc08fab26e327f2aea8abdd950662d2c17534440d6dcca0ab3c374fc7'),
                         @('startup-epr.cdb', 'b99a7cbc74fd6ddd7a03bafa9f021333f62be4455e3e643036a4c8b88601d10f'),
                         @('startup.cdb', '84aa3a9b7176d5b70468db52aa4d0da45c6b7f3cc338a8223a8963457c6c1b23'),
-                        @('startup-arm.cdb', '67d0464cfc045b0f484608e3811b54390d670cf9a00ad3f2f6707fcc5f8f99e2')
+                        @('startup-arm.cdb', 'f2a2ac1269c8658dad26960dd27ae0bbf6a602e926919a96ac7cf60b5d882ec1')
                     )) {
                         $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
                             [Text.Encoding]::ASCII.GetBytes($sources[$item[0]]))).ToLowerInvariant()
@@ -8239,7 +8246,180 @@ foreach ($case in $cases) {
                     [Text.Encoding]::UTF8.GetBytes($predicate.Extent.Text))).ToLowerInvariant()
                 Assert-Control ($hash -ceq 'fa7409059885a5a52cf6d59f62ea71d2e81f280db26e5f094271857b37f31a92' `
                     -and (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'Invoke-NativeStartupTrace.ps1') -Algorithm SHA256).Hash `
-                        -ceq 'D8A2FC3D5E0376C00E5D33EF92CF735210AF4F77878387F1A001EBC14E1FE077')
+                        -ceq '0B89A4203522126F41E307B6058BC1BFA3D81BF3B091E85E495A56394D465D08')
+            }
+            509 {
+                & {
+                    # Serialization control only, not CDB acceptance of spaces.
+                    function Assert-TraceCommandPath { param([string]$Path) return $Path }
+                    function Join-Path { param([string]$Path, [string]$ChildPath) return $Path + '\' + $ChildPath }
+                    $root = 'C:\owned\command-root'
+                    $sdk = 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\winxp\exts.dll'
+                    $module = $sdk.Substring(0, $sdk.Length - 4)
+                    $sources = New-ScopedCreateCommands $sdk
+                    $arm = $sources['startup-arm.cdb']
+                    $lines = $arm -split "`r`n"
+                    $statement = '.catch { !' + $module + '.gflag +sls; .echo HERMES_ARM_STAGE v=1 stage=1; }'
+                    Assert-Control ($sources.Count -eq 5 -and $lines.Count -eq 8 -and $lines[4] -ceq $statement `
+                        -and $lines[4] -cnotmatch '"|\\\\' `
+                        -and [regex]::Matches(($sources.Values -join ''), '\.gflag \+sls').Count -eq 1 `
+                        -and $lines[2] -ceq ('.load "' + $sdk.Replace('\', '\\') + '"') `
+                        -and $arm -cnotmatch '!exts\.gflag|!gflag|(?m:^g\r?$)')
+                    foreach ($item in @(
+                        @('startup-cpr.cdb', '00e4c315299607e64a5cc79d2aafd5a3020fa1686774c24f10d7c672319a8a7f'),
+                        @('startup-ibp.cdb', 'c2c6509cc08fab26e327f2aea8abdd950662d2c17534440d6dcca0ab3c374fc7'),
+                        @('startup-epr.cdb', 'b99a7cbc74fd6ddd7a03bafa9f021333f62be4455e3e643036a4c8b88601d10f'),
+                        @('startup.cdb', '84aa3a9b7176d5b70468db52aa4d0da45c6b7f3cc338a8223a8963457c6c1b23'),
+                        @('startup-arm.cdb', 'c05cf01b2cce5ad85c74c94f6f2eeb13eac665487d2030b57020e12d200461e9')
+                    )) {
+                        $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+                            [Text.Encoding]::ASCII.GetBytes($sources[$item[0]]))).ToLowerInvariant()
+                        Assert-Control ($hash -ceq $item[1])
+                    }
+                    $queryHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+                        [Text.Encoding]::ASCII.GetBytes($lines[5]))).ToLowerInvariant()
+                    $previousStatement = '.catch { !"' + $module.Replace('\', '\\') +
+                        '".gflag +sls; .echo HERMES_ARM_STAGE v=1 stage=1; }'
+                    $previous = $arm.Replace($statement, $previousStatement)
+                    $previousHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+                        [Text.Encoding]::ASCII.GetBytes($previous))).ToLowerInvariant()
+                    Assert-Control ($queryHash -ceq '24ad24cbc14bfbadc69a242ed992df28088f0efb4153534cfe46728711a9ede7' `
+                        -and $previousHash -ceq 'cf18468aaa7f4ac8a2644cf70ddfa8706a00d1f53bf4b7b16f9fe2a1f850e4b9')
+                }
+            }
+            510 {
+                & {
+                    # Isolate the module's 255-character bound. The real
+                    # provisioning path's separate 240-character bound stays.
+                    function Assert-TraceCommandPath { param([string]$Path) return $Path }
+                    $prefix = 'C:\' + ('x\' * 120)
+                    foreach ($length in @(254, 255, 256)) {
+                        $module = $prefix + ('a' * ($length - $prefix.Length - 5)) + '\exts'
+                        Assert-Control ($module.Length -eq $length -and $module.Replace('\', '\\').Length -gt 255)
+                        $refused = $false
+                        try {
+                            $source = (New-ScopedCreateCommands ($module + '.dll'))['startup-arm.cdb']
+                        } catch { $refused = $true }
+                        Assert-Control ($refused -eq ($length -eq 256))
+                        if (-not $refused) {
+                            Assert-Control ($source.Contains(('.catch { !' + $module + '.gflag +sls;')) `
+                                -and ($source -split "`r`n")[4] -cnotmatch '"|\\\\')
+                        }
+                    }
+                }
+            }
+            511 {
+                & {
+                    $definition = $driverAst.Find({
+                        param($n)
+                        $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Assert-TraceCommandPath'
+                    }, $true)
+                    . ([scriptblock]::Create($definition.Extent.Text))
+                    $base = Join-Path $PSScriptRoot 'selected-sdk'
+                    foreach ($path in @(
+                        ($base + '"/exts.dll'), ($base + ';g/exts.dll'),
+                        ($base + [char]0 + '/exts.dll'), ($base + "`n/exts.dll"),
+                        ($base + [char]127 + '/exts.dll'), ($base + [char]233 + '/exts.dll'),
+                        ($base + '/../selected-sdk/winxp/exts.dll'), 'selected-sdk/winxp/exts.dll',
+                        ($base + '/' + ('x' * 240) + '/exts.dll'), ($base + '/other.dll')
+                    )) {
+                        $refused = $false
+                        try { $null = New-ScopedCreateCommands $path } catch { $refused = $true }
+                        Assert-Control ($refused -and $script:controlCommandWrites.Count -eq 0 `
+                            -and $script:controlLaunchBindings -eq 0)
+                    }
+                }
+            }
+            512 {
+                & {
+                    function Assert-TraceCommandPath { param([string]$Path) return $Path }
+                    $extension = 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\winxp\exts.dll'
+                    $module = $extension.Substring(0, $extension.Length - 4)
+                    foreach ($bad in @(
+                        'exts', 'exts.dll', '!gflag', 'D:\other\exts', ($module + '.dll'),
+                        $module.Replace('\', '\\'), $module.Replace('\', '/'),
+                        ('"' + $module + '"'), $module.ToUpperInvariant()
+                    )) {
+                        foreach ($role in @('Arm', 'Target')) {
+                            $state = New-ControlScopedCreated
+                            $physical = [StartupControlWriteStream]::new(0)
+                            $writer = [IO.StreamWriter]::new($physical)
+                            $debugger = [pscustomobject]@{ HasExited = $false; StandardInput = $writer }
+                            try {
+                                Assert-Control ($state.ScopedPublication.QualifiedModule -ceq $module `
+                                    -and $state.ExtensionSource.Path -ceq $extension)
+                                if ($role -ceq 'Target') {
+                                    Invoke-ControlScopedPublisher
+                                    Add-HermesStartupText $state $state.Out (Get-ControlScopedReadback) $true
+                                }
+                                $state.ScopedPublication.QualifiedModule = $bad
+                                $state.CreatedBinding.Scoped.QualifiedModule = $bad
+                                if ($null -ne $state.ScopedInvocation) { $state.ScopedInvocation.Source.QualifiedModule = $bad }
+                                $refused = $false
+                                try { Confirm-TraceCommandSelection $extension } catch { $refused = $true }
+                                Invoke-ControlScopedPublisher
+                                Assert-Control ($refused -and -not (Test-HermesStartupScopedPublication $state) `
+                                    -and -not (Test-HermesStartupScopedAction $state $role) -and -not $state.Acked `
+                                    -and $physical.Writes -eq $(if ($role -ceq 'Arm') { 0 } else { 1 }))
+                            } finally {
+                                Close-HermesStartupScopedInput $state $writer
+                                $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                            }
+                        }
+                    }
+                }
+            }
+            513 {
+                & {
+                    function Assert-TraceCommandPath { param([string]$Path) return $Path }
+                    $extension = 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\winxp\exts.dll'
+                    $module = $extension.Substring(0, $extension.Length - 4)
+                    foreach ($token in @(
+                        '!gflag +sls', '!exts.gflag +sls', '!D:\other\exts.gflag +sls',
+                        ('!' + $extension + '.gflag +sls'), ('!' + $module + '.gflag -sls'),
+                        ('!' + $module.Replace('\', '\\') + '.gflag +sls'),
+                        ('!"' + $module + '".gflag +sls'),
+                        ('!"' + $module.Replace('\', '\\') + '".gflag +sls')
+                    )) {
+                        $state = New-ControlScopedCreated
+                        $physical = [StartupControlWriteStream]::new(0)
+                        $writer = [IO.StreamWriter]::new($physical)
+                        $debugger = [pscustomobject]@{ HasExited = $false; StandardInput = $writer }
+                        try {
+                            $source = (Get-TraceSelectedSources $extension)['startup-arm.cdb']
+                            $bytes = [Text.Encoding]::ASCII.GetBytes($source.Replace(('!' + $module + '.gflag +sls'), $token))
+                            $pin = [IO.MemoryStream]::new($bytes, $false)
+                            $pins.Add($pin)
+                            $hash = Get-ControlCommandHash $pin
+                            Assert-Control ($hash -cne $state.ArmCommandSha256)
+                            $state.CommandPins['startup-arm.cdb'] = $pin
+                            $state.ArmCommandSha256 = $hash
+                            $state.ScopedPublication.ArmCommandSha256 = $hash
+                            $state.CreatedBinding.Scoped.ArmCommandSha256 = $hash
+                            $refused = $false
+                            try { Invoke-ControlScopedPublisher } catch { $refused = $true }
+                            Assert-Control ($refused -and $physical.Writes -eq 0 -and -not $state.ArmAttempted `
+                                -and $state.InputTasks.Count -eq 0 -and $state.ScopedPublication.QualifiedModule -ceq $module)
+                        } finally {
+                            Close-HermesStartupScopedInput $state $writer
+                            $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                        }
+                    }
+                }
+                $moduleAst = [Management.Automation.Language.Parser]::ParseFile(
+                    (Join-Path $PSScriptRoot 'Native-StartupTrace.psm1'), [ref]$null, [ref]$null)
+                foreach ($item in @(
+                    @('Add-HermesStartupScopedStage', '0d5345da659ec19cb74e42d24a23ef2d3c7af88704c0681b91191f51b8fd9b69'),
+                    @('Get-HermesStartupScopedStageShape', '33ae33e09a74f9a498a1ec44e9e431676f7b0730105ab3fde92ae1b0cf9fbfeb')
+                )) {
+                    $definition = $moduleAst.Find({
+                        param($n)
+                        $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $item[0]
+                    }, $true)
+                    $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+                        [Text.Encoding]::UTF8.GetBytes($definition.Extent.Text))).ToLowerInvariant()
+                    Assert-Control ($hash -ceq $item[1])
+                }
             }
             { $_ -in 415..420 } {
                 $closure = ($case - 415) % 3

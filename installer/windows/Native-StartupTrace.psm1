@@ -1296,7 +1296,7 @@ function Test-HermesStartupScopedPublication {
     if ($source.Extension.Length -lt 9 `
         -or (-not $source.Extension.EndsWith('/exts.dll', [StringComparison]::OrdinalIgnoreCase) `
             -and -not $source.Extension.EndsWith('\exts.dll', [StringComparison]::OrdinalIgnoreCase)) `
-        -or $source.QualifiedModule -cne $source.Extension.Substring(0, $source.Extension.Length - 4).Replace('\', '\\') `
+        -or $source.QualifiedModule -cne $source.Extension.Substring(0, $source.Extension.Length - 4) `
         -or $source.QualifiedModule.Length -gt 255) { return $false }
     foreach ($name in @('DebuggerSha256', 'ExtensionSha256', 'HelperSha256', 'DriverSha256', 'ModuleSha256',
             'CommandSha256', 'CreateCommandSha256', 'InitialCommandSha256', 'ExitCommandSha256',

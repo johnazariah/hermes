@@ -2,6 +2,24 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Raw absolute SDK module token is a single-factor encoding control
+
+All **513 controls** pass, retaining 508 prior intents and adding five
+module-token cases. Only the SDK invocation now uses the canonical absolute
+module path without `.dll`, quoting or doubled backslashes. The selected
+Microsoft-signed file, source pins and exact publication snapshots remain
+bound to that path. `.load` keeps its existing quoted/escaped representation.
+
+Windows-path fixtures cover spaces, the actual module-token length bound,
+invalid path rejection, snapshot tampering and altered qualified commands.
+Four metadata-program goldens and the typed-query bytes are unchanged.
+Physical controller transport checks the corresponding published source.
+First-refusal shape and stage acceptance remain hash-protected.
+
+Installer static controls pass. CDB acceptance of the raw path with spaces
+requires the hosted Windows run; these serialization controls do not supply
+SDK completion, typed flag readback or PowerShell startup acceptance.
+
 ## First stage refusal separates record grammar from frame rejection
 
 All **508 controls** pass, retaining 500 prior intents and adding eight

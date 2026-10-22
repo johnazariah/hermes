@@ -227,8 +227,10 @@ function New-ScopedCreateCommands {
     # .load paths escape backslashes; the fixed quoted script filename does not.
     # https://github.com/microsoft/WinDbg-Feedback/issues/26#issuecomment-512359949
     # Qualify the export: never use the debugger's extension search order.
+    # Raw module-token encoding control, not verified syntax for paths with
+    # spaces. Only .load keeps CDB string quoting/backslash escaping.
     # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/using-debugger-extension-commands
-    $module = $Extension.Substring(0, $Extension.Length - 4).Replace('\', '\\')
+    $module = $Extension.Substring(0, $Extension.Length - 4)
     if (-not $Extension.EndsWith('/exts.dll', [StringComparison]::OrdinalIgnoreCase) `
         -and -not $Extension.EndsWith('\exts.dll', [StringComparison]::OrdinalIgnoreCase)) {
         throw 'Fixed SDK extension required.'
@@ -242,7 +244,7 @@ function New-ScopedCreateCommands {
         # A command error skips the rest of its .catch block, including its
         # completion echo, then resumes after the brace. Neither echo is a flag.
         # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/-catch
-        ('.catch { !"' + $module + '".gflag +sls; .echo HERMES_ARM_STAGE v=1 stage=1; }'),
+        ('.catch { !' + $module + '.gflag +sls; .echo HERMES_ARM_STAGE v=1 stage=1; }'),
         '.catch { .if (@@c++(sizeof(@$peb->NtGlobalFlag)) == 4) { .printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(@$peb->NtGlobalFlag) }; .echo HERMES_ARM_STAGE v=1 stage=2; }',
         '.printf "HERMES_CDB v=4 kind=8 pid=%u\n", @$tpid'
     ) -join "`r`n") + "`r`n"
@@ -329,7 +331,7 @@ function Publish-TraceCommands {
         $state.ArmCommandSha256 = $hashes['startup-arm.cdb']
         $state.ScopedPublication = @{
             Root = $root; Extension = $Extension; Mode = $state.DiagnosticMode
-            QualifiedModule = $Extension.Substring(0, $Extension.Length - 4).Replace('\', '\\')
+            QualifiedModule = $Extension.Substring(0, $Extension.Length - 4)
         }
         foreach ($name in @('DebuggerSha256', 'ExtensionSha256', 'HelperSha256', 'DriverSha256', 'ModuleSha256',
                 'CommandSha256', 'CreateCommandSha256', 'InitialCommandSha256', 'ExitCommandSha256',

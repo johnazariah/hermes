@@ -100,6 +100,23 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Publish the raw absolute SDK-module encoding control
+
+- **Changed:** The SDK invocation and its exact publication snapshots use the selected canonical module path without `.dll`, quotes or doubled backslashes. `.load`, query bytes, four metadata programs, held-target authority and first-refusal acceptance are unchanged.
+- **Validation:** Parent source review approves the narrow control. `Test-NativeStartupTrace.ps1` passes 513/513 controls; `Test-Static.ps1` passes. The root build passes with zero warnings/errors, and `dotnet test --no-build --nologo` passes all 2,184 tests without skips.
+- **Evidence:** Five new cases cover Windows-path serialization with spaces, module length, invalid paths, snapshot/command tampering and physical transport. Prior run `39727088056` is complete: both supported OS jobs and Tray pass; the installer retains the original PowerShell failure.
+- **Blockers:** Raw module syntax on the actual SDK, SDK/query completion, typed flag readback and PowerShell startup remain unproved. No native or installed-Medium acceptance is claimed.
+- **Next:** Run this exact source on disposable hosted Windows and inspect the bounded stage observations.
+
+### 2026-10-22 - Identify a caret-bearing SDK-stage diagnostic and isolate its module token
+
+- **Evidence:** Published `ca38f9b`, run `39727088056`, job `119653373758`, passes 508 controls and 500/501 native cases without skips. First stage subreason is record grammar, not the arm-frame guard. Shape 36 records a leading caret and `.echo` text; it is not a trimmed valid completion marker.
+- **Meaning:** The refusal concerns diagnostic/source text rather than a valid stage marker failing identity checks. Exact error wording and the loader cause remain unknown; no SDK completion is accepted.
+- **Decision:** The final narrow SDK-stage control compares the existing quoted/double-escaped module token with the raw canonical absolute module path without `.dll`. The qualified gflag operation, selected signed/pinned file, containment, query, no-echo input and target authority stay fixed.
+- **Boundary:** Microsoft documents the full-path module form but gives no matching quoted-module example. Raw paths with spaces are a runtime control, not a claimed syntax fix; there is no basename/unqualified fallback or short-path alias.
+- **Blockers:** Actual SDK-token acceptance, typed flag readback and PowerShell startup remain unresolved.
+- **Next:** Review and publish the single SDK-token control, then inspect contained completion before changing anything else.
+
 ### 2026-10-22 - Classify the first stage refusal without changing marker acceptance
 
 - **Changed:** Numeric first-stage subreason distinguishes grammar/source display, the existing frame guard, state mismatch, duplicate and ordering refusal. Closed shape bits identify prompt/prefix/echo and fixed diagnostic forms, plus exact record equality after observational HorizontalTrim.
