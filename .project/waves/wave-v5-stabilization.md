@@ -100,6 +100,23 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Capture the first scoped refusal without changing its decision
+
+- **Changed:** First-refusal reason, program phase and active/held block kinds are latched as numeric facts. A fixed syntax-shaped printf class separates one display shape from other unknown echoes. Phase distinguishes seen markers and parsed DWORDs from actual flag-2 verification.
+- **Validation:** Parent review, all 486 controls and installer static controls pass. Seven new cases cover first-fault retention, grammar/identity/sequence categories, post-budget freezing, privacy/report bounds and owned termination attempts.
+- **Preserved:** SDK command text, qualified module, source pins, target identity/stop proof, continuation roles and original native acceptance gates are unchanged.
+- **Exit observation:** A Kill request on the retained debugger handle is separate from its later exit value and is recorded even if the attempt fails. Neither fact supplies target-exit semantics.
+- **Blockers:** Actual parser branch and PowerShell loader cause remain unknown.
+- **Next:** Publish this observability-only change and inspect the first native refusal before making a semantic correction.
+
+### 2026-10-22 - Reach the held-target arming program and stop on an unclassified parser refusal
+
+- **Evidence:** Published `bfb8652`, run `39716029778`, job `119618229668`, passes 479 controls, both supported OS jobs, Tray and 500/501 native cases without skips. Only the original PowerShell case fails.
+- **Observed:** Native acknowledgement and checked Resume are present. Exactly one controller arming invocation is written; the arming program emits its SDK-chain header. A scoped protocol fault then blocks target continuation. No flag readback or ARMED evidence is accepted, and no side continuation is issued.
+- **Unknown:** The reduced report does not identify the first refusing parser branch. CDB exits `0xFFFFFFFF` after the bounded run; controller termination versus debugger-origin failure is not yet distinguished. Parent/Final fields are unbound, not proof of parent mutation.
+- **Action:** The scoped revision owner is adding first-refusal reason/phase and fixed SDK grammar facts, plus a separate controller-termination observation. No SDK syntax, parser authority or continuation rule changes are approved from this result.
+- **Blockers:** Actual flag readback, the parser refusal and PowerShell loader cause remain unresolved.
+
 ### 2026-10-22 - Approve controller-gated arming at the target's pre-user-mode stop
 
 - **Changed:** ScopedCreateV1 has five pinned command files and metadata-only automatic callbacks. The controller alone may invoke the fixed SDK arming program after held-target/current/event/Ready/receipt/source/stopped-state verification. Actual typed flag bit 2 precedes historical ARMED and target continuation; other subjects receive only bounded fixed continuations.

@@ -454,9 +454,9 @@ function Read-TraceControl {
                 $state.Observations.RowsFirstDataRead = $count
             }
         }
-        if ($count -gt 2048) { $state.Protocol = 1; $state.NativeRowsFault = 1; return }
+        if ($count -gt 2048) { Set-HermesStartupProtocolFault $state 11; $state.NativeRowsFault = 1; return }
         if (@($buffer[0..([Math]::Max(0, $count - 1))] | Where-Object { $_ -gt 127 }).Count -ne 0) {
-            $state.Protocol = 1; $state.NativeRowsFault = 1
+            Set-HermesStartupProtocolFault $state 11; $state.NativeRowsFault = 1
             return
         }
         $hadReady = $null -ne $state.Target
@@ -663,7 +663,12 @@ function Stop-TraceDebugger {
     if (-not $started) { return }
     # Process.Start's retained process handle is pinned before polling.
     # No PID lookup, process-tree walk, detach, -pd, or kill-on-exit override.
-    if (-not $debugger.HasExited) { $debugger.Kill() }
+    if (-not $debugger.HasExited) {
+        # Request attempted on the retained owned handle, not proof that Kill
+        # succeeded or that any observed exit originated from the target.
+        $state.DebuggerKillRequested = 1
+        $debugger.Kill()
+    }
     if (-not $debugger.WaitForExit(5000)) { throw 'Owned debugger did not end.' }
 }
 

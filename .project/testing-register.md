@@ -2,6 +2,28 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Scoped refusal reports retain the first reason and program phase
+
+All **486 controls** pass, retaining 479 earlier intents and adding seven
+classification, replay, budget and owned-termination cases. The first scoped
+refusal records a closed numeric reason, arm-program phase, open-block kind
+and held-event kind. Reasons distinguish source echo, marker/open/close
+grammar, last-event identity, typed format/duplicate, scope/replay, native
+rows, readiness acknowledgement and failure ordering. A syntax-shaped
+printf refusal has its own class.
+
+Phase bits record arm begin/end, a typed candidate and a parsed DWORD;
+they do not certify flag bit 2. First facts freeze, including after repeated
+faults or output exhaustion. Reports export no refusing text or identity.
+Owned debugger Kill attempts are recorded separately from observed exit
+values, including failed attempts. No command, authority, SDK grammar,
+continuation or acceptance rule changes.
+
+Installer static controls pass. The preceding actual `bfb8652` run reaches
+one controller-authorised arming program, then refuses before target
+continuation. The first refusing branch and exit origin remain unknown
+until the new Windows observations run.
+
 ## ScopedCreateV1 authorises SDK arming only at the held target's create stop
 
 All **479 controls** pass: 420 earlier safety/transport intents, 52

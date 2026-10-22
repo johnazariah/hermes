@@ -26,10 +26,11 @@ function New-HermesStartupState {
         CommandPins = @{}; SourcePins = @{}
         ScopedEchoes = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
         ScopedPublication = $null; ScopedInvocation = $null; ExtensionSource = $null
+        ScopedPhase = 0; ScopedFault = @{ Reason = 0; Phase = 0; Block = 0; Held = 0 }
         Held = $null; ArmAttempted = $false; ArmWritten = $false; SideWrites = 0
         InputWriter = $null; InputTasks = [Collections.Generic.List[Threading.Tasks.Task]]::new()
         DriverSha256 = ''; ModuleSha256 = ''; ArmCommandSha256 = ''; ExtensionSha256 = ''
-        DebuggerExitAvailable = 0; DebuggerExitValue = [long]0
+        DebuggerExitAvailable = 0; DebuggerExitValue = [long]0; DebuggerKillRequested = 0
         Inventory = @{
             Root = [uint32]0; RootFault = 0; Block = $null; Subjects = @{}
             Malformed = 0; Mismatch = 0; Limit = 0
@@ -213,14 +214,14 @@ function Update-HermesStartupNativeRows {
     if ($State.Bounds -ne 0) { return }
     if ($Text.Length -gt 2048 -or $Text -cmatch '[^\x20-\x7e\n]' `
         -or -not $Text.StartsWith($State.RowsText, [StringComparison]::Ordinal)) {
-        $State.Protocol = 1; $State.NativeRowsFault = 1
+        Set-HermesStartupProtocolFault $State 11; $State.NativeRowsFault = 1
         return
     }
     $State.RowsText = $Text
     $lines = @($Text -split "`n")
     $complete = @($lines | Select-Object -SkipLast 1)
     if ($complete.Count -gt 3 -or $lines[-1].Length -gt 384) {
-        $State.Protocol = 1; $State.NativeRowsFault = 1
+        Set-HermesStartupProtocolFault $State 11; $State.NativeRowsFault = 1
         return
     }
     $previous = 0
@@ -228,13 +229,13 @@ function Update-HermesStartupNativeRows {
         $row = ConvertFrom-HermesStartupRow $line
         if ($null -eq $row -or $row.version -ne 2 -or $row.stage -le $previous `
             -or ($row.stage -eq 2 -and $previous -ne 1)) {
-            $State.Protocol = 1; $State.NativeRowsFault = 1
+            Set-HermesStartupProtocolFault $State 11; $State.NativeRowsFault = 1
             return
         }
         if ($null -ne $State.Target) {
             foreach ($name in @('helper', 'pid', 'born', 'image', 'debug', 'context')) {
                 if ($row[$name] -ne $State.Target[$name]) {
-                    $State.Protocol = 1; $State.NativeRowsFault = 1; return
+                    Set-HermesStartupProtocolFault $State 11; $State.NativeRowsFault = 1; return
                 }
             }
         }
@@ -253,7 +254,7 @@ function Update-HermesStartupNativeRows {
             3 {
                 if (($previous -eq 2 -and $row.resumed -ne 1) `
                     -or ($previous -eq 0 -and $row.resumed -ne 0)) {
-                    $State.Protocol = 1; $State.NativeRowsFault = 1
+                    Set-HermesStartupProtocolFault $State 11; $State.NativeRowsFault = 1
                     return
                 }
                 $State.Final = $row; $State.FinalText = $line
@@ -263,7 +264,7 @@ function Update-HermesStartupNativeRows {
         $previous = $row.stage
     }
     if ($previous -eq 3 -and $lines[-1].Length -ne 0) {
-        $State.Protocol = 1; $State.NativeRowsFault = 1
+        Set-HermesStartupProtocolFault $State 11; $State.NativeRowsFault = 1
     }
 }
 
@@ -360,7 +361,7 @@ function Set-HermesStartupCreatedPhase {
 function Set-HermesStartupCreatedAcknowledged {
     param([hashtable]$State)
     if (-not (Test-HermesStartupCreated $State)) {
-        $State.Protocol = 1
+        Set-HermesStartupProtocolFault $State 12
         return
     }
     # Snapshot Ready and pinned sources, not a claim that CPR has occurred.
@@ -779,7 +780,7 @@ function Add-HermesStartupFailure {
             -and ($null -ne $State.Final -or $null -ne $State.Inventory.Block)) `
         -or $State.Exits.ContainsKey([string]$State.Target.pid) `
         -or $State.Exits.ContainsKey([string]$State.Target.helper)) {
-        $State.Protocol = 1
+        Set-HermesStartupProtocolFault $State 13
         return
     }
     if ($null -eq $State.Failure) {
@@ -1493,26 +1494,52 @@ function Invoke-HermesStartupScopedInput {
     }
 }
 
+function Set-HermesStartupProtocolFault {
+    param([hashtable]$State, [ValidateRange(1, 14)][int]$Reason)
+    if ($State.DiagnosticMode -ceq 'ScopedCreateV1') {
+        if ($State.Bounds -ne 0 -or $State.AcceptedUtf8Bytes -ge 8388608) { return }
+        if ($State.Protocol -eq 0 -and $State.ScopedFault.Reason -eq 0) {
+            $block = $State.Inventory.Block; $held = $State.Held
+            $State.ScopedFault = @{
+                Reason = $Reason; Phase = $State.ScopedPhase
+                Block = $(if ($null -ne $block -and $block.Kind -in @(1, 3, 5, 7)) { $block.Kind } else { 0 })
+                Held = $(if ($null -ne $held -and $held.Kind -in @(1, 3, 5)) { $held.Kind } else { 0 })
+            }
+        }
+    }
+    $State.Protocol = 1
+}
+
 function Add-HermesStartupScopedMarker {
     param([hashtable]$State, [int]$Version, [int]$Kind, [uint32]$Pid)
+    if ($State.Protocol -ne 0 -or $State.Bounds -ne 0 -or $State.AcceptedUtf8Bytes -ge 8388608) { return }
+    # Seen, not accepted: 1 arm-open, 2 arm-close, 4 typed candidate,
+    # 8 parsed/scoped DWORD. These bits never authorise an action.
+    if ($Version -eq 4 -and $Kind -eq 7) { $State.ScopedPhase = $State.ScopedPhase -bor 1 }
+    if ($Version -eq 4 -and $Kind -eq 8) { $State.ScopedPhase = $State.ScopedPhase -bor 2 }
     $inventory = $State.Inventory
     if ($Kind -eq 0 -and $Version -eq 1) {
         if ($State.Initial -ne 0 -or $inventory.Root -ne 0 -or $null -ne $inventory.Block) {
-            $State.Protocol = 1; return
+            Set-HermesStartupProtocolFault $State 9; return
         }
         $State.Initial = $Pid; $inventory.Root = $Pid
         return
     }
     $valid = ($Kind -in @(1, 2, 5, 6) -and $Version -eq 3) `
         -or ($Kind -in @(3, 4) -and $Version -eq 1) -or ($Kind -in @(7, 8) -and $Version -eq 4)
-    if (-not $valid -or $State.Initial -eq 0) { $State.Protocol = 1; return }
+    if (-not $valid) { Set-HermesStartupProtocolFault $State 2; return }
+    if ($State.Initial -eq 0) { Set-HermesStartupProtocolFault $State 9; return }
     if ($Kind -in @(1, 3, 5, 7)) {
         $arming = $Kind -eq 7 -and $State.ArmWritten -and $null -eq $State.Arm `
             -and $null -ne $State.ScopedInvocation -and $Pid -eq $State.ScopedInvocation.Pid `
             -and $null -ne $State.Held -and -not $State.Held.Released -and $State.Held.Kind -eq 1
-        if ($null -ne $inventory.Block -or ($Kind -eq 7 -and -not $arming) `
-            -or ($Kind -ne 7 -and $null -ne $State.Held -and -not $State.Held.Released) `
-            -or $State.Exits.ContainsKey([string]$Pid)) { $State.Protocol = 1; return }
+        if ($null -ne $inventory.Block `
+            -or ($Kind -ne 7 -and $null -ne $State.Held -and -not $State.Held.Released)) {
+            Set-HermesStartupProtocolFault $State 3; return
+        }
+        if (($Kind -eq 7 -and -not $arming) -or $State.Exits.ContainsKey([string]$Pid)) {
+            Set-HermesStartupProtocolFault $State 9; return
+        }
         $inventory.Block = @{ Kind = $Kind; Version = $Version; Pid = $Pid
             EventPid = [uint32]0; Event = 0; Valid = $true; Code = [long]0; Flags = [long]-1; Released = $false }
         $State.Stopped = $false
@@ -1521,7 +1548,7 @@ function Add-HermesStartupScopedMarker {
     $block = $inventory.Block
     if ($null -eq $block -or $block.Kind -ne $Kind - 1 -or $block.Pid -ne $Pid `
         -or $block.Version -ne $Version -or $block.Event -ne 1 -or -not $block.Valid `
-        -or $block.EventPid -ne $Pid) { $State.Protocol = 1; return }
+        -or $block.EventPid -ne $Pid) { Set-HermesStartupProtocolFault $State 4; return }
     if ($Kind -eq 8) {
         $inventory.Block = $null
         $State.Arm = $block
@@ -1529,11 +1556,11 @@ function Add-HermesStartupScopedMarker {
         return
     }
     Complete-HermesStartupInventoryBlock $inventory $Kind $Pid $Version
-    if ($inventory.Limit -ne 0) { $State.Protocol = 1; return }
+    if ($inventory.Limit -ne 0) { Set-HermesStartupProtocolFault $State 10; return }
     $subject = $inventory.Subjects[[string]$Pid]
     if ($subject.Create -gt 1 -or $subject.Exit -gt 1 -or $subject.Initial -gt 1 `
         -or ($Pid -ne $State.Initial -and $block.Kind -ne 1 -and $subject.Create -ne 1)) {
-        $State.Protocol = 1; return
+        Set-HermesStartupProtocolFault $State 10; return
     }
     if ($Kind -eq 4) { $State.Exits[[string]$Pid] = $block.Code }
     $State.Held = $block
@@ -1550,7 +1577,12 @@ function Add-HermesStartupScopedLine {
     Add-HermesStartupFilterReadback $State $Line
     if ($Line.Contains('.printf', [StringComparison]::Ordinal)) {
         $echo = $Line -creplace '\A[0-9]{1,3}:[0-9a-f]{3}> ', ''
-        if (-not $State.ScopedEchoes.Contains($echo)) { $State.Protocol = 1 }
+        if (-not $State.ScopedEchoes.Contains($echo)) {
+            # A closed display shape, not a diagnosis or a new SDK-success
+            # rule. Both shapes retain exactly the same source-echo refusal.
+            $reason = if ($echo -cmatch "\ASyntax error at '[\x20-\x7e]{1,4096}'\z") { 14 } else { 1 }
+            Set-HermesStartupProtocolFault $State $reason
+        }
         return
     }
     if ($Line -cmatch '\AHERMES_CDB v=(?<v>[134]) kind=(?<k>[0-8]) pid=(?<p>[1-9][0-9]{0,9})\z' `
@@ -1558,23 +1590,31 @@ function Add-HermesStartupScopedLine {
         Add-HermesStartupScopedMarker $State ([int]$Matches.v) ([int]$Matches.k) ([uint32]$Matches.p)
         return
     }
-    if ($Line.Contains('HERMES_CDB', [StringComparison]::Ordinal)) { $State.Protocol = 1; return }
+    if ($Line.Contains('HERMES_CDB', [StringComparison]::Ordinal)) { Set-HermesStartupProtocolFault $State 2; return }
     if ($Line.Contains('Last event:', [StringComparison]::OrdinalIgnoreCase)) {
         Add-HermesStartupInventoryLastEvent $State.Inventory $Line
-        if ($State.Inventory.Malformed -ne 0 -or $State.Inventory.Mismatch -ne 0) { $State.Protocol = 1 }
+        if ($State.Inventory.Malformed -ne 0 -or $State.Inventory.Mismatch -ne 0) {
+            $reason = if ($State.Inventory.Mismatch -ne 0) { 6 } else { 5 }
+            Set-HermesStartupProtocolFault $State $reason
+        }
         return
     }
     if ($Line.Contains('HERMES_NTGLOBALFLAG', [StringComparison]::Ordinal)) {
+        $State.ScopedPhase = $State.ScopedPhase -bor 4
         $block = $State.Inventory.Block
-        if ($Line -cnotmatch '\AHERMES_NTGLOBALFLAG v=1 pid=(?<p>[1-9][0-9]{0,9}) value=(?<f>[0-9a-f]{8})\z' `
-            -or $null -eq $block -or $block.Kind -ne 7 -or $block.Version -ne 4 `
+        if ($Line -cnotmatch '\AHERMES_NTGLOBALFLAG v=1 pid=(?<p>[1-9][0-9]{0,9}) value=(?<f>[0-9a-f]{8})\z') {
+            Set-HermesStartupProtocolFault $State 7; return
+        }
+        if ($null -eq $block -or $block.Kind -ne 7 -or $block.Version -ne 4 `
             -or -not $State.ArmWritten -or $null -eq $State.ScopedInvocation -or $null -eq $State.Target `
             -or [long]$Matches.p -ne $State.Target.pid -or [long]$Matches.p -ne $block.Pid `
-            -or $block.Event -ne 1 -or $block.EventPid -ne $block.Pid -or $block.Flags -ne -1 `
+            -or $block.Event -ne 1 -or $block.EventPid -ne $block.Pid `
             -or $State.Acked -or $null -ne $State.Final `
             -or $State.Exits.ContainsKey([string]$State.Target.pid) `
-            -or $State.Exits.ContainsKey([string]$State.Target.helper)) { $State.Protocol = 1; return }
+            -or $State.Exits.ContainsKey([string]$State.Target.helper)) { Set-HermesStartupProtocolFault $State 9; return }
+        if ($block.Flags -ne -1) { Set-HermesStartupProtocolFault $State 8; return }
         $block.Flags = [long][Convert]::ToUInt32($Matches.f, 16)
+        $State.ScopedPhase = $State.ScopedPhase -bor 8
         return
     }
     Add-HermesStartupFailure $State $Line
@@ -2125,6 +2165,7 @@ function New-HermesStartupReport {
         $report.moduleSourceSha256 = $State.ModuleSha256
         $report.debuggerExitAvailable = $State.DebuggerExitAvailable
         $report.debuggerExitValue = $State.DebuggerExitValue
+        $report.debuggerKillRequested = Get-HermesStartupInventoryNumber $State.DebuggerKillRequested 1
         # Non-zero CDB exits remain errors, even with bound advisory evidence.
         # Do not infer that a debugger propagated the target's exit status.
         if (($State.DebuggerExitAvailable -ne 1 -or $State.DebuggerExitValue -ne 0) `
@@ -2142,6 +2183,16 @@ function New-HermesStartupReport {
         $selected.sideContinuations = $State.SideWrites
         $selected.subjects = $State.Inventory.Subjects.Count
         $selected.inputTasks = $State.InputTasks.Count
+        # Reason: 1 echo, 2 marker grammar/version, 3 open sequence, 4 close
+        # binding, 5 last-event shape/sequence, 6 event identity, 7 typed format,
+        # 8 typed duplicate, 9 scope/sequence, 10 subject replay/limit,
+        # 11 native rows, 12 readiness ack, 13 failure scope,
+        # 14 syntax-shaped unknown printf. Zero is no captured refusal.
+        $selected.scopedPhase = Get-HermesStartupInventoryNumber $State.ScopedPhase 15
+        $selected.scopedFirstReason = Get-HermesStartupInventoryNumber $State.ScopedFault.Reason 14
+        $selected.scopedFirstPhase = Get-HermesStartupInventoryNumber $State.ScopedFault.Phase 15
+        $selected.scopedFirstBlock = Get-HermesStartupInventoryNumber $State.ScopedFault.Block 7
+        $selected.scopedFirstHeld = Get-HermesStartupInventoryNumber $State.ScopedFault.Held 5
         $report.observations = $selected
     }
     return $report
