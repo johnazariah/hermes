@@ -1,0 +1,51 @@
+name: Startup event schema metadata
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - installer/windows/Invoke-StartupEventSchema.ps1
+      - installer/windows/Test-StartupEventSchema.ps1
+      - .github/workflows/startup-event-schema.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  startup-event-schema:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Portable metadata controls (not native proof)
+        shell: pwsh
+        run: ./installer/windows/Test-StartupEventSchema.ps1
+      - name: Fixed Application Error publisher metadata only
+        id: metadata
+        shell: pwsh
+        run: |
+          $rows = @(& ./installer/windows/Invoke-StartupEventSchema.ps1)
+          $code = $LASTEXITCODE
+          $published = 0
+          if ($rows.Count -eq 1 -and $rows[0] -cmatch '\AHERMES_STARTUP_SCHEMA v=1 usable=[01] unavailable=[0-9]{1,2} metadataCount=[0-9] versions=[0-8] published=([01])\z') {
+            $published = [int]$Matches[1]
+            Write-Output $rows[0]
+          } else {
+            Write-Output 'HERMES_STARTUP_SCHEMA v=1 usable=0 unavailable=15 metadataCount=0 versions=0 published=0'
+            $code = 1
+          }
+          "published=$published" >> $env:GITHUB_OUTPUT
+          exit $code
+      - name: Bounded public schema facts only
+        # Still upload unavailable schema facts after a diagnostic failure,
+        # but never upload a pre-existing, refused or partially written file.
+        if: always() && steps.metadata.outputs.published == '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: startup-event-schema
+          path: .artifacts/installer-evidence/startup-event-schema.json
+          if-no-files-found: error
+          retention-days: 3

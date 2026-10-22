@@ -1,0 +1,81 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Hermes.Servicing/Hermes.Servicing.csproj" />
+    <Compile Include="../Hermes.Servicing.Acceptance/EvidenceJson.Codec.cs"
+             Link="Acceptance/EvidenceJson.Codec.cs" />
+    <Compile Include="../Hermes.Servicing.Acceptance/MsiCases.Setup.cs"
+             Link="Acceptance/MsiCases.Setup.cs" />
+    <Compile Include="../Hermes.Servicing.Acceptance/SetupOutput.cs"
+             Link="Acceptance/SetupOutput.cs" />
+    <Compile Include="../Hermes.Servicing.Acceptance/OwnedChild.Binding.cs"
+             Link="Acceptance/OwnedChild.Binding.cs" />
+    <Compile Include="../Hermes.Servicing.Acceptance/OwnedChildStartup.cs"
+             Link="Acceptance/OwnedChildStartup.cs" />
+    <Compile Include="../../installer/windows/Hermes.Installer.Control/MsiCallContextObservation.cs"
+             Link="Production/MsiCallContextObservation.cs" />
+    <Compile Include="../../installer/windows/Hermes.Setup/SetupModel.cs"
+             Link="Production/SetupModel.cs" />
+    <Compile Include="../../installer/windows/Hermes.Setup/SetupRefusalEvidence.cs"
+             Link="Production/SetupRefusalEvidence.cs" />
+    <Compile Include="../../installer/windows/Hermes.Setup/SetupEffects.cs"
+             Link="Production/SetupEffects.cs" />
+    <Compile Include="../../installer/windows/Hermes.Setup/SetupPlanner.cs"
+             Link="Production/SetupPlanner.cs" />
+    <Compile Include="../../installer/windows/Hermes.Setup/SetupOrchestrator.cs"
+             Link="Production/SetupOrchestrator.cs" />
+    <Compile Include="../../installer/windows/Hermes.Setup/SetupDisk.cs"
+             Link="Production/SetupDisk.cs" />
+    <Compile Include="../../installer/windows/Hermes.Setup/JournalPersistence.cs"
+             Link="Production/JournalPersistence.cs" />
+    <Compile Include="../../installer/windows/Hermes.Setup/PackageMedia.cs"
+             Link="Production/PackageMedia.cs" />
+    <Compile Include="../../installer/windows/Hermes.Setup/FileMediaRetention.cs"
+             Link="Production/FileMediaRetention.cs" />
+    <Compile Include="../../installer/windows/Hermes.Setup/OwnedPayloadInventory.cs"
+             Link="Production/OwnedPayloadInventory.cs" />
+    <Compile Include="../../installer/windows/Hermes.Setup/PackageAuthoringSnapshot.cs"
+             Link="Production/PackageAuthoringSnapshot.cs" />
+    <Compile Include="../../installer/windows/Hermes.Setup/PackageAuthoringValidator.cs"
+             Link="Production/PackageAuthoringValidator.cs" />
+    <Compile Include="../../installer/windows/Hermes.Setup/PackageAuthoringResources.cs"
+             Link="Production/PackageAuthoringResources.cs" />
+    <Compile Include="../../installer/windows/Hermes.Setup/GuardImageInspection.cs"
+             Link="Production/GuardImageInspection.cs" />
+    <Compile Include="../../installer/windows/Hermes.Setup/ComponentClientInventory.cs"
+             Link="Production/ComponentClientInventory.cs" />
+    <Compile Include="../../installer/windows/Hermes.Setup/ObservationEvidence.cs"
+             Link="Production/ObservationEvidence.cs" />
+    <Compile Include="../../installer/windows/Hermes.Setup/MsiRegistrationReader.cs"
+             Link="Production/MsiRegistrationReader.cs" />
+    <Compile Include="../../installer/windows/Hermes.Setup/ShellEvidence.cs"
+             Link="Production/ShellEvidence.cs" />
+    <Compile Include="../../installer/windows/Hermes.Setup/PendingFileClassifier.cs"
+             Link="Production/PendingFileClassifier.cs" />
+    <Compile Include="../../installer/windows/Hermes.Setup/RegistrationInventory.cs"
+             Link="Production/RegistrationInventory.cs" />
+    <Compile Include="../../installer/windows/Hermes.Setup/SetupPackageCatalog.cs"
+             Link="Production/SetupPackageCatalog.cs" />
+    <Compile Include="../../installer/windows/Hermes.Setup/SetupAggregates.cs"
+             Link="Production/SetupAggregates.cs" />
+    <Compile Include="../../installer/windows/Hermes.Setup/SetupComposition.cs"
+             Link="Production/SetupComposition.cs" />
+    <Compile Include="../../installer/windows/Hermes.Setup/SetupEntryPoint.cs"
+             Link="Production/SetupEntryPoint.cs" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="WixToolset.Data" Version="[6.0.0]" PrivateAssets="all" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="../../installer/windows/Package.wxs"
+                      LogicalName="Hermes.Setup.Tests.Package.wxs" />
+  </ItemGroup>
+</Project>

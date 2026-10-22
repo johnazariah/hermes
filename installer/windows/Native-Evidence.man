@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<instrumentationManifest
+    xmlns="http://schemas.microsoft.com/win/2004/08/events"
+    xmlns:win="http://manifests.microsoft.com/win/2004/08/windows/events">
+  <instrumentation>
+    <events>
+      <provider name="Hermes.Servicing.Evidence.Native"
+          guid="{C760C1AB-37CB-4C3A-A245-3EA632FC9C5D}"
+          symbol="HermesNativeEvidence"
+          resourceFileName="Hermes.Servicing.Evidence.Native.dll"
+          messageFileName="Hermes.Servicing.Evidence.Native.dll">
+        <channels>
+          <importChannel name="Application" chid="Application" />
+        </channels>
+        <templates>
+          <template tid="DiagnosticPayload">
+            <data name="Payload" inType="win:UnicodeString" />
+          </template>
+        </templates>
+        <events>
+          <event value="4096" version="0" symbol="Diagnostic"
+              channel="Application" level="win:Informational"
+              template="DiagnosticPayload" />
+        </events>
+      </provider>
+    </events>
+  </instrumentation>
+</instrumentationManifest>

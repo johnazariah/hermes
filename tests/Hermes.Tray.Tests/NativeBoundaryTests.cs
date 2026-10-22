@@ -62,9 +62,14 @@ public sealed class NativeBoundaryTests
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(45));
         var start = PipeChild();
         await using var process = NativeOwnedProcess.Start(start, log);
+        var access = Assert.IsAssignableFrom<Hermes.Tray.Access.IAccessProcessHandle>(process);
+        Assert.Equal(process.Id, access.Identity.ProcessId);
+        Assert.True(access.Identity.ProcessStartTimeUtc > DateTimeOffset.UtcNow.AddMinutes(-1));
+        Assert.True(access.IsAlive);
         await process.RequestShutdownAsync(deadline.Token);
         await process.WaitForExitAsync(deadline.Token);
         await process.DrainOutputAsync(deadline.Token);
+        Assert.False(access.IsAlive);
         Assert.Equal(0, process.ExitCode);
         Assert.Equal(2, log.Entries.Count(entry => entry.Code == EventCode.OutputDrained));
         Assert.All(log.Entries.Where(entry => entry.Code == EventCode.OutputDrained),

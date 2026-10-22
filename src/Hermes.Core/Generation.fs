@@ -384,26 +384,66 @@ module Generation =
         db token
         (stillCurrent: Algebra.TransactionScope -> Task<bool>)
         (commit: Algebra.TransactionScope -> Task<bool>)
-        (writeArtifact: 'content -> Task<unit>)
+        (writeArtifact: 'content -> Task<Result<unit, string>>)
         (content: 'content)
-        : Task<Publication<'content>> =
+        : Task<Result<Publication<'content>, string>> =
         task {
             let! current = validateCurrent db token stillCurrent
             if not current then
-                return Superseded
+                return Ok Superseded
             else
-                do! writeArtifact content
-                let! committed = validateCurrent db token commit
-                return
-                    if committed then Published content
-                    else Superseded
+                match! writeArtifact content with
+                | Error error -> return Error error
+                | Ok () ->
+                    let! committed = validateCurrent db token commit
+                    return Ok (if committed then Published content else Superseded)
+        }
+
+    let private prepareAndWrite
+        db token stillCurrent commit
+        (prepare: unit -> Task<Result<'content, string>>)
+        (writeArtifact: 'content -> Task<Result<unit, string>>)
+        () : Task<Result<Publication<'content>, string>> =
+        task {
+            let! current = validateCurrent db token stillCurrent
+            if not current then
+                return Ok Superseded
+            else
+                match! prepare () with
+                | Error error -> return Error error
+                | Ok content ->
+                    return! writeWhenCurrent db token stillCurrent commit writeArtifact content
         }
 
     /// Re-reads and merges a shared artifact while holding its folder fence,
     /// then transactionally revalidates generation, output currentness and the
     /// folder revision captured before the caller's slow work. That revision is
     /// advanced with the write it publishes, so a sibling holding an older
-    /// token is rejected before it writes any bytes.
+    /// token is rejected before it writes any bytes. A rejected writer does
+    /// not advance the revision.
+    let internal republishArtifactResult
+        (db: Algebra.Database)
+        (token: Token)
+        (folder: PublicationFence.ArtifactFolder)
+        (artifact: ArtifactRevision.Token)
+        (validate: Algebra.TransactionScope -> Task<bool>)
+        (prepare: unit -> Task<Result<'content, string>>)
+        (writeArtifact: 'content -> Task<Result<unit, string>>)
+        : Task<Result<Publication<'content>, string>> =
+        let stillCurrent = artifactAndValidationCurrentIn artifact validate
+        let commit = validateAndBumpIn folder stillCurrent
+        fencedArtifact token.DocumentId folder
+            (prepareAndWrite db token stillCurrent commit prepare writeArtifact)
+
+    let private successfulWrite
+        (writeArtifact: 'content -> Task<unit>)
+        (content: 'content) : Task<Result<unit, string>> =
+        task {
+            do! writeArtifact content
+            return Ok ()
+        }
+
+    /// Compatibility entry point for writers whose failures remain exceptions.
     let republishArtifact
         (db: Algebra.Database)
         (token: Token)
@@ -413,23 +453,8 @@ module Generation =
         (prepare: unit -> Task<Result<'content, string>>)
         (writeArtifact: 'content -> Task<unit>)
         : Task<Result<Publication<'content>, string>> =
-        let stillCurrent = artifactAndValidationCurrentIn artifact validate
-        let commit = validateAndBumpIn folder stillCurrent
-        fencedArtifact token.DocumentId folder (fun () ->
-            task {
-                let! current = validateCurrent db token stillCurrent
-                if not current then
-                    return Ok Superseded
-                else
-                    match! prepare () with
-                    | Error error -> return Error error
-                    | Ok content ->
-                        let! publication =
-                            writeWhenCurrent
-                                db token stillCurrent commit
-                                writeArtifact content
-                        return Ok publication
-            })
+        republishArtifactResult db token folder artifact validate prepare
+            (successfulWrite writeArtifact)
 
     /// Replaces a shared artifact and publishes its database rows inside one
     /// fenced region. The generation check, the canonical file replacement and

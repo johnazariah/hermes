@@ -14,46 +14,10 @@ open Xunit
 open Hermes.Core
 open Hermes.Service
 
-type private TestServer =
-    { App: WebApplication
-      Client: HttpClient
-      Db: Algebra.Database
-      Files: TestHelpers.MemFs }
-
-let private startServer () =
-    task {
-        let db = TestHelpers.createDb ()
-        do! TestHelpers.initV5 db
-        let mem = TestHelpers.memFs ()
-        let builder = WebApplication.CreateBuilder()
-        builder.WebHost.UseUrls("http://127.0.0.1:0") |> ignore
-        let app = builder.Build()
-        ApiServer.mapRoutes app db mem.Fs TestHelpers.silentLogger TestHelpers.defaultClock
-            (TestHelpers.standardV5Dag ()) None "/archive" "/config"
-        do! app.StartAsync()
-        let server: IServer = app.Services.GetRequiredService<IServer>()
-        let addresses =
-            server.Features.Get<IServerAddressesFeature>()
-            |> Option.ofObj
-            |> Option.defaultWith (fun () -> failwith "No server addresses")
-        let address = addresses.Addresses |> Seq.head
-        return
-            { App = app
-              Client = new HttpClient(BaseAddress = Uri address)
-              Db = db
-              Files = mem }
-    }
+type private TestServer = HttpRegressionFixture.Server
 
 let private withServer (body: TestServer -> Task<unit>) : Task<unit> =
-    task {
-        let! server = startServer ()
-        try do! body server
-        finally
-            server.Client.Dispose()
-            server.App.StopAsync().GetAwaiter().GetResult()
-            server.App.DisposeAsync().AsTask().GetAwaiter().GetResult()
-            server.Db.dispose ()
-    }
+    HttpRegressionFixture.withServer None body
 
 let private insertDoc (db: Algebra.Database) (sha: string) : Task<int64> =
     task {
@@ -67,14 +31,15 @@ let private insertDoc (db: Algebra.Database) (sha: string) : Task<int64> =
 
 let private post<'a> (client: HttpClient) (url: string) (body: 'a) : Task<int * string> =
     task {
-        let! response = client.PostAsJsonAsync(url, body)
+        use! response = client.PostAsJsonAsync(url, body)
         let! text = response.Content.ReadAsStringAsync()
         return int response.StatusCode, text
     }
 
 let private postEmpty (client: HttpClient) (url: string) : Task<int * string> =
     task {
-        let! response = client.PostAsync(url, new StringContent(""))
+        use content = new StringContent("")
+        use! response = client.PostAsync(url, content)
         let! text = response.Content.ReadAsStringAsync()
         return int response.StatusCode, text
     }

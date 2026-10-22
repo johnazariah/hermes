@@ -1,5 +1,9 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { access as authority, request } from "../../api/http";
+import { triggerSync } from "../../api/hermes";
+import { useAccess } from "../../hooks/useAccess";
+import { UnlockReason } from "../AccessPanel";
 
 interface SyncAccount {
     account: string;
@@ -8,31 +12,46 @@ interface SyncAccount {
 }
 
 export function SyncConfigPanel() {
+    const access = useAccess();
+    const [feedback, setFeedback] = useState<{ error: boolean; message: string } | null>(null);
     const queryClient = useQueryClient();
-    const { data: accounts } = useQuery<SyncAccount[]>({
+    const { data: accounts, error: accountsError, isPending } = useQuery<SyncAccount[]>({
         queryKey: ["sync-accounts"],
-        queryFn: () => fetch("/api/sync/accounts").then((r) => r.json()),
+        queryFn: () => request("/api/sync/accounts").then((r) => r.json()),
+        enabled: access.can('config.read'),
         refetchInterval: 10000,
     });
 
     const [resetting, setResetting] = useState<string | null>(null);
 
     const resetAccount = async (account: string, fromDate: string) => {
+        if (resetting !== null) return;
+        const generation = access.generation;
         setResetting(account);
-        await fetch("/api/sync/reset", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ account, from: fromDate }),
-        });
-        queryClient.invalidateQueries({ queryKey: ["sync-accounts"] });
-        // Trigger a sync
-        await fetch("/api/sync", { method: "POST" });
-        setResetting(null);
+        setFeedback(null);
+        try {
+            await request("/api/sync/reset", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ account, from: fromDate }),
+            });
+            if (!authority.isCurrent(generation)) return;
+            queryClient.invalidateQueries({ queryKey: ["sync-accounts"] });
+            await triggerSync();
+            if (authority.isCurrent(generation)) setFeedback({ error: false, message: 'Reset saved; sync request accepted, not completed.' });
+        } catch (error) {
+            if (authority.isCurrent(generation)) setFeedback({ error: true, message: error instanceof Error ? error.message : 'Reset failed.' });
+        } finally { if (authority.isCurrent(generation)) setResetting(null); }
     };
 
-    if (!accounts || accounts.length === 0) {
+    if (!access.can('config.read')) return <UnlockReason capability="config.read" />;
+    if (accountsError) return <p role="alert">Unable to load sync accounts: {accountsError.message}</p>;
+    if (isPending) return <p role="status">Loading sync accounts…</p>;
+    if (accounts.length === 0) {
         return (
             <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-4">
+                {!access.can('mutate') && <UnlockReason />}
+                {feedback && <p role={feedback.error ? "alert" : "status"}>{feedback.message}</p>}
                 <div className="text-xs text-neutral-500 uppercase tracking-wider mb-2">
                     Email Sync
                 </div>
@@ -45,6 +64,8 @@ export function SyncConfigPanel() {
 
     return (
         <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-4">
+            {!access.can('mutate') && <UnlockReason />}
+            {feedback && <p role={feedback.error ? "alert" : "status"}>{feedback.message}</p>}
             <div className="text-xs text-neutral-500 uppercase tracking-wider mb-3">
                 Email Sync
             </div>
@@ -73,7 +94,7 @@ export function SyncConfigPanel() {
                                     if (from !== null)
                                         resetAccount(a.account, from);
                                 }}
-                                disabled={resetting === a.account}
+                                disabled={!access.can('mutate') || resetting !== null}
                                 className="text-xs px-2 py-1 bg-neutral-800 rounded hover:bg-neutral-700 disabled:opacity-50"
                             >
                                 {resetting === a.account
@@ -82,7 +103,7 @@ export function SyncConfigPanel() {
                             </button>
                             <button
                                 onClick={() => resetAccount(a.account, "")}
-                                disabled={resetting === a.account}
+                                disabled={!access.can('mutate') || resetting !== null}
                                 className="text-xs px-2 py-1 bg-neutral-800 rounded hover:bg-neutral-700 disabled:opacity-50"
                             >
                                 🔄 Reset

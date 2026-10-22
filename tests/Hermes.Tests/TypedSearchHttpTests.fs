@@ -52,7 +52,7 @@ let ``Missing query encoder is explicit and never keyword fallback`` mode =
         task {
             let! _ = seedSearch server
             let! http = response server $"/api/search?q=quartz&mode={mode}" 503
-            Assert.Equal("query_encoder_not_configured", http.GetProperty("error").GetString())
+            Assert.Equal("model_unavailable", http.GetProperty("error").GetString())
             let! mcp = mcpCall server "hermes_search" (box {| query = "quartz"; mode = mode |})
             Assert.True(mcp.GetProperty("result").GetProperty("isError").GetBoolean())
             Assert.Equal("unavailable", (payload mcp).GetProperty("status").GetString())
@@ -117,7 +117,7 @@ let ``HTTP rejects unknown empty and repeated mode values`` mode =
     configured (Some encoder) (fun server ->
         task {
             let! result = response server $"/api/search?q=quartz&mode={mode}" 400
-            Assert.Equal("invalid_request", result.GetProperty("status").GetString())
+            Assert.Equal("invalid_request", result.GetProperty("error").GetString())
         })
 
 [<Fact>]

@@ -1,0 +1,23 @@
+<Project>
+  <!-- Capture SDK-resolved sources, not a manifest inferred from an untrusted output directory. -->
+  <Target Name="WriteHermesPublishInventory" AfterTargets="Publish"
+          Condition="'$(HermesPublishInventoryPath)' != ''">
+    <Error Condition="'$(RuntimeIdentifier)' != 'win-x64' Or '$(SelfContained)' != 'true'"
+           Text="Installer inventory requires a self-contained win-x64 publish." />
+    <ItemGroup>
+      <_HermesPublishFile Include="@(ResolvedFileToPublish)" />
+      <_HermesResolvedEndpoints Include="@(ResolvedFileToPublish->WithMetadataValue('RelativePath', '$(TargetName).staticwebassets.endpoints.json'))" />
+      <!-- The Web SDK copies this declared intermediate separately from ResolvedFileToPublish. -->
+      <_HermesPublishFile Include="$(StaticWebAssetEndpointsPublishManifestPath)"
+                          Condition="'@(_HermesResolvedEndpoints)' == '' And Exists('$(StaticWebAssetEndpointsPublishManifestPath)')">
+        <RelativePath>$(TargetName).staticwebassets.endpoints.json</RelativePath>
+      </_HermesPublishFile>
+    </ItemGroup>
+    <GetFileHash Files="@(_HermesPublishFile)" Algorithm="SHA256">
+      <Output TaskParameter="Items" ItemName="_HermesHashedPublish" />
+    </GetFileHash>
+    <WriteLinesToFile File="$(HermesPublishInventoryPath)"
+                      Lines="@(_HermesHashedPublish->'%(FullPath)|%(RelativePath)|%(FileHash)')"
+                      Overwrite="true" Encoding="UTF-8" />
+  </Target>
+</Project>

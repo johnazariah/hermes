@@ -1,5 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { fetchStats, fetchCategories, triggerSync } from "../../api/hermes";
+import { request } from "../../api/http";
+import { useAccess } from "../../hooks/useAccess";
+import { UnlockReason } from "../AccessPanel";
+import { useState } from "react";
 import type { IndexStats, CategoryCount } from "../../types/hermes";
 
 function StageRow({
@@ -44,6 +48,16 @@ export function Sidebar({
     selectedView: ViewType;
     onOpenSettings: () => void;
 }) {
+    const access = useAccess();
+    const [feedback, setFeedback] = useState('');
+    const [pending, setPending] = useState(false);
+    const sync = async () => {
+        if (pending || !access.can('mutate')) return;
+        setPending(true);
+        try { await triggerSync(); setFeedback('Sync accepted, not completed.'); }
+        catch (error) { setFeedback(error instanceof Error ? error.message : 'Sync failed.'); }
+        finally { setPending(false); }
+    };
     const { data: stats } = useQuery<IndexStats>({
         queryKey: ["stats"],
         queryFn: fetchStats,
@@ -56,7 +70,7 @@ export function Sidebar({
     });
     const { data: tags } = useQuery<{ tag: string; count: number }[]>({
         queryKey: ["tags"],
-        queryFn: () => fetch("/api/tags").then((r) => r.json()),
+        queryFn: () => request("/api/tags").then((r) => r.json()),
         refetchInterval: 30000,
     });
 
@@ -91,7 +105,8 @@ export function Sidebar({
                     HERMES
                 </button>
                 <button
-                    onClick={() => triggerSync()}
+                    onClick={sync}
+                    disabled={pending || !access.can('mutate')}
                     className="ml-auto text-neutral-500 hover:text-neutral-200 text-sm"
                     title="Sync Now"
                 >
@@ -108,6 +123,8 @@ export function Sidebar({
 
             {/* Scrollable content */}
             <div className="flex-1 overflow-y-auto">
+                {!access.can('mutate') && <UnlockReason />}
+                {feedback && <p role="status">{feedback}</p>}
                 {/* Pipeline progress */}
                 <div className="px-4 py-3 space-y-3 border-b border-neutral-800">
                     <div className="text-[10px] font-semibold tracking-widest text-neutral-500">

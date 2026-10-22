@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { request } from "../api/http";
 import { triggerSync } from "../api/hermes";
+import { useAccess } from "../hooks/useAccess";
+import { UnlockReason } from "../components/AccessPanel";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -106,28 +108,35 @@ function Section({
 // ── Settings page ────────────────────────────────────────────
 
 export function SettingsPage() {
+    const access = useAccess();
+    const readable = access.can('config.read');
+    const writable = readable && access.can('mutate');
     const [configText, setConfigText] = useState<string | null>(null);
     const [prefsText, setPrefsText] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
     const [saved, setSaved] = useState(false);
     const [prefsSaved, setPrefsSaved] = useState(false);
+    const [prefsSaving, setPrefsSaving] = useState(false);
     const [feedback, setFeedback] = useState<{ error: boolean; message: string } | null>(null);
     const [syncPending, setSyncPending] = useState(false);
     const queryClient = useQueryClient();
 
     const { data: config, error: configError } = useQuery({
         queryKey: ["config"],
+        enabled: readable,
         queryFn: fetchConfig,
     });
 
     const { data: accounts, error: accountsError } = useQuery({
         queryKey: ["sync-accounts"],
+        enabled: readable,
         queryFn: fetchSyncAccounts,
         refetchInterval: 10000,
     });
 
     const { data: prefs, error: prefsError } = useQuery({
         queryKey: ["preferences"],
+        enabled: readable,
         queryFn: fetchPreferences,
     });
 
@@ -143,7 +152,6 @@ export function SettingsPage() {
         try {
             await saveConfig(configText);
             setSaved(true);
-            setTimeout(() => setSaved(false), 2000);
             queryClient.invalidateQueries({ queryKey: ["config"] });
             setFeedback({ error: false, message: "Configuration saved. Restart the Service to apply it." });
         } catch (error) {
@@ -154,16 +162,16 @@ export function SettingsPage() {
     };
 
     const handleSavePrefs = async () => {
-        if (prefsText === null) return;
+        if (prefsText === null || prefsSaving) return;
+        setPrefsSaving(true);
         try {
             await savePreferences(prefsText);
             setPrefsSaved(true);
-            setTimeout(() => setPrefsSaved(false), 2000);
             queryClient.invalidateQueries({ queryKey: ["preferences"] });
             setFeedback({ error: false, message: "Preferences saved." });
         } catch (error) {
             setFeedback({ error: true, message: error instanceof Error ? error.message : "Save failed." });
-        }
+        } finally { setPrefsSaving(false); }
     };
 
     const handleSync = async () => {
@@ -181,6 +189,7 @@ export function SettingsPage() {
 
     return (
         <div className="mx-auto max-w-4xl space-y-6">
+            {!writable && <UnlockReason capability={readable ? 'mutate' : 'config.read'} />}
             {(configError || accountsError || prefsError || patternsError) &&
               <p role="alert">Unable to load settings: {(configError || accountsError || prefsError || patternsError)?.message}</p>}
             {feedback && <p role={feedback.error ? "alert" : "status"}>{feedback.message}</p>}
@@ -206,7 +215,7 @@ export function SettingsPage() {
                         )}
                         <button
                             onClick={handleSavePrefs}
-                            disabled={prefsText === null}
+                            disabled={!writable || prefsSaving || prefsText === null}
                             className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-40 dark:bg-emerald-700 dark:hover:bg-emerald-600"
                         >
                             Save
@@ -215,7 +224,8 @@ export function SettingsPage() {
                 }
             >
                 <textarea
-                    value={prefsText ?? prefs ?? ""}
+                    value={readable ? prefsText ?? prefs ?? "" : ""}
+                    disabled={!writable || prefsSaving}
                     onChange={(e) => setPrefsText(e.target.value)}
                     rows={5}
                     placeholder={
@@ -282,7 +292,7 @@ export function SettingsPage() {
                 actions={
                     <button
                         onClick={handleSync}
-                        disabled={syncPending}
+                        disabled={!access.can('mutate') || syncPending}
                         className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-600"
                     >
                         {syncPending ? "Requesting sync..." : "Sync Now"}
@@ -307,7 +317,7 @@ export function SettingsPage() {
                             </div>
                         </div>
                     ))}
-                    {(!accounts || accounts.length === 0) && (
+                    {readable && accounts && accounts.length === 0 && (
                         <p className="text-xs text-neutral-500">
                             No email accounts configured
                         </p>
@@ -329,7 +339,7 @@ export function SettingsPage() {
                         )}
                         <button
                             onClick={handleSave}
-                            disabled={saving || configText === null}
+                            disabled={!writable || saving || configText === null}
                             className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-40 dark:bg-emerald-700 dark:hover:bg-emerald-600"
                         >
                             {saving ? "Saving…" : "Save"}
@@ -338,7 +348,8 @@ export function SettingsPage() {
                 }
             >
                 <textarea
-                    value={configText ?? config ?? ""}
+                    value={readable ? configText ?? config ?? "" : ""}
+                    disabled={!writable}
                     onChange={(e) => setConfigText(e.target.value)}
                     rows={20}
                     className="w-full resize-y rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-3 font-mono text-xs text-neutral-900 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200"

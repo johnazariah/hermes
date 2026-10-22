@@ -7,6 +7,8 @@ import {
     reclassifyDocuments,
 } from "../../api/hermes";
 import type { DocumentSummary } from "../../types/hermes";
+import { useAccess } from "../../hooks/useAccess";
+import { UnlockReason } from "../AccessPanel";
 
 type GroupBy = "none" | "origin" | "vendor" | "date";
 type SortBy = "date" | "amount" | "name";
@@ -95,6 +97,9 @@ export function DocumentList({
     category: string;
     onSelectDocument: (id: number) => void;
 }) {
+    const access = useAccess();
+    const writable = access.can('mutate');
+    const [pending, setPending] = useState(false);
     const queryClient = useQueryClient();
     const [groupBy, setGroupBy] = useState<GroupBy>("origin");
     const [sortBy, setSortBy] = useState<SortBy>("date");
@@ -136,7 +141,8 @@ export function DocumentList({
     const batchAction = useCallback(
         async (action: "tag" | "star", value: string) => {
             const docIds = [...selected];
-            if (docIds.length === 0) return;
+            if (docIds.length === 0 || !writable || pending) return;
+            setPending(true);
             try {
                 await batchDocuments(docIds, action, value);
                 setBatchErrors([]);
@@ -149,9 +155,9 @@ export function DocumentList({
                         ? error.message
                         : `Batch ${action} failed`,
                 ]);
-            }
+            } finally { setPending(false); }
         },
-        [selected, queryClient],
+        [selected, queryClient, writable, pending],
     );
 
     const handleContextMenu = useCallback(
@@ -166,7 +172,8 @@ export function DocumentList({
     const setCategory = useCallback(
         async (cat: string) => {
             const docIds = [...selected];
-            if (docIds.length === 0) return;
+            if (docIds.length === 0 || !writable || pending) return;
+            setPending(true);
             try {
                 const response = await reclassifyDocuments(docIds, cat);
                 const failures = response.outcomes.filter(
@@ -190,9 +197,9 @@ export function DocumentList({
                         ? error.message
                         : "Reclassification request failed",
                 ]);
-            }
+            } finally { setPending(false); }
         },
-        [selected, queryClient],
+        [selected, queryClient, writable, pending],
     );
 
     const selectGroup = useCallback((docIds: number[]) => {
@@ -204,6 +211,7 @@ export function DocumentList({
 
     return (
         <div onClick={() => setContextMenu(null)}>
+            {!writable && <UnlockReason />}
             <div className="flex items-center gap-4 mb-4">
                 <h2 className="text-lg font-semibold">📁 {category}</h2>
                 <span className="text-xs text-neutral-500">
@@ -240,6 +248,7 @@ export function DocumentList({
                             <button
                                 key={c.category}
                                 onClick={() => setCategory(c.category)}
+                                disabled={!writable || pending}
                                 className="text-xs px-2 py-0.5 bg-neutral-800 rounded hover:bg-neutral-700"
                             >
                                 {c.category}
@@ -247,11 +256,13 @@ export function DocumentList({
                         ))}
                     <button
                         onClick={() => batchAction("star", "")}
+                        disabled={!writable || pending}
                         className="text-xs text-neutral-400 hover:text-neutral-200 ml-auto"
                     >
                         ⭐ Star
                     </button>
                     <button
+                        disabled={!writable || pending}
                         onClick={() => {
                             const tag = prompt(
                                 "Tag name (e.g. rental-property-1, FY2024-25):",
@@ -354,12 +365,14 @@ export function DocumentList({
                             <button
                                 key={c.category}
                                 onClick={() => setCategory(c.category)}
+                                disabled={!writable || pending}
                                 className="w-full text-left px-3 py-1.5 text-sm hover:bg-neutral-700 transition-colors"
                             >
                                 📁 {c.category}
                             </button>
                         ))}
                     <button
+                        disabled={!writable || pending}
                         onClick={() => {
                             const name = prompt("New category name:");
                             if (name)
@@ -376,6 +389,7 @@ export function DocumentList({
                         Tag
                     </div>
                     <button
+                        disabled={!writable || pending}
                         onClick={() => {
                             const tag = prompt(
                                 "Tag name (e.g. rental-property-1, FY2024-25):",
@@ -391,6 +405,7 @@ export function DocumentList({
                     </button>
                     <div className="border-t border-neutral-700 my-1" />
                     <button
+                        disabled={!writable || pending}
                         onClick={() => {
                             batchAction("star", "");
                             setContextMenu(null);

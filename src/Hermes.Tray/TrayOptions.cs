@@ -18,6 +18,11 @@ internal sealed record TrayOptions(
     string ServicePath,
     bool Synthetic = false)
 {
+    internal NativeStartupContext? Startup { get; init; }
+
+    internal TrayOptions ForStartup(NativeStartupContext startup) =>
+        this with { ServicePath = startup.RequireService(ServicePath), Startup = startup };
+
     public Uri BaseAddress => new($"http://127.0.0.1:{Port}/");
     public string LogDirectory => Path.Combine(ConfigDirectory, "logs");
     public string WebViewDirectory => Path.Combine(ConfigDirectory, "webview2");

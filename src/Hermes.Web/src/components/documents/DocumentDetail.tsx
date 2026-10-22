@@ -1,13 +1,10 @@
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchDocumentDetail, fetchDocumentContent } from "../../api/hermes";
+import { access } from "../../api/http";
+import { loadDocumentPreview, previewKind, type PreviewSource } from "../../api/preview";
+import { useAccess } from "../../hooks/useAccess";
 import type { DocumentDetail as DocumentDetailType } from "../../types/hermes";
-
-const PREVIEWABLE = [".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp"];
-
-function getExtension(name: string): string {
-    const dot = name.lastIndexOf(".");
-    return dot >= 0 ? name.slice(dot).toLowerCase() : "";
-}
 
 export function DocumentDetail({
     documentId,
@@ -16,13 +13,15 @@ export function DocumentDetail({
     documentId: number;
     onBack: () => void;
 }) {
+    const authority = useAccess();
     const { data: detail, error, isPending } = useQuery<DocumentDetailType>({
-        queryKey: ["document", documentId],
-        queryFn: () => fetchDocumentDetail(documentId),
+        queryKey: ["document", authority.instanceId, documentId],
+        queryFn: ({ signal }) => fetchDocumentDetail(documentId, signal),
+        enabled: Boolean(authority.instanceId),
     });
     const { data: content, error: contentError, isPending: contentPending } = useQuery<{ markdown: string }>({
-        queryKey: ["document-content", documentId],
-        queryFn: () => fetchDocumentContent(documentId),
+        queryKey: ["document-content", authority.instanceId, documentId],
+        queryFn: ({ signal }) => fetchDocumentContent(documentId, signal),
         enabled: detail?.pipelineStatus.extracted === true,
     });
 
@@ -34,8 +33,7 @@ export function DocumentDetail({
         return <div className="text-neutral-500 text-sm">Loading…</div>;
 
     const doc = detail.summary;
-    const ext = getExtension(doc.originalName);
-    const canPreview = PREVIEWABLE.includes(ext);
+    const canPreview = previewKind(doc.originalName) !== undefined;
 
     return (
         <div className="h-full flex flex-col">
@@ -106,24 +104,55 @@ export function DocumentDetail({
                         <div className="text-[10px] font-semibold tracking-widest text-neutral-500 mb-2">
                             ORIGINAL
                         </div>
-                        {ext === ".pdf" ? (
-                            <iframe
-                                src={`/api/documents/${documentId}/file`}
-                                className="flex-1 rounded-lg border border-neutral-800 bg-white"
-                                title="Document preview"
-                            />
-                        ) : (
-                            <img
-                                src={`/api/documents/${documentId}/file`}
-                                alt={doc.originalName}
-                                className="max-w-full rounded-lg border border-neutral-800 object-contain"
-                            />
-                        )}
+                        {authority.instanceId && <OriginalPreview
+                            key={JSON.stringify([authority.instanceId, authority.generation, documentId, detail.filePath, doc.originalName])}
+                            source={{ documentId, originalName: doc.originalName, filePath: detail.filePath,
+                                instanceId: authority.instanceId, generation: authority.generation }}
+                        />}
                     </div>
                 )}
             </div>
         </div>
     );
+}
+
+function OriginalPreview({ source }: { source: PreviewSource }) {
+    const [preview, setPreview] = useState<{ url?: string; dispose?: () => void; error?: string }>({});
+    const { documentId, originalName, filePath, instanceId, generation } = source;
+    useEffect(() => {
+        const controller = new AbortController();
+        let dispose: (() => void) | undefined;
+        void loadDocumentPreview(access, { documentId, originalName, filePath, instanceId, generation }, controller.signal)
+            .then(resource => {
+                dispose = resource.dispose;
+                if (controller.signal.aborted) resource.dispose();
+                else setPreview({ url: resource.url, dispose: resource.dispose });
+            })
+            .catch(error => {
+                if (!controller.signal.aborted) setPreview({ error: error instanceof Error ? error.message : "Preview failed." });
+            });
+        return () => { controller.abort(); dispose?.(); };
+    }, [documentId, originalName, filePath, instanceId, generation]);
+    if (preview.error) return <p role="alert">Unable to preview original: {preview.error}</p>;
+    if (!preview.url) return <p role="status">Loading original…</p>;
+    const failed = () => {
+        preview.dispose?.();
+        setPreview({ error: "The browser could not display the original file." });
+    };
+    return previewKind(originalName) === "pdf"
+        ? <div className="flex-1 min-h-0 flex flex-col gap-2">
+            {/* A sandboxed frame blocks Chromium's PDF plugin, even for a verified PDF blob. */}
+            <object data={preview.url} type="application/pdf" aria-label="Document preview"
+                className="flex-1 w-full min-h-0 rounded-lg border border-neutral-800 bg-white">
+                <p>Inline PDF preview is unavailable in this browser.</p>
+            </object>
+            <p className="text-xs text-neutral-400">
+                If the PDF is blank or unavailable,{" "}
+                <a href={preview.url} download={originalName} className="underline">Download original PDF</a>.
+            </p>
+        </div>
+        : <img src={preview.url} alt={originalName} onError={failed}
+            className="max-w-full rounded-lg border border-neutral-800 object-contain" />;
 }
 
 function StatusBadge({ label, done }: { label: string; done: boolean }) {

@@ -1,0 +1,7 @@
+<Project>
+  <Target Name="Validate">
+    <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(HermesApprovedGuardSha256)', '\A[0-9a-f]{64};[0-9a-f]{64}\z'))"
+           Text="The build property did not retain its canonical semicolon-separated trust inputs." />
+    <Message Importance="high" Text="Escaped guard trust inputs reached MSBuild as the exact two-value property." />
+  </Target>
+</Project>

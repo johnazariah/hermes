@@ -17,11 +17,7 @@ type private Response =
     { Status: int
       Json: System.Text.Json.JsonElement }
 
-let private app manual db =
-    let builder = WebApplication.CreateBuilder()
-    builder.WebHost.UseUrls("http://127.0.0.1:0") |> ignore
-    let host = builder.Build()
-    LocalBoundary.attach host []
+let private mapRoutes manual db (host: WebApplication) : unit =
     let files = TestHelpers.memFs ()
     let dag = TestHelpers.standardV5Dag ()
     match manual with
@@ -31,14 +27,39 @@ let private app manual db =
     | None ->
         ApiServer.mapRoutesWithSearch None host db db files.Fs
             TestHelpers.silentLogger TestHelpers.defaultClock dag None "/archive" "/config"
+
+let private app manual db : WebApplication =
+    let builder = WebApplication.CreateBuilder()
+    builder.WebHost.UseUrls("http://127.0.0.1:0") |> ignore
+    let authority = SyntheticAuthenticatedFixtureSupport.create ()
+    builder.Services.AddSingleton<SyntheticAuthenticatedFixtureSupport.Authority>(authority) |> ignore
+    HttpAccessPolicy.addStartupValidation builder.Services
+    let host = builder.Build()
+    LocalBoundary.attach host []
+    host.UseRouting() |> ignore
+    SyntheticAuthenticatedFixtureSupport.attach host authority { IsAvailable = fun _ -> false }
+    mapRoutes manual db host
     host
 
-let private address (host: WebApplication) =
-    let server = host.Services.GetRequiredService<IServer>()
-    server.Features.Get<IServerAddressesFeature>()
-    |> Option.ofObj
-    |> Option.defaultWith (fun () -> invalidOp "Missing bound HTTP addresses")
-    |> fun feature -> feature.Addresses |> Seq.head |> Uri
+let private client (host: WebApplication) : Task<HttpClient> =
+    task {
+        let authority =
+            host.Services.GetRequiredService<SyntheticAuthenticatedFixtureSupport.Authority>()
+        let running = SyntheticAuthenticatedFixtureSupport.activate host authority []
+        do! SyntheticAuthenticatedFixtureSupport.startReady running
+        return! SyntheticAuthenticatedFixtureSupport.client
+            running SyntheticAuthenticatedFixtureSupport.all
+    }
+
+let private cleanup (host: WebApplication) (db: Algebra.Database) : unit =
+    try
+        host.Services.GetRequiredService<SyntheticAuthenticatedFixtureSupport.Authority>()
+        |> SyntheticAuthenticatedFixtureSupport.stop
+    finally
+        try host.StopAsync().GetAwaiter().GetResult()
+        finally
+            try host.DisposeAsync().AsTask().GetAwaiter().GetResult()
+            finally db.dispose ()
 
 let private withApi manual verify =
     task {
@@ -47,12 +68,9 @@ let private withApi manual verify =
         let host = app manual db
         try
             do! host.StartAsync()
-            use client = new HttpClient(BaseAddress = address host, Timeout = timeout)
-            do! verify client
-        finally
-            host.StopAsync().GetAwaiter().GetResult()
-            host.DisposeAsync().AsTask().GetAwaiter().GetResult()
-            db.dispose ()
+            use! authorized = client host
+            do! verify authorized
+        finally cleanup host db
     }
 
 let private post (client: HttpClient) =

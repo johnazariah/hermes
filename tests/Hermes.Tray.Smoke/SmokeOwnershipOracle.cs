@@ -10,6 +10,7 @@ internal sealed record SmokeOwnershipVerdict(
 
 internal sealed class SmokeOwnershipOracle(IOwnershipVerifier verifier) : IServiceObserver
 {
+    internal const int MaximumChecks = 256;
     private const string FinalStopStep = "final-stop";
     private readonly object _gate = new();
     private ImmutableArray<OwnershipProof> _checks = [];
@@ -92,6 +93,8 @@ internal sealed class SmokeOwnershipOracle(IOwnershipVerifier verifier) : IServi
         {
             if (RequireIdentity() != identity || before != identity || after != identity)
                 throw new InvalidOperationException("Smoke operation did not retain its owned identity.");
+            if (_checks.Length >= MaximumChecks)
+                throw new InvalidOperationException("Smoke ownership evidence exceeded its bound.");
             _checks = _checks.Add(new(step, before, after));
         }
     }

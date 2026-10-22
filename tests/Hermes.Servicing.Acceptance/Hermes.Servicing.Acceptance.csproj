@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>false</PublishSingleFile>
+    <PublishTrimmed>false</PublishTrimmed>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Hermes.Servicing.Acceptance.Model/Hermes.Servicing.Acceptance.Model.csproj" />
+    <AssemblyAttribute Include="System.Runtime.Versioning.SupportedOSPlatformAttribute">
+      <_Parameter1>windows</_Parameter1>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>Hermes.Servicing.WindowsTests</_Parameter1>
+    </AssemblyAttribute>
+    <ProjectReference Include="../../src/Hermes.Servicing/Hermes.Servicing.csproj" />
+    <ProjectReference Include="../../installer/windows/Hermes.Installer.Control/Hermes.Installer.Control.csproj" />
+    <ProjectReference Include="../../installer/windows/Hermes.Setup/Hermes.Setup.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="CrashControl.cs;OwnedCrashControl.cs;StepJobContainment.cs;CrashEventValues.cs;CrashEventQuery.cs;CrashEventControl.cs" />
+    <Compile Include="../../src/Hermes.Tray/InstalledProofContract.cs"
+             Link="ExistingDiagnostics/InstalledProofContract.cs" />
+    <Compile Include="../../src/Hermes.Tray/OwnerFixture.cs"
+             Link="ExistingDiagnostics/OwnerFixture.cs" />
+  </ItemGroup>
+</Project>

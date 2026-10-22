@@ -1,5 +1,6 @@
 import type { BatchReclassificationResponse, CategoryCount, DocumentSummary, DocumentDetail, IndexStats, ReclassificationOutcome, ReminderItem, Suggestion, TagCount } from '../types/hermes';
-import { request } from './http';
+import { request } from './http.ts';
+import { isChatSource, type ChatSource } from './chat.ts';
 
 const BASE = '';
 
@@ -13,13 +14,13 @@ export async function fetchDocuments(category: string, offset = 0, limit = 50): 
   return res.json();
 }
 
-export async function fetchDocumentDetail(id: number): Promise<DocumentDetail> {
-  const res = await request(`${BASE}/api/documents/${id}`);
+export async function fetchDocumentDetail(id: number, signal?: AbortSignal): Promise<DocumentDetail> {
+  const res = await request(`${BASE}/api/documents/${id}`, { signal });
   return res.json();
 }
 
-export async function fetchDocumentContent(id: number): Promise<{ markdown: string }> {
-  const res = await request(`${BASE}/api/documents/${id}/content`);
+export async function fetchDocumentContent(id: number, signal?: AbortSignal): Promise<{ markdown: string }> {
+  const res = await request(`${BASE}/api/documents/${id}/content`, { signal });
   return res.json();
 }
 
@@ -36,6 +37,9 @@ export async function fetchReminders(): Promise<ReminderItem[]> {
 export async function triggerSync(): Promise<void> {
   const response = await request(`${BASE}/api/sync`, { method: 'POST' });
   if (response.status !== 202) throw new Error('The service did not accept a sync request.');
+  const body: unknown = await response.json();
+  if (typeof body !== 'object' || body === null || !('status' in body)
+    || (body.status !== 'queued' && body.status !== 'coalesced')) throw new Error('The service did not acknowledge the sync request.');
 }
 
 export async function fetchSuggestions(): Promise<Suggestion[]> {
@@ -57,11 +61,7 @@ export async function fetchRecentDocuments(limit = 20): Promise<DocumentSummary[
 }
 
 export async function fetchTags(): Promise<TagCount[]> {
-  const res = await fetch(`${BASE}/api/tags`);
-  if (!res.ok) {
-    const cats = await fetchCategories();
-    return cats.map(c => ({ tag: c.category, count: c.count }));
-  }
+  const res = await request(`${BASE}/api/tags`);
   return res.json();
 }
 
@@ -78,12 +78,35 @@ export async function searchDocuments(params: {
   return res.json();
 }
 
+export async function searchWithModel(q: string, category: string, mode: 'semantic' | 'hybrid'): Promise<ChatSource[]> {
+  const params = new URLSearchParams({ q, mode, limit: '50' });
+  if (category) params.set('category', category);
+  const rows: unknown = await (await request(`/api/search?${params}`, {}, { capabilities: ['model.invoke'] })).json();
+  if (!Array.isArray(rows)) throw new Error('The Service returned invalid search results.');
+  return rows.map((row: Record<string, unknown>) => {
+    const result = {
+      documentId: row.id, savedPath: row.path, resultType: row.resultType, originalName: row.originalName,
+      category: row.category, sender: row.sender, subject: row.subject, snippet: row.snippet, extractedAmount: row.amount,
+    };
+    if (!isChatSource(result)) throw new Error('The Service returned an invalid search source.');
+    return result;
+  });
+}
+
 export async function addDocumentTag(docId: number, tag: string): Promise<void> {
   await request(`${BASE}/api/documents/${docId}/tags`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tag }),
+    body: JSON.stringify({ tags: [tag] }),
   });
+  await verifyDocumentTag(docId, tag);
+}
+
+async function verifyDocumentTag(docId: number, tag: string): Promise<void> {
+  const rows: unknown = await (await request(`/api/documents/${docId}/tags`)).json();
+  if (!Array.isArray(rows) || !rows.some(row => typeof row === 'object' && row !== null && row.tag === tag)) {
+    throw new Error(`The Service did not persist the tag for document ${docId}.`);
+  }
 }
 
 export async function removeDocumentTag(docId: number, tag: string): Promise<void> {
@@ -93,12 +116,17 @@ export async function removeDocumentTag(docId: number, tag: string): Promise<voi
 }
 
 export async function batchDocuments(documentIds: number[], action: "tag" | "star", value?: string): Promise<void> {
-  const res = await fetch(`${BASE}/api/documents/batch`, {
+  const response = await request(`${BASE}/api/documents/batch`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ docIds: documentIds, action, value }),
   });
-  if (!res.ok) throw new Error(`Batch ${action} failed`);
+  const body: unknown = await response.json();
+  if (typeof body !== 'object' || body === null || !('action' in body) || body.action !== action
+    || !('count' in body) || body.count !== documentIds.length) throw new Error('The Service did not confirm the batch action.');
+  if (action === 'tag') {
+    for (const id of documentIds) await verifyDocumentTag(id, value ?? '');
+  }
 }
 
 function isNullableString(value: unknown): value is string | null {
@@ -124,7 +152,7 @@ export async function reclassifyDocuments(
   documentIds: number[],
   category: string,
 ): Promise<BatchReclassificationResponse> {
-  const res = await fetch(`${BASE}/api/documents/batch`, {
+  const res = await request(`${BASE}/api/documents/batch`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

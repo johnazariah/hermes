@@ -20,6 +20,8 @@ const expected = new Map([
   ['smoke.spec.ts', 19], ['chat.spec.ts', 7], ['reclassification.spec.ts', 9],
   ['pipeline.spec.ts', 2], ['command-palette.spec.ts', 6],
   ['sync.spec.ts', 2],
+  ['access.spec.ts', 13],
+  ['preview.spec.ts', 3],
 ]);
 if (JSON.stringify([...counts].sort()) !== JSON.stringify([...expected].sort())) {
   throw new Error(`Browser inventory mismatch. Expected ${JSON.stringify([...expected])}; discovered ${JSON.stringify([...counts])}`);

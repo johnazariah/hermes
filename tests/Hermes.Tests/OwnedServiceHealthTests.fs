@@ -95,3 +95,37 @@ let ``Healthy response from another PID fails instead of being masked or retried
     withProbes
         (fun _ -> [ ready (ownedPid + 1) ])
         assertWrongPid
+
+let private earlyDiagnostic output errors =
+    earlyExitDiagnostic { Code = 78; Output = output; Errors = errors }
+
+[<Fact>]
+let ``Early child diagnostics retain exit and both captures while redacting authority`` () =
+    let credential = "synthetic-bearer-value"
+    let authorities =
+        [ "h1.synthetic.token"; String.replicate 43 "v"; "ABCD-EFGH-JKMN" ]
+    let output = String.concat " " ("output captured" :: authorities)
+    let message =
+        earlyDiagnostic (output + " Bearer " + credential)
+            ("error captured bEaReR " + credential)
+    Assert.Contains("exit code 78", message)
+    Assert.Contains("output captured", message)
+    Assert.Contains("error captured", message)
+    Assert.Contains("[redacted]", message)
+    credential :: authorities
+    |> List.iter (fun authority -> Assert.DoesNotContain(authority, message))
+
+[<Fact>]
+let ``Early child diagnostics bound both captures without leaking a truncated proof`` () =
+    let streamLimit = (4096 - (earlyDiagnostic "" "").Length) / 2
+    let prefix = "stdout retained "
+    let output =
+        prefix + String.replicate (streamLimit - prefix.Length - 30) "."
+        + String.replicate 43 "S" + "." + String.replicate 4096 "x"
+    let message =
+        earlyDiagnostic output ("stderr retained " + String.replicate 4096 "y")
+    Assert.InRange(message.Length, 1, 4096)
+    Assert.Contains(prefix, message)
+    Assert.Contains("stderr retained ", message)
+    Assert.Contains("[truncated]", message)
+    Assert.DoesNotContain(String.replicate 8 "S", message)

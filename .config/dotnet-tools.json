@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "isRoot": true,
+  "tools": {
+    "coverlet.console": {
+      "version": "6.0.2",
+      "commands": [
+        "coverlet"
+      ],
+      "rollForward": true
+    }
+  }
+}

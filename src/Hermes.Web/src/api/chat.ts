@@ -1,3 +1,5 @@
+import { request } from './http.ts';
+
 export interface ChatSource {
   documentId: number;
   resultType: 'document' | 'email';
@@ -23,7 +25,7 @@ function nullableString(value: unknown): value is string | null {
   return value === null || typeof value === 'string';
 }
 
-function source(value: unknown): value is ChatSource {
+export function isChatSource(value: unknown): value is ChatSource {
   return record(value) && typeof value.documentId === 'number'
     && Number.isSafeInteger(value.documentId) && value.documentId > 0
     && (value.resultType === 'document' || value.resultType === 'email')
@@ -32,6 +34,11 @@ function source(value: unknown): value is ChatSource {
     && nullableString(value.originalName) && nullableString(value.category)
     && nullableString(value.sender) && nullableString(value.snippet)
     && (value.extractedAmount === null || typeof value.extractedAmount === 'number');
+}
+
+export function sourceTitle(source: ChatSource): string {
+  return [source.originalName, source.subject].find(value => value?.trim())
+    ?? `${source.resultType === 'email' ? 'Email' : 'Document'} ${source.documentId}`;
 }
 
 function decodeFrame(frame: string): ChatEvent | null {
@@ -43,7 +50,7 @@ function decodeFrame(frame: string): ChatEvent | null {
   const value: unknown = JSON.parse(data);
   if (type === 'done' && record(value)) return { type: 'done' };
   if (type === 'results' && record(value)
-    && Array.isArray(value.results) && value.results.every(source)) {
+    && Array.isArray(value.results) && value.results.every(isChatSource)) {
     return { type: 'results', results: value.results };
   }
   if (type === 'answer' && record(value) && typeof value.answer === 'string') {
@@ -91,13 +98,14 @@ export async function chat(
   query: string,
   receive: (event: ChatEvent) => void,
   signal: AbortSignal,
+  aiEnabled = false,
 ): Promise<void> {
-  const response = await fetch('/api/chat', {
+  const response = await request('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, aiEnabled: true }),
+    body: JSON.stringify({ query, aiEnabled }),
     signal,
-  });
+  }, { searchOnly: !aiEnabled });
   if (!response.ok) throw new Error(`Chat request failed (HTTP ${response.status})`);
   if (!response.headers.get('content-type')?.startsWith('text/event-stream') || !response.body) {
     throw new Error('The service did not return a chat event stream');
