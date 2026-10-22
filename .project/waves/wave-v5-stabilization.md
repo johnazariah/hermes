@@ -100,6 +100,16 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Escalate the unchanged startup protocol blocker after the final control
+
+- **Evidence:** Published `02604a5`, run `39738837797`, job `119690882458`, artifact `12408986181`, passes 530 controls and 500/501 native cases without skips. The original restricted PowerShell exit-37 case still fails.
+- **Observed:** The new driver and arm-program hashes are present. SDK completion remains 1; the controller still refuses an unclassified line containing the exact read expression. Query kind/source remain unknown/unavailable, trimmed family is 0 and lexical mask is 128. No typed candidate, query completion, arm end or target continuation is accepted.
+- **Conclusion:** Neither literal execution nor the explicit optional delimiter resolved this protocol boundary. The three-cycle control is exhausted; no fourth variant, query rewrite or cause claim is authorised by these results.
+- **Escalation:** The actual first refusing line remains unidentified under numeric-only reporting. A bounded redacted-line exception requires an explicit owner decision; none was received. Keep that boundary and the original token, integrity, exit, source and acceptance gates intact.
+- **Stocktake:** All work is on draft PR #30, not main. Issues #16/#18/#28 remain open pending installed acceptance; #24 remains separately blocked. Whole-Medium routing/provider separation and installed authentication, servicing/recovery and preserving-uninstall proof are still required.
+- **Blockers:** `restricted-powershell-startup` is now explicitly blocked in session tracking rather than presented as active implementation. Windows supported tests, Tray and compatibility jobs pass; macOS supported tests were still running at the last read.
+- **Next:** Obtain authorised evidence that identifies the actual protocol refusal before making another semantic change. Do not mark the overall task complete or merge this candidate.
+
 ### 2026-10-22 - Publish the one-character typed-read delimiter control
 
 - **Changed:** One explicit semicolon terminates the unchanged typed printf expression before the nested conditional closes. Exact source constants and affected hashes follow that single byte. Test-only path-shim cleanup now proves restoration of the original cmdlet.
