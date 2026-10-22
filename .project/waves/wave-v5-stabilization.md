@@ -100,6 +100,16 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-23 - Qualify a fixed native producer without rewriting the query
+
+- **Grounding:** Pinned .NET 9 `EventReporter` explicitly reports managed FailFast as .NET Runtime/1025; it does not guarantee the Application Error/1000 record sought by this selector. The actual queued/manual/disabled-task WER metadata is not proof of the empty-query cause. The documented Win32 producer invokes WER if enabled but likewise does not promise record delivery.
+- **Changed:** Only event control selects a new exact native child route using the existing shared publication/adoption/identity/cleanup path. It preserves WER 227, ready/arm/EOF/cancellation and fixed null/null/zero native arguments, with refusal 66 if the native call returns. Original managed child/probe semantics and status allowlist remain unchanged.
+- **Admission:** An incorrect prompt premise about existing child caller-root proof was explicitly withdrawn. The new route copies only validated actual-parent admission metadata; original managed environment construction and all guards remain unchanged. Environment assertions are cooperative, not attestation.
+- **Review:** Fresh independent C# review approves the complete seven-file proposal and applied source. Mechanical application and the three new BOM normalisations are verified.
+- **Validation:** Portable and Windows-targeted builds and root build pass without warnings/errors. All 512 selected, 1,039 complete Servicing and 2,198 Core cases pass without skips. The exact five-assembly merge measures 16,479/18,952 lines (86.9512%), 16,188/25,680 branches (63.0374%), above unchanged gates. Original/metadata/event controls pass 985/3,120/3,372 and targeted workflow lints remain clean.
+- **Boundary:** No new native variant has run. No query/literal/window, global WER/host setting, privilege, original PowerShell requirement or report contract is relaxed.
+- **Next:** Publish this one producer-only control and require genuine exact/adjacent results before any original-event observation.
+
 ### 2026-10-23 - Ground the next check in empty-query and image-policy evidence
 
 - **Native measurement:** At `1cbc50f`, run `39859837812`, job `120107369986`, returns 78 successfully closed empty fixed-selector results, without native faults or reader calls. Open/Next maxima are 2,276/1,021 microseconds; total delay is 19,637,458 microseconds. Window expiry occurs before the next query, not after rejecting a returned result. This distinguishes repeated emptiness from a stalled call, not production/delivery from filtering semantics.

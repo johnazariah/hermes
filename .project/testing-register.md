@@ -2,6 +2,37 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Event-only native fault producer preserves the managed control
+
+The event probe selects one new fixed native child route through the shared
+published-image factory. Original managed child/probe dispatch, environment,
+guards, protocol and status allowlist remain unchanged. Both paths retain
+the same adoption, publication pins, retained identity and cleanup code.
+
+The native route installs and reads back WER policy 227 before READY,
+requires one exact ARM plus EOF and checks cancellation before invoking
+`RaiseFailFastException(null, null, 0)`. A returning native effect refuses
+with code 66; no alternate crash or managed fallback is attempted. New
+admission metadata comes only from the already-guarded actual parent and is
+copied into the cleared child environment. These are cooperative assertions,
+not caller-root attestation; no such proof is invented.
+
+Portable fake-native controls cover routing, admission, transport, WER
+readback, protocol, native arguments, refusal and cancellation. All **512
+focused cases**, **1,039 complete Servicing** and **2,198 Core** cases pass
+without failures/skips. Portable and Windows-targeted builds and root build
+pass without warnings/errors. The same five-assembly merge measures
+**16,479/18,952 lines (86.9512%)** and
+**16,188/25,680 branches (63.0374%)**, above unchanged gates. Original/
+metadata/event controls remain 985/3,120/3,372 passes. Fresh independent
+C# source review approves.
+
+This qualifies a producer experiment, not event delivery: managed FailFast's
+explicit .NET Runtime/1025 reporting does not guarantee Application Error/
+1000. The native API likewise offers no such guarantee. Query predicates,
+literals, window, WER settings, JSON/telemetry, host policy and acceptance
+remain unchanged; actual exact 1 / adjacent 0/0 proof is still required.
+
 ## Hosted WER policy is observed without changing it
 
 The same-job metadata step adds one guarded numeric advisory from seven

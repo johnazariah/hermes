@@ -937,6 +937,29 @@ public sealed class CrashControlTests
         Assert.Empty(start.StandardInputEncoding.GetPreamble());
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData((int)CrashCleanup.Dispose)]
+    public async Task Synthetic_native_status_keeps_owned_lifetime_and_base_report_contract(
+        int cleanup)
+    {
+        // Fake status only: this establishes neither native execution nor event delivery.
+        var child = new Child
+            { ActualExit = 0xc0000602u, CleanupFailure = (CrashCleanup)cleanup };
+        var source = new LiveImageSource(child);
+        var result = await RunWithProof(child, source);
+        using var document = JsonDocument.Parse(CrashReport.Encode(result));
+        Assert.Equal(cleanup == 0 ? 0 : 1, result.ExitCode);
+        Assert.Equal(0xc0000602u, result.Exit);
+        Assert.Equal(1, child.Writes);
+        Assert.Equal(28, document.RootElement.EnumerateObject().Count());
+        Assert.Equal(0, document.RootElement.GetProperty("nativeAcceptance").GetInt32());
+        Assert.Equal(0, document.RootElement.GetProperty("originalGatePassed").GetInt32());
+        Assert.Equal((2, 0), (source.ImageQueries, source.TerminalQueries));
+        Assert.True(source.HandleClosed);
+        AssertSettled(child, result);
+    }
+
     [Fact]
     public async Task Observed_dotnet9_failfast_status_is_bound_to_success_report()
     {

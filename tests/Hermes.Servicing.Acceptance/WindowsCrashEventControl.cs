@@ -4,10 +4,10 @@ namespace Hermes.Servicing.Acceptance;
 
 internal static partial class WindowsCrashControl
 {
-    // No second child factory/publication implementation. Start retains the
-    // existing published-image/source proof and the same real child handle.
+    // Only event control selects the native producer. Publication, adoption,
+    // retained identity and cleanup remain in the original shared start path.
     internal static CrashEventControlEffects EventEffects => new(
-        RequireEventContext, EventSchemaReceipt.Open, Start,
+        RequireEventContext, EventSchemaReceipt.Open, StartEvent,
         new(WindowsCrashEventQuery.EnumerateCompletedCandidate,
             TimeProvider.System, Task.Delay),
         PublishEventBase, PublishEventCorrelation, Console.Write);

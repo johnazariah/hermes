@@ -42,6 +42,10 @@ internal static partial class WindowsCrashControl
     }
 
     private static void Start(
+        Action<CrashOwnedChild> adopt, CancellationToken cancellationToken) =>
+        StartWithInfo(CreateStartInfo, adopt, cancellationToken);
+
+    private static void StartWithInfo(Func<string, ProcessStartInfo> createStartInfo,
         Action<CrashOwnedChild> adopt, CancellationToken cancellationToken)
     {
         RequireContext();
@@ -50,7 +54,7 @@ internal static partial class WindowsCrashControl
         var transferred = false;
         try
         {
-            StartPublished(publication, child =>
+            StartPublished(publication, createStartInfo, child =>
             {
                 adopt(child);
                 transferred = true;
@@ -64,10 +68,11 @@ internal static partial class WindowsCrashControl
     }
 
     private static void StartPublished(Publication publication,
+        Func<string, ProcessStartInfo> createStartInfo,
         Action<CrashOwnedChild> adopt, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var process = Process.Start(CreateStartInfo(publication.ImagePath))
+        var process = Process.Start(createStartInfo(publication.ImagePath))
             ?? throw new InvalidOperationException("Crash-control start failed.");
         // Open constructs only lazy capabilities; no native/stream observation
         // precedes adoption. All subsequent failures use coordinator cleanup.

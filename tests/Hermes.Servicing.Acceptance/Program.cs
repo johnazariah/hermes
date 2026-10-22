@@ -4,6 +4,10 @@ internal static class Program
 {
     private static async Task<int> Main(string[] arguments)
     {
+        if (arguments.FirstOrDefault() == CrashEventChild.Command)
+            return await CrashEventChild.DispatchAsync(
+                arguments, WindowsCrashControl.EventChildEffects, CancellationToken.None);
+
         // Native use of this exact route requires the parent's separately
         // reviewed fixed worker deadline and private-job supervisor.
         if (arguments.FirstOrDefault() == CrashEventControl.Command)
