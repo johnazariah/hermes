@@ -4,8 +4,8 @@
 
 ## Hosted crash-control wrapper binds publication and owns real capture tasks
 
-`Test-CrashControl.ps1` passes **319 portable controls on macOS**. The Windows
-selection omits the one non-Windows host-refusal assertion. Real owned
+`Test-CrashControl.ps1` passes **426 portable controls on macOS**. Windows
+omits the non-Windows host-refusal and guard-output checks. Real owned
 PowerShell fixtures exercise exact stdout, noise, contradictions, CRLF,
 invalid UTF-8, stderr, nonzero exit, overflow and timeout. Every actual read
 and exit-wait task is retained and observed after fixture teardown, including
@@ -18,6 +18,13 @@ links and stale receipts. A separate synthetic Git repository verifies
 matching HEAD/tree/digest and pinned index reads, dirty/staged/untracked
 compiler inputs, stale revisions, detached HEAD and loose/packed refs.
 Explicit Git pathspecs prevent PowerShell from expanding root-policy globs.
+
+Failure diagnostics emit only a fixed phase (0-12), exact-type family,
+closed internal reason (1-20) and UInt32 Win32 error. Wrapper unwrapping is
+bounded; unknowns stay zero. Controls reject injected text, paths, hashes,
+noncanonical reasons and excess wrappers, and verify actual flushed guard
+output with every capture task joined. These facts identify a refusing
+boundary without changing success or exporting raw exceptions.
 
 Workflow lint passes. Native execution is fixed to the published apphost,
 inside the reviewed current-step private job and an independently armed

@@ -49,6 +49,127 @@ function ConvertTo-ControlBytes {
     param([object]$Value)
     return ,[Text.Encoding]::UTF8.GetBytes(($Value | ConvertTo-Json -Compress -Depth 8))
 }
+function Assert-Diagnostic {
+    param([object]$Phase, [object]$Failure, [int]$ExpectedPhase, [int]$Family = 0,
+        [int]$Reason = 0, [uint32]$NativeError = 0)
+    $line = ConvertTo-HermesCrashDiagnostic -Phase $Phase -Failure $Failure
+    Assert-Control ($line -ceq (
+        "HERMES_CRASH_DIAGNOSTIC v=1 phase=$ExpectedPhase family=$Family reason=$Reason nativeError=$NativeError"))
+}
+
+function Test-CrashDiagnostics {
+    $privateText = "private/path`nHERMES_CRASH_DIAGNOSTIC v=1 phase=99 family=99`n$(
+        'a' * 64)`n$([char]27)[31m"
+    $unknown = [Exception]::new($privateText)
+    foreach ($phase in 0..12) { Assert-Diagnostic $phase $unknown $phase }
+    foreach ($phase in @(-1, 13, [int]::MaxValue, 1L, 1.0, $true, '1', $privateText, $null)) {
+        Assert-Diagnostic $phase $unknown 0
+    }
+    foreach ($reason in 1..20) {
+        $failure = [Management.Automation.RuntimeException]::new([string]$reason)
+        Assert-Diagnostic 5 $failure 5 1 $reason
+    }
+    foreach ($text in @($privateText, '0', '21', '01', '+1', ' 1', '1 ', "1`n", "1`r`n", '1.0', '1e0')) {
+        Assert-Diagnostic 5 ([Management.Automation.RuntimeException]::new($text)) 5
+    }
+    Assert-Diagnostic 4 $null 4
+    Assert-Diagnostic 4 ([pscustomobject]@{ Exception = [ComponentModel.Win32Exception]::new(5, $privateText) }) 4
+    foreach ($code in @(0, 5, 87, [int]::MaxValue, [int]::MinValue, -1)) {
+        $expected = [uint32]([long]$code -band 0xffffffffL)
+        Assert-Diagnostic 6 ([ComponentModel.Win32Exception]::new($code, $privateText)) 6 2 0 $expected
+    }
+    $cases = @(
+        @{ Error = [IO.IOException]::new($privateText); Family = 3 }
+        @{ Error = [UnauthorizedAccessException]::new($privateText); Family = 4 }
+        @{ Error = [IO.InvalidDataException]::new($privateText); Family = 5 }
+        @{ Error = [InvalidOperationException]::new($privateText); Family = 6 }
+        @{ Error = [ArgumentException]::new($privateText); Family = 7 }
+        @{ Error = [ArgumentNullException]::new('synthetic', $privateText); Family = 8 }
+        @{ Error = [ArgumentOutOfRangeException]::new('synthetic', $privateText); Family = 9 }
+        @{ Error = [NotSupportedException]::new($privateText); Family = 10 }
+        @{ Error = [PlatformNotSupportedException]::new($privateText); Family = 11 }
+        @{ Error = [TimeoutException]::new($privateText); Family = 12 }
+        @{ Error = [OperationCanceledException]::new($privateText); Family = 13 }
+        @{ Error = [Threading.Tasks.TaskCanceledException]::new($privateText); Family = 14 }
+        @{ Error = [Text.Json.JsonException]::new($privateText); Family = 15 }
+        @{ Error = [IO.FileNotFoundException]::new($privateText, 'private-file'); Family = 16 }
+        @{ Error = [IO.FileLoadException]::new($privateText, 'private-file'); Family = 17 }
+        @{ Error = [BadImageFormatException]::new($privateText); Family = 18 }
+        @{ Error = [TypeLoadException]::new($privateText); Family = 19 }
+        @{ Error = [MissingMethodException]::new($privateText); Family = 20 }
+        @{ Error = [Reflection.AmbiguousMatchException]::new($privateText); Family = 21 }
+        @{ Error = [Reflection.ReflectionTypeLoadException]::new(
+            [Type[]]::new(0), [Exception[]]::new(0), $privateText); Family = 22 }
+        @{ Error = [ObjectDisposedException]::new('private-object', $privateText); Family = 23 }
+        @{ Error = [Security.Cryptography.CryptographicException]::new($privateText); Family = 24 }
+        @{ Error = [Text.DecoderFallbackException]::new($privateText); Family = 25 }
+        @{ Error = [FormatException]::new($privateText); Family = 26 }
+        @{ Error = [OverflowException]::new($privateText); Family = 27 }
+        @{ Error = [Management.Automation.ParameterBindingException]::new($privateText); Family = 28 }
+        @{ Error = [Management.Automation.MethodException]::new($privateText); Family = 29 }
+        @{ Error = [AggregateException]::new($privateText); Family = 30 }
+    )
+    foreach ($case in $cases) { Assert-Diagnostic 9 $case.Error 9 $case.Family }
+    Assert-Diagnostic 9 ([IO.IOException]::new('18')) 9 3
+    $win32 = [ComponentModel.Win32Exception]::new(5, $privateText)
+    Assert-Diagnostic 6 ([Exception]::new($privateText, $win32)) 6
+    $nested = $win32
+    foreach ($depth in 1..9) {
+        $nested = [Reflection.TargetInvocationException]::new($privateText, $nested)
+        if ($depth -le 8) { Assert-Diagnostic 6 $nested 6 2 0 5 }
+        else { Assert-Diagnostic 6 $nested 6 }
+    }
+    $record = [Management.Automation.ErrorRecord]::new(
+        [Management.Automation.RuntimeException]::new($privateText, $nested.InnerException),
+        $privateText, [Management.Automation.ErrorCategory]::NotSpecified, $privateText)
+    $record.ErrorDetails = [Management.Automation.ErrorDetails]::new($privateText)
+    # Nine wrappers deliberately exceed the bounded unwrapping depth.
+    Assert-Diagnostic 6 $record 6
+    $record = [Management.Automation.ErrorRecord]::new(
+        [Reflection.TargetInvocationException]::new($privateText, $win32),
+        $privateText, [Management.Automation.ErrorCategory]::NotSpecified, $privateText)
+    Assert-Diagnostic 6 $record 6 2 0 5
+    try {
+        $method = [string].GetMethod('Substring', [Type[]]@([int]))
+        $null = $method.Invoke('synthetic', [object[]]@([int]9999))
+        Assert-Control $false
+    } catch { Assert-Diagnostic 6 $_ 6 9 }
+    try { Assert-HermesCrashHash 'synthetic-invalid'; Assert-Control $false }
+    catch { Assert-Diagnostic 2 $_ 2 1 2 }
+}
+
+function Test-CrashGuardDiagnostic {
+    $start = [Diagnostics.ProcessStartInfo]::new()
+    $start.FileName = [Environment]::ProcessPath
+    foreach ($argument in @('-NoLogo', '-NoProfile', '-NonInteractive', '-File',
+            (Join-Path $PSScriptRoot 'Invoke-CrashControl.ps1'))) { $start.ArgumentList.Add($argument) }
+    $start.UseShellExecute = $false
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    $process = [Diagnostics.Process]::new()
+    $process.StartInfo = $start
+    $operations = [Collections.Generic.List[Threading.Tasks.Task]]::new()
+    try {
+        if (-not $process.Start()) { throw '1' }
+        $capture = Invoke-HermesCrashCapture $process -DeadlineMilliseconds 20000 -Operations $operations
+        $expected = "HERMES_CRASH_WRAPPER v=1 status=1 published=0 nativeAcceptance=0`n" +
+            "HERMES_CRASH_DIAGNOSTIC v=1 phase=1 family=1 reason=1 nativeError=0`n"
+        Assert-Control ($capture.ExitCode -eq 1 -and $capture.Stderr.Length -eq 0)
+        Assert-Control ([Text.UTF8Encoding]::new($false, $true).GetString($capture.Stdout) -ceq $expected)
+    } finally {
+        if (-not $process.HasExited) { $process.Kill() }
+        if (-not $process.WaitForExit(5000)) { throw '2' }
+        $process.Dispose()
+        $joined = [Threading.Tasks.Task]::WhenAll($operations.ToArray())
+        try { $null = $joined.Wait(5000) } catch { }
+        foreach ($operation in $operations) {
+            if (-not $operation.IsCompleted) { throw '2' }
+            try { $null = $operation.GetAwaiter().GetResult() } catch { }
+        }
+        Assert-Control ($operations.Count -ge 3 -and $joined.IsCompleted)
+    }
+}
+
 function Invoke-ControlFixture {
     param([string]$Name, [bool]$Accepted)
     $start = [Diagnostics.ProcessStartInfo]::new()
@@ -254,6 +375,7 @@ trap {
     exit 1
 }
 try {
+    Test-CrashDiagnostics
     $imageHash = 'a' * 64
     $sourceHash = 'b' * 64
     $shape = [ordered]@{
@@ -469,7 +591,10 @@ try {
     Assert-Refused { Get-HermesCrashFileEntry $receiptPath 'publication.json' 4096 }
     Assert-Refused { Get-HermesCrashCheckout $root 'not-a-revision' }
     Test-CheckoutFixture $scratch
-    if (-not [OperatingSystem]::IsWindows()) { Assert-Refused { Assert-HermesCrashHost } }
+    if (-not [OperatingSystem]::IsWindows()) {
+        Assert-Refused { Assert-HermesCrashHost }
+        Test-CrashGuardDiagnostic
+    }
     Assert-HermesCrashReportAbsent $scratch
     $existingReport = Join-Path $scratch '.artifacts/installer-evidence/startup-crash-control.json'
     [IO.File]::WriteAllBytes($existingReport, $good)

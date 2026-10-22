@@ -3,19 +3,29 @@
 param()
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-$failureReported = $false
-trap {
-    if (-not $failureReported) {
-        [Console]::Out.WriteLine('HERMES_CRASH_WRAPPER v=1 status=1 published=0 nativeAcceptance=0')
-    }
-    exit 1
+$script:failureReported = $false
+# 0 bootstrap, 1 guard, 2 receipt, 3 checkout, 4 inventory, 5 load,
+# 6 begin, 7 start, 8 capture, 9 report, 10 recheck, 11 release, 12 output.
+$script:phase = 0
+function Write-CrashFailure {
+    param([object]$Failure)
+    if ($script:failureReported) { return }
+    $script:failureReported = $true
+    [Console]::Out.WriteLine('HERMES_CRASH_WRAPPER v=1 status=1 published=0 nativeAcceptance=0')
+    $diagnostic = "HERMES_CRASH_DIAGNOSTIC v=1 phase=$script:phase family=0 reason=0 nativeError=0"
+    try { $diagnostic = ConvertTo-HermesCrashDiagnostic -Phase $script:phase -Failure $Failure } catch { }
+    [Console]::Out.WriteLine($diagnostic)
+    [Console]::Out.Flush()
 }
+trap { Write-CrashFailure $_; exit 1 }
 
 Import-Module (Join-Path $PSScriptRoot 'Crash-Control.psm1') -Force -DisableNameChecking
+$script:phase = 1
 Assert-HermesCrashHost
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 if ($root -cne [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)) { throw '1' }
 Assert-HermesCrashReportAbsent $root
+$script:phase = 2
 $private = Join-Path $root '.artifacts/crash-control-private'
 $directory = Join-Path $private 'helpers/acceptance'
 $receiptPath = Join-Path $private 'publication.json'
@@ -30,9 +40,11 @@ $scope = $null
 $process = $null
 try {
     $receipt = Read-HermesCrashReceipt $receiptPath
+    $script:phase = 3
     $checkout = Get-HermesCrashCheckout $root $env:GITHUB_SHA
     Assert-HermesCrashReceiptBinding $receipt $checkout
     $sourcePins = Open-HermesCrashPins $root $receipt.sources
+    $script:phase = 4
     Import-Module (Join-Path $PSScriptRoot 'Servicing-Build.psm1') -Force -DisableNameChecking
     $inventoryPath = Join-Path $private 'helpers/acceptance.publish.txt'
     $inventoryEntry = Get-HermesCrashFileEntry $inventoryPath 'helpers/acceptance.publish.txt' 16777216
@@ -51,7 +63,9 @@ try {
     $bundlePins = Open-HermesCrashPins $directory $receipt.bundle
     Assert-HermesSdkFreeRuntime -Directory $directory -EntryName 'Hermes.Servicing.Acceptance'
     Assert-HermesCrashTree $directory $receipt.bundle
+    $script:phase = 5
     $begin = Import-HermesCrashSupervisor $directory $receipt.bundle
+    $script:phase = 10
     Assert-HermesCrashPins $sourcePins
     Assert-HermesCrashPins $sdkPins
     Assert-HermesCrashPins $bundlePins
@@ -61,8 +75,10 @@ try {
 
     # The workflow's independent step deadline is already armed. These synchronous
     # calls are NOT bounded by the cooperative capture stopwatch below.
+    $script:phase = 6
     $scope = $begin.Invoke($null, [object[]]::new(0))
     if ($null -eq $scope) { throw '1' }
+    $script:phase = 7
     $start = [Diagnostics.ProcessStartInfo]::new()
     $start.FileName = Join-Path $directory 'Hermes.Servicing.Acceptance.exe'
     $start.ArgumentList.Add('startup-crash-probe')
@@ -76,9 +92,12 @@ try {
     $process.StartInfo = $start
     if (-not $process.Start()) { throw '1' }
     $process.StandardInput.Close()
+    $script:phase = 8
     $capture = Invoke-HermesCrashCapture $process
+    $script:phase = 11
     $process.Dispose()
     $process = $null
+    $script:phase = 9
     $reportPath = Join-Path $root '.artifacts/installer-evidence/startup-crash-control.json'
     $entry = Get-HermesCrashFileEntry $reportPath 'startup-crash-control.json' 4096
     if ($entry.length -gt 4096) { throw '1' }
@@ -88,6 +107,7 @@ try {
     if ($image.Count -ne 1 -or $source.Count -ne 1) { throw '1' }
     $report = Assert-HermesCrashReport (Read-HermesCrashBytes $reportPath) $image[0].sha256 $source[0].sha256
     Assert-HermesCrashOutcome $capture $report
+    $script:phase = 10
     Assert-HermesCrashAssemblies $directory $receipt.bundle
     Assert-HermesCrashTree $directory $receipt.bundle
     foreach ($pins in @($sourcePins, $sdkPins, $bundlePins, $receiptPins, $reportPins, $inventoryPins)) {
@@ -95,6 +115,7 @@ try {
     }
     [Array]::Clear($capture.Stdout)
     # No more launches, outstanding I/O, process handles or publication pins.
+    $script:phase = 11
     Close-HermesCrashPins $reportPins
     Close-HermesCrashPins $bundlePins
     Close-HermesCrashPins $sdkPins
@@ -105,8 +126,7 @@ try {
     $scope.Dispose()
     $scope = $null
 } catch {
-    $failureReported = $true
-    [Console]::Out.WriteLine('HERMES_CRASH_WRAPPER v=1 status=1 published=0 nativeAcceptance=0')
+    Write-CrashFailure $_
     throw
 } finally {
     # Failure/abandonment terminates THIS private job, including this PowerShell.
@@ -120,6 +140,7 @@ try {
     Close-HermesCrashPins $receiptPins
     Close-HermesCrashPins $inventoryPins
 }
+$script:phase = 12
 if ([string]::IsNullOrWhiteSpace($env:GITHUB_OUTPUT)) { throw '1' }
 [IO.File]::AppendAllText($env:GITHUB_OUTPUT, "published=1`n", [Text.UTF8Encoding]::new($false))
 [Console]::Out.WriteLine('HERMES_CRASH_WRAPPER v=1 status=0 published=1 nativeAcceptance=0')

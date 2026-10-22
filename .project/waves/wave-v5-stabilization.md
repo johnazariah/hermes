@@ -100,6 +100,22 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Bound wrapper failure facts and verify both supported hosts
+
+- **Changed:** The wrapper flushes one closed numeric phase/failure row before its assigned-scope cleanup. Classification uses a fixed exact-type family, bounded wrapper depth, exact internal reasons and UInt32 Win32 codes; unknowns remain zero. Success, source pins, report validation and upload eligibility are unchanged.
+- **Validation:** Parent source review, all 426 macOS portable controls and workflow lint pass. Actual guard-output fixtures prove the diagnostic row and join every capture task. The wrapper author's third cycle is complete.
+- **Hosted evidence:** At C# head `5f60e3c`, run `39781578457`, supported Windows job `119833900720` and macOS job `119833900273` both succeed. Windows executes 483 Servicing and 2,187 selected Core cases without skips; the unchanged coverage gate reports 15,347/17,759 lines (86.4182%) and 15,517/25,022 branches (62.0134%). The installer job still fails its native gate and diagnostic; publication remains blocked.
+- **Blockers:** The first fixed-control wrapper failed after successful publication without an identifying phase. No actual control success or PowerShell cause is established.
+- **Next:** Publish these failure facts and inspect the exact refusing phase on disposable hosted Windows.
+
+### 2026-10-22 - Verify hosted publication and retain the control refusal
+
+- **Evidence:** Published wrapper `86d631c`, hosted run `39782056322`, job `119835528294`. All 318 selected Windows portable controls pass. Fresh current-source private publication succeeds in 74 seconds.
+- **Observed:** The fixed wrapper exits 1 after seven seconds and reports `published=0`, `nativeAcceptance=0`. Upload is correctly skipped. The numeric row does not identify whether admission, helper launch, capture or report validation failed; no control success or cause is established.
+- **Changed:** The wrapper author is adding bounded closed phase/failure facts before assigned-scope abort. No raw exception, stack, path or child output is authorised for export.
+- **Blockers:** Actual containment/control completion and the original PowerShell/installed lifecycle gates remain open. Exact-head supported CI is still running.
+- **Next:** Publish the closed failure facts and identify the actual refusing boundary before changing its behaviour.
+
 ### 2026-10-22 - Publish the fixed source-bound hosted crash supervisor
 
 - **Changed:** Five PowerShell/workflow files build a fresh complete helper bundle, bind SDK inventory and checkout inputs, load matching assemblies, enter the reviewed current-step private job and launch only the fixed probe. An independent two-minute worker deadline precedes entry; successful completion requires actual helper exit, joined bounded capture, exact report/source agreement and no remaining children.

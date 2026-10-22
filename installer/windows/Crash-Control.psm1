@@ -2,6 +2,51 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+function ConvertTo-HermesCrashDiagnostic {
+    param([object]$Phase, [object]$Failure)
+    if ($Phase -isnot [int] -or $Phase -lt 0 -or $Phase -gt 12) { $Phase = 0 }
+    $family = 0
+    $reason = 0
+    [uint32]$nativeError = 0
+    $exception = if ($Failure -is [Management.Automation.ErrorRecord]) { $Failure.Exception }
+        elseif ($Failure -is [Exception]) { $Failure }
+        else { $null }
+    $wrappers = @([Reflection.TargetInvocationException], [Management.Automation.MethodInvocationException],
+        [Management.Automation.CmdletInvocationException], [Management.Automation.RuntimeException])
+    for ($depth = 0; $depth -lt 8 -and $null -ne $exception; $depth++) {
+        if ($wrappers -notcontains $exception.GetType() -or $null -eq $exception.InnerException) { break }
+        $exception = $exception.InnerException
+    }
+    # Ordinal family IDs follow this fixed exact-type whitelist. No type name,
+    # message, HRESULT, ErrorRecord text, target or child output is exported.
+    $known = @(
+        [Management.Automation.RuntimeException], [ComponentModel.Win32Exception],
+        [IO.IOException], [UnauthorizedAccessException], [IO.InvalidDataException], [InvalidOperationException],
+        [ArgumentException], [ArgumentNullException], [ArgumentOutOfRangeException],
+        [NotSupportedException], [PlatformNotSupportedException], [TimeoutException],
+        [OperationCanceledException], [Threading.Tasks.TaskCanceledException], [Text.Json.JsonException],
+        [IO.FileNotFoundException], [IO.FileLoadException], [BadImageFormatException], [TypeLoadException],
+        [MissingMethodException], [Reflection.AmbiguousMatchException], [Reflection.ReflectionTypeLoadException],
+        [ObjectDisposedException], [Security.Cryptography.CryptographicException], [Text.DecoderFallbackException],
+        [FormatException], [OverflowException], [Management.Automation.ParameterBindingException],
+        [Management.Automation.MethodException], [AggregateException]
+    )
+    if ($null -ne $exception) {
+        for ($index = 0; $index -lt $known.Count; $index++) {
+            if ($exception.GetType() -eq $known[$index]) { $family = $index + 1; break }
+        }
+        if ($family -eq 1) {
+            $constants = @('1', '2', '3', '4', '5', '6', '7', '8', '9', '10',
+                '11', '12', '13', '14', '15', '16', '17', '18', '19', '20')
+            $reason = 1 + [Array]::IndexOf($constants, $exception.Message)
+            if ($reason -eq 0) { $family = 0 }
+        } elseif ($family -eq 2) {
+            $nativeError = [uint32]([long]$exception.NativeErrorCode -band 0xffffffffL)
+        }
+    }
+    return "HERMES_CRASH_DIAGNOSTIC v=1 phase=$Phase family=$family reason=$reason nativeError=$nativeError"
+}
+
 function Assert-HermesCrashHost {
     if (-not [OperatingSystem]::IsWindows() -or [Environment]::Version.Major -lt 9 `
         -or -not [Environment]::UserInteractive -or $env:OS -cne 'Windows_NT' `
@@ -505,4 +550,4 @@ Export-ModuleMember -Function Assert-HermesCrashHost, Assert-HermesCrashHash, As
     Assert-HermesCrashTree, Read-HermesCrashInventory, Get-HermesCrashCheckout, Read-HermesCrashBytes,
     Read-HermesCrashReceipt, Assert-HermesCrashReceiptBinding, Assert-HermesCrashReport, Invoke-HermesCrashCapture,
     Assert-HermesCrashOutcome, Assert-HermesCrashReportAbsent, Import-HermesCrashSupervisor,
-    Assert-HermesCrashAssemblies
+    Assert-HermesCrashAssemblies, ConvertTo-HermesCrashDiagnostic
