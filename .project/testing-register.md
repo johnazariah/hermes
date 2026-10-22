@@ -2,6 +2,29 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## SQLite fixture cleanup is proved while real pool leases remain owned
+
+The pool-ownership regression keeps two real connections leased while A's
+pool is cleared. A's pending-retention flag must change, its actual native
+handle must close on return, and a nonpooled connection must read persisted
+data. B's flag must remain unchanged before/after A's cleanup, and B must
+still execute SQL. Deliberately clearing both synthetic pools must trigger
+the specific collateral-eviction assertion.
+
+The test-only probe validates the pinned SQLite 9.0.4 private instance
+Boolean `_canBePooled`, failing closed on missing/incompatible members.
+The provider's `CanBePooled` property is deliberately not used: it also tests
+outer lease ownership and is false while leased. Pinned implementation
+source confirms `DoNotPool` and `ClearPool` semantics. No idle pooled-handle
+identity or timer assumption supplies acceptance.
+
+Reflow cleanup clears only its exact `reflow.sqlite` pool after both owners
+are disposed; the global `ClearAllPools` call is removed. All 67 selected
+instrumented drain/Reflow cases and all 2,191 Core tests pass without skips.
+Independent F# review approves. The concrete collateral-clear path and old
+unowned-handle assumption are corrected; the particular historical Windows
+failure's mechanism and current Windows acceptance still require evidence.
+
 ## Hosted crash-control wrapper binds publication and owns real capture tasks
 
 `Test-CrashControl.ps1` passes **985 portable controls on macOS**. Windows

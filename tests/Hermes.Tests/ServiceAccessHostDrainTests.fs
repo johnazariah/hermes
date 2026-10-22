@@ -2,6 +2,7 @@
 
 open System
 open System.IO
+open System.Reflection
 open System.Threading.Tasks
 open Microsoft.Data.Sqlite
 open Xunit
@@ -121,19 +122,78 @@ let private verifyNormal (root: string) : Task<unit> =
 let ``normal request drain permits quiescence and real database disposal`` () =
     withDirectory verifyNormal
 
-let private pooledHandle root =
+let private collateralPoolFailure =
+    "Fixture cleanup invalidated another fixture's active SQLite pool lease."
+
+let private requirePoolMember value =
+    value |> Option.ofObj
+    |> Option.defaultWith (fun () ->
+        invalidOp $"SQLite pool probe unavailable: {typeof<SqliteConnection>.Assembly.FullName}")
+
+// SQLite 9.0.4 test-only probe: DoNotPool's flag, independent of active lease ownership.
+let private poolRetentionFlag (connection: SqliteConnection) =
+    let flags = BindingFlags.Instance ||| BindingFlags.NonPublic
+    let field = typeof<SqliteConnection>.GetField("_innerConnection", flags) |> requirePoolMember
+    let inner = field.GetValue(connection) |> requirePoolMember
+    let flag = inner.GetType().GetField("_canBePooled", flags) |> requirePoolMember
+    if flag.FieldType <> typeof<bool> || flag.IsStatic || not flag.IsPrivate then
+        invalidOp $"SQLite pool probe requires a private instance Boolean: {typeof<SqliteConnection>.Assembly.FullName}"
+    fun () -> flag.GetValue(inner) |> unbox<bool>
+
+let private scalar (connection: SqliteConnection) sql =
+    use command = connection.CreateCommand()
+    command.CommandText <- sql
+    command.ExecuteScalar()
+
+let private assertPersisted root =
+    use connection = new SqliteConnection($"Data Source={databasePath root};Pooling=False")
+    connection.Open()
+    let value = scalar connection "SELECT value FROM fixture_pool_proof" |> unbox<int64>
+    Assert.Equal<int64>(52L, value)
+    Assert.True(File.Exists(databasePath root))
+
+let private verifyPoolClear clear (canRetain: unit -> bool) root : Task<unit> =
     use connection = Database.openConnection (databasePath root)
-    let handle = connection.Handle
+    let canPool = poolRetentionFlag connection
+    let handle =
+        connection.Handle |> Option.ofObj
+        |> Option.defaultWith (fun () ->
+            invalidOp "An open fixture SQLite connection must expose its native handle.")
     Assert.NotNull(handle)
-    handle
+    Assert.False(handle.IsClosed)
+    scalar connection "CREATE TABLE fixture_pool_proof AS SELECT 52 AS value" |> ignore
+    Assert.True(canPool())
+    Assert.True(canRetain(), collateralPoolFailure)
+    clear root
+    Assert.False(canPool())
+    Assert.True(canRetain(), collateralPoolFailure)
+    connection.Close()
+    Assert.True(handle.IsClosed)
+    assertPersisted root
+    Task.FromResult(())
+
+let private verifyPoolBoundary clear otherRoot : Task<unit> =
+    task {
+        use retained = Database.openConnection (databasePath otherRoot)
+        let canRetain = poolRetentionFlag retained
+        Assert.True(canRetain(), collateralPoolFailure)
+        do! withDirectory (verifyPoolClear (fun root -> clear root otherRoot) canRetain)
+        Assert.True(canRetain(), collateralPoolFailure)
+        Assert.Equal<int64>(53L, scalar retained "SELECT 53" |> unbox<int64>)
+    }
+
+let private clearBothFixturePools root otherRoot =
+    clearFixturePool root
+    clearFixturePool otherRoot
 
 [<Fact>]
 let ``fixture cleanup releases its own SQLite pool without clearing another fixture pool`` () =
-    withDirectory (fun otherRoot ->
-        task {
-            let retained = pooledHandle otherRoot
-            do! withDirectory (fun root ->
-                pooledHandle root |> ignore
-                Task.FromResult(()))
-            Assert.Same(retained, pooledHandle otherRoot)
-        })
+    task {
+        do! withDirectory (verifyPoolBoundary (fun root _ -> clearFixturePool root))
+        // Deliberate collateral eviction, confined to these two synthetic fixtures.
+        let! rejected =
+            Assert.ThrowsAsync<Xunit.Sdk.TrueException>(
+                Func<Task>(fun () ->
+                    withDirectory (verifyPoolBoundary clearBothFixturePools) :> Task))
+        Assert.Contains(collateralPoolFailure, rejected.Message)
+    }

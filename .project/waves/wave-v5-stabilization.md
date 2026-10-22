@@ -100,6 +100,15 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-23 - Replace idle-handle identity with owned SQLite pool proof
+
+- **Evidence:** Supported Windows job `119874095957` at `cc58b32` fails the pool-cleanup test's `Assert.Same`: the old native handle is closed and a new handle is returned. The old helper disposed its connection before returning the handle; Reflow cleanup also contained a concrete global pool-clear path. Which mechanism caused that particular failure is not established.
+- **Changed:** Both synthetic connections remain actively leased across the ownership assertion. A's scoped eviction, native closure and persisted data are verified; B's pending-retention flag and SQL usability remain intact. An explicit two-fixture collateral-clear negative control must fail. Reflow now clears only its own exact pool.
+- **Provider boundary:** Official pinned SQLite 9.0.4 source confirms `_canBePooled`/`DoNotPool` semantics. The test-only reflection probe validates a private instance Boolean and fails closed. It does not use the live-ineligible `CanBePooled` property. Proper Option handling narrows the nullable native handle.
+- **Validation:** Fresh independent F# review approves. Root build passes with zero warnings/errors; 67 selected instrumented drain/Reflow cases and all 2,191 Core tests pass without skips. The combined native coverage gates pass unchanged.
+- **Blockers:** The supported Windows failure still requires exact-head verification; no retry, global clear, skipped assertion or relaxed pool-ownership claim is accepted.
+- **Next:** Push this fixture repair with the reviewed control lifetime correction and inspect both hosted results.
+
 ### 2026-10-23 - Bind terminal snapshots to verified live-image evidence
 
 - **Changed:** The measured retained-identity policy stores the first live image proof before arming, bound to the same open handle reference and PID/birth key. Terminal reads require successful completion of that reader's actual wait, fresh native exit facts and rechecked image/source pins. They do not call the post-exit image API or catch its failure as success.

@@ -239,7 +239,9 @@ let private freshFileDatabases () : Task<FileDatabases> =
 let private cleanupFileDatabases (databases: FileDatabases) : unit =
     databases.Observer.dispose ()
     databases.Writer.dispose ()
-    Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+    let path = Path.Combine(databases.Directory, "reflow.sqlite")
+    use pool = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}")
+    Microsoft.Data.Sqlite.SqliteConnection.ClearPool(pool)
     if Directory.Exists(databases.Directory) then
         Directory.Delete(databases.Directory, true)
 
