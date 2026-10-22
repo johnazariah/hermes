@@ -26,7 +26,7 @@ function New-HermesStartupState {
         CommandPins = @{}; SourcePins = @{}
         ScopedEchoes = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
         ScopedPublication = $null; ScopedInvocation = $null; ExtensionSource = $null
-        ScopedPhase = 0; ScopedStages = 0
+        ScopedPhase = 0; ScopedStages = 0; ScopedEvaluator = 0
         ScopedFault = @{ Reason = 0; Phase = 0; Block = 0; Held = 0; Echo = 0 }
         ScopedStageFault = @{ Reason = 0; Shape = 0 }
         ScopedQueryFault = @{ Kind = 0; Source = 0; Lexical = 0; TrimKind = 0 }
@@ -1764,6 +1764,29 @@ function Add-HermesStartupScopedLine {
     Add-HermesStartupSdkError $State $Line
     Add-HermesStartupChainReadback $State $Line
     Add-HermesStartupFilterReadback $State $Line
+    if ($Line -ceq 'Current expression evaluator: MASM - Microsoft Assembler expressions' `
+        -or $Line -ceq 'Current expression evaluator: C++ - C++ source expressions') {
+        # First exact stdout fact in the bound post-SDK arm frame only.
+        # Never a typed value, stage completion, evaluator-cause or action gate.
+        # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/-expr--choose-expression-evaluator-
+        if ($State.DiagnosticMode -ceq 'ScopedCreateV1' -and $State.ScopedEvaluator -eq 0 `
+            -and $State.ScopedFault.Reason -eq 0 -and $State.ScopedStageFault.Reason -eq 0 `
+            -and $State.ScopedQueryFault.Kind -eq 0 -and $State.Unknown -eq 0 `
+            -and $State.Error -eq 0 -and $State.Timeout -eq 0 -and $State.CleanupFault -eq 0 `
+            -and $State.NativeRowsFault -eq 0 -and -not $State.TraceFaulted `
+            -and $State.DebuggerKillRequested -eq 0 -and -not $wasStopped -and -not $State.Stopped `
+            -and -not $State.InputClosed -and -not $State.Out.End -and -not $State.Out.Faulted -and -not $State.Err.Faulted `
+            -and -not $State.Acked -and -not $State.ContinueAttempted -and $null -eq $State.Final `
+            -and $State.DebuggerExitAvailable -eq 0 `
+            -and $null -eq $State.Failure -and $State.ScopedStages -eq 1 `
+            -and $null -ne $State.Inventory.Block -and $State.Inventory.Block.Kind -eq 7 `
+            -and $State.Inventory.Block.Stages -eq 1 -and $State.Inventory.Block.Flags -eq -1 `
+            -and (Get-HermesStartupObservation $State 'SdkCommandErrors' 15) -eq 0 `
+            -and (Test-HermesStartupScopedArmFrame $State)) {
+            $State.ScopedEvaluator = if ($Line -ceq 'Current expression evaluator: MASM - Microsoft Assembler expressions') { 1 } else { 2 }
+        }
+        return
+    }
     if ($Line.Contains('.printf', [StringComparison]::Ordinal)) {
         $echo = $Line -creplace '\A[0-9]{1,3}:[0-9a-f]{3}> ', ''
         if (-not $State.ScopedEchoes.Contains($echo)) {
@@ -2399,6 +2422,9 @@ function New-HermesStartupReport {
         # Completion bits are bound earlier observations, never flag evidence:
         # 1 SDK returned; 2 query returned (possibly without an available field).
         $selected.scopedStages = Get-HermesStartupInventoryNumber $State.ScopedStages 3
+        # Exact .expr output after accepted SDK1: 0 unavailable, 1 MASM, 2 C++.
+        # Advisory only; neither startup argv nor command echo is readback.
+        $selected.scopedEvaluator = Get-HermesStartupInventoryNumber $State.ScopedEvaluator 2
         $selected.scopedPhase = Get-HermesStartupInventoryNumber $State.ScopedPhase 15
         $selected.scopedFirstReason = Get-HermesStartupInventoryNumber $State.ScopedFault.Reason 15
         $selected.scopedFirstPhase = Get-HermesStartupInventoryNumber $State.ScopedFault.Phase 15

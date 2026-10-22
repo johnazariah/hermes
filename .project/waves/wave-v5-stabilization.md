@@ -100,6 +100,24 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Publish the post-SDK evaluator binding and exact readback
+
+- **Changed:** One fixed `.expr /s masm` command establishes private debugger parsing immediately after SDK return and before the unchanged typed query. A frozen closed scalar records exact documented stdout readback only within the valid SDK-completed arm frame.
+- **Validation:** Parent complete source/test review approves the second independently authored evaluator cycle. All 538 controls and installer static controls pass. Root build has zero warnings/errors; all 2,184 tests pass without skips.
+- **Preserved:** Removing exactly the configuration insertion recovers prior whole driver/arm hashes. Four metadata goldens, typed query bytes, frame hash, literal input, token/console/permission facts and all authority predicates are unchanged.
+- **Evidence:** Real process transport now carries the fixed readback before scalar fixtures. Echo/forgery/context/stderr/late/fault/budget controls cannot supply readback. Readback is advisory and never supplies typed values, completions or continuation; maximum reports remain below 4,096 bytes.
+- **Blockers:** Actual post-SDK evaluator, protocol refusal, genuine PowerShell exit 37 and installed Medium acceptance remain unresolved.
+- **Next:** Inspect exact-source Windows readback and query facts without inferring the previous evaluator state or a loader cause.
+
+### 2026-10-22 - Bind the evaluator at the typed-read boundary
+
+- **Evidence:** Published `5246c80`, run `39741809646`, job `119700576760`, artifact `12410301571`, reaches the new fixed startup configuration and SDK completion 1, then retains the same unknown query refusal and lexical read-expression bit. Startup pinning did not resolve the protocol boundary.
+- **Decision:** Establish the private debugger's MASM dialect immediately after opaque SDK extension execution and before the unchanged typed query, using one fixed `.expr /s masm` command. Retain the startup environment/argv correction.
+- **Observation:** Capture only the documented exact evaluator readback as a closed advisory scalar within the already-bound SDK-completed arm frame. It must not supply typed flags, completion or continuation authority.
+- **Boundary:** No C++ expression, four-byte guard, SDK operation, query marker, literal input or native token/console/permission contract changes. The previous actual default and its role in the failure remain unknown.
+- **Blockers:** Actual post-SDK evaluator, typed readback, genuine PowerShell execution and installed Medium acceptance remain unresolved.
+- **Next:** Review the point-of-use configuration and exact readback controls before another disposable Windows run.
+
 ### 2026-10-22 - Publish the fixed debugger-evaluator bootstrap
 
 - **Changed:** The private CDB child clears inherited `_NT_EXPR_EVAL` and receives a fixed `-ee masm` pair before startup/target arguments. The host environment, generated programs, query expressions and target authority remain unchanged.

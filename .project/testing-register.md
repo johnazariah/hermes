@@ -2,6 +2,27 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## The typed-read boundary fixes the private debugger evaluator
+
+All **538 controls** pass, retaining 533 prior intents and adding five
+point-of-use/readback groups. One fixed `.expr /s masm` command follows the
+SDK stage and precedes the byte-identical typed query. Four metadata programs,
+frame hash, literal input and all authority predicates are unchanged.
+
+Exact documented stdout readback is advisory: 0 unavailable, 1 MASM, 2 C++.
+It records only once within the already-bound, SDK-completed arm frame.
+Echoes, altered text, stderr, wrong frames and late/faulted/budget-exhausted
+input cannot supply it. It never supplies a typed field, completion or
+continuation. Reports retain frozen values without reparsing and remain
+below 4,096 bytes.
+
+Removing exactly the new command/source insertion recovers prior full arm
+and driver hashes; earlier bootstrap/delimiter proofs remain. Real process
+transport includes fixed readback before actual scalar fixtures. Missing
+fields and unchanged query failures stay blocking regardless of readback.
+Installer static controls pass; actual Windows evaluator behaviour remains
+pending.
+
 ## Debugger bootstrap pins the intended MASM expression dialect
 
 All **533 controls** pass, retaining 530 prior intents and adding three
