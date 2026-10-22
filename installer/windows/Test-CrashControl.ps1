@@ -386,14 +386,16 @@ function Test-CrashControlFacts {
     foreach ($name in @('wrapper-report', 'wrapper-early', 'wrapper-late', 'wrapper-missing', 'wrapper-malformed')) {
         $capture = Invoke-ControlFixture $name $false -PassThru
         $phase = switch ($name) { 'wrapper-early' { 8 } 'wrapper-late' { 10 } default { 9 } }
-        $expected = "HERMES_CRASH_WRAPPER v=1 status=1 published=0 nativeAcceptance=0`n" +
-            "HERMES_CRASH_DIAGNOSTIC v=1 phase=$phase family=1 reason=12 nativeError=0`n"
+        # Wrapper Console.WriteLine uses platform newlines; the helper protocol remains exact LF.
+        $newline = [Environment]::NewLine
+        $expected = "HERMES_CRASH_WRAPPER v=1 status=1 published=0 nativeAcceptance=0$newline" +
+            "HERMES_CRASH_DIAGNOSTIC v=1 phase=$phase family=1 reason=12 nativeError=0$newline"
         if ($name -ceq 'wrapper-report') {
-            $expected += "HERMES_CRASH_CONTROL_FACTS v=1 available=1 status=1 exit=4294967295 error=11 cleanupError=255 reportError=1 nativeAcceptance=0`n"
+            $expected += "HERMES_CRASH_CONTROL_FACTS v=1 available=1 status=1 exit=4294967295 error=11 cleanupError=255 reportError=1 nativeAcceptance=0$newline"
         } elseif ($name -ceq 'wrapper-malformed') {
-            $expected += "HERMES_CRASH_CONTROL_FACTS v=1 available=0 status=0 exit=0 error=0 cleanupError=0 reportError=0 nativeAcceptance=0`n"
+            $expected += "HERMES_CRASH_CONTROL_FACTS v=1 available=0 status=0 exit=0 error=0 cleanupError=0 reportError=0 nativeAcceptance=0$newline"
         }
-        $expected += "HERMES_CRASH_FIXTURE_DISPOSE v=1`n"
+        $expected += "HERMES_CRASH_FIXTURE_DISPOSE v=1$newline"
         Assert-Control ($capture.ExitCode -eq 1 -and $capture.Stderr.Length -eq 0 `
             -and [Text.UTF8Encoding]::new($false, $true).GetString($capture.Stdout) -ceq $expected)
     }

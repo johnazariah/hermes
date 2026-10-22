@@ -33,6 +33,9 @@ closed numeric ranges are mandatory. Malformed or incomplete input produces
 only `available=0`; accepted fields are reconstructed rather than echoed.
 Real process fixtures verify availability, refusal and flush-before-disposal
 ordering, while success and earlier/later phases emit no extra row.
+Wrapper fixture expectations use the platform newline emitted by
+`Console.WriteLine`; all five exact-output assertions remain. The helper
+protocol still requires LF and rejects CRLF.
 
 Workflow lint passes. Native execution is fixed to the published apphost,
 inside the reviewed current-step private job and an independently armed

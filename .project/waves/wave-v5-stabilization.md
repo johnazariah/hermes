@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Correct wrapper fixture newlines without relaxing the helper protocol
+
+- **Evidence:** At `b54e466`, Windows run `39785785768`, job `119848496417`, stops in portable controls: 729 pass and five wrapper-output assertions fail. Publication and native execution are skipped.
+- **Changed:** Source counter mapping identifies exactly the five wrapper fixture assertions. Forced-CRLF captures reproduce their newline mismatch with exit 1, empty stderr and settled tasks. Expected wrapper lines now use `Environment.NewLine`; fields, order and exactly-once assertions remain exact. The helper's LF grammar and CRLF refusal are unchanged.
+- **Validation:** Parent reviews the complete one-file repair; all 738 macOS controls, workflow lint and diff hygiene pass.
+- **Blockers:** Windows must confirm this repair before the projected helper refusal can be observed.
+- **Next:** Publish the test-only fix and inspect the typed control facts.
+
 ### 2026-10-22 - Project the fixed helper summary after report refusal
 
 - **Changed:** A fresh author adds an advisory projection only when phase-9 failure retains completed capture. Exact UTF-8 grammar, actual exit/status coherence, settled tasks, empty stderr and closed numeric fields precede reconstruction; unavailable data becomes a fixed `available=0` row. Raw text is never echoed.
