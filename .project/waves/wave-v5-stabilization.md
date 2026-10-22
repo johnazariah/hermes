@@ -100,6 +100,24 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Publish the fixed literal arming-input control
+
+- **Changed:** The sole Arm input uses literal-line `$$<` execution of the same fixed canonical filename. There are no script arguments, additional commands or mode selectors. Target/Side inputs, exact-source echo handling, all five program bytes and driver bytes are unchanged.
+- **Validation:** Parent complete source/test review approves the finite input change. All 524 controls and installer static controls pass. Real BCL pipes cover filename spaces, pending-task identity, replay refusal, target continuation and EOF. Root build passes with zero warnings/errors; all 2,184 tests pass without skips.
+- **Coverage:** Actual code-head `38d4503` report `12405604020` retains the same five assemblies: 14,739/17,137 lines (86.0%) and 15,193/24,668 branches (61.58%). The 85%/60% gates are unchanged.
+- **Preserved:** SDK/query text, four-byte/flag-bit requirements, target/receipt/source/stopped proof, first-fault observations, output limits and owned cleanup remain mandatory.
+- **Blockers:** Literal-mode Windows behaviour, typed readback, PowerShell exit 37 and installed Medium acceptance remain unproved.
+- **Next:** Exercise the exact source on disposable hosted Windows and compare SDK/query completion and refusal facts.
+
+### 2026-10-22 - Isolate literal-line execution without changing the arming program
+
+- **Decision:** Continue within numeric-only reporting by testing the same pinned arming program with documented literal-line execution (`$$<`) instead of no-echo condensed execution (`$$>a<`). Literal mode also echoes commands; this coupled property is explicit, not a claimed query fix.
+- **Boundary:** The sole input remains one fixed canonical filename, with no script arguments, selector, extra command or fallback. All five program files, selected signed SDK, typed query, stage/flag requirements and target authority remain unchanged. Existing exact-source echo handling must not broaden.
+- **Evidence:** Run `39731835507` is now complete: both supported OS jobs and Tray pass; installer acceptance retains the original PowerShell failure and unknown query refusal. The published source remains `26af6f5` before this control.
+- **Storage:** Retained reports total 31,834,246 bytes across 158 artifacts; two npm caches total 80,649,421 bytes. Three-day bounded-report retention remains in force; no raw diagnostic upload or infrastructure change.
+- **Blockers:** Literal execution has not yet been exercised; flag readback, genuine PowerShell startup and installed Medium acceptance remain unresolved.
+- **Next:** Review the independently authored finite input change and its unchanged-source controls, then exercise it on disposable Windows.
+
 ### 2026-10-22 - Keep the unclassified typed-query refusal blocking
 
 - **Evidence:** Published `38d4503`, run `39731835507`, job `119668402994`, artifact `12404979359`, passes 520 controls and 500/501 native cases without skips. The original restricted PowerShell case still fails. SDK completion remains accepted, but the new query-display family is unknown (kind 1) and its exact-source region is unavailable (0).

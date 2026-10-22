@@ -2,6 +2,25 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Literal-line arming input preserves the pinned program and authority
+
+All **524 controls** pass, retaining 520 previous intents and adding four
+literal-input cases. The Arm role sends exactly `$$<` followed by the fixed
+canonical `startup-arm.cdb` filename and LF. Literal mode echoes individual
+commands; only the existing exact pinned-source echo rule may ignore them.
+No script argument, extra command, selector or fallback is introduced.
+
+Real BCL pipes check Windows filename bytes with spaces, the retained input
+task, replay refusal, later target continuation and EOF. Invalid delimiters,
+control characters and changed publication paths refuse before writing.
+Echoes cannot supply SDK/query completion or typed flags; missing actual
+records and altered/source-like diagnostic text remain blocking.
+
+The driver and all five generated program goldens are unchanged, including
+the SDK operation and typed query. Installer static controls pass. Actual
+Windows execution is required to assess this mode; no query or startup fix
+is claimed.
+
 ## First typed-query refusal retains closed diagnostic-family facts
 
 All **520 controls** pass, retaining 513 previous intents and adding seven

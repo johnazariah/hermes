@@ -1460,10 +1460,10 @@ function Invoke-HermesStartupScopedInput {
                 Born = $State.Target.born; Helper = $State.Target.helper
                 Source = $State.ScopedPublication.Clone()
             }
-            # Same condensed program, with command echo disabled. The sole
-            # fixed filename is quoted; no script arguments are supplied.
+            # Execute the same pinned program as literal lines, with command
+            # echo. The remaining line is one fixed filename, without arguments.
             # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/-----------------------a---run-script-file-
-            $command = '$$>a< "' + (Join-Path $State.ScopedPublication.Root 'startup-arm.cdb') + '"' + "`n"
+            $command = '$$<' + (Join-Path $State.ScopedPublication.Root 'startup-arm.cdb') + "`n"
         }
         Target {
             $State.ArmedBinding = @{ Helper = $State.Target.helper; Pid = $State.Target.pid
