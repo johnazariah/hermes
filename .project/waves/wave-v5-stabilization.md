@@ -100,6 +100,15 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-23 - Build the bounded identity-first event-value component
+
+- **Changed:** The fixed reader renders only three identity fields, compares exact unsigned PID/birth and ordinal canonical image path, then permits the three detail fields. Native contexts and buffers are owned; the event is borrowed. Size, ABI, scalar type, pointer range, UTF-16 and cleanup faults refuse explicitly. No query, event enumeration, command integration or whole-event rendering is added.
+- **Grounding:** Official Microsoft SDK declarations and five rendering documents establish selective value paths, ordered variants, hex scalar types, array flags, byte sizing and lifetimes. Scalar Count is not treated as a documented zero. A selected value does not establish XPath uniqueness or publisher admission.
+- **Validation:** Serial portable/Windows cross-builds pass with zero warnings/errors; all 120 reader cases pass. One invalid InlineData surrogate was corrected to runtime construction with verified code units; valid replacement characters retain positive/mismatch coverage. Fresh independent C# review approves.
+- **Coverage:** Root build and 2,191 Core/669 Servicing cases pass without skips. The same five-assembly merge measures 16,199/18,757 lines (86.3624%) and 15,825/25,513 branches (62.0272%), above unchanged gates.
+- **Blockers:** The reader has not run natively and has no query/caller integration. Exact owned-control birth-match and adjacent-mismatch filtering must precede baseline event observation. Original PowerShell/installed acceptance remain unresolved.
+- **Next:** Publish the reviewed component, then implement the separately bounded exact query prerequisite.
+
 ### 2026-10-23 - Verify the lifetime and pool corrections on both supported hosts
 
 - **Evidence:** Exact head `438408d`, CI run `39801163486`: supported Windows job `119901908751` and macOS job `119901908909` both succeed. Tray and excluded compatibility builds also pass.

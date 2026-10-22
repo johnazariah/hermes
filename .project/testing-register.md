@@ -2,6 +2,33 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Selective crash-event values gate details on exact identity
+
+The new component passes **120 portable cases** and serial portable/
+Windows-targeted builds with zero warnings/errors. It renders only the fixed
+PID, creation FILETIME and image-path fields first. Details are never
+requested for invalid or mismatched identity. HexInt32/HexInt64 values stay
+lossless unsigned integers; unverified canonicalizations and arrays refuse.
+
+Controls cover exact three-property ordering/counts, 64-KiB allocation limits,
+ABI/alignment, pointer bounds, bounded strict UTF-16, scalar Count semantics,
+UInt64 neighbours/maxima, missing/wrong types and owned context/allocation
+cleanup. Unexpected errors propagate; cleanup errors prevent success. The
+borrowed event is never closed. Contexts request specific values only, never
+whole XML, all-user/all-system data or formatted messages.
+
+Malformed surrogate inputs are constructed at runtime and their code units
+verified; attribute-string encoding cannot silently replace the test input.
+Valid U+FFFD characters remain valid and can match or produce a normal path
+mismatch. Independent C# review approves.
+
+The policy is compiled into the existing Acceptance.Model scope. Root build,
+all 2,191 Core and **669 Servicing** cases pass; the unchanged five-assembly
+merge measures **16,199/18,757 lines (86.3624%)** and
+**15,825/25,513 branches (62.0272%)**. Provider/schema admission, query
+uniqueness, server-side exact-birth filtering, command integration and actual
+Windows invocation of this reader remain separate acceptance work.
+
 ## SQLite fixture cleanup is proved while real pool leases remain owned
 
 The pool-ownership regression keeps two real connections leased while A's
@@ -125,14 +152,14 @@ finalization can retain a raw resource until process exit. Portable tests do
 not invoke Windows job APIs or crash a process.
 
 The measured candidate passes both portable and Windows-targeted builds with
-zero warnings/errors, **549/549 Servicing tests** and **2,191/2,191 Core
+zero warnings/errors, **669/669 Servicing tests** and **2,191/2,191 Core
 tests**, without skips. The existing native Coverlet runner and flush hook
-measure the same five assemblies at **15,968/18,525 lines (86.1970%)** and
-**15,707/25,385 branches (61.8751%)**; unchanged 85%/60% gates pass.
-This local branch aggregate remains below the earlier 61.9530% measurement.
-The prior exact-status source has actual supported-Windows proof at
-86.4182% line and 62.0364% branch; the new observation source still requires
-exact-head hosted coverage.
+measure the same five assemblies at **16,199/18,757 lines (86.3624%)** and
+**15,825/25,513 branches (62.0272%)**; unchanged 85%/60% gates pass.
+This local branch aggregate exceeds the earlier 61.9530% measurement.
+Source `438408d` has actual supported-Windows proof at 86.4983% line and
+62.1259% branch; the new reader source still requires exact-head hosted
+coverage.
 Independent C# review approves the final ownership source, and the configured
 private-job/deadline control run succeeds on actual Windows. Deliberate
 timeout teardown, event correlation and original PowerShell acceptance still

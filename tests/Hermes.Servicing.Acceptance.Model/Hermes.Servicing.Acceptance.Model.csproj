@@ -5,6 +5,8 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../Hermes.Servicing.Acceptance/CrashEventValues.cs"
+             Link="CrashEventValues.cs" />
     <Compile Include="../Hermes.Servicing.Acceptance/CrashControl.cs"
              Link="CrashControl.cs" />
     <Compile Include="../Hermes.Servicing.Acceptance/OwnedCrashControl.cs"
