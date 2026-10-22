@@ -61,8 +61,9 @@ internal static class CrashControl
 
     // Deliberately conservative: small normal/refusal exit codes are not crashes.
     // The observed code is always retained, including an unsupported crash code.
+    // Includes COR_E_FAILFAST for the fixed .NET 9 Environment.FailFast child.
     internal static bool IsCrashStatus(uint status) =>
-        status is 0x80131506 or 0xc0000409 or 0xc0000602 or 0xe0434352;
+        status is 0x80131506 or 0x80131623 or 0xc0000409 or 0xc0000602 or 0xe0434352;
 }
 
 internal enum CrashReadKind { Pending, Data, End }

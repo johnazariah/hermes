@@ -100,6 +100,22 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Accept only the verified .NET 9 FailFast code
+
+- **Changed:** Independent C# authoring and review approve adding exactly `0x80131623` to the control and PowerShell report allowlists. The four prior values remain; neighbours, ordinary/refusal exits, `0xC0000142` and forced termination remain negative. All other success and original acceptance gates are unchanged.
+- **Validation:** Serial portable/Windows-targeted builds and root build pass with zero warnings/errors; 85 control cases, 492 full Servicing cases, 2,191 Core cases and 766 PowerShell controls pass without skips. Workflow lint and diff hygiene pass. Reports bind the observed decimal/hex status to exact source/image hashes with original/native acceptance zero.
+- **Coverage:** The unchanged five-assembly merge measures 15,854/18,410 lines (86.1162%) and 15,649/25,347 branches (61.7391%). Both new control branches are hit; unchanged Core/Service files lose 55 hits net against the prior local run. Both gates pass, but the earlier 61.9530% local aggregate is not claimed preserved.
+- **Blockers:** Corrected actual control execution and exact-head hosted coverage remain pending. The synthetic control correction establishes no original PowerShell cause.
+- **Next:** Publish the reviewed exact-code fix and require actual control completion.
+
+### 2026-10-22 - Identify the control's documented FailFast status
+
+- **Evidence:** At `833a486`, run `39786793545`, job `119852024927`, all 734 Windows controls and fresh publication pass. The typed facts are `available=1 status=1 exit=2148734499 error=6 cleanupError=0 reportError=0`, with native acceptance zero.
+- **Finding:** The observed exit is exactly `0x80131623`; the control reports `CrashFault.Exit`. Pinned official .NET 9 `corerror.xml` defines this as `COR_E_FAILFAST`, and `system.cpp` passes that constant from FailFast to fatal-error handling. The existing allowlist omits it; `0x80131506` is the distinct `COR_E_EXECUTIONENGINE`.
+- **Changed:** A fresh C# author owns the exact-status correction across the control, PowerShell success validator and matching positive/negative tests. Existing exact codes and all identity, framing, source, settlement and cleanup gates remain.
+- **Blockers:** The corrected control still needs independent review and actual hosted success. This finding concerns the synthetic control and establishes no cause for the original PowerShell startup failure.
+- **Next:** Validate the narrow constant correction and rerun the genuine control.
+
 ### 2026-10-22 - Correct wrapper fixture newlines without relaxing the helper protocol
 
 - **Evidence:** At `b54e466`, Windows run `39785785768`, job `119848496417`, stops in portable controls: 729 pass and five wrapper-output assertions fail. Publication and native execution are skipped.

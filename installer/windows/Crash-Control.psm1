@@ -400,7 +400,8 @@ function Assert-HermesCrashReport {
             if ((Get-HermesCrashJsonUInt32 $properties[$name]) -ne 0) { throw '12' }
         }
         $exitCode = Get-HermesCrashJsonUInt32 $properties['exit']
-        if ($exitCode -notin @(0x80131506L, 0xc0000409L, 0xc0000602L, 0xe0434352L)) { throw '12' }
+        # Includes COR_E_FAILFAST for the fixed .NET 9 Environment.FailFast child.
+        if ($exitCode -notin @(0x80131506L, 0x80131623L, 0xc0000409L, 0xc0000602L, 0xe0434352L)) { throw '12' }
         foreach ($name in @('imageSha256', 'sourceSha256')) {
             if ($properties[$name].ValueKind -ne [Text.Json.JsonValueKind]::String) { throw '12' }
             Assert-HermesCrashHash $properties[$name].GetString()

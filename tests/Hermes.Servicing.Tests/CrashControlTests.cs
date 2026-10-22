@@ -9,7 +9,7 @@ namespace Hermes.Servicing.Tests;
 
 public sealed class CrashControlTests
 {
-    private const uint CrashExit = 0xc0000602;
+    private const uint CrashExit = 0x80131623;
     private static readonly CrashLimits Limits =
         new(TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(1));
     private static string Hash => new('a', 64);
@@ -230,6 +230,25 @@ public sealed class CrashControlTests
     }
 
     [Theory]
+    [InlineData(0x80131506u)]
+    [InlineData(0x80131623u)]
+    [InlineData(0xc0000409u)]
+    [InlineData(0xc0000602u)]
+    [InlineData(0xe0434352u)]
+    public async Task Exact_known_crash_statuses_succeed_with_all_gates_satisfied(uint exit)
+    {
+        Assert.True(CrashControl.IsCrashStatus(exit));
+        var child = new Child { ActualExit = exit };
+        var result = await Run(child);
+        Assert.Equal(exit, result.Exit);
+        Assert.Equal(CrashFault.None, result.Error);
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(result.Held);
+        Assert.True(result.Cleanup);
+        AssertSettled(child, result);
+    }
+
+    [Theory]
     [InlineData(0u)]
     [InlineData(37u)]
     [InlineData(64u)]
@@ -238,9 +257,13 @@ public sealed class CrashControlTests
     [InlineData(67u)]
     [InlineData(68u)]
     [InlineData(259u)]
+    [InlineData(0x80131622u)]
+    [InlineData(0x80131624u)]
+    [InlineData(0xc0000142u)]
     [InlineData(0xffffffffu)]
     public async Task Normal_refusal_and_unsupported_exits_are_not_crash_success(uint exit)
     {
+        Assert.False(CrashControl.IsCrashStatus(exit));
         var child = new Child { ActualExit = exit };
         var result = await Run(child);
         Assert.Equal(exit, result.Exit);
@@ -409,6 +432,25 @@ public sealed class CrashControlTests
         Assert.Equal("/temporary", start.Environment["TEMP"]);
         Assert.NotNull(start.StandardInputEncoding);
         Assert.Empty(start.StandardInputEncoding.GetPreamble());
+    }
+
+    [Fact]
+    public async Task Observed_dotnet9_failfast_status_is_bound_to_success_report()
+    {
+        var result = await Run(new Child { ActualExit = 2148734499u });
+        using var document = JsonDocument.Parse(CrashReport.Encode(result));
+        var report = document.RootElement;
+        Assert.Equal(0x80131623u, result.Exit);
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(0, report.GetProperty("status").GetInt32());
+        Assert.Equal(2148734499u, report.GetProperty("exit").GetUInt32());
+        Assert.Equal(Live.ImageSha256, report.GetProperty("imageSha256").GetString());
+        Assert.Equal(Live.SourceSha256, report.GetProperty("sourceSha256").GetString());
+        Assert.Equal(0, report.GetProperty("nativeAcceptance").GetInt32());
+        Assert.Equal(0, report.GetProperty("originalGatePassed").GetInt32());
+        Assert.Equal(
+            "HERMES_CRASH_CONTROL v=1 status=0 exit=2148734499 error=0 cleanupError=0 reportError=0 nativeAcceptance=0\n",
+            CrashReport.Summary(result));
     }
 
     [Fact]

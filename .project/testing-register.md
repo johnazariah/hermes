@@ -4,7 +4,7 @@
 
 ## Hosted crash-control wrapper binds publication and owns real capture tasks
 
-`Test-CrashControl.ps1` passes **738 portable controls on macOS**. Windows
+`Test-CrashControl.ps1` passes **766 portable controls on macOS**. Windows
 omits the non-Windows host-refusal and guard-output checks. Real owned
 PowerShell fixtures exercise exact stdout, noise, contradictions, CRLF,
 invalid UTF-8, stderr, nonzero exit, overflow and timeout. Every actual read
@@ -46,12 +46,19 @@ publication, containment and control execution still require a hosted run.
 
 ## Owned crash-control lifetime and shared native-handle ownership
 
-The fixed crash-control command has **76 portable cases** covering exact
+The fixed crash-control command has **85 portable cases** covering exact
 ready/arm framing, retained identity, one arm, actual exit observation,
 post-exit handle retention, joined operations and explicit cleanup/report
 failures. Unknown commands, guard refusal, malformed output and incomplete
 settlement cannot produce success. Its report keeps original-gate and native
 acceptance at zero.
+
+Both validators include the documented .NET 9 `COR_E_FAILFAST` status
+`0x80131623` (decimal 2148734499), alongside the four prior exact values.
+All five traverse complete owned runs and report/capture binding. Neighbouring
+values, ordinary/refusal exits, `0xC0000142` and `0xFFFFFFFF` remain rejected.
+The observed status does not bypass any readiness, identity, held-observation,
+hash, settlement or cleanup requirement.
 
 Current-step containment has **89 portable cases**, including twelve shared
 native-owner cases for partial release, persistent close errors, termination
@@ -63,10 +70,14 @@ finalization can retain a raw resource until process exit. Portable tests do
 not invoke Windows job APIs or crash a process.
 
 The measured candidate passes both portable and Windows-targeted builds with
-zero warnings/errors, **483/483 Servicing tests** and **2,191/2,191 Core
+zero warnings/errors, **492/492 Servicing tests** and **2,191/2,191 Core
 tests**, without skips. The existing native Coverlet runner and flush hook
 measure the same five assemblies at **15,854/18,410 lines (86.1162%)** and
-**15,702/25,345 branches (61.9530%)**; unchanged 85%/60% gates pass.
+**15,649/25,347 branches (61.7391%)**; unchanged 85%/60% gates pass.
+Both added control branches are hit. Compared with the prior local run,
+unchanged Core and Service files lose 55 branch hits net; the measured
+aggregate is below the earlier 61.9530% local result. Exact-head hosted
+coverage remains required.
 Independent C# review approves the final ownership source. Windows containment,
 the independent deadline, event correlation and original PowerShell acceptance
 still require actual hosted evidence.

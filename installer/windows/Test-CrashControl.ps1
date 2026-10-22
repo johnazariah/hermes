@@ -10,7 +10,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 if ($Mode -ceq 'fixture') {
-    $row = "HERMES_CRASH_CONTROL v=1 status=0 exit=2148734214 error=0 cleanupError=0 reportError=0 nativeAcceptance=0`n"
+    $row = "HERMES_CRASH_CONTROL v=1 status=0 exit=2148734499 error=0 cleanupError=0 reportError=0 nativeAcceptance=0`n"
     if ($Fixture.StartsWith('wrapper-', [StringComparison]::Ordinal)) {
         Import-Module (Join-Path $PSScriptRoot 'Crash-Control.psm1') -Force -DisableNameChecking
         $tokens = $null
@@ -47,10 +47,10 @@ if ($Mode -ceq 'fixture') {
     if ($Fixture -ceq 'failed') {
         $row = "HERMES_CRASH_CONTROL v=1 status=1 exit=0 error=11 cleanupError=255 reportError=1 nativeAcceptance=0`n"
     }
-    if ($Fixture -ceq 'maximum') { $row = $row.Replace('exit=2148734214', 'exit=4294967295') }
+    if ($Fixture -ceq 'maximum') { $row = $row.Replace('exit=2148734499', 'exit=4294967295') }
     if ($Fixture -ceq 'timeout') { [Threading.Thread]::Sleep(30000); exit 1 }
     if ($Fixture -ceq 'noise') { $row = "noise`n$row" }
-    if ($Fixture -ceq 'contradiction') { $row = $row.Replace('exit=2148734214', 'exit=3221226505') }
+    if ($Fixture -ceq 'contradiction') { $row = $row.Replace('exit=2148734499', 'exit=3221226505') }
     if ($Fixture -ceq 'crlf') { $row = $row.Replace("`n", "`r`n") }
     if ($Fixture -ceq 'overflow') { $row = 'x' * 4096 }
     $bytes = [Text.Encoding]::UTF8.GetBytes($row)
@@ -274,15 +274,16 @@ function Assert-ControlFactsUnavailable {
 }
 
 function Test-CrashControlFacts {
-    $row = "HERMES_CRASH_CONTROL v=1 status=0 exit=2148734214 error=0 cleanupError=0 reportError=0 nativeAcceptance=0`n"
+    $row = "HERMES_CRASH_CONTROL v=1 status=0 exit=2148734499 error=0 cleanupError=0 reportError=0 nativeAcceptance=0`n"
     $privateText = "private/path`nHERMES_CRASH_CONTROL_FACTS v=1 available=1 status=1`n$(
         'a' * 64)`n$([char]27)[31m"
     $cases = @(
         foreach ($status in 0..1) {
-            foreach ($code in @(0, 1, 37, 2148734214L, 4294967295L)) {
+            foreach ($code in @(0, 1, 37, 2148734214L, 2148734499L, 4294967295L)) {
                 @{ Status = $status; Exit = $code; Error = 0; Cleanup = 0; Report = 0 }
             }
         }
+        @{ Status = 1; Exit = 2148734499L; Error = 6; Cleanup = 0; Report = 0 }
         foreach ($fault in 0..11) { @{ Status = 1; Exit = 0; Error = $fault; Cleanup = 0; Report = 0 } }
         foreach ($flags in @(0, 1, 2, 4, 8, 16, 32, 64, 128, 254, 255)) {
             @{ Status = 1; Exit = 4294967295L; Error = 11; Cleanup = $flags; Report = 1 }
@@ -303,9 +304,9 @@ function Test-CrashControlFacts {
         $row.Replace('status=0', 'status=0 status=0'), $row.Replace('status=0', 'status=2'),
         $row.Replace('error=0', 'error=12'), $row.Replace('cleanupError=0', 'cleanupError=256'),
         $row.Replace('reportError=0', 'reportError=2'), $row.Replace('nativeAcceptance=0', 'nativeAcceptance=1'),
-        $row.Replace('exit=2148734214', 'exit=4294967296'), ('x' * 511), ('x' * 512), ('x' * 4096)
+        $row.Replace('exit=2148734499', 'exit=4294967296'), ('x' * 511), ('x' * 512), ('x' * 4096)
     )) { Assert-ControlFactsUnavailable (New-ControlFactsCapture $text) }
-    foreach ($field in @('status=0', 'exit=2148734214', 'error=0', 'cleanupError=0', 'reportError=0', 'nativeAcceptance=0')) {
+    foreach ($field in @('status=0', 'exit=2148734499', 'error=0', 'cleanupError=0', 'reportError=0', 'nativeAcceptance=0')) {
         $name = $field.Split('=')[0]
         foreach ($value in @('00', '01', '+1', '-1', '-0', ' 0', '0 ', 'true', 'false', '1.0', '1e0',
                 '4294967296', ('9' * 400), '', 'x', ([string][char]0x0660), $privateText)) {
@@ -366,13 +367,13 @@ function Test-CrashControlFacts {
     try {
         [Globalization.CultureInfo]::CurrentCulture = [Globalization.CultureInfo]::GetCultureInfo('ar-SA')
         Assert-Control ((ConvertTo-HermesCrashControlFacts (New-ControlFactsCapture $row)) -ceq (
-            'HERMES_CRASH_CONTROL_FACTS v=1 available=1 status=0 exit=2148734214 error=0 cleanupError=0 reportError=0 nativeAcceptance=0'))
+            'HERMES_CRASH_CONTROL_FACTS v=1 available=1 status=0 exit=2148734499 error=0 cleanupError=0 reportError=0 nativeAcceptance=0'))
     } finally { [Globalization.CultureInfo]::CurrentCulture = $culture }
     foreach ($name in @('valid', 'failed', 'maximum', 'noise', 'crlf', 'utf8', 'exit')) {
         $capture = Invoke-ControlFixture $name ($name -ceq 'valid') -PassThru
         if ($name -in @('valid', 'failed', 'maximum')) {
             $expected = switch ($name) {
-                'valid' { 'status=0 exit=2148734214 error=0 cleanupError=0 reportError=0' }
+                'valid' { 'status=0 exit=2148734499 error=0 cleanupError=0 reportError=0' }
                 'failed' { 'status=1 exit=0 error=11 cleanupError=255 reportError=1' }
                 'maximum' { 'status=0 exit=4294967295 error=0 cleanupError=0 reportError=0' }
             }
@@ -569,27 +570,42 @@ try {
         held = 1; cleanup = 1; waitSettled = 1; drainsSettled = 1; writeSettled = 1
         callbackSettled = 1; stdoutComplete = 1; stderrComplete = 1
         outerSupervisionRequired = 1; synchronousCallsInterruptible = 0
-        deadline = 0; cancelled = 0; exit = 2148734214L; error = 0; cleanupError = 0; reportError = 0
+        deadline = 0; cancelled = 0; exit = 2148734499L; error = 0; cleanupError = 0; reportError = 0
         imageSha256 = $imageHash; sourceSha256 = $sourceHash
     }
     $good = ConvertTo-ControlBytes $shape
     $script:validReport = Assert-HermesCrashReport $good $imageHash $sourceHash
-    Assert-Control ($shape.Count -eq 28 -and $script:validReport.Exit -eq 2148734214L)
+    Assert-Control ($shape.Count -eq 28 -and $script:validReport.Exit -eq 2148734499L)
+    Assert-Control ($script:validReport.Exit -eq 0x80131623L)
+    Assert-Control ($script:validReport.Exit -is [uint32] `
+        -and @($script:validReport.PSObject.Properties.Name).Count -eq 3)
+    Assert-Control ($script:validReport.ImageSha256 -ceq $imageHash `
+        -and $script:validReport.SourceSha256 -ceq $sourceHash)
     foreach ($name in @($shape.Keys | Where-Object { $_ -notin @('exit', 'imageSha256', 'sourceSha256') })) {
         $saved = $shape[$name]
         $shape[$name] = 1 - $saved
         Assert-Refused { Assert-HermesCrashReport (ConvertTo-ControlBytes $shape) $imageHash $sourceHash }
         $shape[$name] = $saved
     }
-    foreach ($code in @(0x80131506L, 0xc0000409L, 0xc0000602L, 0xe0434352L)) {
+    foreach ($code in @(0x80131506L, 0x80131623L, 0xc0000409L, 0xc0000602L, 0xe0434352L)) {
         $shape.exit = $code
-        Assert-Control ((Assert-HermesCrashReport (ConvertTo-ControlBytes $shape) $imageHash $sourceHash).Exit -eq $code)
+        $report = Assert-HermesCrashReport (ConvertTo-ControlBytes $shape) $imageHash $sourceHash
+        Assert-Control ($report.Exit -eq $code)
+        $boundCapture = New-ControlFactsCapture (
+            "HERMES_CRASH_CONTROL v=1 status=0 exit=$code error=0 cleanupError=0 reportError=0 nativeAcceptance=0`n")
+        Assert-Control (@(Assert-HermesCrashOutcome $boundCapture $report).Count -eq 0)
+        if ($code -ne 2148734499L) {
+            Assert-Refused { Assert-HermesCrashOutcome $boundCapture $script:validReport }
+        }
     }
-    foreach ($code in @(0, 1, 259, 4294967295L, 4294967296L, -1, 1.0, '2148734214', $true, $null)) {
+    foreach ($code in @(0, 1, 37, 64, 65, 66, 67, 68, 259,
+            0x80131622L, 0x80131624L, 0xc0000142L,
+            4294967295L, 4294967296L, -1, 1.0, 2148734499.0,
+            '2148734214', '2148734499', '0x80131623', $true, $null)) {
         $shape.exit = $code
         Assert-Refused { Assert-HermesCrashReport (ConvertTo-ControlBytes $shape) $imageHash $sourceHash }
     }
-    $shape.exit = 2148734214L
+    $shape.exit = 2148734499L
     $json = [Text.Encoding]::UTF8.GetString($good)
     foreach ($bad in @(
         '', '{}', '[]', 'null', '{',
@@ -624,7 +640,7 @@ try {
     $capture = [pscustomobject]@{
         ExitCode = 0; Deadline = 0; StdoutComplete = 1; StderrComplete = 1; WaitSettled = 1
         Stdout = [Text.Encoding]::UTF8.GetBytes(
-            "HERMES_CRASH_CONTROL v=1 status=0 exit=2148734214 error=0 cleanupError=0 reportError=0 nativeAcceptance=0`n")
+            "HERMES_CRASH_CONTROL v=1 status=0 exit=2148734499 error=0 cleanupError=0 reportError=0 nativeAcceptance=0`n")
         Stderr = [byte[]]::new(0); Tasks = @($complete, $complete, $complete)
     }
     foreach ($name in @('ExitCode', 'Deadline', 'StdoutComplete', 'StderrComplete', 'WaitSettled')) {
