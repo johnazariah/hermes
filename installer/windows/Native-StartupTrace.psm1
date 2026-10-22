@@ -29,7 +29,7 @@ function New-HermesStartupState {
         ScopedPhase = 0; ScopedStages = 0
         ScopedFault = @{ Reason = 0; Phase = 0; Block = 0; Held = 0; Echo = 0 }
         ScopedStageFault = @{ Reason = 0; Shape = 0 }
-        ScopedQueryFault = @{ Kind = 0; Source = 0 }
+        ScopedQueryFault = @{ Kind = 0; Source = 0; Lexical = 0; TrimKind = 0 }
         Held = $null; ArmAttempted = $false; ArmWritten = $false; SideWrites = 0
         InputWriter = $null; InputTasks = [Collections.Generic.List[Threading.Tasks.Task]]::new()
         DriverSha256 = ''; ModuleSha256 = ''; ArmCommandSha256 = ''; ExtensionSha256 = ''
@@ -1622,24 +1622,49 @@ function Set-HermesStartupScopedQueryRefusal {
     $query = '.catch { .if (@@c++(sizeof(@$peb->NtGlobalFlag)) == 4) { .printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(@$peb->NtGlobalFlag) }; .echo HERMES_ARM_STAGE v=1 stage=2; }'
     $read = '.printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(@$peb->NtGlobalFlag)'
     $display = $Line -creplace '\A[0-9]{1,3}:[0-9a-f]{3}> ', ''
-    $source = $display.Trim([char[]]@(' ', [char]9))
+    # HorizontalTrim removes edge ASCII spaces/tabs only, after prompt removal.
+    $horizontalTrim = $display.Trim([char[]]@(' ', [char]9))
+    $source = $horizontalTrim
+    $rules = @(
+        @("\AType information missing error at '(?<source>[\x20-\x7e]{1,4096})'\z", 2),
+        @("\AMemory access error at '(?<source>[\x20-\x7e]{1,4096})'\z", 3),
+        @("\ASyntax error (?:in|at) '(?<source>[\x20-\x7e]{1,4096})'\z", 4),
+        @("\ANumeric expression missing from '(?<source>[\x20-\x7e]{1,4096})'\z", 5),
+        @("\ACouldn't resolve error at '(?<source>[\x20-\x7e]{1,4096})'\z", 5)
+    )
     $kind = 1
     # HorizontalTrim is observation-only, as for the existing stage shape.
     if ($source -ceq $query -or $source -ceq $read) { $kind = 6 }
     else {
         $source = ''
-        foreach ($rule in @(
-            @("\AType information missing error at '(?<source>[\x20-\x7e]{1,4096})'\z", 2),
-            @("\AMemory access error at '(?<source>[\x20-\x7e]{1,4096})'\z", 3),
-            @("\ASyntax error (?:in|at) '(?<source>[\x20-\x7e]{1,4096})'\z", 4),
-            @("\ANumeric expression missing from '(?<source>[\x20-\x7e]{1,4096})'\z", 5),
-            @("\ACouldn't resolve error at '(?<source>[\x20-\x7e]{1,4096})'\z", 5)
-        )) {
+        foreach ($rule in $rules) {
             if ($display -cmatch $rule[0]) { $kind = $rule[1]; $source = $Matches.source; break }
         }
     }
     $region = if ($source -ceq $query) { 1 } elseif ($source -ceq $read) { 2 } else { 0 }
-    $State.ScopedQueryFault = @{ Kind = $kind; Source = $region }
+    # Separate display facts: neither trimming nor lexical presence relabels
+    # Kind/Source or supplies SDK, typed-field, query or continuation authority.
+    $trimKind = 0
+    foreach ($rule in $rules) {
+        if ($horizontalTrim -cmatch $rule[0]) { $trimKind = $rule[1]; break }
+    }
+    $lexical = 0
+    foreach ($token in @(
+        @('bad register', 1), @('type information', 2), @('memory access', 4),
+        @('syntax error', 8), @('numeric expression', 16), @('resolve', 16), @('symbol', 32)
+    )) {
+        if ($display.Contains($token[0], [StringComparison]::OrdinalIgnoreCase)) {
+            $lexical = $lexical -bor $token[1]
+        }
+    }
+    foreach ($token in @(
+        @('sizeof(@$peb->NtGlobalFlag)', 64), @('@@c++(@$peb->NtGlobalFlag)', 128)
+    )) {
+        if ($display.Contains($token[0], [StringComparison]::Ordinal)) { $lexical = $lexical -bor $token[1] }
+    }
+    if ($horizontalTrim -cmatch '\A\^(?:[ \t]|\z)') { $lexical = $lexical -bor 256 }
+    if ($display -cne $horizontalTrim) { $lexical = $lexical -bor 512 }
+    $State.ScopedQueryFault = @{ Kind = $kind; Source = $region; Lexical = $lexical; TrimKind = $trimKind }
 }
 
 function Get-HermesStartupScopedStageShape {
@@ -2399,6 +2424,17 @@ function New-HermesStartupReport {
         # Exact source regions only: 0 other/unknown; 1 whole fixed query;
         # 2 its fixed printf/read command. No substring establishes a region.
         $selected.scopedReadFirstSource = Get-HermesStartupInventoryNumber $State.ScopedQueryFault.Source 2
+        # Lexical display bits only, never causes: ordinal-ignore-case wording
+        # 1 bad register; 2 type information; 4 memory access; 8 syntax error;
+        # 16 numeric expression/resolve; 32 symbol. Exact-case source fragments:
+        # 64 sizeof(@$peb->NtGlobalFlag); 128 @@c++(@$peb->NtGlobalFlag).
+        # 256 leading caret token after HorizontalTrim; 512 edge ASCII whitespace.
+        $selected.scopedReadFirstLexical = Get-HermesStartupInventoryNumber $State.ScopedQueryFault['Lexical'] 1023
+        # Existing closed diagnostic family after HorizontalTrim only: 0 none;
+        # 2 type information; 3 memory access; 4 syntax; 5 expression/resolver.
+        # Case/escapes/internal whitespace unchanged. Kind/Source stay original.
+        $trimKind = Get-HermesStartupInventoryNumber $State.ScopedQueryFault['TrimKind'] 5
+        $selected.scopedReadFirstTrimKind = if ($trimKind -ge 2) { $trimKind } else { 0 }
         $report.observations = $selected
     }
     return $report

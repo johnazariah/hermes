@@ -100,6 +100,16 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Retain the literal result and expose only closed first-line display facts
+
+- **Evidence:** Published `b538314`, run `39734265979`, job `119676198634`, artifact `12406373436`, passes 524 controls and 500/501 native cases without skips. Both supported OS jobs and Tray pass. Literal execution retains SDK completion mask 1 but reaches the same unknown query refusal, with no typed candidate, query completion or target continuation.
+- **Meaning:** This control did not resolve the refusal and establishes no condensation, type-information, memory, syntax or loader cause.
+- **Changed:** The literal-control owner adds a frozen numeric mask for fixed diagnostic wording and exact pinned source fragments, plus a separate existing-family observation after ASCII HorizontalTrim. Original Kind/Source, protocol/stage facts and marker acceptance remain unchanged.
+- **Validation:** Parent full source/test review approves. All 527 controls and installer static controls pass; root build has zero warnings/errors and all 2,184 tests pass without skips. Literal input, driver bytes and all five program goldens remain unchanged.
+- **Boundary:** The mask describes text only. It cannot supply a diagnosis, typed field, completion or continuation. No raw line, identity or path is exported; first-fault, output-budget and report-size limits remain enforced.
+- **Blockers:** Actual first-line wording family, flag readback, genuine PowerShell startup and installed Medium acceptance remain unresolved.
+- **Next:** Inspect the bounded first-line facts from one exact-source Windows run before changing the query.
+
 ### 2026-10-22 - Publish the fixed literal arming-input control
 
 - **Changed:** The sole Arm input uses literal-line `$$<` execution of the same fixed canonical filename. There are no script arguments, additional commands or mode selectors. Target/Side inputs, exact-source echo handling, all five program bytes and driver bytes are unchanged.

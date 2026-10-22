@@ -2,6 +2,24 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## First query refusal adds frozen lexical and trimmed-family display facts
+
+All **527 controls** pass, retaining 524 prior intents and adding three
+display-observation groups. A finite numeric mask records fixed diagnostic
+wording with ordinal-ignore-case matching and the two exact-case pinned
+sizeof/read fragments. Separate bits record a leading caret and edge ASCII
+whitespace. A separate family field applies the existing closed diagnostic
+patterns after ASCII HorizontalTrim.
+
+Original Kind/Source, protocol/stage facts and acceptance remain unchanged.
+Neither lexical presence nor a trimmed diagnostic family supplies runtime
+causality, a typed field, completion or continuation authority. First facts
+freeze; reports perform no lexical work, stay below 4,096 bytes and export no
+text, path or identity. Missing SDK/bound-frame proof remains unavailable.
+
+Literal input, driver bytes and all five program goldens are unchanged.
+Installer static controls pass. Actual Windows display facts remain pending.
+
 ## Literal-line arming input preserves the pinned program and authority
 
 All **524 controls** pass, retaining 520 previous intents and adding four

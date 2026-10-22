@@ -797,7 +797,7 @@ function Complete-ControlScoped {
     return New-HermesStartupReport $State $true $true
 }
 
-$cases = 1..524 # All 520 prior intents retained, plus fixed literal-line input controls.
+$cases = 1..527 # All 524 prior intents retained, plus frozen first-refusal display controls.
 $passed = 0
 foreach ($case in $cases) {
     $state = $null
@@ -8607,6 +8607,8 @@ foreach ($case in $cases) {
                         Assert-Control ($state.Protocol -eq 1 -and $state.ScopedFault.Reason -eq 1 `
                             -and $report.observations.scopedReadFirstKind -eq 0 `
                             -and $report.observations.scopedReadFirstSource -eq 0 `
+                            -and $report.observations.scopedReadFirstLexical -eq 0 `
+                            -and $report.observations.scopedReadFirstTrimKind -eq 0 `
                             -and $physical.Writes -eq 1 -and -not $state.Acked -and $report.completed -eq 0)
                     } finally {
                         Close-HermesStartupScopedInput $state $writer
@@ -8629,7 +8631,9 @@ foreach ($case in $cases) {
                     $report = New-HermesStartupReport $state $false $false
                     Assert-Control ($state.Protocol -eq 0 -and $state.ScopedStageFault.Reason -eq 0 `
                         -and $report.observations.scopedReadFirstKind -eq 0 `
-                        -and $report.observations.scopedReadFirstSource -eq 0)
+                        -and $report.observations.scopedReadFirstSource -eq 0 `
+                        -and $report.observations.scopedReadFirstLexical -eq 0 `
+                        -and $report.observations.scopedReadFirstTrimKind -eq 0)
                     Add-HermesStartupLine $state $line
                     Assert-Control ($state.ScopedQueryFault.Kind -eq 2 -and $state.ScopedQueryFault.Source -eq 1)
                 } finally {
@@ -8690,6 +8694,8 @@ foreach ($case in $cases) {
                                 -and ($state.NativeRowSnapshots | ConvertTo-Json -Depth 4 -Compress) -ceq $snapshots `
                                 -and $report.observations.scopedReadFirstKind -eq $(if ($known) { 3 } else { 1 }) `
                                 -and $report.observations.scopedReadFirstSource -eq [int]$known `
+                                -and $report.observations.scopedReadFirstLexical -eq $(if ($known) { 196 } else { 0 }) `
+                                -and $report.observations.scopedReadFirstTrimKind -eq $(if ($known) { 3 } else { 0 }) `
                                 -and $state.ScopedStages -eq 1 -and $state.InputTasks.Count -eq 1 `
                                 -and $report.completed -eq 0 -and $report.armingVerified -eq 0 `
                                 -and $json -notmatch 'private-path|secret|S-1-|Type information|Memory access|NtGlobalFlag|\.printf|\.echo')
@@ -8747,6 +8753,8 @@ foreach ($case in $cases) {
                         $report = New-HermesStartupReport $state $false $false
                         Assert-Control ($report.observations.scopedReadFirstKind -eq 0 `
                             -and $report.observations.scopedReadFirstSource -eq 0 `
+                            -and $report.observations.scopedReadFirstLexical -eq 0 `
+                            -and $report.observations.scopedReadFirstTrimKind -eq 0 `
                             -and (Get-ControlStreamSnapshot $state.Out) -ceq $outBefore `
                             -and (Get-ControlStreamSnapshot $state.Err) -ceq $errBefore `
                             -and [Convert]::ToHexString($state.Out.Hash.GetCurrentHash()) -ceq $outHash `
@@ -8774,7 +8782,7 @@ foreach ($case in $cases) {
                 $state.ScopedStages = 3; $state.ScopedPhase = 15; $state.SideWrites = 48
                 $state.ScopedFault = @{ Reason = 15; Phase = 15; Block = 7; Held = 5; Echo = 255 }
                 $state.ScopedStageFault = @{ Reason = 5; Shape = 1023 }
-                $state.ScopedQueryFault = @{ Kind = 6; Source = 2 }
+                $state.ScopedQueryFault = @{ Kind = 6; Source = 2; Lexical = 1023; TrimKind = 5 }
                 $state.DebuggerKillRequested = 1
                 foreach ($subject in 100..114) {
                     $state.Inventory.Subjects[[string]$subject] = @{ Create = 1; Initial = 1; Exit = 1; ExitCode = 0 }
@@ -8785,18 +8793,21 @@ foreach ($case in $cases) {
                 $json = $report | ConvertTo-Json -Depth 4 -Compress
                 Assert-Control ([Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
                     -and $report.observations.scopedReadFirstKind -eq 6 -and $report.observations.scopedReadFirstSource -eq 2 `
+                    -and $report.observations.scopedReadFirstLexical -eq 1023 -and $report.observations.scopedReadFirstTrimKind -eq 5 `
                     -and $report.observations.subjects -eq 16 -and $report.observations.inputTasks -eq 50 `
                     -and $report.status -eq 7 -and $report.completed -eq 0 -and $report.nativeAcceptance -eq 0 `
                     -and $report.originalGatePassed -eq 0 `
                     -and $json -notmatch 'private|sentinel|selected-sdk|command-root|pid|NtGlobalFlag|\.printf|\.echo')
-                foreach ($field in @('Kind', 'Source')) {
-                    $maximum = if ($field -ceq 'Kind') { 6 } else { 2 }
+                foreach ($field in @('Kind', 'Source', 'Lexical', 'TrimKind')) {
+                    $maximum = switch ($field) { Kind { 6 }; Source { 2 }; Lexical { 1023 }; TrimKind { 5 } }
                     foreach ($bad in @(-1, ($maximum + 1), ([string]$maximum), $true, $null)) {
                         $state.ScopedQueryFault[$field] = $bad
                         $report = New-HermesStartupReport $state $false $false
                         Assert-Control ($report.observations['scopedReadFirst' + $field] -eq 0)
                     }
                 }
+                $state.ScopedQueryFault.TrimKind = 1
+                Assert-Control ((New-HermesStartupReport $state $false $false).observations.scopedReadFirstTrimKind -eq 0)
             }
             521 {
                 & {
@@ -8988,6 +8999,171 @@ foreach ($case in $cases) {
                             Close-HermesStartupScopedInput $state $writer
                             $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
                         }
+                    }
+                }
+            }
+            525 {
+                $sources = Get-ControlScopedQuerySources $extension
+                foreach ($family in @(
+                    @{ Prefix = 'Type information missing error at '; Kind = 2; Bit = 2 },
+                    @{ Prefix = 'Memory access error at '; Kind = 3; Bit = 4 },
+                    @{ Prefix = 'Syntax error in '; Kind = 4; Bit = 8 },
+                    @{ Prefix = 'Syntax error at '; Kind = 4; Bit = 8 },
+                    @{ Prefix = 'Numeric expression missing from '; Kind = 5; Bit = 16 },
+                    @{ Prefix = "Couldn't resolve error at "; Kind = 5; Bit = 16 }
+                )) {
+                    foreach ($edge in @(
+                        @{ Left = ''; Right = ''; Trim = $true; Bit = 0 },
+                        @{ Left = " `t"; Right = ''; Trim = $true; Bit = 512 },
+                        @{ Left = ''; Right = "`t "; Trim = $true; Bit = 512 },
+                        @{ Left = " `t"; Right = "`t "; Trim = $true; Bit = 512 },
+                        @{ Left = [string][char]160; Right = ''; Trim = $false; Bit = 0 },
+                        @{ Left = ''; Right = [string][char]11; Trim = $false; Bit = 0 }
+                    )) {
+                        foreach ($prompt in @('', '1:000> ')) {
+                            $state = New-ControlScopedCreated
+                            $physical = [StartupControlWriteStream]::new(0)
+                            $writer = [IO.StreamWriter]::new($physical)
+                            try {
+                                Invoke-HermesStartupScopedInput $state $writer Arm
+                                Add-HermesStartupText $state $state.Out (
+                                    "HERMES_CDB v=4 kind=7 pid=22`nLast event: 16.1: Create process 1:16`nHERMES_ARM_STAGE v=1 stage=1`n") $true
+                                $line = $prompt + $edge.Left + $family.Prefix + "'" + $sources.Whole + "'" + $edge.Right
+                                $shape = Get-HermesStartupScopedStageShape $state $line
+                                $echo = Get-HermesStartupScopedEchoMask $state $line
+                                Add-HermesStartupLine $state $line
+                                $report = New-HermesStartupReport $state $false $false
+                                $unchanged = $edge.Left -ceq '' -and $edge.Right -ceq ''
+                                $reason = if ($unchanged -and $family.Prefix -ceq 'Syntax error at ') { 14 } else { 1 }
+                                Assert-Control ($report.observations.scopedReadFirstKind -eq $(if ($unchanged) { $family.Kind } else { 1 }) `
+                                    -and $report.observations.scopedReadFirstSource -eq [int]$unchanged `
+                                    -and $report.observations.scopedReadFirstLexical -eq ($family.Bit -bor 192 -bor $edge.Bit) `
+                                    -and $report.observations.scopedReadFirstTrimKind -eq $(if ($edge.Trim) { $family.Kind } else { 0 }) `
+                                    -and $state.Protocol -eq 1 -and $state.ScopedFault.Reason -eq $reason `
+                                    -and $state.ScopedFault.Echo -eq $echo -and $state.ScopedStageFault.Reason -eq 1 `
+                                    -and $state.ScopedStageFault.Shape -eq $shape -and $state.ScopedStages -eq 1 `
+                                    -and $state.Inventory.Block.Flags -eq -1 -and $physical.Writes -eq 1 `
+                                    -and $state.InputTasks.Count -eq 1 -and -not $state.Acked `
+                                    -and -not (Test-HermesStartupScopedAction $state Target) -and $report.completed -eq 0)
+                            } finally {
+                                Close-HermesStartupScopedInput $state $writer
+                                $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                            }
+                        }
+                    }
+                }
+            }
+            526 {
+                $sources = Get-ControlScopedQuerySources $extension
+                $entries = @(
+                    @{ Text = ('.printf private sizeof(@$peb->NtGlobalFlag)'); Mask = 64 },
+                    @{ Text = ('.printf private @@c++(@$peb->NtGlobalFlag)'); Mask = 128 },
+                    @{ Text = ('.printf private sizeof(@$peb->NtGlobalFlag) @@c++(@$peb->NtGlobalFlag)'); Mask = 192 },
+                    @{ Text = ('.printf private SIZEOF(@$PEB->NTGLOBALFLAG) @@C++(@$PEB->NTGLOBALFLAG)'); Mask = 0 },
+                    @{ Text = ("prefix Type information missing error at '" + $sources.Read + "'"); Mask = 130 },
+                    @{ Text = (" `t^ Bad register TYPE INFORMATION memory access syntax error numeric expression ReSoLvE SyMbOl .printf " +
+                        'sizeof(@$peb->NtGlobalFlag) @@c++(@$peb->NtGlobalFlag)' + "`t"); Mask = 1023 }
+                )
+                foreach ($word in @(
+                    @{ Text = 'Bad register'; Bit = 1 }, @{ Text = 'type information'; Bit = 2 },
+                    @{ Text = 'memory access'; Bit = 4 }, @{ Text = 'syntax error'; Bit = 8 },
+                    @{ Text = 'numeric expression'; Bit = 16 }, @{ Text = 'resolve'; Bit = 16 },
+                    @{ Text = 'symbol'; Bit = 32 }
+                )) {
+                    foreach ($text in @($word.Text.ToLowerInvariant(), $word.Text.ToUpperInvariant())) {
+                        $entries += @{ Text = ($text + " private '" + $sources.Read + "'"); Mask = ($word.Bit -bor 128) }
+                    }
+                }
+                foreach ($entry in $entries) {
+                    $state = New-ControlScopedCreated
+                    $physical = [StartupControlWriteStream]::new(0)
+                    $writer = [IO.StreamWriter]::new($physical)
+                    $debugger = [pscustomobject]@{ HasExited = $false; StandardInput = $writer }
+                    try {
+                        Invoke-ControlScopedPublisher
+                        Add-HermesStartupText $state $state.Out (
+                            "HERMES_CDB v=4 kind=7 pid=22`nLast event: 16.1: Create process 1:16`nHERMES_ARM_STAGE v=1 stage=1`n") $true
+                        Add-HermesStartupLine $state $entry.Text
+                        $report = New-HermesStartupReport $state $false $false
+                        Add-HermesStartupText $state $state.Out (Get-ControlScopedReadback) $true
+                        Invoke-ControlScopedPublisher
+                        Assert-Control ($report.observations.scopedReadFirstKind -eq 1 `
+                            -and $report.observations.scopedReadFirstSource -eq 0 `
+                            -and $report.observations.scopedReadFirstLexical -eq $entry.Mask `
+                            -and $report.observations.scopedReadFirstTrimKind -eq 0 `
+                            -and $state.Protocol -eq 1 -and $state.ScopedFault.Reason -eq 1 `
+                            -and $state.ScopedStages -eq 1 -and $state.Inventory.Block.Flags -eq -1 `
+                            -and $physical.Writes -eq 1 -and $state.InputTasks.Count -eq 1 `
+                            -and -not $state.Acked -and -not $state.Continued -and -not $state.Held.Released `
+                            -and (Get-HermesStartupTypedFlags $state) -eq -1 -and $report.armingVerified -eq 0 `
+                            -and $report.completed -eq 0 -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0)
+                    } finally {
+                        Close-HermesStartupScopedInput $state $writer
+                        $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                    }
+                }
+            }
+            527 {
+                $sources = Get-ControlScopedQuerySources $extension
+                foreach ($boundary in @('None', 'Bytes', 'Bounds', 'Stopped')) {
+                    $state = New-ControlScopedCreated
+                    $physical = [StartupControlWriteStream]::new(0)
+                    $writer = [IO.StreamWriter]::new($physical)
+                    $module = Get-Module Native-StartupTrace
+                    try {
+                        Invoke-HermesStartupScopedInput $state $writer Arm
+                        Add-HermesStartupText $state $state.Out (
+                            "HERMES_CDB v=4 kind=7 pid=22`nLast event: 16.1: Create process 1:16`nHERMES_ARM_STAGE v=1 stage=1`n") $true
+                        Add-HermesStartupLine $state (" `tMemory access error at '" + $sources.Whole + "'`t")
+                        $first = $state.ScopedQueryFault | ConvertTo-Json -Compress
+                        $fault = $state.ScopedFault | ConvertTo-Json -Compress
+                        $stage = $state.ScopedStageFault | ConvertTo-Json -Compress
+                        $rows = $state.NativeRowSnapshots | ConvertTo-Json -Depth 4 -Compress
+                        & $module {
+                            $script:controlOriginalQueryRefusal = (Get-Item Function:Set-HermesStartupScopedQueryRefusal).ScriptBlock
+                            $script:controlOriginalArmFrame = (Get-Item Function:Test-HermesStartupScopedArmFrame).ScriptBlock
+                            Set-Item Function:script:Test-HermesStartupScopedArmFrame { throw 'No frozen lexical frame work.' }
+                        }
+                        switch ($boundary) {
+                            Bytes { $state.AcceptedUtf8Bytes = [long]8388608 }
+                            Bounds { $state.Bounds = 1 }
+                            Stopped { $state.Stopped = $true }
+                        }
+                        $line = "^ bad register symbol .printf private-path S-1-5-21-secret`n"
+                        Set-HermesStartupScopedQueryRefusal $state $line
+                        Add-HermesStartupLine $state $line
+                        Add-HermesStartupText $state $state.Out (Get-ControlScopedReadback) $true
+                        if ($boundary -cin @('Bytes', 'Bounds')) {
+                            $before = Get-ControlStreamSnapshot $state.Out
+                            Add-HermesStartupText $state $state.Out $line $true
+                            Assert-Control ((Get-ControlStreamSnapshot $state.Out) -ceq $before)
+                        }
+                        & $module {
+                            Set-Item Function:script:Set-HermesStartupScopedQueryRefusal { throw 'Reporting must not reparse lexical observations.' }
+                        }
+                        $state.ScopedEchoes.Clear()
+                        $report = New-HermesStartupReport $state $false $false
+                        $json = $report | ConvertTo-Json -Depth 4 -Compress
+                        Assert-Control (($state.ScopedQueryFault | ConvertTo-Json -Compress) -ceq $first `
+                            -and ($state.ScopedFault | ConvertTo-Json -Compress) -ceq $fault `
+                            -and ($state.ScopedStageFault | ConvertTo-Json -Compress) -ceq $stage `
+                            -and ($state.NativeRowSnapshots | ConvertTo-Json -Depth 4 -Compress) -ceq $rows `
+                            -and $report.observations.scopedReadFirstKind -eq 1 -and $report.observations.scopedReadFirstSource -eq 0 `
+                            -and $report.observations.scopedReadFirstLexical -eq 708 -and $report.observations.scopedReadFirstTrimKind -eq 3 `
+                            -and $physical.Writes -eq 1 -and $state.InputTasks.Count -eq 1 -and -not $state.Acked `
+                            -and $state.ScopedStages -eq 1 -and $state.Inventory.Block.Flags -eq -1 `
+                            -and [Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
+                            -and $json -notmatch 'private|secret|S-1-|Memory access|bad register|symbol|NtGlobalFlag|\.printf|\.echo')
+                    } finally {
+                        & $module {
+                            if (Test-Path Variable:script:controlOriginalQueryRefusal) {
+                                Set-Item Function:script:Set-HermesStartupScopedQueryRefusal $script:controlOriginalQueryRefusal
+                                Set-Item Function:script:Test-HermesStartupScopedArmFrame $script:controlOriginalArmFrame
+                                Remove-Variable controlOriginalQueryRefusal, controlOriginalArmFrame -Scope Script
+                            }
+                        }
+                        Close-HermesStartupScopedInput $state $writer
+                        $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
                     }
                 }
             }
