@@ -2,6 +2,26 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## First typed-query refusal retains closed diagnostic-family facts
+
+All **520 controls** pass, retaining 513 previous intents and adding seven
+query-refusal cases. After accepted SDK completion in the still-bound target
+arm frame, the first existing unknown-printf refusal records a finite display
+family and exact fixed-source region. Families distinguish unavailable,
+unknown, type-information, memory-access, syntax, expression/resolver and
+fixed source. These labels describe anchored text, not a runtime diagnosis.
+
+No source fragment, error wording, identity or path is exported. Unknown
+forms stay unknown; exact source comparisons are observational only. Existing
+protocol/stage reasons, marker acceptance and authority are unchanged.
+First facts freeze, and post-budget sentinels prohibit new classification or
+frame work. Maximum-field reports remain below 4,096 bytes.
+
+The driver, all five generated programs and both earlier case-513 function
+hashes are unchanged. Installer static controls pass. Actual classification
+requires the next Windows run; neither typed readback nor loader cause has
+been established.
+
 ## Raw absolute SDK module token is a single-factor encoding control
 
 All **513 controls** pass, retaining 508 prior intents and adding five

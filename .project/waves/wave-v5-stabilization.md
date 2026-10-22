@@ -100,6 +100,15 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Prove SDK-stage return and classify the next typed-query refusal
+
+- **Evidence:** Published `66c931d`, run `39729152304`, job `119659939540`, passes 513 controls and 500/501 native cases without skips. Both supported OS jobs and Tray pass. The raw absolute module token reaches accepted SDK completion (mask 1), after native acknowledgement, checked Resume and held-target stop proof.
+- **Observed:** The following text triggers the existing unknown-printf refusal. Stage shape 4 contains `.echo`; query completion, typed candidate, arm end and target continuation remain absent. This establishes SDK-stage return, not successful flag readback or the PowerShell loader cause.
+- **Changed:** A fresh query-observation owner adds frozen numeric display-family and exact-source-region facts at that first refusal, gated by accepted SDK completion and the unchanged bound arm frame. Commands, marker acceptance and existing refusal facts are unchanged.
+- **Validation:** Parent source review approves. All 520 controls and installer static controls pass; five program goldens, driver bytes and earlier predicate hashes are unchanged. Root build passes with zero warnings/errors; all 2,184 tests pass without skips.
+- **Blockers:** Actual typed-query diagnostic family, flag readback, genuine PowerShell exit 37 and installed Medium lifecycle remain unresolved.
+- **Next:** Publish the unchanged-command observation and inspect its bounded Windows report.
+
 ### 2026-10-22 - Publish the raw absolute SDK-module encoding control
 
 - **Changed:** The SDK invocation and its exact publication snapshots use the selected canonical module path without `.dll`, quotes or doubled backslashes. `.load`, query bytes, four metadata programs, held-target authority and first-refusal acceptance are unchanged.

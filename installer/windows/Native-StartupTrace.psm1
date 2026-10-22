@@ -29,6 +29,7 @@ function New-HermesStartupState {
         ScopedPhase = 0; ScopedStages = 0
         ScopedFault = @{ Reason = 0; Phase = 0; Block = 0; Held = 0; Echo = 0 }
         ScopedStageFault = @{ Reason = 0; Shape = 0 }
+        ScopedQueryFault = @{ Kind = 0; Source = 0 }
         Held = $null; ArmAttempted = $false; ArmWritten = $false; SideWrites = 0
         InputWriter = $null; InputTasks = [Collections.Generic.List[Threading.Tasks.Task]]::new()
         DriverSha256 = ''; ModuleSha256 = ''; ArmCommandSha256 = ''; ExtensionSha256 = ''
@@ -1501,10 +1502,13 @@ function Invoke-HermesStartupScopedInput {
 
 function Set-HermesStartupProtocolFault {
     param([hashtable]$State, [ValidateRange(1, 15)][int]$Reason,
-        [ValidateRange(0, 255)][int]$EchoMask = 0)
+        [ValidateRange(0, 255)][int]$EchoMask = 0, [string]$RefusedLine = '')
     if ($State.DiagnosticMode -ceq 'ScopedCreateV1') {
         if ($State.Bounds -ne 0 -or $State.AcceptedUtf8Bytes -ge 8388608) { return }
         if ($State.Protocol -eq 0 -and $State.ScopedFault.Reason -eq 0) {
+            if ($Reason -in @(1, 14) -and $RefusedLine.Length -gt 0) {
+                Set-HermesStartupScopedQueryRefusal $State $RefusedLine
+            }
             $block = $State.Inventory.Block; $held = $State.Held
             $State.ScopedFault = @{
                 Reason = $Reason; Phase = $State.ScopedPhase; Echo = $EchoMask
@@ -1600,6 +1604,44 @@ function Test-HermesStartupScopedArmFrame {
     return $true
 }
 
+function Set-HermesStartupScopedQueryRefusal {
+    param([hashtable]$State, [string]$Line)
+    if ($State.DiagnosticMode -cne 'ScopedCreateV1' -or $State.Protocol -ne 0 `
+        -or $State.ScopedFault.Reason -ne 0 -or $State.ScopedQueryFault.Kind -ne 0 `
+        -or $State.Bounds -ne 0 -or $State.AcceptedUtf8Bytes -ge 8388608 -or $Line.Length -gt 4096 `
+        -or $State.Unknown -ne 0 -or $State.Error -ne 0 -or $State.Timeout -ne 0 `
+        -or $State.CleanupFault -ne 0 -or $State.NativeRowsFault -ne 0 -or $State.TraceFaulted `
+        -or $State.DebuggerKillRequested -ne 0 -or $State.Stopped -or $null -ne $State.Failure `
+        -or $State.ScopedStages -ne 1 -or $null -eq $State.Inventory.Block `
+        -or $State.Inventory.Block.Kind -ne 7 `
+        -or $State.Inventory.Block.Stages -ne 1 -or $State.Inventory.Block.Flags -ne -1) { return }
+    if ((Get-HermesStartupObservation $State 'SdkCommandErrors' 15) -ne 0 `
+        -or -not (Test-HermesStartupScopedArmFrame $State)) { return }
+    # Fixed-source comparisons describe this refusal only. Neither a family
+    # label nor an exact displayed source supplies query or flag authority.
+    $query = '.catch { .if (@@c++(sizeof(@$peb->NtGlobalFlag)) == 4) { .printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(@$peb->NtGlobalFlag) }; .echo HERMES_ARM_STAGE v=1 stage=2; }'
+    $read = '.printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(@$peb->NtGlobalFlag)'
+    $display = $Line -creplace '\A[0-9]{1,3}:[0-9a-f]{3}> ', ''
+    $source = $display.Trim([char[]]@(' ', [char]9))
+    $kind = 1
+    # HorizontalTrim is observation-only, as for the existing stage shape.
+    if ($source -ceq $query -or $source -ceq $read) { $kind = 6 }
+    else {
+        $source = ''
+        foreach ($rule in @(
+            @("\AType information missing error at '(?<source>[\x20-\x7e]{1,4096})'\z", 2),
+            @("\AMemory access error at '(?<source>[\x20-\x7e]{1,4096})'\z", 3),
+            @("\ASyntax error (?:in|at) '(?<source>[\x20-\x7e]{1,4096})'\z", 4),
+            @("\ANumeric expression missing from '(?<source>[\x20-\x7e]{1,4096})'\z", 5),
+            @("\ACouldn't resolve error at '(?<source>[\x20-\x7e]{1,4096})'\z", 5)
+        )) {
+            if ($display -cmatch $rule[0]) { $kind = $rule[1]; $source = $Matches.source; break }
+        }
+    }
+    $region = if ($source -ceq $query) { 1 } elseif ($source -ceq $read) { 2 } else { 0 }
+    $State.ScopedQueryFault = @{ Kind = $kind; Source = $region }
+}
+
 function Get-HermesStartupScopedStageShape {
     param([hashtable]$State, [string]$Line)
     if ($State.DiagnosticMode -cne 'ScopedCreateV1' -or $State.Protocol -ne 0 `
@@ -1691,6 +1733,7 @@ function Get-HermesStartupScopedEchoMask {
 function Add-HermesStartupScopedLine {
     param([hashtable]$State, [string]$Line)
     if ($State.Protocol -ne 0 -or $State.Bounds -ne 0 -or $State.AcceptedUtf8Bytes -ge 8388608) { return }
+    $wasStopped = $State.Stopped
     Set-HermesStartupStoppedPrompt $State $Line
     Add-HermesStartupSdkError $State $Line
     Add-HermesStartupChainReadback $State $Line
@@ -1704,7 +1747,8 @@ function Add-HermesStartupScopedLine {
             if ($Line.Contains('HERMES_ARM_STAGE', [StringComparison]::OrdinalIgnoreCase)) {
                 Set-HermesStartupScopedStageRefusal $State 1 $Line
             }
-            Set-HermesStartupProtocolFault $State $reason (Get-HermesStartupScopedEchoMask $State $Line)
+            $refusedLine = if ($wasStopped) { '' } else { $Line }
+            Set-HermesStartupProtocolFault $State $reason (Get-HermesStartupScopedEchoMask $State $Line) $refusedLine
         }
         return
     }
@@ -2347,6 +2391,14 @@ function New-HermesStartupReport {
         # 64 quoted numeric-expression diagnostic; 128 closed resolver shape;
         # 256/512 exact SDK/query marker after observation-only HorizontalTrim.
         $selected.scopedStageFirstShape = Get-HermesStartupInventoryNumber $State.ScopedStageFault.Shape 1023
+        # First unknown-printf refusal, only after accepted SDK completion in
+        # the still-bound arm frame: 0 unavailable; 1 unknown; 2 type-information
+        # missing; 3 memory-access; 4 syntax; 5 expression/resolver; 6 fixed source.
+        # These are anchored display families, never a runtime diagnosis.
+        $selected.scopedReadFirstKind = Get-HermesStartupInventoryNumber $State.ScopedQueryFault.Kind 6
+        # Exact source regions only: 0 other/unknown; 1 whole fixed query;
+        # 2 its fixed printf/read command. No substring establishes a region.
+        $selected.scopedReadFirstSource = Get-HermesStartupInventoryNumber $State.ScopedQueryFault.Source 2
         $report.observations = $selected
     }
     return $report
