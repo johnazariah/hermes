@@ -29,6 +29,7 @@ internal static class CrashCorrelationErrors
 
     internal static bool Operational(Exception error) => error switch
     {
+        CrashEventSamplingException => false,
         AggregateException aggregate =>
             aggregate.InnerExceptions.Count > 0 &&
             aggregate.InnerExceptions.All(Operational),
@@ -37,6 +38,9 @@ internal static class CrashCorrelationErrors
 
     internal static CrashCorrelationReason Reason(Exception error) => error switch
     {
+        CrashEventSamplingException sampling =>
+            sampling.AuthorityFailure is { } original
+                ? Reason(original) : CrashCorrelationReason.Unexpected,
         CrashCorrelationException failure => failure.Reason,
         OperationCanceledException => CrashCorrelationReason.Cancelled,
         CrashExitException => CrashCorrelationReason.Scope,
@@ -306,19 +310,26 @@ internal sealed record CrashCorrelationProof
 }
 
 internal sealed record CrashCorrelationEffects(
-    Func<CrashQueryRequest, CrashQueryAdmission, CrashQueryResult> Query,
+    Func<CrashQueryRequest, CrashQueryAdmission, CrashEventTelemetry, CrashQueryResult> Query,
     TimeProvider Clock,
-    Func<TimeSpan, CancellationToken, Task> Delay);
+    Func<TimeSpan, CancellationToken, Task> Delay)
+{
+    internal TimeProvider SamplingClock { get; init; } = TimeProvider.System;
+}
 
 // One fixed predicate proof. No alternate image, channel, provider, selector,
 // time-window widening, PID adoption or baseline observation is available here.
 internal sealed class CrashEventObserver(
     ICrashSchemaReceipt receipt, CrashSchemaAdmission admission,
-    CrashCorrelationEffects effects, Action<string> summary)
+    CrashCorrelationEffects effects, Action<string> summary,
+    CrashEventTelemetry? telemetry = null)
 {
     internal const int MaximumPolls = 81;
     internal static TimeSpan PollBudget => TimeSpan.FromSeconds(20);
     internal static TimeSpan PollDelay => TimeSpan.FromMilliseconds(250);
+
+    internal CrashEventTelemetry Telemetry { get; } =
+        telemetry ?? new(effects.SamplingClock);
 
     internal CrashCorrelationProof Proof { get; private set; } = new()
     {
@@ -331,20 +342,30 @@ internal sealed class CrashEventObserver(
         CrashObservation scope, CancellationToken cancellationToken)
     {
         Exception? failure = null;
-        try
-        {
-            Fence(scope, cancellationToken);
-            var plan = CrashCorrelationPlan.Create(scope.Recheck());
-            await PollAsync(scope, plan, effects.Clock.GetTimestamp(), cancellationToken);
-        }
+        Telemetry.BeginObservation();
+        try { await ObserveCoreAsync(scope, cancellationToken); }
         catch (Exception caught) { failure = caught; }
         failure = CrashCorrelationErrors.Capture(
             () => Fence(scope, cancellationToken), failure);
         if (failure is { } error)
             Proof = Proof with { Reason = CrashCorrelationErrors.Reason(error) };
+        else if (Telemetry.SamplingFailed)
+            Proof = Proof with { Reason = CrashCorrelationReason.Unexpected };
         failure = CrashCorrelationErrors.Capture(
             () => summary(CrashEventReport.ObservationSummary(Proof)), failure);
+        Telemetry.ThrowSamplingErrors(failure);
         CrashCorrelationErrors.Throw(failure);
+    }
+
+    private async Task ObserveCoreAsync(
+        CrashObservation scope, CancellationToken cancellationToken)
+    {
+        var entered = Telemetry.Entering();
+        Fence(scope, cancellationToken);
+        var plan = CrashCorrelationPlan.Create(scope.Recheck());
+        if (entered is { } sampled)
+            Telemetry.Entered(plan.Exact.Window.EndInclusive - sampled);
+        await PollAsync(scope, plan, effects.Clock.GetTimestamp(), cancellationToken);
     }
 
     private async Task PollAsync(
@@ -353,18 +374,27 @@ internal sealed class CrashEventObserver(
     {
         foreach (var unused in Enumerable.Range(0, MaximumPolls))
         {
-            _ = Remaining(plan, started, cancellationToken);
+            _ = Remaining(plan, started, CrashEventExpiryLocation.PollEntry,
+                cancellationToken);
             Proof = Proof with { Polls = Proof.Polls + 1 };
             if (Poll(scope, plan, started, cancellationToken))
             {
                 Proof = Proof with { Reason = CrashCorrelationReason.None };
                 return;
             }
-            var remaining = Remaining(plan, started, cancellationToken);
-            await effects.Delay(remaining < PollDelay ? remaining : PollDelay,
-                cancellationToken);
+            await DelayAsync(plan, started, cancellationToken);
         }
+        Telemetry.Expired(CrashEventExpiry.PollLimit, CrashEventExpiryLocation.PollLimit);
         throw new CrashCorrelationException(CrashCorrelationReason.NoDelivery);
+    }
+
+    private async Task DelayAsync(
+        CrashCorrelationPlan plan, long started, CancellationToken cancellationToken)
+    {
+        var remaining = Remaining(plan, started, CrashEventExpiryLocation.BeforeDelay,
+            cancellationToken);
+        await Telemetry.DelayAsync(effects.Delay,
+            remaining < PollDelay ? remaining : PollDelay, cancellationToken);
     }
 
     private bool Poll(
@@ -387,24 +417,67 @@ internal sealed class CrashEventObserver(
         CrashObservation scope, CrashCorrelationPlan plan, CrashQueryRequest request,
         long started, CancellationToken cancellationToken)
     {
-        Check();
+        Check(scope, plan, started, CrashEventExpiryLocation.BeforeQuery,
+            cancellationToken);
         Proof = Proof with { Queries = Proof.Queries + 1 };
-        CrashQueryResult? result = null;
-        Exception? failure = null;
-        try { result = effects.Query(request, CrashQueryAdmission.CallerAttestsFixedProviderAndSchema); }
-        catch (Exception error) { failure = error; }
-        failure = CrashCorrelationErrors.Capture(Check, failure);
+        var (result, failure) = InvokeQuery(request);
+        failure = CrashCorrelationErrors.Capture(
+            () => PostQueryCheck(scope, plan, started, result is not null,
+                cancellationToken), failure);
         CrashCorrelationErrors.Throw(failure);
         return result ?? throw new InvalidOperationException("Synthetic query result missing.");
+    }
 
-        void Check()
+    private (CrashQueryResult? Result, Exception? Failure) InvokeQuery(
+        CrashQueryRequest request)
+    {
+        try
         {
-            Fence(scope, cancellationToken);
-            _ = Remaining(plan, started, cancellationToken);
+            var result = effects.Query(request,
+                CrashQueryAdmission.CallerAttestsFixedProviderAndSchema, Telemetry);
+            Telemetry.Returned(result);
+            return (result, null);
+        }
+        catch (Exception error)
+        {
+            Telemetry.Failure(error);
+            return (null, error);
         }
     }
 
-    private void Fence(CrashObservation scope, CancellationToken cancellationToken)
+    private void PostQueryCheck(
+        CrashObservation scope, CrashCorrelationPlan plan, long started,
+        bool returned, CancellationToken cancellationToken)
+    {
+        try
+        {
+            Check(scope, plan, started, CrashEventExpiryLocation.AfterQuery,
+                cancellationToken);
+        }
+        catch
+        {
+            if (returned)
+                Telemetry.Rejected();
+            throw;
+        }
+    }
+
+    private void Check(
+        CrashObservation scope, CrashCorrelationPlan plan, long started,
+        CrashEventExpiryLocation location, CancellationToken cancellationToken)
+    {
+        Fence(scope, cancellationToken);
+        _ = Remaining(plan, started, location, cancellationToken);
+    }
+
+    private void Fence(CrashObservation scope, CancellationToken cancellationToken) =>
+        Telemetry.Measure(CrashEventPhase.Fence, () =>
+        {
+            FenceCore(scope, cancellationToken);
+            return 0;
+        });
+
+    private void FenceCore(CrashObservation scope, CancellationToken cancellationToken)
     {
         _ = scope.Recheck();
         CrashCorrelationErrors.Require(
@@ -414,15 +487,22 @@ internal sealed class CrashEventObserver(
     }
 
     private TimeSpan Remaining(
-        CrashCorrelationPlan plan, long started, CancellationToken cancellationToken)
+        CrashCorrelationPlan plan, long started, CrashEventExpiryLocation location,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var window = plan.Exact.Window.EndInclusive - effects.Clock.GetUtcNow();
+        if (window <= TimeSpan.Zero)
+            Telemetry.Expired(CrashEventExpiry.Window, location);
         CrashCorrelationErrors.Require(window > TimeSpan.Zero,
             CrashCorrelationReason.WindowExpired);
         var budget = PollBudget - effects.Clock.GetElapsedTime(started);
+        if (budget <= TimeSpan.Zero)
+            Telemetry.Expired(CrashEventExpiry.PollBudget, location);
         CrashCorrelationErrors.Require(budget > TimeSpan.Zero,
             CrashCorrelationReason.NoDelivery);
+        if (location == CrashEventExpiryLocation.BeforeQuery)
+            Telemetry.BeforeQuery(window);
         return window < budget ? window : budget;
     }
 
@@ -555,6 +635,8 @@ internal static class CrashEventControl
     private sealed class Session(CrashEventControlEffects effects)
     {
         private readonly List<Exception> _unexpected = [];
+        private readonly CrashEventTelemetry _telemetry =
+            new(effects.Observation.SamplingClock);
         private ICrashSchemaReceipt? _receipt;
         private Exception? _observationFailure;
         private CrashResult _control = new() { Error = CrashFault.Guard };
@@ -562,6 +644,8 @@ internal static class CrashEventControl
         private CrashCorrelationReason _failure;
         private bool _receiptClosed;
         private bool _coordinatorEscaped;
+        private bool _coordinatorSettled;
+        private bool _diagnosticEmitted;
 
         internal async Task<int> RunAsync(CancellationToken cancellationToken)
         {
@@ -569,7 +653,13 @@ internal static class CrashEventControl
             catch (Exception error) { Fail(error); }
             finally { ReleaseReceipt(); }
             ThrowUnexpected();
-            return Publish();
+            try { return Publish(); }
+            catch (Exception error)
+            {
+                CrashCorrelationErrors.Throw(
+                    CrashCorrelationErrors.Capture(EmitTelemetry, error));
+                throw;
+            }
         }
 
         private async Task RunOwnedAsync(CancellationToken cancellationToken)
@@ -579,7 +669,7 @@ internal static class CrashEventControl
             _receipt = receipt;
             var admission = CrashEventSchema.Admit(receipt.Read());
             var observer = new CrashEventObserver(
-                receipt, admission, effects.Observation, effects.Summary);
+                receipt, admission, effects.Observation, effects.Summary, _telemetry);
             await RunCoordinatorAsync(observer, cancellationToken);
             CrashCorrelationErrors.Require(
                 CrashEventSchema.Admit(receipt.Read()) == admission,
@@ -598,6 +688,7 @@ internal static class CrashEventControl
             catch { _coordinatorEscaped = true; throw; }
             finally
             {
+                _coordinatorSettled = true;
                 _proof = observer.Proof;
                 if (_observationFailure is { } failure)
                     Fail(failure);
@@ -626,6 +717,9 @@ internal static class CrashEventControl
 
         private static bool InitiatedByCancellation(Exception error) => error switch
         {
+            CrashEventSamplingException sampling =>
+                sampling.AuthorityFailure is { } original &&
+                InitiatedByCancellation(original),
             OperationCanceledException => true,
             AggregateException { InnerExceptions.Count: > 0 } aggregate =>
                 InitiatedByCancellation(aggregate.InnerExceptions[0]),
@@ -667,16 +761,31 @@ internal static class CrashEventControl
         {
             // Without a returned coordinator outcome, no reportable control facts
             // exist. Preserve escaping and subsequent errors regardless of leaf type.
-            if (_coordinatorEscaped || !CrashCorrelationErrors.Operational(error))
+            // Sampling prevents publication, so retain reportable failures too.
+            if (_coordinatorEscaped || _telemetry.SamplingFailed ||
+                !CrashCorrelationErrors.Operational(error))
                 _unexpected.Add(error);
         }
 
         private void ThrowUnexpected()
         {
-            if (_unexpected.Count == 1)
-                ExceptionDispatchInfo.Capture(_unexpected[0]).Throw();
-            if (_unexpected.Count > 1)
-                throw new AggregateException("Synthetic control failed.", _unexpected);
+            // Reattach samples after cleanup and emission. Unwrap only
+            // this observer's sampling envelope; original aggregates stay intact.
+            var failures = _unexpected
+                .Select(error => ReferenceEquals(error, _observationFailure) &&
+                    _telemetry.SamplingFailed && error is CrashEventSamplingException sampling
+                        ? sampling.AuthorityFailure : error)
+                .OfType<Exception>().ToArray();
+            Exception? failure = failures.Length switch
+            {
+                0 => null,
+                1 => failures[0],
+                _ => new AggregateException("Synthetic control failed.", failures)
+            };
+            if (failure is not null || _telemetry.SamplingFailed)
+                failure = CrashCorrelationErrors.Capture(EmitTelemetry, failure);
+            _telemetry.ThrowSamplingErrors(failure);
+            CrashCorrelationErrors.Throw(failure);
         }
 
         private int Publish()
@@ -685,9 +794,19 @@ internal static class CrashEventControl
                 _control, _proof, _receiptClosed, _failure);
             result = PublishControl(result);
             result = PublishEvent(result);
+            if (result.ExitCode != 0)
+                EmitTelemetry();
             effects.Summary(CrashReport.Summary(result.Control));
             effects.Summary(CrashEventReport.Summary(result));
             return result.ExitCode;
+        }
+
+        private void EmitTelemetry()
+        {
+            if (!_coordinatorSettled || _diagnosticEmitted)
+                return;
+            _diagnosticEmitted = true;
+            effects.Summary(_telemetry.Summary(_proof));
         }
 
         private CrashEventControlResult PublishControl(CrashEventControlResult result)

@@ -17,7 +17,8 @@ namespace Hermes.Servicing.Acceptance;
 internal static class WindowsCrashEventQuery
 {
     internal static CrashQueryResult EnumerateCompletedCandidate(
-        CrashQueryRequest request, CrashQueryAdmission admission)
+        CrashQueryRequest request, CrashQueryAdmission admission,
+        CrashEventTelemetry? telemetry = null)
     {
         if (!OperatingSystem.IsWindows())
             return CrashEventQuery.Failure(
@@ -25,7 +26,8 @@ internal static class WindowsCrashEventQuery
         if (RuntimeInformation.ProcessArchitecture != Architecture.X64)
             return CrashEventQuery.Failure(
                 CrashEventFailureKind.Refused, CrashQueryReason.UnsupportedAbi);
-        return CrashEventQuery.EnumerateCompletedCandidate(new Api(), request, admission);
+        return CrashEventQuery.EnumerateCompletedCandidate(
+            new Api(), request, admission, telemetry);
     }
 
     internal static CrashQueryResult EnumerateCandidate(

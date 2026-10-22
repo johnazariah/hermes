@@ -100,6 +100,26 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-23 - Measure unchanged query outcomes without changing authority
+
+- **Changed:** One bounded failure-only numeric row records attempts/returns, cleaned-up empties, category before the authoritative post-query check, slack/expiry location and fixed native/fence/delay phase durations. No predicate, literal, native flag, child/WER setting, window, identity or acceptance check changes.
+- **Authority:** Sampling errors cannot interrupt native status interpretation or owned closes, create synthetic authority stops, mask later cancellation/receipt faults or claim a timing failure as an authority rejection. Real coordinator/receipt failures and diagnostic-emission failures are collected before final sampling-reference attachment. Genuine aggregates and duplicate members remain intact.
+- **Escalation:** The original three-cycle review ended with a sampling/output shared-reference blocker. The escalation response directed autonomous work; one bounded fresh-author/fresh-review correction was authorised under standing approval, without claiming an explicit user choice. The fresh reviewer approves that complete final boundary; no further review loop is opened.
+- **Validation:** All 473 selected, 1,000 complete Servicing and 2,198 Core cases pass without skips. Root and portable/Windows-targeted builds pass without warnings/errors. The exact five-assembly merge measures 16,413/18,886 lines (86.9056%), 16,151/25,664 branches (62.9325%), above unchanged gates. Original/metadata/event controls pass 985/3,120/3,118; cold task-binding modes, source encodings and three targeted actionlint checks pass.
+- **Consumer:** The event-only capture cap is 1,023 bytes for the at-most-393-byte row, with exact real-task identity/settlement checks and a derived 1,026-task maximum. The original wrapper remains 511 bytes; success stdout, 28/27-field JSON and success-only three-file upload are unchanged. No raw capture or identifying data is exported.
+- **Browser:** The complete unchanged local real-Service suite passes 61/61. The actual Windows pre-body page-creation timeout remains unclassified; no retry or increased UI timeout is added.
+- **Blockers:** Native exact/adjacent precision, the Windows browser refusal, original PowerShell and installed acceptance remain unresolved.
+- **Next:** Publish this reviewed telemetry-only control and inspect one genuine unchanged-query execution.
+
+### 2026-10-23 - Observe the genuine correlation window expiry
+
+- **Evidence:** At `884bb8c`, event run `39847520229`, job `120064611045`, passes source publication, same-job metadata and actual task binding. Its closed capture now admits seven real tasks and reports reason 9 (WindowExpired), matched/adjacent proof bits zero, control fault 7, cleanup/report faults zero. Capture check 0 and shape 1478 verify the projection contract; no raw input is exported.
+- **Interpretation:** No exact event was accepted before expiry. The post-query fence can reject an already-returned result before the accepted-match flag is set, so these facts do not establish no event, repeated empty queries, a stalled call or a comparison bug.
+- **Review:** The fixed-query author finds no proven construction, ABI or representation defect. The primary sources do not prove decimal HexInt64 equality or promise this FailFast invocation emits Application Error/1000/v0. No literal, window, fault mode or query is changed on speculation.
+- **Additional gate:** CI `39847529433` passes macOS and all Windows .NET cases but Windows browser smoke fails while creating the page for the real PDF test, before its body; 60 browser cases pass. The unchanged isolated local preview runs 9/9 cases in a bounded three-repeat reproduction. This neither reproduces nor fixes the Windows setup failure; no timeout or retry is added.
+- **Blockers:** Controlled native precision, the new Windows browser setup failure, original PowerShell execution and installed acceptance remain unresolved.
+- **Next:** Add one bounded telemetry-only control of unchanged query outcomes and timing, recording results before the authoritative post-query fence.
+
 ### 2026-10-23 - Bind cold capture to the authoritative real task list
 
 - **Actual evidence:** At `941a782`, event run `39844283742`, job `120053314203`, refuses task-container check 12 / field 8. The 407-byte four-row shape is observation/observation/base/event. Its diagnostic task count is unavailable because of that type refusal; it does not show absent operations, and the earlier three-observation fixture does not explain this run.

@@ -2,6 +2,41 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Unchanged-query telemetry keeps sampling separate from authority
+
+The complete candidate passes **1,000 Servicing and 2,198 Core cases**,
+with zero failures/skips; its focused control/query selection passes
+**473 cases**. Root, portable Release and Windows-targeted builds pass
+without warnings/errors. The coherent five-assembly merge measures
+**16,413/18,886 lines (86.9056%)** and
+**16,151/25,664 branches (62.9325%)**, above unchanged gates.
+
+One failure-only row records polls, attempts, returned categories and
+cleaned-up empties before the authoritative post-query fence, window slack,
+expiry location and monotonic open/Next/reader/close/fence/delay durations.
+The selector, literals, native flags, child/WER settings, window, identity
+and acceptance checks remain unchanged. A late returned result is never
+accepted retroactively; missing output after external termination is
+inconclusive.
+
+Fault-injection tests preserve returned native Next errors through sampling
+failures, original cancellation/deadline/fence classification, every close
+attempt and genuine exception graphs. Sampling references are attached only
+after real coordinator/receipt cleanup and diagnostic emission, preventing
+sampler-added duplicates while preserving genuine duplicate aggregate
+members and foreign envelopes. The final escalated correction has fresh
+independent C# source approval.
+
+The numeric row is at most 393 ASCII bytes. Only the event wrapper grows to
+1,023 captured bytes, with a 1,024-byte sentinel and at most 1,026 retained
+actual tasks; the original base wrapper remains 511 bytes. Strict failure
+projection reconstructs closed fields and rejects malformed, duplicate,
+out-of-range, unbound, incomplete or success-status telemetry. All 3,118
+event controls, 985 original controls, 3,120 metadata controls, cold
+real-I/O modes and three targeted workflow lints pass. Full isolated local
+browser execution passes 61/61; that does not resolve the prior Windows-only
+page-creation refusal. Actual native telemetry remains pending.
+
 ## Cold capture owns an exact snapshot of its real tasks
 
 Actual `941a782` event run `39844283742`, job `120053314203`, reaches
@@ -141,7 +176,7 @@ coverage is 86.7206% line / 62.3626% branch on Windows and
 
 ## Fixed event supervision preserves separate control and event status
 
-The fixed wrapper, module and workflow pass **1,151 portable controls**,
+The fixed wrapper, module and workflow pass **3,118 portable controls**,
 alongside 985 existing crash controls and 3,120 metadata controls. Direct
 source review covers all four new files and their reused publication,
 capture and pinning helpers. No blocking supervision defect is found.

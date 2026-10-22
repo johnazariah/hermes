@@ -4,7 +4,10 @@ param(
     [ValidateSet('controls', 'fixture', 'task-contract', 'task-contract-load')][string]$Mode = 'controls',
     [ValidateSet('valid', 'at-cap', 'base-only', 'event-only', 'noise', 'crlf', 'utf8', 'stderr',
         'exit', 'overflow', 'timeout', 'failure', 'failed-guard', 'failed-callback',
-        'failed-fence', 'failed-dispose', 'failed-base-success', 'wrapper-failure')][string]$Fixture = 'valid'
+        'failed-fence', 'failed-dispose', 'failed-base-success', 'wrapper-failure',
+        'timing', 'timing-worst', 'timing-overflow', 'timing-native', 'timing-order', 'timing-duplicate',
+        'timing-success', 'timing-stderr', 'timing-utf8', 'wrapper-timing', 'wrapper-timing-invalid',
+        'wrapper-timing-phase', 'wrapper-timing-success')][string]$Fixture = 'valid'
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -13,6 +16,8 @@ $observation = "HERMES_CRASH_EVENT_OBSERVATION v=1 reason=0 matched=1 lowerEmpty
 $base = "HERMES_CRASH_CONTROL v=1 status=0 exit=2148734499 error=0 cleanupError=0 reportError=0 nativeAcceptance=0`n"
 $event = "HERMES_CRASH_EVENT_CONTROL v=1 status=0 reason=0 reportError=0 originalGatePassed=0 nativeAcceptance=0`n"
 $protocol = $observation + $base + $event
+$timing = "HERMES_CRASH_EVENT_DIAGNOSTIC v=1 polls=1 attempts=1 returns=1 empty=0 last=3 failure=0 code=0 native=-1 entryMs=20000 queryMs=19999 expiry=1 location=3 rejected=1 qUs=12000 qMaxUs=12000 nUs=500 nMaxUs=500 rUs=100 rMaxUs=100 cUs=20 cMaxUs=20 fUs=21000000 fMaxUs=21000000 dUs=0 dMaxUs=0 nativeAcceptance=0`n"
+$worstTiming = "HERMES_CRASH_EVENT_DIAGNOSTIC v=1 polls=999 attempts=999 returns=999 empty=999 last=9 failure=5 code=999 native=4294967295 entryMs=-1000000 queryMs=-1000000 expiry=3 location=5 rejected=1 qUs=999999999 qMaxUs=999999999 nUs=999999999 nMaxUs=999999999 rUs=999999999 rMaxUs=999999999 cUs=999999999 cMaxUs=999999999 fUs=999999999 fMaxUs=999999999 dUs=999999999 dMaxUs=999999999 nativeAcceptance=0`n"
 function Get-FailedCommandProtocol {
     param([string]$Name)
     $failedObservation = $observation.Replace('reason=0', 'reason=10').Replace('matched=1', 'matched=0')
@@ -40,6 +45,10 @@ function Get-FailedCommandProtocol {
         default { throw '1' }
     }
 }
+function Get-TimedCommandProtocol {
+    param([string]$Row = $timing, [string]$Name = 'failed-fence')
+    return (Get-FailedCommandProtocol $Name).Replace('HERMES_CRASH_CONTROL v=1', ($Row + 'HERMES_CRASH_CONTROL v=1'))
+}
 if ($Mode -in @('task-contract', 'task-contract-load')) {
     function Invoke-ColdTaskCapture {
         Import-Module (Join-Path $PSScriptRoot 'Crash-Control.psm1') -DisableNameChecking
@@ -51,34 +60,50 @@ if ($Mode -in @('task-contract', 'task-contract-load')) {
             $loaded = [Runtime.Loader.AssemblyLoadContext]::Default.LoadFromAssemblyPath($assembly.Location)
             if (-not [object]::ReferenceEquals($loaded, $assembly)) { throw '1' }
         }
-        $start = [Diagnostics.ProcessStartInfo]::new()
-        $start.FileName = [Environment]::ProcessPath
-        foreach ($argument in @('-NoLogo', '-NoProfile', '-NonInteractive', '-File',
-                $PSCommandPath, '-Mode', 'fixture', '-Fixture', 'valid')) { $start.ArgumentList.Add($argument) }
-        $start.UseShellExecute = $false
-        $start.RedirectStandardOutput = $true
-        $start.RedirectStandardError = $true
-        $process = [Diagnostics.Process]::new()
-        $process.StartInfo = $start
-        $operations = [Collections.Generic.List[Threading.Tasks.Task]]::new()
-        $capture = $null
-        try {
-            if (-not $process.Start()) { throw '1' }
-            $capture = Invoke-HermesCrashEventCapture $process -Operations $operations
-            if (-not $capture.Tasks.GetType().Equals([object[]]) -or $capture.Tasks.Rank -ne 1 `
-                -or $capture.Tasks.GetLowerBound(0) -ne 0 -or $capture.Tasks.Length -ne $operations.Count) { throw '1' }
-            Assert-HermesCrashEventTaskBinding $capture.Tasks $operations
-            Assert-HermesCrashEventOutcome $capture ([pscustomobject]@{ Exit = [uint32]2148734499 })
-            return $operations.Count
-        } finally {
-            if (-not $process.HasExited) { $process.Kill($true) }
-            if (-not $process.WaitForExit(5000)) { throw '15' }
-            $process.Dispose()
-            $all = [Threading.Tasks.Task]::WhenAll($operations.ToArray())
-            try { $null = $all.Wait(5000) } catch { }
-            Assert-HermesCrashEventSettled $operations
-            Clear-HermesCrashEventCapture $capture
+        $count = 0
+        foreach ($name in @('valid', 'timing', 'timing-worst')) {
+            $start = [Diagnostics.ProcessStartInfo]::new()
+            $start.FileName = [Environment]::ProcessPath
+            foreach ($argument in @('-NoLogo', '-NoProfile', '-NonInteractive', '-File',
+                    $PSCommandPath, '-Mode', 'fixture', '-Fixture', $name)) { $start.ArgumentList.Add($argument) }
+            $start.UseShellExecute = $false
+            $start.RedirectStandardOutput = $true
+            $start.RedirectStandardError = $true
+            $process = [Diagnostics.Process]::new()
+            $process.StartInfo = $start
+            $operations = [Collections.Generic.List[Threading.Tasks.Task]]::new()
+            $capture = $null
+            try {
+                if (-not $process.Start()) { throw '1' }
+                $capture = Invoke-HermesCrashEventCapture $process -Operations $operations
+                if (-not $capture.Tasks.GetType().Equals([object[]]) -or $capture.Tasks.Rank -ne 1 `
+                    -or $capture.Tasks.GetLowerBound(0) -ne 0 -or $capture.Tasks.Length -ne $operations.Count) { throw '1' }
+                Assert-HermesCrashEventTaskBinding $capture.Tasks $operations
+                if ($name -ceq 'valid') {
+                    Assert-HermesCrashEventOutcome $capture ([pscustomobject]@{ Exit = [uint32]2148734499 })
+                    if (-not [string]::IsNullOrEmpty((ConvertTo-HermesCrashEventTiming $capture))) { throw '1' }
+                } else {
+                    $expected = if ($name -ceq 'timing') { $timing } else { $worstTiming }
+                    $expected = $expected.Replace('HERMES_CRASH_EVENT_DIAGNOSTIC ', 'HERMES_CRASH_EVENT_TIMING ').TrimEnd([char]10)
+                    if ($capture.ExitCode -ne 1 -or (ConvertTo-HermesCrashEventTiming $capture) -cne $expected `
+                        -or -not (ConvertTo-HermesCrashEventFacts $capture).Contains('available=1 status=1')) { throw '1' }
+                    $refused = $false
+                    try { Assert-HermesCrashEventOutcome $capture ([pscustomobject]@{ Exit = [uint32]2148734499 }) }
+                    catch { $refused = $true }
+                    if (-not $refused) { throw '1' }
+                }
+                $count = [Math]::Max($count, $operations.Count)
+            } finally {
+                if (-not $process.HasExited) { $process.Kill($true) }
+                if (-not $process.WaitForExit(5000)) { throw '15' }
+                $process.Dispose()
+                $all = [Threading.Tasks.Task]::WhenAll($operations.ToArray())
+                try { $null = $all.Wait(5000) } catch { }
+                Assert-HermesCrashEventSettled $operations
+                Clear-HermesCrashEventCapture $capture
+            }
         }
+        return $count
     }
     try {
         $count = Invoke-ColdTaskCapture
@@ -91,7 +116,7 @@ if ($Mode -in @('task-contract', 'task-contract-load')) {
     }
 }
 if ($Mode -ceq 'fixture') {
-    if ($Fixture -ceq 'wrapper-failure') {
+    if ($Fixture.StartsWith('wrapper-', [StringComparison]::Ordinal)) {
         Import-Module (Join-Path $PSScriptRoot 'Crash-Control.psm1') -DisableNameChecking
         Import-Module (Join-Path $PSScriptRoot 'Crash-Event-Control.psm1') -DisableNameChecking
         $t = $null
@@ -112,6 +137,15 @@ if ($Mode -ceq 'fixture') {
             Stdout = [Text.Encoding]::UTF8.GetBytes("private/path`n$([char]27)[31m")
             Stderr = [byte[]]::new(0); Tasks = @($done, $done, $done)
         }
+        if ($Fixture -cne 'wrapper-failure') {
+            $row = if ($Fixture -ceq 'wrapper-timing-invalid') { $timing.Replace('native=-1', 'native=4294967296') } else { $timing }
+            $script:capture.Stdout = [Text.Encoding]::UTF8.GetBytes((Get-TimedCommandProtocol $row))
+        }
+        if ($Fixture -ceq 'wrapper-timing-phase') { $script:phase = 10 }
+        if ($Fixture -ceq 'wrapper-timing-success') {
+            $script:capture.Stdout = [Text.Encoding]::UTF8.GetBytes(($observation + $timing + $base + $event))
+            $script:capture.ExitCode = 0
+        }
         try { throw "private/path`n$([char]27)[31m" }
         catch { Write-CrashEventFailure $_; Write-CrashEventFailure $_ }
         finally { Clear-HermesCrashEventCapture $script:capture }
@@ -120,7 +154,7 @@ if ($Mode -ceq 'fixture') {
     if ($Fixture -ceq 'base-only') { $protocol = $base }
     if ($Fixture -ceq 'event-only') { $protocol = $event }
     if ($Fixture -ceq 'noise') { $protocol += "private/path`n" }
-    if ($Fixture -ceq 'at-cap') { $protocol = 'x' * 511 }
+    if ($Fixture -ceq 'at-cap') { $protocol = 'x' * 1023 }
     if ($Fixture -ceq 'crlf') { $protocol = $protocol.Replace("`n", "`r`n") }
     if ($Fixture -ceq 'overflow') { $protocol = 'x' * 4096 }
     if ($Fixture -ceq 'timeout') { [Threading.Thread]::Sleep(30000); exit 1 }
@@ -131,17 +165,33 @@ if ($Mode -ceq 'fixture') {
             $event.Replace('status=0', 'status=1').Replace('reason=0', 'reason=10')
     }
     if ($Fixture.StartsWith('failed-', [StringComparison]::Ordinal)) { $protocol = Get-FailedCommandProtocol $Fixture }
+    if ($Fixture.StartsWith('timing', [StringComparison]::Ordinal)) {
+        $protocol = Get-TimedCommandProtocol
+        switch -CaseSensitive ($Fixture) {
+            'timing-worst' { $protocol = Get-TimedCommandProtocol $worstTiming }
+            'timing-overflow' {
+                $protocol = Get-TimedCommandProtocol $worstTiming
+                $protocol += 'x' * (1024 - $protocol.Length)
+            }
+            'timing-native' { $protocol = Get-TimedCommandProtocol ($timing.Replace('native=-1', 'native=4294967296')) }
+            'timing-order' { $protocol = (Get-FailedCommandProtocol 'failed-fence') + $timing }
+            'timing-duplicate' { $protocol = Get-TimedCommandProtocol ($timing * 2) 'failed-guard' }
+            'timing-success' { $protocol = $observation + $timing + $base + $event }
+        }
+    }
     $bytes = [Text.Encoding]::UTF8.GetBytes($protocol)
     if ($Fixture -ceq 'utf8') { $bytes = [byte[]]@(255) }
+    if ($Fixture -ceq 'timing-utf8') { $bytes[60] = 255 }
     $stdout = [Console]::OpenStandardOutput()
     $stdout.Write($bytes)
     $stdout.Flush()
-    if ($Fixture -ceq 'stderr') {
+    if ($Fixture -in @('stderr', 'timing-stderr')) {
         $stderr = [Console]::OpenStandardError()
         $stderr.WriteByte(120)
         $stderr.Flush()
     }
-    if ($Fixture -in @('exit', 'failure') -or $Fixture.StartsWith('failed-', [StringComparison]::Ordinal)) { exit 1 }
+    if ($Fixture -in @('exit', 'failure') -or $Fixture.StartsWith('failed-', [StringComparison]::Ordinal) `
+        -or ($Fixture.StartsWith('timing', [StringComparison]::Ordinal) -and $Fixture -cne 'timing-success')) { exit 1 }
     exit 0
 }
 
@@ -181,6 +231,7 @@ function New-Capture {
 function Assert-FactsUnavailable {
     param([object]$Capture)
     Assert-Control ((ConvertTo-HermesCrashEventFacts $Capture) -ceq $script:unavailable)
+    Assert-Control ([string]::IsNullOrEmpty((ConvertTo-HermesCrashEventTiming $Capture)))
 }
 
 function Assert-CaptureDiagnostic {
@@ -192,7 +243,7 @@ function Assert-CaptureDiagnostic {
     if (-not $match.Success) { return }
     $values = @(foreach ($index in 1..7) { [int]$match.Groups[$index].Value })
     Assert-Control ($values[0] -eq $Check -and $values[1] -eq $Field)
-    $bounds = @(27, 22, 512, 1, 515, 7, 117648)
+    $bounds = @(28, 47, 1024, 1, 1027, 8, 2097151)
     Assert-Control (@(0..6 | Where-Object { $values[$_] -lt 0 -or $values[$_] -gt $bounds[$_] }).Count -eq 0)
     if ($Check -eq 0) { Assert-Control ((ConvertTo-HermesCrashEventFacts $Capture).Contains('available=1')) }
     else { Assert-FactsUnavailable $Capture }
@@ -221,7 +272,211 @@ function Test-FailedCommandProtocols {
     Assert-CaptureDiagnostic $capture 26
     Assert-Refused { Assert-HermesCrashEventOutcome $capture $script:control }
     $capture = New-Capture ($observation * 4 + $base + $event)
-    Assert-CaptureDiagnostic $capture 9 6
+    Assert-CaptureDiagnostic $capture 18
+}
+
+function Set-TimingField {
+    param([string]$Row, [string]$Name, [string]$Value)
+    return [regex]::Replace($Row, ('(?<= ' + [regex]::Escape($Name) + '=)[^ ]+'),
+        [Text.RegularExpressions.MatchEvaluator]{ param($unused) $Value })
+}
+
+function Test-Timing {
+    $ranges = [ordered]@{
+        polls = @(0L, 999L); attempts = @(0L, 999L); returns = @(0L, 999L); empty = @(0L, 999L)
+        last = @(0L, 9L); failure = @(0L, 5L); code = @(0L, 999L); native = @(-1L, 4294967295L)
+        entryMs = @(-1000000L, 999999L); queryMs = @(-1000000L, 999999L)
+        expiry = @(0L, 3L); location = @(0L, 5L); rejected = @(0L, 1L)
+        qUs = @(0L, 999999999L); qMaxUs = @(0L, 999999999L)
+        nUs = @(0L, 999999999L); nMaxUs = @(0L, 999999999L)
+        rUs = @(0L, 999999999L); rMaxUs = @(0L, 999999999L)
+        cUs = @(0L, 999999999L); cMaxUs = @(0L, 999999999L)
+        fUs = @(0L, 999999999L); fMaxUs = @(0L, 999999999L)
+        dUs = @(0L, 999999999L); dMaxUs = @(0L, 999999999L)
+    }
+    Assert-Control ($worstTiming.Length -eq 393 -and [Text.Encoding]::ASCII.GetByteCount($worstTiming) -eq 393)
+    $capture = New-Capture (Get-TimedCommandProtocol $worstTiming) 1
+    Assert-Control ($capture.Stdout.Length -eq 901)
+    Assert-CaptureDiagnostic $capture 0
+    Assert-Control ((ConvertTo-HermesCrashEventCaptureDiagnostic $capture).Contains('rows=6 shape=142921'))
+    foreach ($row in @($timing, $worstTiming)) {
+        $expected = $row.Replace('HERMES_CRASH_EVENT_DIAGNOSTIC ', 'HERMES_CRASH_EVENT_TIMING ').TrimEnd([char]10)
+        foreach ($name in @('failed-guard', 'failed-callback', 'failed-fence', 'failed-dispose', 'failed-base-success')) {
+            $capture = New-Capture (Get-TimedCommandProtocol $row $name) 1
+            $raw = [Convert]::ToBase64String($capture.Stdout)
+            Assert-CaptureDiagnostic $capture 0
+            Assert-Control ((ConvertTo-HermesCrashEventTiming $capture) -ceq $expected)
+            Assert-Control ((ConvertTo-HermesCrashEventFacts $capture) -ceq
+                (ConvertTo-HermesCrashEventFacts (New-Capture (Get-FailedCommandProtocol $name) 1)))
+            Assert-Refused { Assert-HermesCrashEventOutcome $capture $script:control }
+            Assert-Control ([Convert]::ToBase64String($capture.Stdout) -ceq $raw)
+        }
+    }
+    foreach ($count in 0..3) {
+        $text = ($observation * $count) + $timing +
+            $base.Replace('status=0', 'status=1').Replace('error=0 ', 'error=6 ') +
+            "HERMES_CRASH_EXIT v=1 check=25 nativeError=4294967295 nativeAcceptance=0`n" +
+            $event.Replace('status=0', 'status=1').Replace('reason=0', 'reason=19')
+        $capture = New-Capture $text 1
+        Assert-CaptureDiagnostic $capture 0
+        Assert-Control (-not [string]::IsNullOrEmpty((ConvertTo-HermesCrashEventTiming $capture)))
+        Assert-Refused { Assert-HermesCrashEventOutcome $capture $script:control }
+        if ($count -eq 3) {
+            Assert-Control ((ConvertTo-HermesCrashEventCaptureDiagnostic $capture).Contains('rows=7 shape=1158729'))
+        }
+    }
+    $field = 22
+    foreach ($name in $ranges.Keys) {
+        $field++
+        $original = [regex]::Match($timing, ('(?<= ' + $name + '=)[^ ]+')).Value
+        foreach ($value in @($ranges[$name][0], $ranges[$name][1])) {
+            $row = Set-TimingField $timing $name ($value.ToString([Globalization.CultureInfo]::InvariantCulture))
+            $capture = New-Capture (Get-TimedCommandProtocol $row) 1
+            Assert-CaptureDiagnostic $capture 0
+            Assert-Control ((ConvertTo-HermesCrashEventTiming $capture).Contains(" $name=$value "))
+        }
+        foreach ($value in @(($ranges[$name][0] - 1), ($ranges[$name][1] + 1))) {
+            $row = Set-TimingField $timing $name ($value.ToString([Globalization.CultureInfo]::InvariantCulture))
+            $capture = New-Capture (Get-TimedCommandProtocol $row) 1
+            Assert-FactsUnavailable $capture
+            Assert-Refused { Assert-HermesCrashEventOutcome $capture $script:control }
+            if ($value -ge 0 -or $name -ceq 'native') {
+                $check = if (($name -ceq 'native' -and $value -eq -2) `
+                    -or $name -cin @('entryMs', 'queryMs')) { 18 } else { 28 }
+                Assert-CaptureDiagnostic $capture $check $(if ($check -eq 28) { $field } else { 0 })
+            }
+        }
+        foreach ($value in @('00', '01', '-0', '+1', '1.0', '1e0', 'null', '"1"', 'true',
+                '18446744073709551616', '١', 'private/path')) {
+            $row = Set-TimingField $timing $name $value
+            Assert-FactsUnavailable (New-Capture (Get-TimedCommandProtocol $row) 1)
+        }
+        foreach ($row in @(
+            $timing.Replace(" $name=$original", ''),
+            $timing.Replace(" $name=$original", " $name=$original $name=$original"),
+            $timing.Replace(" $name=$original", " $($name.ToUpperInvariant())=$original")
+        )) { Assert-FactsUnavailable (New-Capture (Get-TimedCommandProtocol $row) 1) }
+    }
+    foreach ($name in @('last', 'failure', 'expiry', 'location', 'rejected')) {
+        foreach ($value in 0..([int]$ranges[$name][1])) {
+            Assert-CaptureDiagnostic (New-Capture (Get-TimedCommandProtocol (Set-TimingField $timing $name ([string]$value))) 1) 0
+        }
+    }
+    foreach ($name in @('entryMs', 'queryMs')) {
+        foreach ($value in @('-999999', '-1', '0', '1', '999999', '-1000000')) {
+            Assert-CaptureDiagnostic (New-Capture (Get-TimedCommandProtocol (Set-TimingField $timing $name $value)) 1) 0
+        }
+        foreach ($value in @('-1000001', '1000000', '-000001', '-0999999', '-10000000')) {
+            Assert-FactsUnavailable (New-Capture (Get-TimedCommandProtocol (Set-TimingField $timing $name $value)) 1)
+        }
+    }
+    foreach ($value in @('-1', '0', '2147483648', '4294967295')) {
+        Assert-CaptureDiagnostic (New-Capture (Get-TimedCommandProtocol (Set-TimingField $timing 'native' $value)) 1) 0
+    }
+    foreach ($row in @(
+        $timing.Replace('polls=1 attempts=1', 'attempts=1 polls=1'),
+        $timing.Replace(' nativeAcceptance=0', ' extra=0 nativeAcceptance=0'),
+        $timing.Replace('nativeAcceptance=0', 'nativeAcceptance=1'),
+        $timing.Replace('v=1', 'v=2'), $timing.Replace("`n", "`r`n"),
+        $timing.TrimEnd([char]10), ($timing + "`n"), ($timing + [char]0),
+        $timing.Replace(' last=3', " last=3 private/path$([char]27)[31m"),
+        $timing.Replace(' last=3', ' last=3 query=Application record=private.xml exception=Private.Type token=private'),
+        ([string][char]0xfeff + $timing)
+    )) { Assert-FactsUnavailable (New-Capture (Get-TimedCommandProtocol $row) 1) }
+    foreach ($text in @(
+        $timing, ($timing + $protocol), ($protocol + $timing),
+        ($observation + $base + $timing + $event),
+        (Get-TimedCommandProtocol ($timing * 2) 'failed-guard'),
+        ($observation + $timing + $base + $event)
+    )) {
+        foreach ($status in @(0, 1)) {
+            $capture = New-Capture $text $status
+            Assert-FactsUnavailable $capture
+            Assert-Refused { Assert-HermesCrashEventOutcome $capture $script:control }
+        }
+    }
+    foreach ($name in @('ExitCode', 'Deadline', 'StdoutComplete', 'StderrComplete', 'WaitSettled', 'Stderr', 'Tasks')) {
+        $capture = New-Capture (Get-TimedCommandProtocol) 1
+        $capture.$name = (New-Capture).$name
+        if ($name -ceq 'ExitCode') { $capture.ExitCode = 0 }
+        elseif ($name -ceq 'Tasks') { $capture.Tasks = [Threading.Tasks.Task[]]@([Threading.Tasks.Task]::CompletedTask) }
+        elseif ($name -ceq 'Stderr') { $capture.Stderr = [byte[]]@(255) }
+        else { $capture.$name = 2 }
+        Assert-FactsUnavailable $capture
+    }
+    $pending = [Threading.Tasks.TaskCompletionSource[int]]::new()
+    $capture = New-Capture (Get-TimedCommandProtocol) 1
+    $capture.Tasks[1] = $pending.Task
+    Assert-FactsUnavailable $capture
+    $pending.SetResult(0)
+    Assert-CaptureDiagnostic $capture 0
+    foreach ($task in @(
+        [Threading.Tasks.Task]::FromException([IO.IOException]::new('private/path')),
+        [Threading.Tasks.Task]::FromCanceled([Threading.CancellationToken]::new($true))
+    )) {
+        $capture = New-Capture (Get-TimedCommandProtocol) 1
+        $capture.Tasks[1] = $task
+        Assert-CaptureDiagnostic $capture 15 8
+        try { $null = $task.GetAwaiter().GetResult() } catch { }
+    }
+    foreach ($name in @((New-Capture).PSObject.Properties.Name)) {
+        $capture = New-Capture (Get-TimedCommandProtocol) 1
+        $capture.PSObject.Properties.Remove($name)
+        Assert-FactsUnavailable $capture
+    }
+    foreach ($bytes in @([byte[]]@(255), [byte[]]@(0xc0, 0xaf), [byte[]]@(0xc3))) {
+        $capture = New-Capture (Get-TimedCommandProtocol) 1
+        $capture.Stdout = [byte[]]($capture.Stdout + $bytes)
+        Assert-CaptureDiagnostic $capture 17 6
+    }
+    $culture = [Globalization.CultureInfo]::CurrentCulture
+    try {
+        [Globalization.CultureInfo]::CurrentCulture = [Globalization.CultureInfo]::GetCultureInfo('ar-SA')
+        $capture = New-Capture (Get-TimedCommandProtocol $worstTiming) 1
+        Assert-Control ((ConvertTo-HermesCrashEventTiming $capture) -ceq
+            $worstTiming.Replace('HERMES_CRASH_EVENT_DIAGNOSTIC ', 'HERMES_CRASH_EVENT_TIMING ').TrimEnd([char]10))
+    } finally { [Globalization.CultureInfo]::CurrentCulture = $culture }
+    Assert-Control ([string]::IsNullOrEmpty((ConvertTo-HermesCrashEventTiming (New-Capture))))
+    Assert-Control ([string]::IsNullOrEmpty((ConvertTo-HermesCrashEventTiming (New-Capture (Get-FailedCommandProtocol 'failed-guard') 1))))
+}
+
+function Test-ReadBudget {
+    $crash = Get-Module Crash-Control
+    $stream = [IO.MemoryStream]::new([byte[]]@(120))
+    $errors = [IO.MemoryStream]::new([byte[]]::new(0))
+    $operations = [Collections.Generic.List[Threading.Tasks.Task]]::new()
+    $operations.Add([Threading.Tasks.Task]::CompletedTask)
+    $output = $null
+    $stderr = $null
+    try {
+        $output = & $crash { param($s, $o) New-HermesCrashRead $s 1024 $o } $stream $operations
+        $stderr = & $crash { param($s, $o) New-HermesCrashRead $s 1 $o } $errors $operations
+        foreach ($index in 1..1023) {
+            # Rewind the one-byte stream before each actual continuation read.
+            # On the final byte, leave it at EOF to obtain the 1024th read task.
+            $stream.Position = [int]($index -eq 1023)
+            & $crash { param($r) Update-HermesCrashRead $r } $output
+        }
+        & $crash { param($r) Update-HermesCrashRead $r } $output
+        & $crash { param($r) Update-HermesCrashRead $r } $stderr
+        Assert-Control ($output.Count -eq 1023 -and $output.End -and $stderr.End -and $operations.Count -eq 1026)
+        Assert-HermesCrashEventSettled $operations
+        $snapshot = [object[]]::new($operations.Count)
+        for ($index = 0; $index -lt $operations.Count; $index++) { $snapshot[$index] = $operations[$index] }
+        Assert-HermesCrashEventTaskBinding $snapshot $operations
+        $capture = New-Capture (Get-TimedCommandProtocol) 1
+        $capture.Tasks = $snapshot
+        Assert-CaptureDiagnostic $capture 0
+        $operations.Add([Threading.Tasks.Task]::CompletedTask)
+        Assert-Refused { Assert-HermesCrashEventSettled $operations }
+        $capture.Tasks = [object[]]@($snapshot + [Threading.Tasks.Task]::CompletedTask)
+        Assert-CaptureDiagnostic $capture 13 8
+    } finally {
+        if ($null -ne $output) { [Array]::Clear($output.Buffer) }
+        if ($null -ne $stderr) { [Array]::Clear($stderr.Buffer) }
+        $stream.Dispose()
+        $errors.Dispose()
+    }
 }
 
 function Test-CaptureDiagnostics {
@@ -242,7 +497,7 @@ function Test-CaptureDiagnostics {
         @{ Field = 'WaitSettled'; Value = 0; Check = 7; Code = 5 },
         @{ Field = 'Stdout'; Value = 'private/path'; Check = 8; Code = 6 },
         @{ Field = 'Stdout'; Value = [byte[]]::new(0); Check = 9; Code = 6 },
-        @{ Field = 'Stdout'; Value = [byte[]]::new(512); Check = 9; Code = 6 },
+        @{ Field = 'Stdout'; Value = [byte[]]::new(1024); Check = 9; Code = 6 },
         @{ Field = 'Stderr'; Value = 'private/path'; Check = 10; Code = 7 },
         @{ Field = 'Stderr'; Value = [byte[]]@(120); Check = 11; Code = 7 },
         @{ Field = 'Tasks'; Value = [Threading.Tasks.Task]::CompletedTask; Check = 12; Code = 8 },
@@ -281,19 +536,19 @@ function Test-CaptureDiagnostics {
         $event.Replace('status=0', 'status=1').Replace('reason=0', 'reason=19')
     Assert-CaptureDiagnostic (New-Capture $withExit 1) 25 18
     Assert-CaptureDiagnostic (New-Capture ($protocol.Replace('matched=1', 'matched=0'))) 26
-    $capture = New-Capture ("`n" * 511)
+    $capture = New-Capture ("`n" * 1023)
     $line = ConvertTo-HermesCrashEventCaptureDiagnostic $capture
-    Assert-Control ($line -ceq 'HERMES_CRASH_EVENT_CAPTURE v=1 check=18 field=0 out=511 err=0 tasks=3 rows=7 shape=117648')
+    Assert-Control ($line -ceq 'HERMES_CRASH_EVENT_CAPTURE v=1 check=18 field=0 out=1023 err=0 tasks=3 rows=8 shape=1797558')
     $capture = New-Capture
-    $capture.Tasks = @([Threading.Tasks.Task]::CompletedTask) * 515
+    $capture.Tasks = @([Threading.Tasks.Task]::CompletedTask) * 1027
     Assert-CaptureDiagnostic $capture 13 8
-    Assert-Control ((ConvertTo-HermesCrashEventCaptureDiagnostic $capture).Contains('tasks=515'))
+    Assert-Control ((ConvertTo-HermesCrashEventCaptureDiagnostic $capture).Contains('tasks=1027'))
     $capture = New-Capture
     $capture | Add-Member ScriptProperty Stdout { throw "private/path`n$([char]27)[31m" } -Force
     Assert-CaptureDiagnostic $capture 8 6
     $capture = New-Capture ("private/path`n" + ('a' * 64) + "`n$([char]27)[31m")
     Assert-Control ((ConvertTo-HermesCrashEventCaptureDiagnostic $capture) -ceq (
-        'HERMES_CRASH_EVENT_CAPTURE v=1 check=18 field=0 out=83 err=0 tasks=3 rows=3 shape=285'))
+        'HERMES_CRASH_EVENT_CAPTURE v=1 check=18 field=0 out=83 err=0 tasks=3 rows=3 shape=365'))
     $culture = [Globalization.CultureInfo]::CurrentCulture
     try {
         [Globalization.CultureInfo]::CurrentCulture = [Globalization.CultureInfo]::GetCultureInfo('ar-SA')
@@ -571,7 +826,7 @@ function Test-OutcomeAndFacts {
     $pending = [Threading.Tasks.TaskCompletionSource[int]]::new()
     $faulted = [Threading.Tasks.Task]::FromException([IO.IOException]::new('private/path'))
     foreach ($tasks in @(@(), @($done), @($done, $done, $pending.Task), @($done, $done, $faulted),
-            @($done, $done, $null), (@($done) * 515))) {
+            @($done, $done, $null), (@($done) * 1027))) {
         $capture = New-Capture
         $capture.Tasks = $tasks
         Assert-Refused { Assert-HermesCrashEventOutcome $capture $script:control }
@@ -856,6 +1111,7 @@ function Invoke-Fixture {
     $operations = [Collections.Generic.List[Threading.Tasks.Task]]::new()
     $capture = $null
     $accepted = $false
+    $verified = $false
     try {
         if (-not $process.Start()) { throw '1' }
         $limit = if ($Name -ceq 'timeout') { 200 } else { 20000 }
@@ -870,22 +1126,44 @@ function Invoke-Fixture {
             $loaded = [int]($Name -ceq 'task-contract-load')
             $text = [Text.UTF8Encoding]::new($false, $true).GetString($capture.Stdout)
             $match = [regex]::Match($text, "\AHERMES_CRASH_EVENT_TASK_CONTRACT v=1 status=0 loaded=$loaded tasks=([0-9]+)$([Environment]::NewLine)\z")
-            $good = $match.Success -and [int]$match.Groups[1].Value -ge 3 -and [int]$match.Groups[1].Value -le 514 `
+            $good = $match.Success -and [int]$match.Groups[1].Value -ge 3 -and [int]$match.Groups[1].Value -le 1026 `
                 -and $capture.ExitCode -eq 0 -and $capture.Stderr.Length -eq 0
             Assert-Control $good
             if (-not $good) { throw '1' }
             $accepted = $true
+            $verified = $true
             return
         }
-        if ($Name -ceq 'at-cap') { Assert-Control ($capture.Stdout.Length -eq 511) }
+        if ($Name -ceq 'at-cap') { Assert-Control ($capture.Stdout.Length -eq 1023); $verified = $true }
         if ($Name -ceq 'wrapper-failure') {
             $newline = [Environment]::NewLine
             $expected = "HERMES_CRASH_EVENT_WRAPPER v=1 status=1 published=0 originalGatePassed=0 nativeAcceptance=0$newline" +
                 "HERMES_CRASH_EVENT_DIAGNOSTIC v=1 phase=9 family=0 reason=0$newline" +
                 "$script:unavailable$newline" +
-                "HERMES_CRASH_EVENT_CAPTURE v=1 check=18 field=0 out=18 err=0 tasks=3 rows=2 shape=40$newline"
+                "HERMES_CRASH_EVENT_CAPTURE v=1 check=18 field=0 out=18 err=0 tasks=3 rows=2 shape=45$newline"
             Assert-Control ($capture.ExitCode -eq 1 -and $capture.Stderr.Length -eq 0 `
                 -and [Text.Encoding]::UTF8.GetString($capture.Stdout) -ceq $expected)
+            $verified = $true
+            return
+        }
+        if ($Name.StartsWith('wrapper-timing', [StringComparison]::Ordinal)) {
+            $row = if ($Name -ceq 'wrapper-timing-invalid') { $timing.Replace('native=-1', 'native=4294967296') } else { $timing }
+            $inner = New-Capture (Get-TimedCommandProtocol $row) 1
+            if ($Name -ceq 'wrapper-timing-success') { $inner = New-Capture ($observation + $timing + $base + $event) }
+            $newline = [Environment]::NewLine
+            $phase = if ($Name -ceq 'wrapper-timing-phase') { 10 } else { 9 }
+            $expected = "HERMES_CRASH_EVENT_WRAPPER v=1 status=1 published=0 originalGatePassed=0 nativeAcceptance=0$newline" +
+                "HERMES_CRASH_EVENT_DIAGNOSTIC v=1 phase=$phase family=0 reason=0$newline"
+            if ($phase -eq 9) {
+                $expected += "$(ConvertTo-HermesCrashEventFacts $inner)$newline" +
+                    "$(ConvertTo-HermesCrashEventCaptureDiagnostic $inner)$newline"
+            }
+            if ($Name -ceq 'wrapper-timing') {
+                $expected += $timing.Replace('HERMES_CRASH_EVENT_DIAGNOSTIC ', 'HERMES_CRASH_EVENT_TIMING ').TrimEnd([char]10) + $newline
+            }
+            Assert-Control ($capture.ExitCode -eq 1 -and $capture.Stderr.Length -eq 0 `
+                -and [Text.Encoding]::UTF8.GetString($capture.Stdout) -ceq $expected)
+            $verified = $true
             return
         }
         if ($Name -ceq 'failure') {
@@ -895,9 +1173,35 @@ function Invoke-Fixture {
             Assert-CaptureDiagnostic $capture 0
             Assert-Control ((ConvertTo-HermesCrashEventFacts $capture).Contains('available=1 status=1'))
         }
+        if ($Name -in @('timing', 'timing-worst')) {
+            Assert-CaptureDiagnostic $capture 0
+            $row = if ($Name -ceq 'timing') { $timing } else { $worstTiming }
+            $expected = $row.Replace('HERMES_CRASH_EVENT_DIAGNOSTIC ', 'HERMES_CRASH_EVENT_TIMING ').TrimEnd([char]10)
+            $raw = [Convert]::ToBase64String($capture.Stdout)
+            Assert-Control ((ConvertTo-HermesCrashEventTiming $capture) -ceq $expected)
+            Assert-Control ((ConvertTo-HermesCrashEventFacts $capture).Contains('available=1 status=1'))
+            if ($Name -ceq 'timing-worst') { Assert-Control ($capture.Stdout.Length -eq 901) }
+            Assert-Refused { Assert-HermesCrashEventOutcome $capture $script:control }
+            Assert-Control ([Convert]::ToBase64String($capture.Stdout) -ceq $raw)
+            $verified = $true
+            return
+        }
+        if ($Name -in @('timing-native', 'timing-order', 'timing-duplicate', 'timing-success', 'timing-utf8')) {
+            $check = switch -CaseSensitive ($Name) {
+                'timing-native' { 28 }; 'timing-success' { 26 }; 'timing-utf8' { 17 }; default { 18 }
+            }
+            $field = switch -CaseSensitive ($Name) { 'timing-native' { 30 }; 'timing-utf8' { 6 }; default { 0 } }
+            Assert-CaptureDiagnostic $capture $check $field
+            $verified = $true
+        }
         Assert-HermesCrashEventOutcome $capture $script:control
         $accepted = $true
-    } catch { } finally {
+    } catch {
+        if ($Name -in @('overflow', 'timing-overflow', 'stderr', 'timing-stderr')) {
+            Assert-Control ($null -eq $capture -and $_.Exception.Message -ceq '13')
+            $verified = $true
+        }
+    } finally {
         if (-not $process.HasExited) { $process.Kill($true) }
         if (-not $process.WaitForExit(5000)) { throw '15' }
         $process.Dispose()
@@ -909,6 +1213,9 @@ function Invoke-Fixture {
         }
         Clear-HermesCrashEventCapture $capture
         Assert-Control ($operations.Count -ge 3 -and $all.IsCompleted)
+        if ($Name.StartsWith('timing', [StringComparison]::Ordinal) `
+            -or $Name.StartsWith('wrapper-', [StringComparison]::Ordinal) `
+            -or $Name -in @('task-contract', 'task-contract-load', 'at-cap')) { Assert-Control $verified }
     }
     Assert-Control ($accepted -eq ($Name -in @('valid', 'task-contract', 'task-contract-load')))
 }
@@ -929,6 +1236,10 @@ function Test-StaticBoundaries {
     }, $false)
     Assert-Control ($failureFunction.Extent.Text.Contains('ConvertTo-HermesCrashEventCaptureDiagnostic $script:capture') `
         -and [regex]::Matches($wrapper, 'ConvertTo-HermesCrashEventCaptureDiagnostic').Count -eq 1)
+    Assert-Control ($failureFunction.Extent.Text.Contains('ConvertTo-HermesCrashEventTiming $script:capture') `
+        -and [regex]::Matches($wrapper, 'ConvertTo-HermesCrashEventTiming').Count -eq 1 `
+        -and $failureFunction.Extent.Text.Contains('$script:phase -eq 9') `
+        -and $failureFunction.Extent.Text.Contains('if ($script:failureReported) { return }'))
     foreach ($path in @('Crash-Event-Control.psm1', 'Test-CrashEventControl.ps1')) {
         $null = [Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot $path), [ref]$t, [ref]$e)
         Assert-Control ($e.Count -eq 0)
@@ -966,10 +1277,17 @@ function Test-StaticBoundaries {
         -and $module.Contains('$sourcePins = Open-HermesCrashPins $root $checkout.Sources') `
         -and $module.Contains('$workflowPins = Open-HermesCrashPins $root @($workflow)'))
     Assert-Control ($module.Contains('[IO.FileMode]::CreateNew') -and $module.Contains('Assert-HermesCrashEventSchema (Read-HermesCrashBytes $path)'))
-    Assert-Control ($module.Contains('New-HermesCrashRead $Stream 512 $Operations') `
+    Assert-Control ($module.Contains('New-HermesCrashRead $Stream 1024 $Operations') `
         -and $module.Contains('New-HermesCrashRead $Stream 1 $Operations') `
         -and $module.Contains('Update-HermesCrashRead $Read') `
         -and $module.Contains('[Array]::Clear($output.Buffer)') -and $module.Contains('[Array]::Clear($errors.Buffer)'))
+    $baseModule = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'Crash-Control.psm1'))
+    Assert-Control ($baseModule.Contains('New-HermesCrashRead $Process.StandardOutput.BaseStream 512 $Operations') `
+        -and $baseModule.Contains('$Capture.Stdout.Length -gt 511') -and -not $baseModule.Contains('1024'))
+    Assert-Control ($module.Contains('$Capture.Stdout.Length -gt 1023') `
+        -and $module.Contains('$Capture.Tasks.Count -gt 1026') -and $module.Contains('$Operations.Count -gt 1026') `
+        -and $module.Contains('[Math]::Min(1024, $Capture.Stdout.Length)') `
+        -and $module.Contains('[Math]::Min(1027, $Capture.Tasks.Count)'))
     Assert-Control ($wrapper.IndexOf('Clear-HermesCrashEventCapture $script:capture', [StringComparison]::Ordinal) -lt
         $wrapper.IndexOf('Complete-HermesCrashEventScope $scope', [StringComparison]::Ordinal))
     Assert-Control ($wrapper.IndexOf('[IO.File]::AppendAllText($env:GITHUB_OUTPUT', [StringComparison]::Ordinal) -lt
@@ -1026,13 +1344,18 @@ try {
     Test-OutcomeAndFacts
     Test-TaskContainerContract
     Test-FailedCommandProtocols
+    Test-Timing
+    Test-ReadBudget
     Test-CaptureDiagnostics
     Test-Publication $scratch
     Test-Lifecycle $scratch
     Test-DiagnosticsAndGuard
     foreach ($name in @('task-contract', 'task-contract-load', 'valid', 'at-cap', 'base-only', 'event-only', 'noise', 'crlf', 'utf8', 'stderr',
             'exit', 'overflow', 'timeout', 'failure', 'failed-guard', 'failed-callback',
-            'failed-fence', 'failed-dispose', 'failed-base-success', 'wrapper-failure')) { Invoke-Fixture $name }
+            'failed-fence', 'failed-dispose', 'failed-base-success', 'wrapper-failure',
+            'timing', 'timing-worst', 'timing-overflow', 'timing-native', 'timing-order', 'timing-duplicate',
+            'timing-success', 'timing-stderr', 'timing-utf8', 'wrapper-timing', 'wrapper-timing-invalid',
+            'wrapper-timing-phase', 'wrapper-timing-success')) { Invoke-Fixture $name }
     Test-StaticBoundaries
 } finally { Remove-Item -LiteralPath $scratch -Recurse -Force }
 [Console]::Out.WriteLine("HERMES_CRASH_EVENT_TESTS v=1 passed=$script:passed failed=$script:failed")

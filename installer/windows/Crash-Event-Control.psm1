@@ -4,6 +4,18 @@ $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'Crash-Control.psm1') -DisableNameChecking
 $script:crash = Get-Module Crash-Control
 $script:templateHash = 'cd0a3d85a95e98a2909d1a77bada29db34ed1abbe37a058d6c06e9aca599557e'
+$script:timingRanges = [ordered]@{
+    polls = @(0L, 999L); attempts = @(0L, 999L); returns = @(0L, 999L); empty = @(0L, 999L)
+    last = @(0L, 9L); failure = @(0L, 5L); code = @(0L, 999L); native = @(-1L, 4294967295L)
+    entryMs = @(-1000000L, 999999L); queryMs = @(-1000000L, 999999L)
+    expiry = @(0L, 3L); location = @(0L, 5L); rejected = @(0L, 1L)
+    qUs = @(0L, 999999999L); qMaxUs = @(0L, 999999999L)
+    nUs = @(0L, 999999999L); nMaxUs = @(0L, 999999999L)
+    rUs = @(0L, 999999999L); rMaxUs = @(0L, 999999999L)
+    cUs = @(0L, 999999999L); cMaxUs = @(0L, 999999999L)
+    fUs = @(0L, 999999999L); fMaxUs = @(0L, 999999999L)
+    dUs = @(0L, 999999999L); dMaxUs = @(0L, 999999999L)
+}
 
 function Get-EventProperties {
     param([Text.Json.JsonElement]$Element, [string[]]$Names)
@@ -131,8 +143,9 @@ function Assert-HermesCrashEventReport {
 
 function New-EventProjection {
     param([int]$Check = 0, [int]$Field = 0, [string]$Facts =
-        'HERMES_CRASH_EVENT_FACTS v=1 available=0 status=0 controlStatus=0 reason=0 matched=0 lowerEmpty=0 upperEmpty=0 controlError=0 cleanupError=0 reportError=0 originalGatePassed=0 nativeAcceptance=0')
-    return [pscustomobject]@{ Check = $Check; Field = $Field; Facts = $Facts }
+        'HERMES_CRASH_EVENT_FACTS v=1 available=0 status=0 controlStatus=0 reason=0 matched=0 lowerEmpty=0 upperEmpty=0 controlError=0 cleanupError=0 reportError=0 originalGatePassed=0 nativeAcceptance=0',
+        [string]$Timing = '')
+    return [pscustomobject]@{ Check = $Check; Field = $Field; Facts = $Facts; Timing = $Timing }
 }
 
 function Test-EventTaskArray {
@@ -148,9 +161,11 @@ function Test-EventTaskArray {
 # 10/11 stderr type/length; 12/13 task-array type/count; 14/15 task type/state;
 # 16 task join; 17 UTF-8; 18 complete grammar; 19 UInt32; 20 observation reason;
 # 21 helper/event status binding; 22 event reason; 23 control fault; 24 cleanup
-# flags; 25 exit advisory binding; 26 success projection; 27 internal refusal.
+# flags; 25 exit advisory binding; 26 success projection; 27 internal refusal;
+# 28 timing numeric range.
 # Field codes: 1..5 capture integers in declaration order, 6 stdout, 7 stderr,
-# 8 tasks; 9..22 protocol numbers in the fixed parser order below. Zero = none.
+# 8 tasks; 9..22 existing protocol numbers; 23..47 timing numbers in declared
+# producer order. Zero = none.
 function Get-EventCaptureCheck {
     param([object]$Capture)
     $field = 0
@@ -167,13 +182,13 @@ function Get-EventCaptureCheck {
         if ($Capture.WaitSettled -ne 1) { return New-EventProjection 7 5 }
         $field = 6
         if ($Capture.Stdout -isnot [byte[]]) { return New-EventProjection 8 $field }
-        if ($Capture.Stdout.Length -lt 1 -or $Capture.Stdout.Length -gt 511) { return New-EventProjection 9 $field }
+        if ($Capture.Stdout.Length -lt 1 -or $Capture.Stdout.Length -gt 1023) { return New-EventProjection 9 $field }
         $field = 7
         if ($Capture.Stderr -isnot [byte[]]) { return New-EventProjection 10 $field }
         if ($Capture.Stderr.Length -ne 0) { return New-EventProjection 11 $field }
         $field = 8
         if (-not (Test-EventTaskArray $Capture.Tasks)) { return New-EventProjection 12 $field }
-        if ($Capture.Tasks.Count -lt 3 -or $Capture.Tasks.Count -gt 514) { return New-EventProjection 13 $field }
+        if ($Capture.Tasks.Count -lt 3 -or $Capture.Tasks.Count -gt 1026) { return New-EventProjection 13 $field }
         foreach ($task in $Capture.Tasks) {
             if ($task -isnot [Threading.Tasks.Task]) { return New-EventProjection 14 $field }
             if ($task.Status -ne [Threading.Tasks.TaskStatus]::RanToCompletion) { return New-EventProjection 15 $field }
@@ -190,7 +205,7 @@ function Assert-EventCapture {
 
 function Get-EventCaptureShape {
     param([object]$Capture)
-    # 512 output bytes, 515 tasks and 7 rows are overflow sentinels;
+    # 1024 output bytes, 1027 tasks and 8 rows are overflow sentinels;
     # err=1 means any nonempty byte capture, not an exported error byte.
     $out = 0
     $err = 0
@@ -198,28 +213,29 @@ function Get-EventCaptureShape {
     $rows = 0
     $shape = 0
     try {
-        if ($Capture.Stdout -is [byte[]]) { $out = [Math]::Min(512, $Capture.Stdout.Length) }
+        if ($Capture.Stdout -is [byte[]]) { $out = [Math]::Min(1024, $Capture.Stdout.Length) }
         if ($Capture.Stderr -is [byte[]]) { $err = [Math]::Min(1, $Capture.Stderr.Length) }
-        if (Test-EventTaskArray $Capture.Tasks) { $tasks = [Math]::Min(515, $Capture.Tasks.Count) }
+        if (Test-EventTaskArray $Capture.Tasks) { $tasks = [Math]::Min(1027, $Capture.Tasks.Count) }
     } catch { }
-    if ($out -gt 0 -and $out -lt 512) {
+    if ($out -gt 0 -and $out -lt 1024) {
         try {
             $text = [Text.UTF8Encoding]::new($false, $true).GetString($Capture.Stdout)
             if ($text.EndsWith("`n", [StringComparison]::Ordinal)) { $text = $text.Substring(0, $text.Length - 1) }
             $lines = $text.Split("`n")
-            $rows = [Math]::Min(7, $lines.Length)
+            $rows = [Math]::Min(8, $lines.Length)
             $place = 1
-            # Six base-7 prefix codes, first row least significant: 0 absent,
-            # 1 observation, 2 base, 3 exit, 4 event, 5 unknown, 6 empty.
+            # Seven base-8 prefix codes, first row least significant: 0 absent,
+            # 1 observation, 2 base, 3 exit, 4 event, 5 unknown, 6 empty, 7 timing.
             $prefixes = @('HERMES_CRASH_EVENT_OBSERVATION ', 'HERMES_CRASH_CONTROL ',
                 'HERMES_CRASH_EXIT ', 'HERMES_CRASH_EVENT_CONTROL ')
-            foreach ($line in @($lines | Select-Object -First 6)) {
+            foreach ($line in @($lines | Select-Object -First 7)) {
                 $code = if ($line.Length -eq 0) { 6 } else { 5 }
                 for ($index = 0; $index -lt $prefixes.Count; $index++) {
                     if ($line.StartsWith($prefixes[$index], [StringComparison]::Ordinal)) { $code = $index + 1; break }
                 }
+                if ($line.StartsWith('HERMES_CRASH_EVENT_DIAGNOSTIC ', [StringComparison]::Ordinal)) { $code = 7 }
                 $shape += $code * $place
-                $place *= 7
+                $place *= 8
             }
         } catch { }
     }
@@ -263,11 +279,23 @@ function Get-EventFactsProjection {
         try { $text = [Text.UTF8Encoding]::new($false, $true).GetString($Capture.Stdout) }
         catch [Text.DecoderFallbackException] { return New-EventProjection 17 6 }
         $u = '(0|[1-9][0-9]{0,9})'
+        $timingFields = foreach ($name in $script:timingRanges.Keys) {
+            $number = switch -CaseSensitive ($name) {
+                'native' { '(-1|0|[1-9][0-9]{0,9})' }
+                { $_ -cin @('entryMs', 'queryMs') } { '(-1000000|0|-?[1-9][0-9]{0,5})' }
+                default { $u }
+            }
+            " $name=(?<timing$name>$number)"
+        }
+        $timingPattern = '(?<timing>HERMES_CRASH_EVENT_DIAGNOSTIC v=1' +
+            ($timingFields -join '') + ' nativeAcceptance=0\n)?'
         # Observer refusal, coordinator failure diagnostic, then final receipt
         # refusal can emit three observations before the two terminal summaries.
-        # The unchanged 511-byte cap still bounds the complete captured protocol.
+        # At most one post-cleanup timing row precedes those terminal summaries.
+        # The event-only 1023-byte cap includes its worst-case 393 ASCII bytes.
         $pattern = '\A' +
             "(?:HERMES_CRASH_EVENT_OBSERVATION v=1 reason=(?<observation>$u) matched=(?<matched>[01]) lowerEmpty=(?<lower>[01]) upperEmpty=(?<upper>[01]) nativeAcceptance=0\n){0,3}" +
+            $timingPattern +
             "HERMES_CRASH_CONTROL v=1 status=(?<controlStatus>[01]) exit=(?<exit>$u) error=(?<error>$u) cleanupError=(?<cleanup>$u) reportError=(?<baseReport>[01]) nativeAcceptance=0\n" +
             "(?:HERMES_CRASH_EXIT v=1 check=(?<check>$u) nativeError=(?<native>$u) nativeAcceptance=0\n)?" +
             "HERMES_CRASH_EVENT_CONTROL v=1 status=(?<status>[01]) reason=(?<reason>$u) reportError=(?<report>[01]) originalGatePassed=0 nativeAcceptance=0\n\z"
@@ -299,19 +327,41 @@ function Get-EventFactsProjection {
                 -or $values.report -ne 0 -or $values.baseReport -ne 0 -or $values.error -ne 0 -or $values.cleanup -ne 0 `
                 -or $values.exit -notin @(0x80131506L, 0x80131623L, 0xc0000409L, 0xc0000602L, 0xe0434352L) `
                 -or $match.Groups['observation'].Captures.Count -ne 1 -or $values.observation -ne 0 `
-                -or $values.matched -ne 1 -or $values.lower -ne 1 -or $values.upper -ne 1)) { return New-EventProjection 26 }
+                -or $values.matched -ne 1 -or $values.lower -ne 1 -or $values.upper -ne 1 `
+                -or $match.Groups['timing'].Success)) { return New-EventProjection 26 }
+        $timing = ''
+        if ($match.Groups['timing'].Success) {
+            # Reconstruct only validated closed numbers, never the captured row.
+            $row = [Text.StringBuilder]::new('HERMES_CRASH_EVENT_TIMING v=1')
+            $field = 22
+            foreach ($name in $script:timingRanges.Keys) {
+                $field++
+                [long]$value = 0
+                if (-not [long]::TryParse($match.Groups["timing$name"].Value,
+                        [Globalization.NumberStyles]::AllowLeadingSign, [Globalization.CultureInfo]::InvariantCulture,
+                        [ref]$value) -or $value -lt $script:timingRanges[$name][0] `
+                        -or $value -gt $script:timingRanges[$name][1]) { return New-EventProjection 28 $field }
+                $null = $row.Append(' ').Append($name).Append('=').Append($value.ToString([Globalization.CultureInfo]::InvariantCulture))
+            }
+            $timing = $row.Append(' nativeAcceptance=0').ToString()
+        }
         # Advisory only. Never echo captures, hashes, exit/native codes or exception text.
         $facts = [string]::Format([Globalization.CultureInfo]::InvariantCulture,
             'HERMES_CRASH_EVENT_FACTS v=1 available=1 status={0} controlStatus={1} reason={2} matched={3} lowerEmpty={4} upperEmpty={5} controlError={6} cleanupError={7} reportError={8} originalGatePassed=0 nativeAcceptance=0',
             [object[]]@($values.status, $values.controlStatus, $values.reason, $values.matched, $values.lower,
                 $values.upper, $values.error, $values.cleanup, $values.report))
-        return New-EventProjection -Facts $facts
+        return New-EventProjection -Facts $facts -Timing $timing
     } catch { return New-EventProjection 27 }
 }
 
 function ConvertTo-HermesCrashEventFacts {
     param([object]$Capture)
     return (Get-EventFactsProjection $Capture).Facts
+}
+
+function ConvertTo-HermesCrashEventTiming {
+    param([object]$Capture)
+    return (Get-EventFactsProjection $Capture).Timing
 }
 
 function ConvertTo-HermesCrashEventCaptureDiagnostic {
@@ -481,7 +531,7 @@ function Invoke-HermesCrashEventCapture {
         # exceptions/overflow/deadlines also reach explicit zeroing.
         $output = & $script:crash {
             param($Stream, $Operations)
-            New-HermesCrashRead $Stream 512 $Operations
+            New-HermesCrashRead $Stream 1024 $Operations
         } $Process.StandardOutput.BaseStream $Operations
         $errors = & $script:crash {
             param($Stream, $Operations)
@@ -527,7 +577,8 @@ function Invoke-HermesCrashEventCapture {
 
 function Assert-HermesCrashEventSettled {
     param([Collections.Generic.List[Threading.Tasks.Task]]$Operations)
-    if ($null -eq $Operations -or $Operations.Count -lt 3 -or $Operations.Count -gt 514) { throw '15' }
+    # At most 1023 one-byte stdout reads plus EOF, one stderr EOF and one wait.
+    if ($null -eq $Operations -or $Operations.Count -lt 3 -or $Operations.Count -gt 1026) { throw '15' }
     foreach ($task in $Operations) {
         if ($task.Status -ne [Threading.Tasks.TaskStatus]::RanToCompletion) { throw '15' }
         $null = $task.GetAwaiter().GetResult()
@@ -560,7 +611,7 @@ function Complete-HermesCrashEventScope {
 
 Export-ModuleMember -Function Assert-HermesCrashEventSchema, Assert-HermesCrashEventReport,
     Assert-HermesCrashEventOutcome, ConvertTo-HermesCrashEventFacts, ConvertTo-HermesCrashEventDiagnostic,
-    ConvertTo-HermesCrashEventCaptureDiagnostic,
+    ConvertTo-HermesCrashEventCaptureDiagnostic, ConvertTo-HermesCrashEventTiming,
     Assert-HermesCrashEventAbsent,
     Get-HermesCrashEventWorkflowEntry, Assert-HermesCrashEventFreshness, Read-HermesCrashEventPublication,
     Assert-HermesCrashEventPublicationBinding, Invoke-HermesCrashEventSchemaPublication,
