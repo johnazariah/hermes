@@ -2,6 +2,27 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Fixed Application Error publisher metadata has independent portable controls
+
+`Test-StartupEventSchema.ps1` passes **3,066 assertions**, with a largest
+fixture report of 2,487 bytes. The new probe reads only fixed Application
+Error publisher metadata for event 1000 on the dedicated hosted Windows job.
+It does not query event instances or launch a process.
+
+Known exact field names and supported input/output types become numeric
+codes; template text becomes only a SHA-256. XML rejects DTD/external
+entities, malformed or oversized templates, unsupported structures,
+duplicate/case-mismatched critical fields, unknown critical types and excess
+versions. Missing metadata is explicitly unavailable and non-success.
+
+The fixed report uses CreateNew under the admitted checkout, refuses links
+and pre-existing targets and stays below 4,096 UTF-8 bytes. Portable controls
+inspect the fixed acquisition/publication boundary and do not call Windows
+metadata APIs. Workflow lint and existing installer static controls pass.
+Only the bounded report is eligible for three-day upload after confirmed
+publication. Actual publisher metadata and exact event-correlation semantics
+remain unproved; schema usability is not native acceptance.
+
 ## The typed-read boundary fixes the private debugger evaluator
 
 All **538 controls** pass, retaining 533 prior intents and adding five

@@ -100,6 +100,34 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Publish the fixed publisher-metadata probe
+
+- **Changed:** A dedicated short hosted Windows job reads only Application Error event-1000 publisher templates. Exact known field names/types become finite numeric codes and template hashes; no event bodies, messages, resource paths or raw templates are exported.
+- **Validation:** Parent complete three-file source/test/workflow review approves. Portable metadata controls pass 3,066 assertions; largest fixture report is 2,487 bytes. Existing installer static controls and workflow actionlint pass. Root build passes with zero warnings/errors; all 2,184 tests pass without skips.
+- **Bounds:** Eight versions, 16 KiB per template and a 4,096-byte final report. DTD/entities, malformed/duplicate/unsupported critical metadata, reflected/reparse destinations and pre-existing files refuse. Only successfully published bounded reports may upload, with three-day retention.
+- **Boundary:** This proves portable parsing, privacy, publication and workflow contracts, not the actual OS schema or lossless event-query comparison. The independent C# diagnostic remains unimplemented pending those facts.
+- **Blockers:** Actual provider template fields/types and exact creation-FILETIME server comparison remain unverified.
+- **Next:** Inspect the metadata-only hosted artifact and provide verified schema facts to the C# owner before any event query is authored.
+
+### 2026-10-22 - Verify publisher metadata before authoring event correlation
+
+- **Found:** The C# owner confirms retained PID, creation FILETIME, full image and the fixed untraced NoWindow factory are accessible without changing native creation. It stopped without edits because Application Error event-1000 field types and exact server-side birth comparison were not verified.
+- **Decision:** First collect only fixed publisher/template metadata on a short disposable hosted Windows job. Map known field names/types to finite numeric codes and template hashes; do not read event instances, messages, paths or user data.
+- **Grounding:** Microsoft documents EventMetadata.Template as the provider's event-data structure. Its Windows Event Log XPath subset does not support node sets, so generic XPath conversion assumptions cannot establish lossless creation-time matching.
+- **Boundary:** No event query, process launch, provider registration or raw template export is authorised by this probe. Missing/duplicate/unsupported critical metadata must be explicitly unavailable. The later diagnostic remains unimplemented until schema and comparison requirements are satisfied.
+- **Blockers:** Actual fixed provider schema and exact native comparison semantics remain unproved.
+- **Next:** Review the independently authored metadata-only probe and its portable refusal/report controls, then inspect actual OS schema facts before returning to C# implementation.
+
+### 2026-10-22 - Confirm MASM and pursue independent untraced failure evidence
+
+- **Evidence:** Published `2cd19fa`, run `39744910451`, job `119710849575`, artifact `12411132993`, passes 538 controls and 500/501 native cases without skips. Exact post-SDK readback records MASM (1), but the same unknown read-expression line still causes protocol refusal. No typed field, query completion or target continuation is accepted.
+- **Conclusion:** Deterministic evaluator configuration is now measured, but it does not explain the refusal. Leave the CDB query/default controls alone.
+- **Decision:** A fresh C# owner is implementing independent evidence from one genuine, fixed, untraced restricted PowerShell launch and Windows Application Error structured events. This is not another debugger-program variant.
+- **Boundary:** Event access must be server-filtered to the retained child PID and creation time, then match its actual image and bounded time window. No broad logs, raw XML/message/path/identity export, provider registration or changed token/console/permissions. Missing exact correlation must be explicitly unavailable, never a pass.
+- **Meaning:** Even an exactly associated event is diagnostic association, not a proven root DLL cause. It cannot replace original PowerShell/native/Medium/MSI acceptance.
+- **Blockers:** The new diagnostic's safe correlation/implementation and actual Windows outcome remain unproved; installed acceptance remains blocked.
+- **Next:** Review the independently authored fixed-command diagnostic and portable refusal/lifetime tests before wiring a separate hosted observation.
+
 ### 2026-10-22 - Publish the post-SDK evaluator binding and exact readback
 
 - **Changed:** One fixed `.expr /s masm` command establishes private debugger parsing immediately after SDK return and before the unchanged typed query. A frozen closed scalar records exact documented stdout readback only within the valid SDK-completed arm frame.
