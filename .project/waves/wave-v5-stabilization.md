@@ -100,6 +100,15 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Publish the fixed source-bound hosted crash supervisor
+
+- **Changed:** Five PowerShell/workflow files build a fresh complete helper bundle, bind SDK inventory and checkout inputs, load matching assemblies, enter the reviewed current-step private job and launch only the fixed probe. An independent two-minute worker deadline precedes entry; successful completion requires actual helper exit, joined bounded capture, exact report/source agreement and no remaining children.
+- **Validation:** Parent review and independent execution pass all 319 macOS portable controls and workflow lint. Synthetic Git controls found and fixed premature root-glob expansion. Negative process fixtures retain and observe actual read/wait operations after teardown. C# source remains the reviewed `5f60e3c`; its root build/tests and full five-assembly coverage remain unchanged.
+- **Privacy:** Raw output, publication receipts, SDK inventories and logs remain private. Only the fresh validated numeric/hash report is eligible for three-day upload; original-gate and native-acceptance fields remain zero.
+- **Publication:** The reviewed C# component is committed and pushed as `5f60e3c`; exact-head CI is running. The wrapper is ready for its separate commit on the same draft PR branch.
+- **Blockers:** No actual hosted crash-control result exists yet. Kernel/deadline behaviour, event correlation, original restricted PowerShell execution and installed Medium acceptance remain open.
+- **Next:** Push the wrapper and inspect its exact-head disposable-Windows result before adding event observation.
+
 ### 2026-10-22 - Approve nonfatal ownership and measure the complete coverage scope
 
 - **Changed:** A fresh independent revision removes the hosting PowerShell FailFast fallback. Shared finalization state records one terminal result and prevents retries through a consumed SafeHandle; checked close failures still preserve assigned termination intent and surface errors. An unrecoverable finalization can retain a raw kernel resource until process exit.

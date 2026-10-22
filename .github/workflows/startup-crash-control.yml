@@ -1,0 +1,61 @@
+name: Owned startup crash control
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - installer/windows/Publish-CrashControl.ps1
+      - installer/windows/Invoke-CrashControl.ps1
+      - installer/windows/Crash-Control.psm1
+      - installer/windows/Test-CrashControl.ps1
+      - tests/Hermes.Servicing.Acceptance/CrashControl.cs
+      - tests/Hermes.Servicing.Acceptance/OwnedCrashControl.cs
+      - tests/Hermes.Servicing.Acceptance/WindowsCrashControl.cs
+      - tests/Hermes.Servicing.Acceptance/StepJobContainment.cs
+      - tests/Hermes.Servicing.Acceptance/WindowsCrashSupervisor.cs
+      - tests/Hermes.Servicing.Acceptance/Program.cs
+      - tests/Hermes.Servicing.Acceptance/Hermes.Servicing.Acceptance.csproj
+      - tests/Hermes.Servicing.Acceptance.Model/Hermes.Servicing.Acceptance.Model.csproj
+      - tests/Hermes.Servicing.Tests/CrashControlTests.cs
+      - tests/Hermes.Servicing.Tests/StepJobContainmentTests.cs
+      - .github/workflows/startup-crash-control.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  installer:
+    if: github.repository == 'johnazariah/hermes' && github.server_url == 'https://github.com' && github.event.repository.private == false
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - name: Portable controls (not Windows deadline or kernel proof)
+        shell: pwsh
+        run: ./installer/windows/Test-CrashControl.ps1
+      - name: Fresh current-source private publication
+        shell: pwsh
+        timeout-minutes: 20
+        run: ./installer/windows/Publish-CrashControl.ps1
+      - name: Fixed owned probe under worker deadline and private kernel job
+        id: control
+        shell: pwsh
+        # Armed by the worker BEFORE wrapper entry, BeginCurrentStep or Process.Start.
+        # Cancellation kills the known step root; closing its private job handle
+        # gives the kernel child teardown. The inner stopwatch is only cooperative.
+        timeout-minutes: 2
+        run: ./installer/windows/Invoke-CrashControl.ps1
+      - name: Validated synthetic facts only (not original or native acceptance)
+        if: success() && steps.control.outcome == 'success' && steps.control.outputs.published == '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: startup-crash-control
+          path: .artifacts/installer-evidence/startup-crash-control.json
+          if-no-files-found: error
+          retention-days: 3

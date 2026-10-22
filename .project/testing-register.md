@@ -2,6 +2,30 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Hosted crash-control wrapper binds publication and owns real capture tasks
+
+`Test-CrashControl.ps1` passes **319 portable controls on macOS**. The Windows
+selection omits the one non-Windows host-refusal assertion. Real owned
+PowerShell fixtures exercise exact stdout, noise, contradictions, CRLF,
+invalid UTF-8, stderr, nonzero exit, overflow and timeout. Every actual read
+and exit-wait task is retained and observed after fixture teardown, including
+failure paths.
+
+Strict report controls cover all 28 fields, duplicate/unknown/missing keys,
+numeric types, hash binding and settlement facts. Publication controls cover
+complete SDK inventory, source/bundle replacement, extra/missing entries,
+links and stale receipts. A separate synthetic Git repository verifies
+matching HEAD/tree/digest and pinned index reads, dirty/staged/untracked
+compiler inputs, stale revisions, detached HEAD and loose/packed refs.
+Explicit Git pathspecs prevent PowerShell from expanding root-policy globs.
+
+Workflow lint passes. Native execution is fixed to the published apphost,
+inside the reviewed current-step private job and an independently armed
+two-minute worker step deadline. Only a fresh, validated report after helper
+exit, complete capture and normal scope release is eligible for three-day
+upload. These controls establish portable behaviour; actual Windows
+publication, containment and control execution still require a hosted run.
+
 ## Owned crash-control lifetime and shared native-handle ownership
 
 The fixed crash-control command has **76 portable cases** covering exact
