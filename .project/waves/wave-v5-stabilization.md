@@ -100,6 +100,24 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Publish the fixed debugger-evaluator bootstrap
+
+- **Changed:** The private CDB child clears inherited `_NT_EXPR_EVAL` and receives a fixed `-ee masm` pair before startup/target arguments. The host environment, generated programs, query expressions and target authority remain unchanged.
+- **Validation:** Parent full source/test review approves the independently authored two-line correction. All 533 controls and installer static controls pass. Root build has zero warnings/errors; all 2,184 tests pass without skips.
+- **Evidence:** Real ProcessStartInfo preparation controls cover simulated inherited C++/MASM/invalid selectors, exact complete argv and prior settings. Mutated/missing/duplicate/misplaced options fail expectations. Reverting the two bootstrap edits recovers the prior driver hash; five program goldens and frame hash stay fixed.
+- **Boundary:** This proves deterministic launch configuration, not the actual runtime evaluator or a cause of the existing refusal. No process was started by the portable controls and no raw diagnostics were exported.
+- **Blockers:** Actual fixed-dialect Windows behaviour, genuine PowerShell execution and installed Medium acceptance remain unresolved.
+- **Next:** Inspect the exact-source disposable Windows result before attributing the refusal to inherited configuration.
+
+### 2026-10-22 - Bind the debugger's assumed expression dialect
+
+- **Found:** The fixed CDB command programs assume MASM for command parameters and use explicit C++ subexpressions for typed access, but startup neither clears `_NT_EXPR_EVAL` nor selects an evaluator. That leaves command interpretation dependent on inherited child environment despite source pins.
+- **Grounding:** Microsoft's Evaluating Expressions and General Environment Variables references document that environment selection and the `-ee` startup option. They warn that C++ is not well-suited to parsing general debugger-command parameters and recommend MASM with explicit evaluator switches where needed.
+- **Decision:** Independently harden the private debugger bootstrap by removing the inherited selector from its child environment and passing the fixed `-ee masm` pair. This is a separate deterministic-configuration correction, not another literal/query variant.
+- **Boundary:** Do not change any generated command program, expression, SDK call, echo acceptance or native gate. No host environment mutation, selector or fallback is added. The actual inherited value and its relationship to the refusal remain unknown.
+- **Blockers:** The original protocol refusal and PowerShell startup are not yet resolved.
+- **Next:** Review real ProcessStartInfo preparation controls, then test the fixed dialect on disposable hosted Windows.
+
 ### 2026-10-22 - Escalate the unchanged startup protocol blocker after the final control
 
 - **Evidence:** Published `02604a5`, run `39738837797`, job `119690882458`, artifact `12408986181`, passes 530 controls and 500/501 native cases without skips. The original restricted PowerShell exit-37 case still fails.

@@ -2,6 +2,26 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Debugger bootstrap pins the intended MASM expression dialect
+
+All **533 controls** pass, retaining 530 prior intents and adding three
+bootstrap groups. The private CDB child removes inherited `_NT_EXPR_EVAL`
+and receives exactly one fixed `-ee masm` pair before startup/target arguments.
+No host environment is changed. All five generated programs and the
+arm-frame hash are unchanged.
+
+Controls execute the actual bounded preparation statements with real
+ProcessStartInfo objects and synthetic child environments. Inherited C++,
+MASM and invalid selectors are removed. Complete argv, redirects, ASCII,
+working directory, fixed target and prior environment removals are checked;
+missing, changed, duplicated or misplaced options fail those expectations.
+No process is started or native evaluator state claimed by these controls.
+
+Reverting exactly the two bootstrap edits recovers the prior complete
+driver hash. The earlier one-character delimiter proof is retained after
+factoring out this distinct bootstrap delta. Installer static controls pass.
+Actual Windows behaviour and refusal causality remain unproved.
+
 ## Optional typed-read delimiter is a one-character execution control
 
 All **530 controls** pass, retaining 527 prior intents and adding three

@@ -738,11 +738,11 @@ try {
     $start.StandardInputEncoding = [Text.Encoding]::ASCII
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
-    foreach ($name in @('_NT_SYMBOL_PATH', '_NT_ALT_SYMBOL_PATH',
+    foreach ($name in @('_NT_EXPR_EVAL', '_NT_SYMBOL_PATH', '_NT_ALT_SYMBOL_PATH',
             '_NT_DEBUGGER_EXTENSION_PATH', '_NT_SOURCE_PATH', '_NT_EXECUTABLE_IMAGE_PATH')) {
         $null = $start.Environment.Remove($name)
     }
-    foreach ($argument in @('-o', '-cf', $commandPath, '-y',
+    foreach ($argument in @('-ee', 'masm', '-o', '-cf', $commandPath, '-y',
             "srv*$symbols*https://msdl.microsoft.com/download/symbols",
             $helper, 'startup-debug-probe')) {
         $start.ArgumentList.Add($argument)

@@ -799,7 +799,7 @@ function Complete-ControlScoped {
     return New-HermesStartupReport $State $true $true
 }
 
-$cases = 1..530 # All 527 prior intents retained, plus the one-character optional-delimiter controls.
+$cases = 1..533 # All 530 prior intents retained, plus fixed child-evaluator bootstrap controls.
 $passed = 0
 foreach ($case in $cases) {
     $state = $null
@@ -1853,10 +1853,11 @@ foreach ($case in $cases) {
                             -ceq $source.Value -and $report[$hashFields[$source.Key]] -ceq $expected)
                 }
                 $arguments = $script:controlStartInfo.ArgumentList
-                Assert-Control ($arguments.Count -eq 7 -and $arguments[0] -ceq '-o' `
-                    -and $arguments[1] -ceq '-cf' -and $arguments[2] -ceq (Join-Path $root 'startup.cdb') `
-                    -and $arguments[3] -ceq '-y' -and $arguments[5] -ceq $helper `
-                    -and $arguments[6] -ceq 'startup-debug-probe' `
+                Assert-Control ($arguments.Count -eq 9 -and $arguments[0] -ceq '-ee' -and $arguments[1] -ceq 'masm' `
+                    -and $arguments[2] -ceq '-o' -and $arguments[3] -ceq '-cf' `
+                    -and $arguments[4] -ceq (Join-Path $root 'startup.cdb') `
+                    -and $arguments[5] -ceq '-y' -and $arguments[7] -ceq $helper `
+                    -and $arguments[8] -ceq 'startup-debug-probe' `
                     -and $script:controlStartInfo.FileName -ceq (Join-Path $kits 'cdb.exe') `
                     -and $script:controlStartInfo.WorkingDirectory -ceq $kits `
                     -and $script:controlStartInfo.StandardInputEncoding.CodePage -eq 20127 `
@@ -2034,7 +2035,7 @@ foreach ($case in $cases) {
                         -ceq [Convert]::ToHexString($expected) `
                     -and $report.commandSha256 -ceq $expectedHash `
                     -and $script:controlCommandPins -ccontains $path `
-                    -and $script:controlStartInfo.ArgumentList[2] -ceq $path `
+                    -and $script:controlStartInfo.ArgumentList[4] -ceq $path `
                     -and $script:controlLaunchBindings -eq 1 -and $script:controlCommandHashes -eq 4 `
                     -and $report.error -eq 0 -and $report.completed -eq 0 `
                     -and $report.armingVerified -eq 0 -and $report.firstFailureKind -eq 0)
@@ -2774,7 +2775,7 @@ foreach ($case in $cases) {
                     Assert-Control ($script:controlCommandHashes -eq 4 `
                         -and $script:controlLaunchBindings -eq 1 -and $report.error -eq 0 `
                         -and $state.ExtensionExpected -ceq $extension `
-                        -and $script:controlStartInfo.ArgumentList[2] -ceq $path)
+                        -and $script:controlStartInfo.ArgumentList[4] -ceq $path)
                     if ($case -in 187..189) {
                         $actualLines = @([Text.Encoding]::ASCII.GetString(
                             $script:controlCommandFiles[$path]) -split "`n")
@@ -8257,7 +8258,7 @@ foreach ($case in $cases) {
                     [Text.Encoding]::UTF8.GetBytes($predicate.Extent.Text))).ToLowerInvariant()
                 Assert-Control ($hash -ceq 'fa7409059885a5a52cf6d59f62ea71d2e81f280db26e5f094271857b37f31a92' `
                     -and (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'Invoke-NativeStartupTrace.ps1') -Algorithm SHA256).Hash `
-                        -ceq '2C8E5C3E07E6F066D251F0B074EA413FF17FC043BEF16C4D8D7E82F4FB3C6533')
+                        -ceq '40954849D631C5C31B0480639001C481B247669A0173A62ED8E86D676567CEB3')
             }
             509 {
                 & {
@@ -9199,6 +9200,10 @@ foreach ($case in $cases) {
                         -and [regex]::Matches($arm, 'sizeof\(@\$peb->NtGlobalFlag\)').Count -eq 1 `
                         -and [regex]::Matches($arm, 'HERMES_ARM_STAGE v=1 stage=[12]').Count -eq 2)
                     $driver = [IO.File]::ReadAllText($driverAst.Extent.File)
+                    # Factor out only the separate evaluator-bootstrap delta
+                    # before retaining the original one-character driver proof.
+                    $driver = $driver.Replace("@('_NT_EXPR_EVAL', '_NT_SYMBOL_PATH',", "@('_NT_SYMBOL_PATH',").
+                        Replace("@('-ee', 'masm', '-o', '-cf',", "@('-o', '-cf',")
                     $position = $driver.IndexOf($needle, [StringComparison]::Ordinal)
                     Assert-Control ($position -gt 0 -and $position -eq $driver.LastIndexOf($needle, [StringComparison]::Ordinal))
                     $priorDriver = $driver.Remove(($position + $expression.Length), 1)
@@ -9301,6 +9306,111 @@ foreach ($case in $cases) {
                     } finally {
                         Close-HermesStartupScopedInput $state $writer
                         $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                    }
+                }
+            }
+            531 {
+                & {
+                    $driver = [IO.File]::ReadAllText($driverAst.Extent.File)
+                    $prior = $driver
+                    foreach ($edit in @(
+                        @("@('_NT_EXPR_EVAL', '_NT_SYMBOL_PATH',", "@('_NT_SYMBOL_PATH',"),
+                        @("@('-ee', 'masm', '-o', '-cf',", "@('-o', '-cf',")
+                    )) {
+                        Assert-Control ([regex]::Matches($driver, [regex]::Escape($edit[0])).Count -eq 1 `
+                            -and -not $driver.Contains($edit[1], [StringComparison]::Ordinal))
+                        $prior = $prior.Replace($edit[0], $edit[1])
+                    }
+                    $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+                        [Text.Encoding]::UTF8.GetBytes($prior))).ToLowerInvariant()
+                    Assert-Control ($hash -ceq '2c8e5c3e07e6f066d251f0b074ea413ff17fc043bef16c4d8d7e82f4fb3c6533' `
+                        -and $prior.Replace("@('_NT_SYMBOL_PATH',", "@('_NT_EXPR_EVAL', '_NT_SYMBOL_PATH',").
+                            Replace("@('-o', '-cf',", "@('-ee', 'masm', '-o', '-cf',") -ceq $driver)
+                }
+            }
+            { $_ -in 532..533 } {
+                & {
+                    # Only actual preparation statements, bounded by the unique
+                    # constructor and argument loop. No process is constructed or
+                    # started; these controls attest configuration, not CDB state.
+                    $argumentLoops = @($driverTry.Body.Statements | Where-Object {
+                        $_ -is [Management.Automation.Language.ForEachStatementAst] `
+                            -and $_.Variable.Extent.Text -ceq '$argument'
+                    })
+                    Assert-Control ($argumentLoops.Count -eq 1)
+                    $preparation = @($driverTry.Body.Statements | Where-Object {
+                        $_.Extent.StartOffset -ge $startBinding[0].Extent.StartOffset `
+                            -and $_.Extent.EndOffset -le $argumentLoops[0].Extent.EndOffset
+                    })
+                    Assert-Control ($preparation.Count -eq 11 `
+                        -and $preparation[0] -eq $startBinding[0] -and $preparation[-1] -eq $argumentLoops[0] `
+                        -and $preparation[0].Extent.Text -ceq '$start = [Diagnostics.ProcessStartInfo]::new()' `
+                        -and $argumentLoops[0].Body.Statements.Count -eq 1 `
+                        -and $argumentLoops[0].Body.Statements[0].Extent.Text -ceq '$start.ArgumentList.Add($argument)')
+                    $text = ($preparation | ForEach-Object { $_.Extent.Text }) -join "`n"
+                    $errors = $null
+                    $preparationAst = [Management.Automation.Language.Parser]::ParseInput($text, [ref]$null, [ref]$errors)
+                    $calls = @($preparationAst.FindAll({
+                        param($n)
+                        $n -is [Management.Automation.Language.CommandAst] `
+                            -or $n -is [Management.Automation.Language.InvokeMemberExpressionAst]
+                    }, $true) | ForEach-Object { $_.Extent.Text })
+                    Assert-Control ($errors.Count -eq 0 -and $calls.Count -eq 4 `
+                        -and $calls[0] -ceq '[Diagnostics.ProcessStartInfo]::new()' `
+                        -and $calls[1] -ceq "Join-Path `$kits 'cdb.exe'" `
+                        -and $calls[2] -ceq '$start.Environment.Remove($name)' `
+                        -and $calls[3] -ceq '$start.ArgumentList.Add($argument)')
+                    $body = ($preparation[1..10] | ForEach-Object { $_.Extent.Text }) -join "`n"
+                    $variants = @($body)
+                    if ($case -eq 533) {
+                        $variants = @(foreach ($mutation in @(
+                            @("'_NT_EXPR_EVAL', ", ''),
+                            @("'-ee', 'masm', ", ''),
+                            @("'-ee', 'masm', ", "'-ee', 'c++', "),
+                            @("'-ee', 'masm', ", "'-ee', 'invalid', "),
+                            @("'-ee', 'masm', ", "'-ee', 'masm', '-ee', 'masm', "),
+                            @("'_NT_SYMBOL_PATH', ", ''),
+                            @('$start.RedirectStandardError = $true', '$start.RedirectStandardError = $false')
+                        )) {
+                            Assert-Control ([regex]::Matches($body, [regex]::Escape($mutation[0])).Count -eq 1)
+                            $body.Replace($mutation[0], $mutation[1])
+                        })
+                        $variants += $body.Replace("'-ee', 'masm', ", '').
+                            Replace("'startup-debug-probe'))", "'startup-debug-probe', '-ee', 'masm'))")
+                    }
+                    $kits = Join-Path $PSScriptRoot 'selected sdk'
+                    $helper = Join-Path $PSScriptRoot 'fixed published helper.exe'
+                    $commandPath = Join-Path $root 'startup.cdb'
+                    $expected = @('-ee', 'masm', '-o', '-cf', $commandPath, '-y',
+                        "srv*$symbols*https://msdl.microsoft.com/download/symbols", $helper, 'startup-debug-probe')
+                    foreach ($variant in $variants) {
+                        Assert-Control (($variant -ceq $body) -eq ($case -eq 532))
+                        foreach ($inherited in @('c++', 'masm', 'invalid')) {
+                            . ([scriptblock]::Create($preparation[0].Extent.Text))
+                            Assert-Control ($start -is [Diagnostics.ProcessStartInfo])
+                            # Seed only this synthetic child dictionary, never
+                            # the real host environment or an environment provider.
+                            $start.Environment.Clear()
+                            $start.Environment['HERMES_STARTUP_CONTROL'] = 'retained'
+                            foreach ($name in @('_NT_EXPR_EVAL', '_NT_SYMBOL_PATH', '_NT_ALT_SYMBOL_PATH',
+                                    '_NT_DEBUGGER_EXTENSION_PATH', '_NT_SOURCE_PATH', '_NT_EXECUTABLE_IMAGE_PATH')) {
+                                $start.Environment[$name] = $inherited
+                            }
+                            . ([scriptblock]::Create($variant))
+                            $configurationMatches = $start.Environment.Count -eq 1 `
+                                -and $start.Environment['HERMES_STARTUP_CONTROL'] -ceq 'retained' `
+                                -and $start.ArgumentList.Count -eq $expected.Count `
+                                -and ($start.ArgumentList -join "`0") -ceq ($expected -join "`0") `
+                                -and @($start.ArgumentList | Where-Object { $_ -ceq '-ee' }).Count -eq 1 `
+                                -and @($start.ArgumentList | Where-Object { $_ -ceq 'masm' }).Count -eq 1 `
+                                -and $start.Arguments -ceq '' `
+                                -and $start.FileName -ceq (Join-Path $kits 'cdb.exe') `
+                                -and $start.WorkingDirectory -ceq $kits -and -not $start.UseShellExecute `
+                                -and $start.CreateNoWindow -and $start.RedirectStandardInput `
+                                -and $start.StandardInputEncoding.CodePage -eq 20127 `
+                                -and $start.RedirectStandardOutput -and $start.RedirectStandardError
+                            Assert-Control ($configurationMatches -eq ($case -eq 532))
+                        }
                     }
                 }
             }
