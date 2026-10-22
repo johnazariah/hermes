@@ -2,6 +2,23 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## MASM-bound first refusal records only closed wording and syntax classes
+
+All **541 startup controls** pass, retaining 538 prior intents and adding
+three frozen fingerprint groups. Only the earlier actual bound MASM readback
+enables the extra facts: fixed literal-wording presence and the first fixed
+syntax-token class after prompt removal and ASCII HorizontalTrim.
+
+No line, dynamic word, path, identity or arbitrary character is exported.
+The existing Kind/Source, lexical/stage/evaluator facts, exact-source echo
+rules, typed-field grammar and authority are unchanged. These fields neither
+diagnose a cause nor supply flags, completion or continuation. First facts
+freeze; post-budget sentinels and maximum-field reports retain the 4,096-byte
+bound. Driver, five programs, query and frame hashes are unchanged.
+
+Installer static controls pass. Actual formatter/error wording remains
+pending until the exact-source hosted diagnostic runs.
+
 ## Public extraction is measured directly and fixture ports cannot be reissued
 
 The generation-7 public `Stages.extract` regression passes and actual

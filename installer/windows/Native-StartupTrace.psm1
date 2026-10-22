@@ -29,7 +29,7 @@ function New-HermesStartupState {
         ScopedPhase = 0; ScopedStages = 0; ScopedEvaluator = 0
         ScopedFault = @{ Reason = 0; Phase = 0; Block = 0; Held = 0; Echo = 0 }
         ScopedStageFault = @{ Reason = 0; Shape = 0 }
-        ScopedQueryFault = @{ Kind = 0; Source = 0; Lexical = 0; TrimKind = 0 }
+        ScopedQueryFault = @{ Kind = 0; Source = 0; Lexical = 0; TrimKind = 0; Wording = 0; Token = 0 }
         Held = $null; ArmAttempted = $false; ArmWritten = $false; SideWrites = 0
         InputWriter = $null; InputTasks = [Collections.Generic.List[Threading.Tasks.Task]]::new()
         DriverSha256 = ''; ModuleSha256 = ''; ArmCommandSha256 = ''; ExtensionSha256 = ''
@@ -1665,7 +1665,34 @@ function Set-HermesStartupScopedQueryRefusal {
     }
     if ($horizontalTrim -cmatch '\A\^(?:[ \t]|\z)') { $lexical = $lexical -bor 256 }
     if ($display -cne $horizontalTrim) { $lexical = $lexical -bor 512 }
-    $State.ScopedQueryFault = @{ Kind = $kind; Source = $region; Lexical = $lexical; TrimKind = $trimKind }
+    $wording = 0; $firstToken = 0
+    # Only the earlier bound MASM readback enables these additional facts.
+    # Literal wording and fixed prefixes describe display, never a diagnosis.
+    if ($State.ScopedEvaluator -is [int] -and $State.ScopedEvaluator -eq 1) {
+        foreach ($token in @(
+            @('error', 1), @('not enough arguments', 2), @('extra character', 4),
+            @('unable to read', 8), @('could not be read', 16), @('type mismatch', 32),
+            @('format', 64), @('missing', 128)
+        )) {
+            if ($display.Contains($token[0], [StringComparison]::OrdinalIgnoreCase)) {
+                $wording = $wording -bor $token[1]
+            }
+        }
+        # Case-sensitive syntax-token prefixes after the existing HorizontalTrim.
+        # No case, escape, internal whitespace or accepted-source normalisation.
+        foreach ($token in @(
+            @('\A\{', 1), @('\A\}', 2), @('\A\.printf(?:[ \t]|\z)', 3),
+            @('\A\.catch(?:[ \t{]|\z)', 4), @('\A\.if(?:[ \t(]|\z)', 5),
+            @('\ASyntax(?:[ \t:]|\z)', 6), @('\AError(?:[ \t:]|\z)', 7),
+            @('\AUnable(?:[ \t:]|\z)', 8)
+        )) {
+            if ($horizontalTrim -cmatch $token[0]) { $firstToken = $token[1]; break }
+        }
+    }
+    $State.ScopedQueryFault = @{
+        Kind = $kind; Source = $region; Lexical = $lexical; TrimKind = $trimKind
+        Wording = $wording; Token = $firstToken
+    }
 }
 
 function Get-HermesStartupScopedStageShape {
@@ -2462,6 +2489,14 @@ function New-HermesStartupReport {
         # Case/escapes/internal whitespace unchanged. Kind/Source stay original.
         $trimKind = Get-HermesStartupInventoryNumber $State.ScopedQueryFault['TrimKind'] 5
         $selected.scopedReadFirstTrimKind = if ($trimKind -ge 2) { $trimKind } else { 0 }
+        # After bound MASM1 only, ordinal-ignore-case literal presence:
+        # 1 error; 2 not enough arguments; 4 extra character; 8 unable to read;
+        # 16 could not be read; 32 type mismatch; 64 format; 128 missing.
+        $selected.scopedReadFirstWording = Get-HermesStartupInventoryNumber $State.ScopedQueryFault['Wording'] 255
+        # First fixed token after prompt removal and ASCII HorizontalTrim:
+        # 0 other/unavailable; 1 {; 2 }; 3 .printf; 4 .catch; 5 .if;
+        # 6 Syntax; 7 Error; 8 Unable. Case-sensitive, never echo acceptance.
+        $selected.scopedReadFirstToken = Get-HermesStartupInventoryNumber $State.ScopedQueryFault['Token'] 8
         $report.observations = $selected
     }
     return $report

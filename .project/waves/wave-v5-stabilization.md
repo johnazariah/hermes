@@ -100,6 +100,15 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Publish the final closed refusal fingerprint without another query variant
+
+- **Changed:** Two frozen numeric facts distinguish fixed formatter/error wording and the first fixed syntax-token class, only after earlier actual MASM readback in the bound SDK-completed arm frame. This closes the evaluator owner's final cycle without changing the query or debugger commands.
+- **Validation:** Parent complete source/test review approves. All 541 startup controls and installer static controls pass. Driver, five program, query and frame hashes are unchanged; existing Kind/Source and refusal facts retain their prior meaning.
+- **Privacy:** No line, word, path, identity, arbitrary character or new text hash is exported. Wording and prefix classes describe text, not cause or authority. Source echoes cannot supply flags/completions; first-fault and exact output/report bounds stay enforced.
+- **Integration:** The accompanying independently reviewed test-only changes pass a clean root build, 23 instrumented regression cases and 2,191 full Core tests. Native Windows discovery remains 501 and coverage gates remain 85%/60%.
+- **Blockers:** Actual first-line classification, genuine restricted PowerShell execution, installed Medium acceptance and the independent event diagnostic remain unresolved. No raw-line exception or cause claim follows.
+- **Next:** Push the two reviewed commits together and inspect exact-head supported-host coverage plus the bounded native diagnostic; do not infer success from portable fingerprints.
+
 ### 2026-10-22 - Publish measured public extraction and non-reissued fixture ports
 
 - **Changed:** A deterministic generation-7 test directly exercises the public extraction wrapper and checks exact bytes, enrichment, sidecar/FTS publication and unchanged stored document/generation/ledger. The actual operation is directly awaited before fixture disposal; there is no local cancellation/deadline claim for this uncancellable API.
