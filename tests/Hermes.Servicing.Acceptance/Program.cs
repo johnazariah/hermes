@@ -4,6 +4,13 @@ internal static class Program
 {
     private static async Task<int> Main(string[] arguments)
     {
+        // Native invocation requires an outer fixed-helper process deadline and
+        // disposable job containment. In-process budgets cannot interrupt Start.
+        if (arguments.FirstOrDefault() is
+            CrashControl.ChildCommand or CrashControl.ProbeCommand)
+            return await CrashCommands.DispatchAsync(
+                arguments, WindowsCrashControl.Effects, CancellationToken.None);
+
         if (arguments.FirstOrDefault() == StartupDebugProbe.Command)
             return StartupDebugProbe.Dispatch(arguments, new WindowsStartupDebugHost());
 

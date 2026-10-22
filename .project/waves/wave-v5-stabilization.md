@@ -100,6 +100,34 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Approve nonfatal ownership and measure the complete coverage scope
+
+- **Changed:** A fresh independent revision removes the hosting PowerShell FailFast fallback. Shared finalization state records one terminal result and prevents retries through a consumed SafeHandle; checked close failures still preserve assigned termination intent and surface errors. An unrecoverable finalization can retain a raw kernel resource until process exit.
+- **Review:** The final C# review approves the source after separate authors corrected the nested constructor, premature release disarming and fatal pre-assignment fallback. Rejected authors did not contribute to their replacements.
+- **Validation:** Serial portable and Windows-targeted builds pass with zero warnings/errors; all 89 job-policy/ownership cases pass. Root build passes, and the existing native Coverlet/flush-hook execution passes 483 Servicing and 2,191 Core tests without skips. The same five assemblies measure 15,854/18,410 lines (86.1162%) and 15,702/25,345 branches (61.9530%), above both unchanged gates.
+- **Integration:** The five-file hosted wrapper candidate passes 132 independently rerun portable controls and workflow lint. Its source-checkout and failed-capture lifetime controls are being strengthened before publication.
+- **Blockers:** No native control has run. Kernel containment, external-deadline behaviour, event correlation and the original restricted PowerShell/installed Medium gates remain unverified.
+- **Next:** Finish wrapper review, publish the exact source and inspect the bounded disposable-Windows result.
+
+### 2026-10-22 - Exercise owned crash lifetimes and reject premature job release
+
+- **Changed:** The fixed crash-control component now implements retained identity, one ready/arm exchange, actual exit observation, scoped post-exit handle retention and joined cleanup. Its portable implementation is measured in the existing Acceptance.Model assembly.
+- **Validation:** All 76 crash-control cases and 65 current-step job-policy cases pass; the full portable Servicing suite passes 459/459 without skips. The collector measures Acceptance.Model at 97.05% line and 88.92% branch. These are component measurements; the five-assembly aggregate still requires hosted verification.
+- **Review:** Independent review rejects the native job facade: its nested-handle constructor does not compile, and a failed normal close can disable the promised assigned-scope abort. The original author is locked out; a fresh C# author owns both corrections and native-owner failure tests.
+- **Integration:** A separate author is wiring current-source publication, bounded private capture and the independent hosted-step deadline. Native execution remains prohibited until the corrected containment and wrapper are reviewed.
+- **Blockers:** No native crash-control run or event correlation exists yet. Restricted PowerShell and installed Medium acceptance remain unresolved; draft PR #30 is unmerged and remote main remains `e7758a3`.
+- **Next:** Compile and review the corrected native owner, then execute the contained control on disposable public hosted Windows.
+
+### 2026-10-22 - Decompose the unimplemented event route into an owned control
+
+- **Decision:** Implement only the fixed published-apphost crash-control lifetime first: verified retained identity before one stdin arm, actual exit, bounded drains/wait/cleanup and a scoped observation interval that retains its handles after exit. Do not attempt event queries or the PowerShell baseline in this component.
+- **Ownership:** A fresh C# author owns this smaller artifact; the ended all-in-one observer author is not reused. Native execution remains limited to disposable hosted Windows, with portable capability/fake tests on other platforms.
+- **Grounding:** Microsoft documents WerSetFlags as current-process-only and WerGetFlags as handle-based readback, both in Kernel32. The Microsoft SDK header confirms the no-UI, queue and no-heap constants; do not substitute guessed flags or change host WER policy.
+- **Privacy:** The synthetic child must receive only a minimal non-secret environment, avoid reporting UI, heap/snapshots and upload flags, and export no dump/raw child output. No OS-managed WER process becomes an owned child or cleanup target.
+- **Preserved:** Original restricted token, integrity, console arms, source/image, exit-37 requirement and native/installer acceptance remain unchanged. A control crash is not PowerShell or installer acceptance.
+- **Blockers:** No new control implementation or native lifetime proof exists yet; exact event correlation and installed acceptance remain subsequent work.
+- **Next:** Review and validate this lifetime component before adding any selective event reader or baseline query.
+
 ### 2026-10-22 - Verify public-wrapper coverage and fixture ports on both supported hosts
 
 - **Evidence:** Published `ea47975`, run `39763777189`: supported Windows job `119774079322` and macOS job `119774079249` both succeed. Windows runs 2,187 selected Core and 318 Servicing tests without skips, plus 102 JavaScript units and 61 real isolated browser journeys; four governed Unix-only exclusions remain explicit.

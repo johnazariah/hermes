@@ -2,6 +2,33 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Owned crash-control lifetime and shared native-handle ownership
+
+The fixed crash-control command has **76 portable cases** covering exact
+ready/arm framing, retained identity, one arm, actual exit observation,
+post-exit handle retention, joined operations and explicit cleanup/report
+failures. Unknown commands, guard refusal, malformed output and incomplete
+settlement cannot produce success. Its report keeps original-gate and native
+acceptance at zero.
+
+Current-step containment has **89 portable cases**, including twelve shared
+native-owner cases for partial release, persistent close errors, termination
+errors, combined cleanup failures and prevention of double-close, plus twelve
+finalization cases. Unarmed owners never request termination; finalization
+freezes its actual result and cannot retry a consumed SafeHandle. The Windows
+adapter uses this measured state without a host-crash fallback. A failed
+finalization can retain a raw resource until process exit. Portable tests do
+not invoke Windows job APIs or crash a process.
+
+The measured candidate passes both portable and Windows-targeted builds with
+zero warnings/errors, **483/483 Servicing tests** and **2,191/2,191 Core
+tests**, without skips. The existing native Coverlet runner and flush hook
+measure the same five assemblies at **15,854/18,410 lines (86.1162%)** and
+**15,702/25,345 branches (61.9530%)**; unchanged 85%/60% gates pass.
+Independent C# review approves the final ownership source. Windows containment,
+the independent deadline, event correlation and original PowerShell acceptance
+still require actual hosted evidence.
+
 ## MASM-bound first refusal records only closed wording and syntax classes
 
 All **541 startup controls** pass, retaining 538 prior intents and adding
