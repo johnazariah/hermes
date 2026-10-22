@@ -26,7 +26,7 @@ function New-HermesStartupState {
         CommandPins = @{}; SourcePins = @{}
         ScopedEchoes = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
         ScopedPublication = $null; ScopedInvocation = $null; ExtensionSource = $null
-        ScopedPhase = 0; ScopedFault = @{ Reason = 0; Phase = 0; Block = 0; Held = 0 }
+        ScopedPhase = 0; ScopedFault = @{ Reason = 0; Phase = 0; Block = 0; Held = 0; Echo = 0 }
         Held = $null; ArmAttempted = $false; ArmWritten = $false; SideWrites = 0
         InputWriter = $null; InputTasks = [Collections.Generic.List[Threading.Tasks.Task]]::new()
         DriverSha256 = ''; ModuleSha256 = ''; ArmCommandSha256 = ''; ExtensionSha256 = ''
@@ -1456,8 +1456,10 @@ function Invoke-HermesStartupScopedInput {
                 Born = $State.Target.born; Helper = $State.Target.helper
                 Source = $State.ScopedPublication.Clone()
             }
-            # $$>< consumes a filename, including spaces, without -c quoting.
-            $command = '$$><' + (Join-Path $State.ScopedPublication.Root 'startup-arm.cdb') + "`n"
+            # Same condensed program, with command echo disabled. The sole
+            # fixed filename is quoted; no script arguments are supplied.
+            # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/-----------------------a---run-script-file-
+            $command = '$$>a< "' + (Join-Path $State.ScopedPublication.Root 'startup-arm.cdb') + '"' + "`n"
         }
         Target {
             $State.ArmedBinding = @{ Helper = $State.Target.helper; Pid = $State.Target.pid
@@ -1495,13 +1497,14 @@ function Invoke-HermesStartupScopedInput {
 }
 
 function Set-HermesStartupProtocolFault {
-    param([hashtable]$State, [ValidateRange(1, 14)][int]$Reason)
+    param([hashtable]$State, [ValidateRange(1, 14)][int]$Reason,
+        [ValidateRange(0, 255)][int]$EchoMask = 0)
     if ($State.DiagnosticMode -ceq 'ScopedCreateV1') {
         if ($State.Bounds -ne 0 -or $State.AcceptedUtf8Bytes -ge 8388608) { return }
         if ($State.Protocol -eq 0 -and $State.ScopedFault.Reason -eq 0) {
             $block = $State.Inventory.Block; $held = $State.Held
             $State.ScopedFault = @{
-                Reason = $Reason; Phase = $State.ScopedPhase
+                Reason = $Reason; Phase = $State.ScopedPhase; Echo = $EchoMask
                 Block = $(if ($null -ne $block -and $block.Kind -in @(1, 3, 5, 7)) { $block.Kind } else { 0 })
                 Held = $(if ($null -ne $held -and $held.Kind -in @(1, 3, 5)) { $held.Kind } else { 0 })
             }
@@ -1568,6 +1571,38 @@ function Add-HermesStartupScopedMarker {
     Set-HermesStartupScopedCreated $State
 }
 
+function Get-HermesStartupScopedEchoMask {
+    param([hashtable]$State, [string]$Line)
+    if ($State.DiagnosticMode -cne 'ScopedCreateV1' -or $State.Protocol -ne 0 `
+        -or $State.Bounds -ne 0 -or $State.AcceptedUtf8Bytes -ge 8388608 -or $Line.Length -gt 4096) { return 0 }
+    $echo = $Line -creplace '\A[0-9]{1,3}:[0-9a-f]{3}> ', ''
+    $mask = if ($echo -cne $Line) { 1 } else { 0 }
+    $lexical = $echo.TrimStart([char[]]@(' ', [char]9))
+    foreach ($rule in @(
+        @('\A\.catch(?:[ \t{]|\z)', 2), @('\A\.if(?:[ \t(]|\z)', 4), @('\A\.printf(?:[ \t]|\z)', 8),
+        @("(?:\A|[ \t;])Syntax error at '[\x20-\x7e]{1,4096}'(?:\z|[ \t;])", 16)
+    )) {
+        if ($lexical -cmatch $rule[0]) { $mask = $mask -bor $rule[1] }
+    }
+    if ($echo.Contains('No export gflag found', [StringComparison]::Ordinal)) { $mask = $mask -bor 32 }
+    if ($echo.Contains("Couldn't resolve error at ", [StringComparison]::Ordinal) `
+        -or $echo.Contains('Type ntdll!_PEB not found', [StringComparison]::Ordinal)) { $mask = $mask -bor 64 }
+    # Named observation-only transform: HorizontalWhitespaceCollapse replaces
+    # every ASCII space/tab run with one space, then trims edge spaces/tabs.
+    # It changes neither case nor escapes and never expands accepted echoes.
+    $display = [regex]::Replace($echo, '[ \t]+', ' ').Trim([char[]]@(' ', [char]9))
+    if ($State.ScopedEchoes.Count -le 32) {
+        foreach ($source in $State.ScopedEchoes) {
+            if ($source.Length -gt 4096) { continue }
+            $collapsed = [regex]::Replace($source, '[ \t]+', ' ').Trim([char[]]@(' ', [char]9))
+            if ([string]::Equals($display, $collapsed, [StringComparison]::Ordinal)) {
+                $mask = $mask -bor 128; break
+            }
+        }
+    }
+    return $mask
+}
+
 function Add-HermesStartupScopedLine {
     param([hashtable]$State, [string]$Line)
     if ($State.Protocol -ne 0 -or $State.Bounds -ne 0 -or $State.AcceptedUtf8Bytes -ge 8388608) { return }
@@ -1581,7 +1616,7 @@ function Add-HermesStartupScopedLine {
             # A closed display shape, not a diagnosis or a new SDK-success
             # rule. Both shapes retain exactly the same source-echo refusal.
             $reason = if ($echo -cmatch "\ASyntax error at '[\x20-\x7e]{1,4096}'\z") { 14 } else { 1 }
-            Set-HermesStartupProtocolFault $State $reason
+            Set-HermesStartupProtocolFault $State $reason (Get-HermesStartupScopedEchoMask $State $Line)
         }
         return
     }
@@ -2193,6 +2228,10 @@ function New-HermesStartupReport {
         $selected.scopedFirstPhase = Get-HermesStartupInventoryNumber $State.ScopedFault.Phase 15
         $selected.scopedFirstBlock = Get-HermesStartupInventoryNumber $State.ScopedFault.Block 7
         $selected.scopedFirstHeld = Get-HermesStartupInventoryNumber $State.ScopedFault.Held 5
+        # Echo mask: 1 prompt; 2/4/8 leading .catch/.if/.printf; 16 contained
+        # syntax shape; 32 no-export text; 64 closed resolver text;
+        # 128 exact source after HorizontalWhitespaceCollapse. Never authority.
+        $selected.scopedFirstEchoMask = Get-HermesStartupInventoryNumber $State.ScopedFault['Echo'] 255
         $report.observations = $selected
     }
     return $report

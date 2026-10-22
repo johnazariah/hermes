@@ -224,8 +224,8 @@ function New-ScopedCreateCommands {
         $lines += 'sxe -c "' + $token + $path.Replace('\', '\\') + '" ' + $name
     }
     $sources['startup.cdb'] = ($lines + @('sx', 'g', '') -join "`n")
-    # Quoted .load paths need escaped backslashes, unlike the raw $$>< stdin
-    # filename. https://github.com/microsoft/WinDbg-Feedback/issues/26#issuecomment-512359949
+    # .load paths escape backslashes; the fixed quoted script filename does not.
+    # https://github.com/microsoft/WinDbg-Feedback/issues/26#issuecomment-512359949
     # Qualify the export: never use the debugger's extension search order.
     # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/using-debugger-extension-commands
     $module = $Extension.Substring(0, $Extension.Length - 4).Replace('\', '\\')

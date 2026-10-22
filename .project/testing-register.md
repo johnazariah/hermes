@@ -2,6 +2,28 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Fixed no-echo invocation isolates the arming program's display behaviour
+
+All **489 controls** pass, retaining 486 prior intents and adding three
+source/input/lexical cases. The controller now sends exactly
+`$$>a< "fixed-pinned-filename"` with no script arguments. Microsoft's
+reference documents suppressed command echo with the same condensed
+execution semantics as `$$><`. All five command-file byte goldens remain
+unchanged; SDK text, target authority and continuation rules are unchanged.
+
+Actual pipes verify the quoted filename, including spaces, replay refusal,
+fixed `g` roles and EOF. Invalid quote/separator/control-character paths
+refuse before input.
+
+A first-refusal mask records only closed prompt/source/diagnostic shapes
+and exact known-source equality after the named
+HorizontalWhitespaceCollapse transform. It neither expands accepted echoes
+nor certifies SDK success. First facts and the mask freeze after refusal or
+exhaustion; report generation performs no new lexical analysis.
+
+Installer static controls pass. The prior actual run's unknown printf line
+is still unexplained; this source control does not claim a native fix.
+
 ## Scoped refusal reports retain the first reason and program phase
 
 All **486 controls** pass, retaining 479 earlier intents and adding seven

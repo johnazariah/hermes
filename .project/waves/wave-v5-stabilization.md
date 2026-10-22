@@ -100,6 +100,24 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Pin no-echo invocation while preserving condensed execution
+
+- **Changed:** The single fixed arming input uses documented `$$>a<` with one quoted pinned filename and no arguments. All five program-file bytes/hashes, SDK grammar and target authority remain unchanged; there is no command/path/PID selector.
+- **Validation:** Parent review, all 489 controls and installer static controls pass. Three new controls prove frozen program goldens, real-pipe quoting/spaces/replay/continuation and closed lexical facts with no post-budget analysis.
+- **Observed shapes:** The first-refusal mask distinguishes prompt prefix, leading catch/if/printf, fixed syntax/export/resolver text and exact source after HorizontalWhitespaceCollapse. It remains observational; unknown lines still refuse.
+- **Preserved:** Held-target stop, typed flag bit 2, historical ARMED, finite writer roles, exact output/report bounds, owned cleanup and original acceptance gates.
+- **Blockers:** Actual no-echo execution, the refusing line's meaning and PowerShell loader cause remain unproved. The source owner has completed its third/final cycle; no fourth is assigned.
+- **Next:** Publish the fixed no-echo control and inspect native readback without loosening the parser.
+
+### 2026-10-22 - Isolate command echo without changing the arming program
+
+- **Evidence:** Published `8145a02`, run `39719102387`, job `119628177960`, passes 486 controls and 500/501 native cases without skips. First refusal is unknown printf/source echo (reason 1), after arm begin and before any typed candidate or arm end. It is not classified as the fixed syntax shape. Target continuation remains blocked.
+- **Termination:** The controller records a Kill request before CDB exits `0xFFFFFFFF`. That exit is observed after the bounded stop; it does not identify the original refusal.
+- **Decision:** Microsoft's script-file reference documents that `$$>a<` suppresses command echo while retaining condensed command-block execution. The next control uses one fixed pinned filename and no script arguments. All five program files, SDK invocation and authority stay unchanged.
+- **Correction:** An initially considered literal `$$<` control would also change execution semantics. It is superseded before publication by the narrower no-echo control.
+- **Preserved:** Unknown printf and diagnostic output still refuse; no display text is promoted into SDK or target authority. Bounded lexical observations will distinguish any remaining refusal shape without exporting it.
+- **Blockers:** Source review, actual no-echo behaviour and the PowerShell loader cause remain pending.
+
 ### 2026-10-22 - Capture the first scoped refusal without changing its decision
 
 - **Changed:** First-refusal reason, program phase and active/held block kinds are latched as numeric facts. A fixed syntax-shaped printf class separates one display shape from other unknown echoes. Phase distinguishes seen markers and parsed DWORDs from actual flag-2 verification.
