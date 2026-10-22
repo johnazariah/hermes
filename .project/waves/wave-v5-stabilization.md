@@ -100,6 +100,15 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-23 - Construct only bounded, explicitly unproven event-query candidates
+
+- **Changed:** The fixed query retains channel/provider/event/version, exact decimal PID/birth, literal image and bounded UTC-window predicates. It uses one synchronous two-slot batch and visits only a single candidate while query/event handles remain owned on their creating thread. Events close before the query; errors and cleanup faults cannot become empty/success.
+- **Review:** Independent C# review approves construction, ownership, error handling and scope. Every result remains `Precision=Unproven`; one batch is not completed enumeration, snapshot uniqueness or native UInt64 precision. Provider/schema admission remains a caller assertion, not verification.
+- **Validation:** Serial portable/Windows-targeted builds pass with zero warnings/errors; all 98 query cases pass. Combined root build, 767 Servicing and 2,198 Core cases pass without skips. The same five-assembly merge measures 16,354/18,913 lines (86.4696%) and 15,950/25,609 branches (62.2828%), above fixed gates.
+- **Boundary:** No query is invoked by a command or callback. Fakes do not prove server-side comparison, and there is no PID-only, rounded-number, broad-channel or fuzzy fallback.
+- **Blockers:** Actual controlled exact-birth match and adjacent-birth 0/0 results, current macOS peer-failure classification and original PowerShell/installed acceptance remain pending.
+- **Next:** Publish the component and integrate only the separately supervised synthetic correlation control.
+
 ### 2026-10-23 - Build the bounded identity-first event-value component
 
 - **Changed:** The fixed reader renders only three identity fields, compares exact unsigned PID/birth and ordinal canonical image path, then permits the three detail fields. Native contexts and buffers are owned; the event is borrowed. Size, ABI, scalar type, pointer range, UTF-16 and cleanup faults refuse explicitly. No query, event enumeration, command integration or whole-event rendering is added.

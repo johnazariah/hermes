@@ -2,6 +2,30 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Fixed crash-event query candidates preserve unproven precision
+
+The query component passes **98 portable cases** and serial portable/
+Windows-targeted builds. It fixes Application/Application Error/1000/v0,
+PID, decimal UInt64 birth, literal image and bounded UTC window predicates.
+No floating-point conversion, broad-query fallback, remote/file selector,
+query-error tolerance or arbitrary expression interface is introduced.
+
+One synchronous two-slot batch can yield empty, ambiguous or a visited
+candidate. The reader runs only while query/event handles remain owned on
+the creating thread; events close before the query. Malformed outputs and
+cleanup failures are non-success, and unexpected failures remain observable.
+Every result explicitly retains `Precision=Unproven`: one candidate is not
+completed enumeration, log-snapshot uniqueness or exact server comparison
+proof. Provider/schema admission remains an explicit caller prerequisite.
+
+Tests exercise exact predicate construction, UInt64 boundaries/neighbours,
+injection/invalid window refusal, thread/call order, ownership, partial/error
+outputs and cleanup faults. Independent C# review approves. The combined
+candidate passes 767 Servicing and 2,198 Core cases; unchanged-scope coverage
+is 16,354/18,913 lines (86.4696%) and 15,950/25,609 branches (62.2828%).
+Native invocation and controlled exact-birth 1 / adjacent-birth 0/0 results
+remain outstanding.
+
 ## Selective crash-event values gate details on exact identity
 
 The new component passes **120 portable cases** and serial portable/
@@ -23,9 +47,9 @@ Valid U+FFFD characters remain valid and can match or produce a normal path
 mismatch. Independent C# review approves.
 
 The policy is compiled into the existing Acceptance.Model scope. Root build,
-all 2,191 Core and **669 Servicing** cases pass; the unchanged five-assembly
-merge measures **16,199/18,757 lines (86.3624%)** and
-**15,825/25,513 branches (62.0272%)**. Provider/schema admission, query
+all 2,198 Core and **767 Servicing** cases pass; the unchanged five-assembly
+merge measures **16,354/18,913 lines (86.4696%)** and
+**15,950/25,609 branches (62.2828%)**. Provider/schema admission, query
 uniqueness, server-side exact-birth filtering, command integration and actual
 Windows invocation of this reader remain separate acceptance work.
 
@@ -152,14 +176,14 @@ finalization can retain a raw resource until process exit. Portable tests do
 not invoke Windows job APIs or crash a process.
 
 The measured candidate passes both portable and Windows-targeted builds with
-zero warnings/errors, **669/669 Servicing tests** and **2,191/2,191 Core
+zero warnings/errors, **767/767 Servicing tests** and **2,198/2,198 Core
 tests**, without skips. The existing native Coverlet runner and flush hook
-measure the same five assemblies at **16,199/18,757 lines (86.3624%)** and
-**15,825/25,513 branches (62.0272%)**; unchanged 85%/60% gates pass.
+measure the same five assemblies at **16,354/18,913 lines (86.4696%)** and
+**15,950/25,609 branches (62.2828%)**; unchanged 85%/60% gates pass.
 This local branch aggregate exceeds the earlier 61.9530% measurement.
 Source `438408d` has actual supported-Windows proof at 86.4983% line and
-62.1259% branch; the new reader source still requires exact-head hosted
-coverage.
+62.1259% branch; the new query/peer-diagnostic source still requires
+exact-head hosted coverage.
 Independent C# review approves the final ownership source, and the configured
 private-job/deadline control run succeeds on actual Windows. Deliberate
 timeout teardown, event correlation and original PowerShell acceptance still

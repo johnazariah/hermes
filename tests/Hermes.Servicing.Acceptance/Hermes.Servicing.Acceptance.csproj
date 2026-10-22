@@ -25,7 +25,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Remove="CrashControl.cs;OwnedCrashControl.cs;StepJobContainment.cs;CrashEventValues.cs" />
+    <Compile Remove="CrashControl.cs;OwnedCrashControl.cs;StepJobContainment.cs;CrashEventValues.cs;CrashEventQuery.cs" />
     <Compile Include="../../src/Hermes.Tray/InstalledProofContract.cs"
              Link="ExistingDiagnostics/InstalledProofContract.cs" />
     <Compile Include="../../src/Hermes.Tray/OwnerFixture.cs"
