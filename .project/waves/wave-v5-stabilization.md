@@ -100,6 +100,15 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-23 - Qualify access lifecycle measurements on both actual hosts
+
+- **Published:** Observer source `d025a46e72feeffe58879a5f4e07fe559175f653`, CI `39871680120`, passes both supported application jobs. Windows `120147344119` and macOS `120147344190` each pass 1,039 Servicing and 61 browser cases; Core selections pass 2,194 and 2,198 respectively, without failures/skips.
+- **Measured:** The first actual Windows status request has one HTTP 200 response, one body-finished event and no failure. Request/header/body observer offsets are 64/558/565 ms; macOS records 126/338/355 ms with the same counts. No raw request/response data is exported. These are observer offsets, not independent network phase durations.
+- **Coverage:** Actual Windows measures 87.1781% line / 62.8232% branch; macOS measures 86.9512% / 62.5312%. Both unchanged gates pass. The earlier Windows timeout does not recur, but no product fix or root cause is claimed.
+- **Remaining blockers:** Installer job `120147344097` fails the original native gate and diagnostic; publish is skipped. A renewed request for the exact bounded identity-only diagnostic again receives an unavailable-owner autonomous-work directive, not the required explicit exception. Native expansion remains parked; no query, policy, deadline or acceptance change is made.
+- **Legacy repair:** The exact #24 requirements include implementation, not merely design. Its existing blocker comment now links the published design at `d33018a`, correcting stale publication-pending wording without closing the issue. A reviewed concrete protected namespace or an explicit different contract remains necessary; no personal corpus or repair is accessed.
+- **Next:** Retain the verified application candidate and existing diagnostic boundaries. Resume native or legacy implementation only when its concrete authority prerequisite is supplied; do not merge or mark the overall backlog complete.
+
 ### 2026-10-23 - Measure the access bootstrap without weakening its assertion
 
 - **Evidence:** Existing Windows job `120130588596` logs show the first `/api/access` response completed with HTTP 200 in 42.7537 ms. The browser nevertheless reports its access deadline in the original first smoke case. A slow Service handler is not established; response delivery and client handling need separate observations.

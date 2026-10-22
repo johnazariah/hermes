@@ -28,8 +28,19 @@ completed at the Service in 42.7537 ms, despite the browser later reporting
 its access deadline. This narrows the investigation but does not identify
 the browser/transport cause. Original assertions, client deadlines, state
 handling, authentication, native diagnostics and acceptance are unchanged.
-The instrumentation is not a timeout fix; actual Windows lifecycle
-observations remain required.
+The instrumentation is not a timeout fix.
+
+Actual observer-head CI `39871680120` at `d025a46` passes both supported
+hosts, including all 61 browser cases, 1,039 Servicing cases and their
+complete Core selections. Windows job `120147344119` records one request,
+one HTTP 200 response, one body-finished event and no failure; request,
+headers and body observer offsets are 64/558/565 ms. macOS job
+`120147344190` records the same lifecycle counts at 126/338/355 ms.
+These are observer offsets, not independent network phase durations.
+Windows coverage is 87.1781% line / 62.8232% branch; macOS is 86.9512% /
+62.5312%, above unchanged gates. The original timeout does not recur
+and its cause remains unproved. Installer job `120147344097` still fails
+the original native gate and diagnostic; publish is skipped.
 
 The unchanged-product documentation head `621b3f4`, CI `39869833919`,
 passes both supported hosts: 61 browser cases each, 1,039 Servicing cases
