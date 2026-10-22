@@ -92,6 +92,10 @@ function Confirm-TraceTools {
             Set-HermesStartupTracePoint $state 10 $role # Hash pinned debugger.
             $state.DebuggerSha256 = Get-TraceHash $pin
         }
+        if ($role -eq 6) {
+            $state.ExtensionSha256 = Get-TraceHash $pin
+            $state.ExtensionSource = @{ Path = $path; Sha256 = $state.ExtensionSha256; Pin = $pin }
+        }
     }
     return $path
 }
@@ -141,15 +145,8 @@ function New-TraceCommands {
 }
 
 function New-TraceEventCommands {
-    # CREATED has no loader-flag claim. Only a runtime ibp callback can query
-    # the four-byte field; missing types/memory remain unavailable, not zero.
-    # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/c---numbers-and-operators
-    # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/pseudo-register-syntax
-    # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/-printf
-    # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/-if
-    # $$>< condenses the IBP file into a command program. Contain query errors,
-    # not the closing marker. The ibp callback deliberately has no final g.
-    # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/-catch
+    # Retained metadata/parser control mode. No automatic event callback may
+    # query the PEB or set flags; only ScopedCreateV1 has an arming capability.
     [ordered]@{
         'startup-cpr.cdb' = (@(
             '.printf "HERMES_CDB v=3 kind=1 pid=%u\n", @$tpid',
@@ -158,8 +155,7 @@ function New-TraceEventCommands {
         ) -join "`r`n") + "`r`n"
         'startup-ibp.cdb' = (@(
             '.printf "HERMES_CDB v=3 kind=5 pid=%u\n", @$tpid',
-            '.lastevent', '|.', '!gflag +sls', '!gflag',
-            '.catch { .if (@@c++(sizeof(@$peb->NtGlobalFlag)) == 4) { .printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(@$peb->NtGlobalFlag) } }',
+            '.lastevent', '|.',
             '.printf "HERMES_CDB v=3 kind=6 pid=%u\n", @$tpid'
         ) -join "`r`n") + "`r`n"
         'startup-epr.cdb' = (@(
@@ -191,6 +187,9 @@ function New-InventoryEventCommands {
 
 function Get-TraceSelectedSources {
     param([string]$Extension)
+    if ($state.DiagnosticMode -ceq 'ScopedCreateV1') {
+        return New-ScopedCreateCommands $Extension
+    }
     if ($state.DiagnosticMode -ceq 'Trace') {
         $sources = New-TraceEventCommands
         $sources['startup.cdb'] = New-TraceCommands $Extension
@@ -209,17 +208,82 @@ function Get-TraceSelectedSources {
     return $sources
 }
 
+function New-ScopedCreateCommands {
+    param([string]$Extension)
+    $null = Assert-TraceCommandPath $Extension
+    $sources = New-InventoryEventCommands
+    foreach ($name in @('cpr', 'ibp', 'epr')) {
+        # Every callback stops. The controller alone may release an owned event.
+        $key = 'startup-' + $name + '.cdb'
+        $sources[$key] = $sources[$key].Replace("`r`ng`r`n", "`r`n")
+    }
+    $lines = @('.printf "HERMES_CDB v=1 kind=0 pid=%u\n", @$tpid')
+    foreach ($name in @('ibp', 'cpr', 'epr')) {
+        $path = Assert-TraceCommandPath (Join-Path $root ('startup-' + $name + '.cdb'))
+        $token = if ($name -ceq 'cpr') { '$$<' } else { '$$><' }
+        $lines += 'sxe -c "' + $token + $path.Replace('\', '\\') + '" ' + $name
+    }
+    $sources['startup.cdb'] = ($lines + @('sx', 'g', '') -join "`n")
+    # Quoted .load paths need escaped backslashes, unlike the raw $$>< stdin
+    # filename. https://github.com/microsoft/WinDbg-Feedback/issues/26#issuecomment-512359949
+    # Qualify the export: never use the debugger's extension search order.
+    # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/using-debugger-extension-commands
+    $module = $Extension.Substring(0, $Extension.Length - 4).Replace('\', '\\')
+    if (-not $Extension.EndsWith('/exts.dll', [StringComparison]::OrdinalIgnoreCase) `
+        -and -not $Extension.EndsWith('\exts.dll', [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Fixed SDK extension required.'
+    }
+    if ($module.Length -gt 255) { throw 'Extension module bound refused.' }
+    $sources['startup-arm.cdb'] = (@(
+        '.printf "HERMES_CDB v=4 kind=7 pid=%u\n", @$tpid',
+        '.lastevent',
+        ('.load "' + $Extension.Replace('\', '\\') + '"'),
+        '.chain',
+        ('.catch { !"' + $module + '".gflag +sls; .if (@@c++(sizeof(@$peb->NtGlobalFlag)) == 4) { .printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(@$peb->NtGlobalFlag) } }'),
+        '.printf "HERMES_CDB v=4 kind=8 pid=%u\n", @$tpid'
+    ) -join "`r`n") + "`r`n"
+    return $sources
+}
+
 function Confirm-TraceCommandSelection {
     param([string]$Extension)
+    if ($state.DiagnosticMode -ceq 'ScopedCreateV1' `
+        -and ($state.Bounds -ne 0 -or $state.AcceptedUtf8Bytes -ge 8388608)) {
+        throw 'Scoped collection bound reached.'
+    }
     if ($state.PublishedMode -cne $state.DiagnosticMode) { throw 'Published mode changed.' }
     $sources = Get-TraceSelectedSources $Extension
-    foreach ($item in @(
+    $items = @(
         @('startup.cdb', 'CommandSha256'), @('startup-cpr.cdb', 'CreateCommandSha256'),
         @('startup-ibp.cdb', 'InitialCommandSha256'), @('startup-epr.cdb', 'ExitCommandSha256')
-    )) {
+    )
+    if ($state.DiagnosticMode -ceq 'ScopedCreateV1') {
+        if ($null -eq $state.ScopedPublication -or $state.ScopedPublication.Root -cne $root `
+            -or $state.ExtensionExpected -cne $Extension) { throw 'Scoped publication changed.' }
+        $items += ,@('startup-arm.cdb', 'ArmCommandSha256')
+    }
+    foreach ($item in $items) {
         $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
             [Text.Encoding]::ASCII.GetBytes($sources[$item[0]]))).ToLowerInvariant()
         if ($state[$item[1]] -cne $hash) { throw 'Published selection changed.' }
+        if ($state.DiagnosticMode -ceq 'ScopedCreateV1' `
+            -and (Get-TraceHash $state.CommandPins[$item[0]]) -cne $hash) {
+            throw 'Pinned command changed.'
+        }
+    }
+    if ($state.DiagnosticMode -ceq 'ScopedCreateV1') {
+        # The Microsoft-signed canonical SDK file remains pinned against writes.
+        # Prove the qualified source, not an unsupported human .chain layout.
+        if (-not (Test-HermesStartupScopedPublication $state) `
+            -or (Get-TraceHash $state.ExtensionSource.Pin) -cne $state.ExtensionSha256) {
+            throw 'Pinned selected SDK extension changed.'
+        }
+        foreach ($name in @('Driver', 'Module')) {
+            if ((Get-TraceHash $state.SourcePins[$name]) -cne $state[$name + 'Sha256']) {
+                throw 'Pinned diagnostic source changed.'
+            }
+        }
+        if (-not (Test-HermesStartupScopedPublication $state)) { throw 'Scoped sources changed.' }
     }
 }
 
@@ -245,6 +309,7 @@ function Publish-TraceCommands {
         $path = Join-Path $root $source.Key
         $bytes = [Text.Encoding]::ASCII.GetBytes($source.Value)
         $pin = Open-TracePin $path
+        $state.CommandPins[$source.Key] = $pin
         if ($pin.Length -ne $bytes.Length) { throw 'Debugger command source length changed.' }
         $hash = Get-TraceHash $pin
         $expected = [Convert]::ToHexString(
@@ -256,6 +321,26 @@ function Publish-TraceCommands {
     $state.CreateCommandSha256 = $hashes['startup-cpr.cdb']
     $state.ExitCommandSha256 = $hashes['startup-epr.cdb']
     $state.InitialCommandSha256 = $hashes['startup-ibp.cdb']
+    if ($state.DiagnosticMode -ceq 'ScopedCreateV1') {
+        $state.ArmCommandSha256 = $hashes['startup-arm.cdb']
+        $state.ScopedPublication = @{
+            Root = $root; Extension = $Extension; Mode = $state.DiagnosticMode
+            QualifiedModule = $Extension.Substring(0, $Extension.Length - 4).Replace('\', '\\')
+        }
+        foreach ($name in @('DebuggerSha256', 'ExtensionSha256', 'HelperSha256', 'DriverSha256', 'ModuleSha256',
+                'CommandSha256', 'CreateCommandSha256', 'InitialCommandSha256', 'ExitCommandSha256',
+                'ArmCommandSha256')) {
+            $state.ScopedPublication[$name] = $state[$name]
+        }
+        foreach ($text in $sources.Values) {
+            foreach ($line in ($text -split '\r?\n')) {
+                if ($line.Contains('.printf', [StringComparison]::Ordinal)) { $null = $state.ScopedEchoes.Add($line) }
+            }
+            $condensed = ($text -replace '\r?\n', ';').TrimEnd(';')
+            $null = $state.ScopedEchoes.Add($condensed)
+            $null = $state.ScopedEchoes.Add($condensed + ';')
+        }
+    }
     $state.ExtensionExpected = $Extension
     # Compare sx readback with the fixed, fully verified publication only.
     $state.FilterExpected.Cpr = 'Command: "$$<' + (Join-Path $root 'startup-cpr.cdb').Replace('\', '\\') + '"'
@@ -339,6 +424,8 @@ function New-TraceRoot {
 
 function Read-TraceControl {
     param([string]$Path)
+    if ($state.AcceptedUtf8Bytes -ge 8388608) { $state.Bounds = 1 }
+    if ($state.Bounds -ne 0) { return }
     $observe = $state.NativeProtocol -and $state.Bounds -eq 0 -and $state.AcceptedUtf8Bytes -lt 8388608
     if ($observe) { Add-HermesStartupObservation $state 'RowsReads' }
     if (-not [IO.File]::Exists($Path)) {
@@ -513,7 +600,10 @@ function Invoke-TraceCollection {
     }
     if ($state.Bounds -ne 0) { return }
     if (-not $debugger.HasExited) { $state.Timeout = 1 }
-    elseif ($debugger.ExitCode -ne 0) { $state.Error = 13 }
+    else {
+        Set-HermesStartupDebuggerExit $state $debugger.ExitCode
+        if ($debugger.ExitCode -ne 0) { $state.Error = 13 }
+    }
 }
 
 function Publish-TraceCreated {
@@ -540,6 +630,19 @@ function Publish-TraceCreated {
 }
 
 function Publish-TraceArm {
+    if ($state.DiagnosticMode -ceq 'ScopedCreateV1') {
+        if ($debugger.HasExited) { return }
+        if (Test-HermesStartupScopedAction $state Arm) {
+            Confirm-TraceCommandSelection $extension
+            Invoke-HermesStartupScopedInput $state $debugger.StandardInput Arm
+        } elseif (Test-HermesStartupScopedAction $state Target) {
+            Confirm-TraceCommandSelection $extension
+            Invoke-HermesStartupScopedInput $state $debugger.StandardInput Target
+        } elseif (Test-HermesStartupScopedAction $state Side) {
+            Invoke-HermesStartupScopedInput $state $debugger.StandardInput Side
+        }
+        return
+    }
     if ($state.DiagnosticMode -cne 'Trace') { return }
     if (-not $debugger.HasExited -and (Test-HermesStartupArm $state)) {
         Invoke-HermesStartupContinue $state $debugger.StandardInput
@@ -564,8 +667,8 @@ function Stop-TraceDebugger {
     if (-not $debugger.WaitForExit(5000)) { throw 'Owned debugger did not end.' }
 }
 
-# Fixed production selection; the strict trace path is controls-only for this run.
-$state = New-HermesStartupState -DiagnosticMode Inventory
+# Closed, versioned production choice; neither CLI nor environment selects it.
+$state = New-HermesStartupState -DiagnosticMode ScopedCreateV1
 $pins = [Collections.Generic.List[IO.FileStream]]::new()
 $debugger = [Diagnostics.Process]::new()
 $started = $false
@@ -598,8 +701,12 @@ try {
     $extension = Confirm-TraceTools $kits
     $helper = Confirm-TracePublication $workspace
     Set-HermesStartupTracePoint $state 23 # Pin diagnostic sources.
-    foreach ($source in @($PSCommandPath, (Join-Path $PSScriptRoot 'Native-StartupTrace.psm1'))) {
-        $null = Open-TracePin $source
+    foreach ($source in @(
+        @('Driver', $PSCommandPath), @('Module', (Join-Path $PSScriptRoot 'Native-StartupTrace.psm1'))
+    )) {
+        $pin = Open-TracePin $source[1]
+        $state.SourcePins[$source[0]] = $pin
+        $state[$source[0] + 'Sha256'] = Get-TraceHash $pin
     }
 
     Set-HermesStartupTracePoint $state 24 # Fixed command and symbol setup.
@@ -640,16 +747,24 @@ try {
     Set-HermesStartupTraceFault $state
 } finally {
     if ($started -and $state.NativeProtocol -and -not $state.InputClosed) {
-        $closed = $true
-        foreach ($owned in @($debugger.StandardInput, $debugger.StandardInput.BaseStream)) {
-            try { $owned.Dispose() }
-            catch { $closed = $false; $state.CleanupFault = 13 }
+        if ($state.DiagnosticMode -ceq 'ScopedCreateV1') {
+            Close-HermesStartupScopedInput $state $debugger.StandardInput
+        } else {
+            $closed = $true
+            foreach ($owned in @($debugger.StandardInput, $debugger.StandardInput.BaseStream)) {
+                try { $owned.Dispose() }
+                catch { $closed = $false; $state.CleanupFault = 13 }
+            }
+            $state.InputClosed = $closed
         }
-        $state.InputClosed = $closed
     }
     try {
         Stop-TraceDebugger
         $debuggerEnded = -not $started -or $debugger.HasExited
+        if ($started -and $debuggerEnded -and $state.DiagnosticMode -ceq 'ScopedCreateV1') {
+            Set-HermesStartupDebuggerExit $state $debugger.ExitCode
+            if ($debugger.ExitCode -ne 0 -and $state.Error -eq 0) { $state.Error = 13 }
+        }
     } catch { $state.CleanupFault = 13 }
     if ($started) {
         $grace = [Diagnostics.Stopwatch]::StartNew()

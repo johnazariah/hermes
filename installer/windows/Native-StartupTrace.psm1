@@ -17,12 +17,19 @@ function New-HermesStartupStream {
 function New-HermesStartupState {
     param(
         [switch]$LegacyParserControls,
-        [ValidateSet('Trace', 'Inventory')][string]$DiagnosticMode = 'Trace'
+        [ValidateSet('Trace', 'Inventory', 'ScopedCreateV1')][string]$DiagnosticMode = 'Trace'
     )
     if ($LegacyParserControls -and $DiagnosticMode -cne 'Trace') { throw 'Legacy inventory refused.' }
     $state = @{
         DiagnosticMode = $DiagnosticMode; PublishedMode = ''; NativeRowsFault = 0
-        NativeRowSnapshots = @{ Resumed = $null; Final = $null }
+        NativeRowSnapshots = @{ Ready = $null; Resumed = $null; Final = $null }
+        CommandPins = @{}; SourcePins = @{}
+        ScopedEchoes = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        ScopedPublication = $null; ScopedInvocation = $null; ExtensionSource = $null
+        Held = $null; ArmAttempted = $false; ArmWritten = $false; SideWrites = 0
+        InputWriter = $null; InputTasks = [Collections.Generic.List[Threading.Tasks.Task]]::new()
+        DriverSha256 = ''; ModuleSha256 = ''; ArmCommandSha256 = ''; ExtensionSha256 = ''
+        DebuggerExitAvailable = 0; DebuggerExitValue = [long]0
         Inventory = @{
             Root = [uint32]0; RootFault = 0; Block = $null; Subjects = @{}
             Malformed = 0; Mismatch = 0; Limit = 0
@@ -202,6 +209,7 @@ function ConvertFrom-HermesStartupRow {
 
 function Update-HermesStartupNativeRows {
     param([hashtable]$State, [string]$Text)
+    if ($State.AcceptedUtf8Bytes -ge 8388608) { $State.Bounds = 1 }
     if ($State.Bounds -ne 0) { return }
     if ($Text.Length -gt 2048 -or $Text -cmatch '[^\x20-\x7e\n]' `
         -or -not $Text.StartsWith($State.RowsText, [StringComparison]::Ordinal)) {
@@ -233,6 +241,8 @@ function Update-HermesStartupNativeRows {
         switch ($row.stage) {
             1 {
                 $State.Target = $row; $State.TargetText = $line
+                $State.NativeRowSnapshots.Ready = @{ Row = $row.Clone(); Text = $line }
+                if ($State.DiagnosticMode -ceq 'ScopedCreateV1') { Set-HermesStartupScopedCreated $State }
                 Set-HermesStartupCreatedPhase $State 'ReadyFirst'
                 Set-HermesStartupCreatedPhase $State 'CreatedJointFirst'
             }
@@ -258,11 +268,15 @@ function Update-HermesStartupNativeRows {
 }
 
 function Test-HermesStartupNativeReadinessBinding {
-    param([hashtable]$State)
+    param([hashtable]$State, [switch]$Historical)
+    if ($State.DiagnosticMode -ceq 'ScopedCreateV1' `
+        -and -not (Test-HermesStartupScopedPublication $State)) { return $false }
     $target = $State.Target
     return $State.NativeProtocol -and $State.Protocol -eq 0 -and $State.Unknown -eq 0 `
-        -and $State.DiagnosticMode -cin @('Trace', 'Inventory') `
-        -and $State.Error -eq 0 -and $State.Bounds -eq 0 -and $State.AcceptedUtf8Bytes -lt 8388608 `
+        -and $State.DiagnosticMode -cin @('Trace', 'Inventory', 'ScopedCreateV1') `
+        -and ($State.Error -eq 0 -or ($Historical -and $State.DiagnosticMode -ceq 'ScopedCreateV1')) `
+        -and (($Historical -and $State.DiagnosticMode -ceq 'ScopedCreateV1') `
+            -or ($State.Bounds -eq 0 -and $State.AcceptedUtf8Bytes -lt 8388608)) `
         -and $null -ne $target -and $target.version -eq 2 -and $target.stage -eq 1 `
         -and $target.resumed -eq 0 -and $target.helper -gt 0 -and $target.pid -gt 0 `
         -and $State.Initial -eq $target.helper -and $target.pid -ne $target.helper `
@@ -355,6 +369,9 @@ function Set-HermesStartupCreatedAcknowledged {
         Helper = $State.Target.helper; Pid = $State.Target.pid; Born = $State.Target.born
         RootHash = $State.CommandSha256; CreateHash = $State.CreateCommandSha256
         InitialHash = $State.InitialCommandSha256; ExitHash = $State.ExitCommandSha256
+    }
+    if ($State.DiagnosticMode -ceq 'ScopedCreateV1') {
+        $State.CreatedBinding.Scoped = $State.ScopedPublication.Clone()
     }
     $State.CreatedAcked = $true
 }
@@ -464,6 +481,13 @@ function Add-HermesStartupNativeLastEvent {
 
 function Set-HermesStartupStoppedPrompt {
     param([hashtable]$State, [string]$Text)
+    if ($State.DiagnosticMode -ceq 'ScopedCreateV1') {
+        $State.Stopped = $State.Bounds -eq 0 -and $State.Protocol -eq 0 -and $State.Unknown -eq 0 `
+            -and -not $State.Out.End -and -not $State.Out.Faulted -and $null -ne $State.Held `
+            -and -not $State.Held.Released -and $null -eq $State.Inventory.Block `
+            -and $Text -cmatch '\A[0-9]{1,3}:[0-9a-f]{3}> \z'
+        return
+    }
     if ($State.DiagnosticMode -cne 'Trace') { return }
     if ($State.NativeProtocol -and -not $State.ContinueAttempted) { $State.Stopped = $false }
     if ($State.NativeProtocol -and $State.Bounds -eq 0 -and $State.Protocol -eq 0 `
@@ -559,6 +583,7 @@ function Update-HermesStartupRows {
 
 function Test-HermesStartupBinding {
     param([hashtable]$State)
+    if ($State.DiagnosticMode -ceq 'ScopedCreateV1') { return Test-HermesStartupScopedBinding $State }
     if ($State.NativeProtocol) { return Test-HermesStartupInitialBinding $State }
     return $null -ne $State.Target -and $null -ne $State.Arm `
         -and $State.Protocol -eq 0 -and $State.Unknown -eq 0 `
@@ -614,7 +639,7 @@ function Set-HermesStartupArmAcknowledged {
 
 function Test-HermesStartupArmed {
     param([hashtable]$State)
-    if ($State.DiagnosticMode -cne 'Trace') { return $false }
+    if ($State.DiagnosticMode -cnotin @('Trace', 'ScopedCreateV1')) { return $false }
     # Historical acknowledgement survives exit, but not a changed binding or
     # a subsequently tainted protocol. Acked alone cannot manufacture history.
     return $State.Acked -and $null -ne $State.ArmedBinding `
@@ -705,7 +730,7 @@ function Add-HermesStartupLastEvent {
 
 function Add-HermesStartupFailure {
     param([hashtable]$State, [string]$Line)
-    if ($State.DiagnosticMode -cne 'Trace') { return }
+    if ($State.DiagnosticMode -cnotin @('Trace', 'ScopedCreateV1')) { return }
     # Loader text is not a stable API. Only these explicit failure grammars
     # qualify; unfamiliar failure-looking text is unavailable, not a root cause.
     $candidate = $Line -match 'Ldrp\S+\s+-\s+ERROR:|DLL_PROCESS_ATTACH.*failed|initialization.*failed.*status'
@@ -716,6 +741,8 @@ function Add-HermesStartupFailure {
     $body = $Matches.body
     if ($pidValue -eq $State.Initial) { return }
     if ($null -eq $State.Target -or $pidValue -ne $State.Target.pid) {
+        if ($State.DiagnosticMode -ceq 'ScopedCreateV1' `
+            -and $State.Inventory.Subjects.ContainsKey([string]$pidValue)) { return }
         $State.Unknown = 1
         return
     }
@@ -748,6 +775,8 @@ function Add-HermesStartupFailure {
     # particular, no new failure evidence may be accepted after either exit.
     if (-not (Test-HermesStartupArmed $State) `
         -or ($State.NativeProtocol -and -not $State.Continued) -or $null -ne $State.Block `
+        -or ($State.DiagnosticMode -ceq 'ScopedCreateV1' `
+            -and ($null -ne $State.Final -or $null -ne $State.Inventory.Block)) `
         -or $State.Exits.ContainsKey([string]$State.Target.pid) `
         -or $State.Exits.ContainsKey([string]$State.Target.helper)) {
         $State.Protocol = 1
@@ -994,10 +1023,14 @@ function Get-HermesStartupLibraryLexicalFacts {
 
 function Add-HermesStartupChainReadback {
     param([hashtable]$State, [string]$Line)
-    # Root stdout only, before marker 0; never search-path text or callbacks.
+    # Read-only root/held-arm stdout advisory, never selection or input
+    # authority. Unsupported layouts stay unknown, including a header alone.
     # Documented full-path row example:
     # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/-load---loadby--load-extension-dll-
-    if ($State.Initial -ne 0 -or $Line.Contains('HERMES_CDB', [StringComparison]::Ordinal)) {
+    $scopedArm = $State.DiagnosticMode -ceq 'ScopedCreateV1' -and $State.ArmWritten `
+        -and $null -ne $State.Inventory.Block -and $State.Inventory.Block.Kind -eq 7
+    if (($State.Initial -ne 0 -and -not $scopedArm) `
+        -or $Line.Contains('HERMES_CDB', [StringComparison]::Ordinal)) {
         $State.ChainCollecting = $false
         $State.ChainPending = $false
         return
@@ -1091,6 +1124,10 @@ function Add-HermesStartupTypedFlags {
 
 function Get-HermesStartupTypedFlags {
     param([hashtable]$State)
+    if ($State.DiagnosticMode -ceq 'ScopedCreateV1') {
+        if (Test-HermesStartupScopedBinding $State) { return [long]$State.Arm.Flags }
+        return [long]-1
+    }
     if ($State.DiagnosticMode -cne 'Trace') { return [long]-1 }
     $block = if ($null -ne $State.Arm) { $State.Arm } else { $State.Block }
     $target = $State.Target
@@ -1148,6 +1185,7 @@ function Add-HermesStartupInventoryLastEvent {
     $prefix = '\ALast event: (?<pid>[0-9a-fA-F]{1,8})\.[0-9a-fA-F]{1,8}: '
     $pattern = switch ($block.Kind) {
         1 { $prefix + 'Create process (?:[0-9]+:)?(?<id>[0-9a-fA-F]{1,8})\z' }
+        7 { $prefix + 'Create process (?:[0-9]+:)?(?<id>[0-9a-fA-F]{1,8})\z' }
         3 { $prefix + 'Exit process (?:[0-9]+:)?(?<id>[0-9a-fA-F]{1,8}), code (?:0x)?(?<code>[0-9a-fA-F]{1,8})\z' }
         5 { $prefix + '(?:Initial breakpoint|Break instruction exception) - code 80000003 \(first chance\)\z' }
     }
@@ -1157,6 +1195,7 @@ function Add-HermesStartupInventoryLastEvent {
         return
     }
     $eventPid = [Convert]::ToUInt32($Matches.pid, 16)
+    $block.EventPid = $eventPid
     $block.Event = 1
     if ($eventPid -ne $block.Pid -or ($block.Kind -ne 5 `
         -and [Convert]::ToUInt32($Matches.id, 16) -ne $eventPid)) {
@@ -1233,10 +1272,343 @@ function Test-HermesStartupInventoryBinding {
     return $true
 }
 
+function Test-HermesStartupScopedPublication {
+    param([hashtable]$State)
+    $source = $State.ScopedPublication
+    if ($source -isnot [hashtable] -or $State.ExtensionSource -isnot [hashtable]) { return $false }
+    foreach ($name in @('Root', 'Extension', 'Mode', 'QualifiedModule')) {
+        if (-not $source.ContainsKey($name) -or $source[$name] -isnot [string]) { return $false }
+    }
+    foreach ($name in @('Path', 'Sha256', 'Pin')) {
+        if (-not $State.ExtensionSource.ContainsKey($name)) { return $false }
+    }
+    if ($State.DiagnosticMode -cne 'ScopedCreateV1' -or $State.PublishedMode -cne 'ScopedCreateV1' `
+        -or $null -eq $source -or $source.Mode -cne 'ScopedCreateV1' `
+        -or $source.Root -ceq '' -or $source.Root -cmatch '[";\x00-\x1f\x7f-\uffff]' `
+        -or $source.Extension -cne $State.ExtensionExpected `
+        -or $null -eq $State.ExtensionSource -or $State.ExtensionSource.Path -cne $source.Extension `
+        -or $State.ExtensionSource.Sha256 -cne $State.ExtensionSha256 `
+        -or $null -eq $State.ExtensionSource.Pin `
+        -or $State.CommandPins.Count -ne 5 -or $State.SourcePins.Count -ne 2) { return $false }
+    if ($source.Extension.Length -lt 9 `
+        -or (-not $source.Extension.EndsWith('/exts.dll', [StringComparison]::OrdinalIgnoreCase) `
+            -and -not $source.Extension.EndsWith('\exts.dll', [StringComparison]::OrdinalIgnoreCase)) `
+        -or $source.QualifiedModule -cne $source.Extension.Substring(0, $source.Extension.Length - 4).Replace('\', '\\') `
+        -or $source.QualifiedModule.Length -gt 255) { return $false }
+    foreach ($name in @('DebuggerSha256', 'ExtensionSha256', 'HelperSha256', 'DriverSha256', 'ModuleSha256',
+            'CommandSha256', 'CreateCommandSha256', 'InitialCommandSha256', 'ExitCommandSha256',
+            'ArmCommandSha256')) {
+        if ($State[$name] -cnotmatch '\A[0-9a-f]{64}\z' -or $source[$name] -cne $State[$name]) {
+            return $false
+        }
+    }
+    return $true
+}
+
+function Test-HermesStartupScopedReceipt {
+    param([hashtable]$State, [switch]$Historical)
+    if (-not (Test-HermesStartupNativeReadinessBinding $State -Historical:$Historical) -or -not $State.CreatedAcked `
+        -or $null -eq $State.CreatedBinding -or $null -eq $State.Resumed `
+        -or $State.Inventory.Root -ne $State.Target.helper -or $State.Inventory.RootFault -ne 0 `
+        -or $State.Inventory.Malformed -ne 0 -or $State.Inventory.Mismatch -ne 0 `
+        -or $State.Inventory.Limit -ne 0) { return $false }
+    $bound = $State.CreatedBinding
+    if ($bound.Mode -cne 'ScopedCreateV1' -or $bound.Scoped -isnot [hashtable]) { return $false }
+    foreach ($name in $State.ScopedPublication.Keys) {
+        if ($bound.Scoped[$name] -cne $State.ScopedPublication[$name]) { return $false }
+    }
+    foreach ($item in @(
+        @('RootHash', 'CommandSha256'), @('CreateHash', 'CreateCommandSha256'),
+        @('InitialHash', 'InitialCommandSha256'), @('ExitHash', 'ExitCommandSha256')
+    )) {
+        if ($bound[$item[0]] -cne $State[$item[1]]) { return $false }
+    }
+    $ready = Get-HermesStartupInventoryNativeRow $State Ready
+    $resumed = Get-HermesStartupInventoryNativeRow $State Resumed
+    if ($null -eq $ready -or $null -eq $resumed -or $resumed.stage -ne 2 -or $resumed.resumed -ne 1 `
+        -or $bound.Helper -ne $ready.helper -or $bound.Pid -ne $ready.pid -or $bound.Born -ne $ready.born) {
+        return $false
+    }
+    # Actions retain the live canonical-row check. Historical reporting uses
+    # only the parser's earlier scalar snapshots, never another input parse.
+    if (-not $Historical) {
+        foreach ($pair in @(@($ready, $State.TargetText), @($resumed, $State.ResumedText))) {
+            $parsed = ConvertFrom-HermesStartupRow $pair[1]
+            if ($null -eq $parsed -or $parsed.Count -ne $pair[0].Count) { return $false }
+            foreach ($name in $parsed.Keys) {
+                if ($pair[0][$name] -ne $parsed[$name]) { return $false }
+            }
+        }
+    }
+    foreach ($name in @('helper', 'pid', 'born', 'image', 'debug', 'context')) {
+        if ($resumed[$name] -ne $ready[$name]) { return $false }
+    }
+    return $true
+}
+
+function Set-HermesStartupScopedCreated {
+    param([hashtable]$State)
+    $held = $State.Held
+    if ($null -ne $State.Target -and $null -ne $held -and $held.Kind -eq 1 `
+        -and $held.Pid -eq $State.Target.pid -and $null -eq $State.Created) {
+        $State.Created = $held.Clone()
+        $State.CreateCloseClock = [Diagnostics.Stopwatch]::StartNew()
+        Set-HermesStartupCreatedPhase $State 'CreateCloseFirst'
+        Set-HermesStartupCreatedPhase $State 'CreatedJointFirst'
+    }
+}
+
+function Test-HermesStartupScopedBinding {
+    param([hashtable]$State)
+    if ($State.Bounds -ne 0 -or $State.AcceptedUtf8Bytes -ge 8388608 `
+        -or -not (Test-HermesStartupScopedReceipt $State -Historical) -or $null -eq $State.ScopedInvocation `
+        -or -not $State.ArmAttempted -or -not $State.ArmWritten) { return $false }
+    $created = $State.Created
+    if ($null -eq $created -or $created.Kind -ne 1 -or $created.Version -ne 3 -or $created.Event -ne 1 `
+        -or $created.Pid -ne $State.Target.pid -or $created.EventPid -ne $State.Target.pid) { return $false }
+    $invocation = $State.ScopedInvocation
+    $arm = $State.Arm
+    if ($invocation.Source -isnot [hashtable]) { return $false }
+    foreach ($name in $State.ScopedPublication.Keys) {
+        if ($invocation.Source[$name] -cne $State.ScopedPublication[$name]) { return $false }
+    }
+    # The exact pinned program qualified gflag with the selected full module
+    # path. Only its held-target typed readback supplies flag evidence; .chain
+    # remains an advisory display, not source selection or loading authority.
+    return $invocation.Pid -eq $State.Target.pid -and $invocation.Born -eq $State.Target.born `
+        -and $invocation.Helper -eq $State.Target.helper -and $invocation.EventPid -eq $State.Target.pid `
+        -and $null -ne $arm -and $arm.Kind -eq 7 -and $arm.Version -eq 4 -and $arm.Event -eq 1 `
+        -and $arm.Pid -eq $invocation.Pid -and $arm.EventPid -eq $invocation.Pid `
+        -and $arm.Flags -ge 0 -and $arm.Flags -le [uint32]::MaxValue -and ($arm.Flags -band 2) -eq 2 `
+        -and (Get-HermesStartupObservation $State 'SdkCommandErrors' 15) -eq 0
+}
+
+function Test-HermesStartupScopedAction {
+    param([hashtable]$State, [ValidateSet('Arm', 'Target', 'Side')][string]$Role)
+    if ($State.DiagnosticMode -cne 'ScopedCreateV1' -or -not $State.Stopped `
+        -or -not (Test-HermesStartupNativeReadinessBinding $State) -or $State.Timeout -ne 0 `
+        -or $State.CleanupFault -ne 0 -or $State.NativeRowsFault -ne 0 `
+        -or (Get-HermesStartupObservation $State 'SdkCommandErrors' 15) -ne 0 `
+        -or $State.InputClosed -or $State.Out.End -or $State.Out.Faulted `
+        -or $State.Err.Faulted -or $State.Out.Tail -cnotmatch '\A[0-9]{1,3}:[0-9a-f]{3}> \z' `
+        -or $null -ne $State.Inventory.Block -or $null -eq $State.Held -or $State.Held.Released `
+        -or $State.InputTasks.Count -ge 50 `
+        -or ($null -ne $State.InputPending -and -not $State.InputPending.IsCompletedSuccessfully)) { return $false }
+    $held = $State.Held
+    if ($held.Event -ne 1 -or $held.EventPid -ne $held.Pid -or -not $held.Valid `
+        -or $State.Inventory.Limit -ne 0 -or $State.Inventory.Malformed -ne 0 `
+        -or $State.Inventory.Mismatch -ne 0 -or $State.Inventory.Root -ne $State.Target.helper) { return $false }
+    if ($Role -ceq 'Side') {
+        return $State.SideWrites -lt 48 -and $State.Inventory.Subjects.ContainsKey([string]$held.Pid) `
+            -and -not ($held.Pid -eq $State.Target.pid -and $held.Kind -eq 1) `
+            -and ($held.Pid -ne $State.Target.pid -or $State.Continued) `
+            -and $held.Kind -in @(1, 3, 5)
+    }
+    # CREATE_PROCESS is the pre-user-mode stop, not a surrogate breakpoint:
+    # https://learn.microsoft.com/windows/win32/debug/debugging-events
+    if (-not (Test-HermesStartupScopedReceipt $State) -or -not (Test-HermesStartupCreatedBinding $State) `
+        -or $held.Kind -ne 1 -or $held.Version -ne 3 `
+        -or $held.Pid -ne $State.Target.pid -or $null -ne $State.Final `
+        -or $State.Exits.ContainsKey([string]$State.Target.pid) `
+        -or $State.Exits.ContainsKey([string]$State.Target.helper)) { return $false }
+    if ($Role -ceq 'Arm') {
+        return -not $State.ArmAttempted -and $null -eq $State.ScopedInvocation -and $null -eq $State.Arm `
+            -and -not $State.Acked -and -not $State.ContinueAttempted
+    }
+    return (Test-HermesStartupScopedBinding $State) -and -not $State.Acked `
+        -and -not $State.ContinueAttempted -and $null -eq $State.ArmedBinding
+}
+
+function Close-HermesStartupScopedInput {
+    param([hashtable]$State, [IO.StreamWriter]$Writer)
+    $closed = $true
+    # The writer owns the live handle: dispose it before its BaseStream.
+    foreach ($owned in @($Writer, $Writer.BaseStream)) {
+        try { $owned.Dispose() } catch { $closed = $false; $State.CleanupFault = 13 }
+    }
+    $State.InputClosed = $closed
+    foreach ($pending in $State.InputTasks) {
+        try {
+            if (-not $pending.Wait(5000)) { $State.CleanupFault = 13 }
+        } catch {
+            if (-not $pending.IsCompleted) { $State.CleanupFault = 13 }
+        }
+    }
+}
+
+function Invoke-HermesStartupScopedInput {
+    param([hashtable]$State, [IO.StreamWriter]$Writer,
+        [ValidateSet('Arm', 'Target', 'Side')][string]$Role)
+    if (-not (Test-HermesStartupScopedAction $State $Role) `
+        -or ($null -ne $State.InputWriter -and -not [object]::ReferenceEquals($State.InputWriter, $Writer))) {
+        throw 'Scoped input refused.'
+    }
+    $State.InputWriter = $Writer
+    # Closed capability: one fixed script invocation or one literal g. No
+    # caller-supplied command, path, PID, selector, or second writer is accepted.
+    $command = "g`n"
+    switch ($Role) {
+        Arm {
+            $State.ArmAttempted = $true
+            $State.ScopedInvocation = @{
+                Pid = $State.Target.pid; EventPid = $State.Held.EventPid
+                Born = $State.Target.born; Helper = $State.Target.helper
+                Source = $State.ScopedPublication.Clone()
+            }
+            # $$>< consumes a filename, including spaces, without -c quoting.
+            $command = '$$><' + (Join-Path $State.ScopedPublication.Root 'startup-arm.cdb') + "`n"
+        }
+        Target {
+            $State.ArmedBinding = @{ Helper = $State.Target.helper; Pid = $State.Target.pid
+                Born = $State.Target.born; Flags = $State.Arm.Flags }
+            $State.Acked = $true
+            $State.ContinueAttempted = $true
+            $State.Held.Released = $true
+        }
+        Side { $State.SideWrites++; $State.Held.Released = $true }
+    }
+    $State.Stopped = $false
+    $State.Out.Tail = '' # Consume only the already-accounted-for stopped prompt.
+    $bytes = [Text.Encoding]::ASCII.GetBytes($command)
+    $cancellation = [Threading.CancellationTokenSource]::new(2000)
+    $failed = $false
+    try {
+        $State.InputPending = $Writer.BaseStream.WriteAsync($bytes, 0, $bytes.Length, $cancellation.Token)
+        $State.InputTasks.Add($State.InputPending)
+        if (-not $State.InputPending.Wait(2000)) { throw 'Scoped input deadline.' }
+        $null = $State.InputPending.GetAwaiter().GetResult()
+        if ($Role -ceq 'Arm') { $State.ArmWritten = $true }
+        if ($Role -ceq 'Target') { $State.Continued = $true }
+    } catch {
+        $failed = $true
+        $State.Error = 13
+        try { $cancellation.Cancel() } catch { $State.CleanupFault = 13 }
+        throw 'Scoped input failed.'
+    } finally {
+        if ($failed -or ($Role -ceq 'Side' -and $State.Exits.ContainsKey([string]$State.Target.pid) `
+            -and $State.Exits.ContainsKey([string]$State.Target.helper))) {
+            Close-HermesStartupScopedInput $State $Writer
+        }
+        $cancellation.Dispose()
+    }
+}
+
+function Add-HermesStartupScopedMarker {
+    param([hashtable]$State, [int]$Version, [int]$Kind, [uint32]$Pid)
+    $inventory = $State.Inventory
+    if ($Kind -eq 0 -and $Version -eq 1) {
+        if ($State.Initial -ne 0 -or $inventory.Root -ne 0 -or $null -ne $inventory.Block) {
+            $State.Protocol = 1; return
+        }
+        $State.Initial = $Pid; $inventory.Root = $Pid
+        return
+    }
+    $valid = ($Kind -in @(1, 2, 5, 6) -and $Version -eq 3) `
+        -or ($Kind -in @(3, 4) -and $Version -eq 1) -or ($Kind -in @(7, 8) -and $Version -eq 4)
+    if (-not $valid -or $State.Initial -eq 0) { $State.Protocol = 1; return }
+    if ($Kind -in @(1, 3, 5, 7)) {
+        $arming = $Kind -eq 7 -and $State.ArmWritten -and $null -eq $State.Arm `
+            -and $null -ne $State.ScopedInvocation -and $Pid -eq $State.ScopedInvocation.Pid `
+            -and $null -ne $State.Held -and -not $State.Held.Released -and $State.Held.Kind -eq 1
+        if ($null -ne $inventory.Block -or ($Kind -eq 7 -and -not $arming) `
+            -or ($Kind -ne 7 -and $null -ne $State.Held -and -not $State.Held.Released) `
+            -or $State.Exits.ContainsKey([string]$Pid)) { $State.Protocol = 1; return }
+        $inventory.Block = @{ Kind = $Kind; Version = $Version; Pid = $Pid
+            EventPid = [uint32]0; Event = 0; Valid = $true; Code = [long]0; Flags = [long]-1; Released = $false }
+        $State.Stopped = $false
+        return
+    }
+    $block = $inventory.Block
+    if ($null -eq $block -or $block.Kind -ne $Kind - 1 -or $block.Pid -ne $Pid `
+        -or $block.Version -ne $Version -or $block.Event -ne 1 -or -not $block.Valid `
+        -or $block.EventPid -ne $Pid) { $State.Protocol = 1; return }
+    if ($Kind -eq 8) {
+        $inventory.Block = $null
+        $State.Arm = $block
+        if ($block.Flags -lt 0 -or ($block.Flags -band 2) -ne 2) { $State.Unknown = 1 }
+        return
+    }
+    Complete-HermesStartupInventoryBlock $inventory $Kind $Pid $Version
+    if ($inventory.Limit -ne 0) { $State.Protocol = 1; return }
+    $subject = $inventory.Subjects[[string]$Pid]
+    if ($subject.Create -gt 1 -or $subject.Exit -gt 1 -or $subject.Initial -gt 1 `
+        -or ($Pid -ne $State.Initial -and $block.Kind -ne 1 -and $subject.Create -ne 1)) {
+        $State.Protocol = 1; return
+    }
+    if ($Kind -eq 4) { $State.Exits[[string]$Pid] = $block.Code }
+    $State.Held = $block
+    $State.Stopped = $false
+    Set-HermesStartupScopedCreated $State
+}
+
+function Add-HermesStartupScopedLine {
+    param([hashtable]$State, [string]$Line)
+    if ($State.Protocol -ne 0 -or $State.Bounds -ne 0 -or $State.AcceptedUtf8Bytes -ge 8388608) { return }
+    Set-HermesStartupStoppedPrompt $State $Line
+    Add-HermesStartupSdkError $State $Line
+    Add-HermesStartupChainReadback $State $Line
+    Add-HermesStartupFilterReadback $State $Line
+    if ($Line.Contains('.printf', [StringComparison]::Ordinal)) {
+        $echo = $Line -creplace '\A[0-9]{1,3}:[0-9a-f]{3}> ', ''
+        if (-not $State.ScopedEchoes.Contains($echo)) { $State.Protocol = 1 }
+        return
+    }
+    if ($Line -cmatch '\AHERMES_CDB v=(?<v>[134]) kind=(?<k>[0-8]) pid=(?<p>[1-9][0-9]{0,9})\z' `
+        -and [long]$Matches.p -le [uint32]::MaxValue) {
+        Add-HermesStartupScopedMarker $State ([int]$Matches.v) ([int]$Matches.k) ([uint32]$Matches.p)
+        return
+    }
+    if ($Line.Contains('HERMES_CDB', [StringComparison]::Ordinal)) { $State.Protocol = 1; return }
+    if ($Line.Contains('Last event:', [StringComparison]::OrdinalIgnoreCase)) {
+        Add-HermesStartupInventoryLastEvent $State.Inventory $Line
+        if ($State.Inventory.Malformed -ne 0 -or $State.Inventory.Mismatch -ne 0) { $State.Protocol = 1 }
+        return
+    }
+    if ($Line.Contains('HERMES_NTGLOBALFLAG', [StringComparison]::Ordinal)) {
+        $block = $State.Inventory.Block
+        if ($Line -cnotmatch '\AHERMES_NTGLOBALFLAG v=1 pid=(?<p>[1-9][0-9]{0,9}) value=(?<f>[0-9a-f]{8})\z' `
+            -or $null -eq $block -or $block.Kind -ne 7 -or $block.Version -ne 4 `
+            -or -not $State.ArmWritten -or $null -eq $State.ScopedInvocation -or $null -eq $State.Target `
+            -or [long]$Matches.p -ne $State.Target.pid -or [long]$Matches.p -ne $block.Pid `
+            -or $block.Event -ne 1 -or $block.EventPid -ne $block.Pid -or $block.Flags -ne -1 `
+            -or $State.Acked -or $null -ne $State.Final `
+            -or $State.Exits.ContainsKey([string]$State.Target.pid) `
+            -or $State.Exits.ContainsKey([string]$State.Target.helper)) { $State.Protocol = 1; return }
+        $block.Flags = [long][Convert]::ToUInt32($Matches.f, 16)
+        return
+    }
+    Add-HermesStartupFailure $State $Line
+}
+
+function Set-HermesStartupDebuggerExit {
+    param([hashtable]$State, [object]$Value)
+    if (($Value -isnot [int] -and $Value -isnot [long]) -or [long]$Value -lt [int]::MinValue `
+        -or [long]$Value -gt [uint32]::MaxValue) {
+        $State.DebuggerExitAvailable = 0; $State.DebuggerExitValue = [long]0
+        $State.Error = 13
+        return
+    }
+    $State.DebuggerExitAvailable = 1
+    $State.DebuggerExitValue = if ([long]$Value -lt 0) { [long]$Value + 4294967296 } else { [long]$Value }
+}
+
+function Test-HermesStartupScopedFinal {
+    param([hashtable]$State)
+    if (-not (Test-HermesStartupScopedReceipt $State -Historical)) { return $false }
+    $row = Get-HermesStartupInventoryNativeRow $State Final
+    if ($null -eq $row -or $row.resumed -ne 1) { return $false }
+    return $State.RowsText -ceq ($State.NativeRowSnapshots.Ready.Text + "`n" `
+        + $State.NativeRowSnapshots.Resumed.Text + "`n" + $State.NativeRowSnapshots.Final.Text + "`n")
+}
+
 function Add-HermesStartupLine {
     param([hashtable]$State, [string]$Line)
     if ($State.NativeProtocol -and $State.Bounds -ne 0) { return }
     if ($Line.Length -gt 4096) { $State.Bounds = 1; return }
+    if ($State.DiagnosticMode -ceq 'ScopedCreateV1') {
+        Add-HermesStartupScopedLine $State $Line
+        return
+    }
     if ($State.DiagnosticMode -ceq 'Inventory') { Add-HermesStartupInventoryLine $State $Line }
     Set-HermesStartupStoppedPrompt $State $Line
     Add-HermesStartupSdkError $State $Line
@@ -1337,9 +1709,10 @@ function Add-HermesStartupText {
         if (-not $Stream.DiscardLine) {
             $Stream.Tail += $pieces[$index]
             if ($Stream.Tail.Length -gt 4096) {
-                if ($Parse) { $State.Bounds = 1 }
+                if ($Parse -or $State.DiagnosticMode -ceq 'ScopedCreateV1') { $State.Bounds = 1 }
                 $Stream.Tail = ''
                 $Stream.DiscardLine = $true
+                if ($State.Bounds -ne 0) { return }
             }
         }
         if ($Parse -and -not $Stream.DiscardLine) {
@@ -1519,19 +1892,36 @@ function Get-HermesStartupInventoryNumber {
 }
 
 function Get-HermesStartupInventoryNativeRow {
-    param([hashtable]$State, [ValidateSet('Final', 'Resumed')][string]$Name)
-    if (-not (Test-HermesStartupInventoryBinding $State) -or $null -eq $State[$Name]) { return $null }
+    param([hashtable]$State, [ValidateSet('Ready', 'Final', 'Resumed')][string]$Name)
+    $scoped = $State.DiagnosticMode -ceq 'ScopedCreateV1'
+    if ($scoped) {
+        if (-not (Test-HermesStartupScopedPublication $State) -or $State.NativeRowsFault -ne 0) { return $null }
+    } elseif ($Name -ceq 'Ready' -or -not (Test-HermesStartupInventoryBinding $State)) { return $null }
+    $field = if ($Name -ceq 'Ready') { 'Target' } else { $Name }
+    $live = $State[$field]
+    if ($live -isnot [hashtable]) { return $null }
     $snapshot = $State.NativeRowSnapshots[$Name]
-    if ($null -eq $snapshot -or $snapshot.Text -cne $State[$Name + 'Text']) { return $null }
-    $text = $snapshot.Text
-    if (-not $State.RowsText.Contains($text + "`n", [StringComparison]::Ordinal)) { return $null }
+    if ($snapshot -isnot [hashtable] -or $snapshot['Text'] -isnot [string] `
+        -or $snapshot['Text'] -cne $State[$field + 'Text']) { return $null }
+    $text = $snapshot['Text']
+    if ($State.RowsText -isnot [string] `
+        -or -not $State.RowsText.Contains($text + "`n", [StringComparison]::Ordinal)) { return $null }
     # These scalar copies were made by the actual bounded native-row parser.
     # Reporting never re-parses output, including after budget exhaustion.
-    $row = $snapshot.Row
-    $stage = if ($Name -ceq 'Final') { 3 } else { 2 }
-    if ($null -eq $row -or $row.version -ne 2 -or $row.stage -ne $stage) { return $null }
-    foreach ($field in $row.Keys) {
-        if ($State[$Name][$field] -ne $row[$field]) { return $null }
+    $row = $snapshot['Row']
+    $stage = if ($Name -ceq 'Final') { 3 } elseif ($Name -ceq 'Ready') { 1 } else { 2 }
+    if ($row -isnot [hashtable] -or $row['version'] -ne 2 -or $row['stage'] -ne $stage) { return $null }
+    $fields = $row.Keys
+    if ($scoped) {
+        $fields = @('version', 'stage', 'helper', 'pid', 'born', 'image', 'debug', 'context',
+            'exit', 'parent', 'cleanup', 'fault', 'cleanupFault', 'resumed')
+        if ($row.Count -ne $fields.Count -or $live.Count -ne $fields.Count) { return $null }
+    }
+    foreach ($field in $fields) {
+        if (-not $row.ContainsKey($field) -or -not $live.ContainsKey($field)) { return $null }
+        if ($scoped -and (($row[$field] -isnot [int] -and $row[$field] -isnot [long]) `
+            -or ($live[$field] -isnot [int] -and $live[$field] -isnot [long]))) { return $null }
+        if ($live[$field] -ne $row[$field]) { return $null }
     }
     foreach ($field in @('helper', 'pid', 'born', 'image', 'debug', 'context')) {
         if ($row[$field] -ne $State.Target[$field]) { return $null }
@@ -1618,6 +2008,11 @@ function New-HermesStartupReport {
     $traceValid = Test-HermesStartupTracePoint $point $role
     $target = $State.Target
     $final = $State.Final
+    $scopedFinalBound = $false
+    if ($State.DiagnosticMode -ceq 'ScopedCreateV1') {
+        $scopedFinalBound = Test-HermesStartupScopedFinal $State
+        $final = if ($scopedFinalBound) { $State.NativeRowSnapshots.Final.Row } else { $null }
+    }
     $armed = Test-HermesStartupArmed $State
     $targetExit = $null
     $helperExit = $null
@@ -1639,9 +2034,14 @@ function New-HermesStartupReport {
         -or ($null -ne $helperExit -and $helperExit -ne 0)
     $continued = -not $State.NativeProtocol -or ($State.Continued -and $State.InputClosed `
         -and $null -ne $State.InputPending -and $State.InputPending.IsCompleted)
+    if ($State.DiagnosticMode -ceq 'ScopedCreateV1') {
+        $continued = $continued -and $State.InputTasks.Count -gt 0 `
+            -and @($State.InputTasks | Where-Object { -not $_.IsCompletedSuccessfully }).Count -eq 0
+        $protocol = $protocol -or $null -ne $State.Inventory.Block -or -not $scopedFinalBound
+    }
     $evidence = $armed -and $continued -and $State.Acked -and $State.Unknown -eq 0 `
         -and $null -ne $State.Failure
-    $status = if ($State.Bounds -ne 0) { 7 } `
+    $status = if ($State.Bounds -ne 0 -or $State.AcceptedUtf8Bytes -ge 8388608) { 7 } `
         elseif ($State.Timeout -ne 0 -or $fault -in @(1223, 1460)) { 5 } `
         elseif ($State.Error -ne 0 -or $fault -ne 0 -or -not $traceValid) { 8 } `
         elseif ($protocol) { 4 } `
@@ -1714,6 +2114,34 @@ function New-HermesStartupReport {
             'OutReadStartMax', 'ErrReadStartMax', 'CreateReadAge', 'CreateParseWork',
             'CreateReceiveDelay', 'CreateRowsWork', 'CreateCheckDelay'
         )) { $selected[$name] = $report.observations[$name] }
+        $report.observations = $selected
+    }
+    if ($State.DiagnosticMode -ceq 'ScopedCreateV1') {
+        $report.v = 2
+        $report.scopedCreateVersion = 1
+        $report.armCommandSha256 = $State.ArmCommandSha256
+        $report.extensionSha256 = $State.ExtensionSha256
+        $report.driverSha256 = $State.DriverSha256
+        $report.moduleSourceSha256 = $State.ModuleSha256
+        $report.debuggerExitAvailable = $State.DebuggerExitAvailable
+        $report.debuggerExitValue = $State.DebuggerExitValue
+        # Non-zero CDB exits remain errors, even with bound advisory evidence.
+        # Do not infer that a debugger propagated the target's exit status.
+        if (($State.DebuggerExitAvailable -ne 1 -or $State.DebuggerExitValue -ne 0) `
+            -and $report.status -notin @(5, 7)) {
+            $report.status = 8; $report.completed = 0
+            if ($report.error -eq 0) { $report.error = 13 }
+        }
+        $selected = [ordered]@{}
+        foreach ($name in @('ParserUnknown', 'ParserProtocol', 'CreatedAcknowledged',
+                'ResumedRowPresent', 'InputClosed', 'SdkCommandErrors', 'SdkSelectedExtensionChain')) {
+            $selected[$name] = $report.observations[$name]
+        }
+        $selected.armInvocations = [int]$State.ArmAttempted
+        $selected.targetContinuations = [int]$State.ContinueAttempted
+        $selected.sideContinuations = $State.SideWrites
+        $selected.subjects = $State.Inventory.Subjects.Count
+        $selected.inputTasks = $State.InputTasks.Count
         $report.observations = $selected
     }
     return $report

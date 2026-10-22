@@ -100,6 +100,32 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Approve controller-gated arming at the target's pre-user-mode stop
+
+- **Changed:** ScopedCreateV1 has five pinned command files and metadata-only automatic callbacks. The controller alone may invoke the fixed SDK arming program after held-target/current/event/Ready/receipt/source/stopped-state verification. Actual typed flag bit 2 precedes historical ARMED and target continuation; other subjects receive only bounded fixed continuations.
+- **Corrected:** Fresh revision removes report-time row parsing after output exhaustion and the unsupported `.chain` authority dependency. Immutable parser snapshots retain native facts; exact full-path-qualified SDK source, signed pinned file/hash and target-bound readback provide selection proof. Unknown chain formatting remains observational.
+- **Validation:** Parent complete source/test review, all 479 controls, installer static controls, warning-free root build and 2,184 tests pass. A parser counter stays zero after exact exhaustion with populated Final; a genuine process-pipe fixture covers the full fixed-program/readback/continuation path.
+- **Preserved:** No arbitrary command/PID input, automatic SDK write, context-selector fallback, privilege change or native factory change. Nonzero CDB exit remains blocking; advisory failure evidence and numeric exit values stay distinct. Original 501-case, MSI/authentication/exit-37 gates remain.
+- **Blockers:** Actual hosted target arming, loader cause and installed Medium acceptance are unproved.
+- **Next:** Publish the independently revised scoped trace and inspect actual flag readback before changing startup behaviour.
+
+### 2026-10-22 - Hold scoped arming for budget-safe reporting and SDK selection proof
+
+- **Review:** The unpublished ScopedCreateV1 candidate passes 472 controls and static controls, but parent review rejects two boundaries. Its report reparses Final after exact output exhaustion, and its SDK-binding gate requires a `.chain` row format unsupported by the measured SDK.
+- **Evidence:** The existing budget cases have no populated Final, so they miss the report-time parse. Actual prior SDK output has a chain header and eight lines with no supported full-path row; synthetic positive readbacks supply that row.
+- **Action:** A fresh source owner is replacing report-time parsing with previously validated immutable facts and proving the selected SDK action without treating unknown display text as loaded-module evidence. The rejected author is locked out of this revision.
+- **Preserved:** Automatic callbacks remain metadata-only. Only the controller's verified held-target create stop can authorise the pinned arming program; typed flag readback, finite input roles, native gates and owned cleanup remain mandatory.
+- **Blockers:** Scoped source approval and actual Windows arming remain pending. The published production head is still the safe metadata-only inventory.
+
+### 2026-10-22 - Safe inventory identifies one additional subject and complete native cleanup
+
+- **Evidence:** Published `dca3b7f`, run `39710128463`, job `119599220494`, passes 420 controls and 500/501 native cases without skips. The observation-only ledger binds three subjects: one target creation/exit, the helper exit and one other creation/exit. There are no repeats, malformed frames, PID mismatches, limit faults or partial callbacks.
+- **Native facts:** The bound helper reports checked Resume, target exit `0xC0000142`, no native fault, complete cleanup and unchanged parent. Owned input closure and debugger/stream cleanup also complete. No initial-breakpoint callback is observed for the target or other subject. Inventory remains incomplete with controller error 13; the debugger exit value is not yet reported.
+- **Decision:** A future target-scoped trace will use the actual target's create-process debug stop, which Microsoft documents as preceding user-mode execution. Automatic callbacks stay metadata-only. Only after held-target/current/event/source/receipt/stopped-state verification may the controller invoke a fixed pinned arming program; flag bit 2 must be read back before target continuation.
+- **Scope:** Other subjects never receive SDK flag writes. Continuation commands remain fixed and bounded; no arbitrary command or PID interface is introduced. This deliberately changes diagnostic staging/input roles, not product/MSI/authentication or genuine exit-37 acceptance.
+- **Blockers:** The other image, absent initial-breakpoint dispatch, debugger exit semantics and PowerShell loader cause are still unknown.
+- **Next:** Implement and independently review controller-authorised arming at the held target's pre-user-mode create stop.
+
 ### 2026-10-22 - Approve metadata-only inventory after real stdin-lifetime correction
 
 - **Changed:** Production now explicitly selects an observation-only debugger inventory. Four pinned metadata command files contain no SDK setter or PEB/memory read. A private 16-subject ledger distinguishes complete target/helper/other callbacks, repeats and malformed/mismatched frames; native Final facts retain source/row binding. Inventory cannot arm or accept a trace.

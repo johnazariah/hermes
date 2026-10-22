@@ -2,6 +2,37 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## ScopedCreateV1 authorises SDK arming only at the held target's create stop
+
+All **479 controls** pass: 420 earlier safety/transport intents, 52
+scoped-create cases and seven revision cases. Production uses a closed,
+versioned path with five pinned command files. Every automatic callback
+emits metadata and stops. The controller verifies native Ready, checked
+Resume receipt, immutable source/mode/identity bindings, matching current
+and event PIDs, and the actual stopped prompt before invoking one fixed
+arming program. The documented create-process stop precedes user-mode
+execution; child IBP dispatch is no longer assumed.
+
+Only the controller-authorised program can invoke the selected SDK setter.
+Its exact full-path-qualified module, signed pinned file/hash and source
+program are rebound before input. Typed four-byte flag-2 readback is required
+before historical ARMED and the target's fixed `g`. Other subjects receive
+bounded fixed continuations, never SDK arming. A genuine process-pipe fixture
+exercises the complete invocation/readback/continuation chain.
+
+Review rejected report-time parsing after exhaustion and a dependency on
+unsupported `.chain` formatting. A fresh owner corrected both. Parser-created
+Ready/Resumed/Final snapshots now support reporting with zero row-parser
+calls after the exact 8 MiB limit; malformed or changed snapshots refuse.
+`.chain` remains advisory, while wrong selected source/hash/module, SDK
+errors and missing flag evidence still block continuation.
+
+Nonzero or unknown CDB exit remains blocking and is reported numerically
+without discarding separately bound advisory failure evidence. Reports stay
+within 4,096 bytes; native/product acceptance flags remain zero. Installer
+static controls, warning-free root build and 2,184 tests pass. Actual Windows
+arming and the PowerShell cause remain pending.
+
 ## Production diagnostic is metadata-only; owned stdin closes through its writer
 
 All **420 controls** pass: 385 prior trace/readiness/transport intents, 29

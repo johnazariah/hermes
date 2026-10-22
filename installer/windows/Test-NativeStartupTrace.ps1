@@ -1,7 +1,7 @@
 #Requires -Version 7.0
 [CmdletBinding()]
 param(
-    [ValidateSet(0, 1024, 2048)][int]$PipeFixture = 0,
+    [ValidateSet(0, 1024, 2048, 4096)][int]$PipeFixture = 0,
     [ValidatePattern('\A(?:[0-9a-f]{32})?\z')][string]$PipeScope = ''
 )
 Set-StrictMode -Version Latest
@@ -16,6 +16,72 @@ if ($PipeFixture -ne 0) {
     try {
         $rows.AutoFlush = $true
         $rows.Write("HERMES_STARTUP v=2 stage=1 helper=11 pid=22 born=123 image=1 debug=1 context=1 flags=134742020 resumed=0 exit=0 parent=0 cleanup=0 fault=0 cleanupFault=0`n")
+        if ($PipeFixture -eq 4096) {
+            # An inert CDB transport surrogate, never a Windows/native proof.
+            # It accepts only the actually published fixed program and g roles.
+            $ast = [Management.Automation.Language.Parser]::ParseFile(
+                (Join-Path $PSScriptRoot 'Invoke-NativeStartupTrace.ps1'), [ref]$null, [ref]$null)
+            foreach ($name in @('Assert-TraceCommandPath', 'New-InventoryEventCommands', 'New-ScopedCreateCommands')) {
+                $definition = $ast.Find({
+                    param($n)
+                    $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $name
+                }, $true)
+                . ([scriptblock]::Create($definition.Extent.Text))
+            }
+            $extension = Join-Path $root 'selected-sdk/winxp/exts.dll'
+            $sources = New-ScopedCreateCommands $extension
+            foreach ($entry in $sources.GetEnumerator()) {
+                if ([IO.File]::ReadAllText((Join-Path $root $entry.Key)) -cne $entry.Value) {
+                    throw 'Surrogate requires exact pinned program.'
+                }
+            }
+            function Read-FixedFixtureInput {
+                param([string]$Expected)
+                $task = [Console]::In.ReadLineAsync()
+                if (-not $task.Wait(10000) -or $task.GetAwaiter().GetResult() -cne $Expected) {
+                    throw 'Fixed transport input refused.'
+                }
+            }
+            function Write-FixedFixtureStop {
+                param([string]$Text)
+                [Console]::Out.Write($Text + '1:000> ')
+                [Console]::Out.Flush()
+            }
+            [Console]::Out.Write("HERMES_CDB v=1 kind=0 pid=11`n")
+            foreach ($name in @('cpr', 'epr', 'ibp')) {
+                $label = switch ($name) { cpr { 'Create process' }; epr { 'Exit process' }; ibp { 'Initial breakpoint' } }
+                $token = if ($name -ceq 'cpr') { '$$<' } else { '$$><' }
+                [Console]::Out.Write($name + ' - ' + $label + " - break`nCommand: `"" +
+                    $token + (Join-Path $root ('startup-' + $name + '.cdb')).Replace('\', '\\') + "`"`n")
+            }
+            [Console]::Out.Flush()
+            $clock = [Diagnostics.Stopwatch]::StartNew()
+            $created = Join-Path $root 'created.row'
+            while (-not [IO.File]::Exists($created) -and $clock.ElapsedMilliseconds -lt 10000) {
+                [Threading.Thread]::Sleep(20)
+            }
+            if (-not [IO.File]::Exists($created) -or [IO.File]::ReadAllText($created) -cne
+                "HERMES_STARTUP_CREATED v=2 phase=created helper=11 pid=22 born=123`n") {
+                throw 'Real controller receipt required.'
+            }
+            $rows.Write("HERMES_STARTUP v=2 stage=2 helper=11 pid=22 born=123 image=1 debug=1 context=1 flags=134742020 resumed=1 exit=0 parent=0 cleanup=0 fault=0 cleanupFault=0`n")
+            Write-FixedFixtureStop "HERMES_CDB v=3 kind=1 pid=33`nLast event: 21.1: Create process 2:21`nHERMES_CDB v=3 kind=2 pid=33`n"
+            Read-FixedFixtureInput 'g'
+            Write-FixedFixtureStop "HERMES_CDB v=1 kind=3 pid=33`nLast event: 21.1: Exit process 2:21, code 0`nHERMES_CDB v=1 kind=4 pid=33`n"
+            Read-FixedFixtureInput 'g'
+            Write-FixedFixtureStop "HERMES_CDB v=3 kind=1 pid=22`nLast event: 16.1: Create process 1:16`nHERMES_CDB v=3 kind=2 pid=22`n"
+            Read-FixedFixtureInput ('$$><' + (Join-Path $root 'startup-arm.cdb'))
+            Write-FixedFixtureStop ("HERMES_CDB v=4 kind=7 pid=22`nLast event: 16.1: Create process 1:16`nExtension DLL chain:`n" +
+                "    unsupported SDK display`nHERMES_NTGLOBALFLAG v=1 pid=22 value=00000002`nHERMES_CDB v=4 kind=8 pid=22`n")
+            Read-FixedFixtureInput 'g'
+            [Console]::Out.Write("16:1 @ 00000000 - LdrpCallInitRoutine - ERROR: DLL_PROCESS_ATTACH for dll `"C:\Windows\System32\sample.dll`" (InitRoutine: 0000000012345678) failed.`n")
+            Write-FixedFixtureStop "HERMES_CDB v=1 kind=3 pid=22`nLast event: 16.1: Exit process 1:16, code c0000142`nHERMES_CDB v=1 kind=4 pid=22`n"
+            Read-FixedFixtureInput 'g'
+            $rows.Write("HERMES_STARTUP v=2 stage=3 helper=11 pid=22 born=123 image=1 debug=1 context=1 flags=134742020 resumed=1 exit=3221225794 parent=1 cleanup=1 fault=0 cleanupFault=0`n")
+            Write-FixedFixtureStop "HERMES_CDB v=1 kind=3 pid=11`nLast event: b.1: Exit process 0:b, code 0`nHERMES_CDB v=1 kind=4 pid=11`n"
+            Read-FixedFixtureInput 'g'
+            exit 0
+        }
         [Console]::Out.Write(('x' * $PipeFixture))
         [Console]::Out.Flush()
         [Console]::Error.Write(('e' * $PipeFixture))
@@ -380,7 +446,7 @@ $driverAst = [Management.Automation.Language.Parser]::ParseFile(
 Assert-Control ($parseErrors.Count -eq 0)
 foreach ($name in @('Resolve-TraceExtension', 'Confirm-TraceTools',
         'Assert-TraceCommandPath', 'New-TraceCommands', 'New-TraceEventCommands',
-        'New-InventoryEventCommands', 'Get-TraceSelectedSources', 'Confirm-TraceCommandSelection',
+        'New-InventoryEventCommands', 'New-ScopedCreateCommands', 'Get-TraceSelectedSources', 'Confirm-TraceCommandSelection',
         'Publish-TraceCommands', 'Close-TraceInventoryInput',
         'Confirm-TracePublication',
         'Start-TraceRead', 'Receive-TraceRead', 'Close-TraceRead', 'Invoke-TraceCollection')) {
@@ -585,6 +651,7 @@ function Get-TraceHash {
         return Get-ControlCommandHash $Stream
     }
     Assert-Control (($state.TracePoint -eq 10 -and $state.ToolRole -eq 1) `
+        -or ($state.TracePoint -eq 9 -and $state.ToolRole -eq 6) `
         -or ($state.TracePoint -eq 20 -and $state.ToolRole -eq 0))
     if ($case -eq 42 -and $state.TracePoint -eq 10) {
         throw 'C:\private-preflight --command'
@@ -596,7 +663,7 @@ function Get-TraceHash {
 function Write-TraceCommandFile {
     param([string]$Path, [byte[]]$Bytes)
     Assert-Control ($state.TracePoint -eq 24 -and $state.ToolRole -eq 0 `
-        -and $Path -cin @('startup-cpr.cdb', 'startup-ibp.cdb', 'startup-epr.cdb', 'startup.cdb' |
+        -and $Path -cin @('startup-cpr.cdb', 'startup-ibp.cdb', 'startup-epr.cdb', 'startup.cdb', 'startup-arm.cdb' |
             ForEach-Object { Join-Path $root $_ }) `
         -and -not $script:controlCommandFiles.ContainsKey($Path))
     $script:controlCommandWrites.Add($Path)
@@ -648,7 +715,79 @@ function Get-HermesSetupPublishFiles {
     }
 }
 
-$cases = 1..420 # Preserve all 414 controls; add real BCL owned-input closure regressions.
+function New-ControlScopedCreated {
+    param([switch]$WithoutCreate, [switch]$WithoutReady, [switch]$WithoutAck, [switch]$WithoutResumed)
+    $script:controlCommandFiles = @{}; $script:controlCommandReadOnly = @{}
+    $script:controlCommandWrites = [Collections.Generic.List[string]]::new()
+    $script:controlCommandPins = [Collections.Generic.List[string]]::new()
+    $script:controlCommandHashes = 0
+    $state = Native-StartupTrace\New-HermesStartupState -DiagnosticMode ScopedCreateV1
+    Set-HermesStartupTracePoint $state 24
+    $state.DebuggerSha256 = 'd' * 64; $state.HelperSha256 = 'e' * 64
+    $sdkPin = [IO.MemoryStream]::new([Text.Encoding]::ASCII.GetBytes('synthetic signed SDK source'), $false)
+    $pins.Add($sdkPin)
+    $state.ExtensionSha256 = Get-ControlCommandHash $sdkPin
+    $state.ExtensionSource = @{ Path = $extension; Sha256 = $state.ExtensionSha256; Pin = $sdkPin }
+    foreach ($name in @('Driver', 'Module')) {
+        $bytes = [Text.Encoding]::ASCII.GetBytes('fixed-source-' + $name)
+        $pin = [IO.MemoryStream]::new($bytes, $false)
+        $pins.Add($pin)
+        $state.SourcePins[$name] = $pin
+        $state[$name + 'Sha256'] = [Convert]::ToHexString(
+            [Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+    }
+    $null = Publish-TraceCommands $extension
+    Confirm-TraceCommandSelection $extension
+    Add-HermesStartupLine $state 'HERMES_CDB v=1 kind=0 pid=11'
+    foreach ($name in @('Cpr', 'Epr', 'Ibp')) {
+        $label = switch ($name) { Cpr { 'Create process' }; Epr { 'Exit process' }; Ibp { 'Initial breakpoint' } }
+        Add-HermesStartupLine $state ($name.ToLowerInvariant() + ' - ' + $label + ' - break')
+        Add-HermesStartupLine $state $state.FilterExpected[$name]
+    }
+    if (-not $WithoutReady) {
+        Update-HermesStartupRows $state ($readyV2 + "`n")
+        if (-not $WithoutAck) {
+            Set-HermesStartupCreatedAcknowledged $state
+            if (-not $WithoutResumed) { Update-HermesStartupRows $state ($readyV2 + "`n" + $resumedV2 + "`n") }
+        }
+    }
+    if (-not $WithoutCreate) {
+        Add-HermesStartupText $state $state.Out ((Get-ControlInventoryEvent) + '1:000> ') $true
+    }
+    return $state
+}
+
+function Get-ControlScopedReadback {
+    param([string]$Flags = '00000002', [string]$Chain = "Extension DLL chain:`n    unsupported SDK display`n")
+    $text = "HERMES_CDB v=4 kind=7 pid=22`nLast event: 16.1: Create process 1:16`n" +
+        $Chain
+    if ($Flags -cne '') { $text += "HERMES_NTGLOBALFLAG v=1 pid=22 value=$Flags`n" }
+    return $text + "HERMES_CDB v=4 kind=8 pid=22`n1:000> "
+}
+
+function Invoke-ControlScopedPublisher {
+    $definition = $driverAst.Find({
+        param($n)
+        $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Publish-TraceArm'
+    }, $true)
+    . ([scriptblock]::Create($definition.Extent.Text))
+    Publish-TraceArm
+}
+
+function Complete-ControlScoped {
+    param([hashtable]$State, [IO.StreamWriter]$Writer)
+    Add-HermesStartupLine $State $failureLine
+    Add-HermesStartupText $State $State.Out ((Get-ControlInventoryEvent -Kind Exit).Replace('code 25', 'code c0000142') + '1:000> ') $true
+    Invoke-HermesStartupScopedInput $State $Writer Side
+    Update-HermesStartupRows $State ($readyV2 + "`n" + $resumedV2 + "`n" + $finalV2 + "`n")
+    Add-HermesStartupText $State $State.Out ((Get-ControlInventoryEvent -Kind Exit -Current 11).Replace('code 25', 'code 0') + '1:000> ') $true
+    Invoke-HermesStartupScopedInput $State $Writer Side
+    $State.Out.Tail = ''; $State.Out.End = $true; $State.Err.End = $true
+    Set-HermesStartupDebuggerExit $State ([int]0)
+    return New-HermesStartupReport $State $true $true
+}
+
+$cases = 1..479 # 472 retained intents, including the six real BCL closure controls.
 $passed = 0
 foreach ($case in $cases) {
     $state = $null
@@ -1737,8 +1876,7 @@ foreach ($case in $cases) {
                 )
                 $expectedInitial = @(
                     '.printf "HERMES_CDB v=3 kind=5 pid=%u\n", @$tpid',
-                    '.lastevent', '|.', '!gflag +sls', '!gflag',
-                    '.catch { .if (@@c++(sizeof(@$peb->NtGlobalFlag)) == 4) { .printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(@$peb->NtGlobalFlag) } }',
+                    '.lastevent', '|.',
                     '.printf "HERMES_CDB v=3 kind=6 pid=%u\n", @$tpid'
                 )
                 $expectedExit = @(
@@ -3496,8 +3634,7 @@ foreach ($case in $cases) {
             }
             199 {
                 $state = New-ControlTypedBlock
-                $sourceLines = (New-TraceEventCommands)['startup-ibp.cdb'] -split "`r`n"
-                Add-HermesStartupLine $state ('1:000> ' + $sourceLines[5])
+                Add-HermesStartupLine $state '1:000> .printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(@$peb->NtGlobalFlag)'
                 Assert-Control ($state.Block.Flags -eq -1 -and $state.Protocol -eq 0)
                 Add-HermesStartupLine $state 'Current NtGlobalFlag contents: 0x00000002'
                 Add-HermesStartupLine $state 'HERMES_CDB v=2 kind=2 pid=22'
@@ -3602,8 +3739,8 @@ foreach ($case in $cases) {
                 $initialBytes = $script:controlCommandFiles[(Join-Path $root 'startup-ibp.cdb')]
                 Assert-Control ($bytes.Length -eq 119 `
                     -and $report.createCommandSha256 -ceq '5fb09e6b92ea4344099598c8057ef775745ebf2994662651cabf052d67dc7d7f' `
-                    -and $initialBytes.Length -eq 289 `
-                    -and $report.initialCommandSha256 -ceq '13be3b23c1d7300a3f194497cfd64b9e6562169082404ff9f8646833c7e82ee0' `
+                    -and $initialBytes.Length -eq 116 `
+                    -and $report.initialCommandSha256 -ceq '48714490926d5dbee8117768355f9c6dece7e69840f28220096708eb54587c4e' `
                     -and $script:controlCommandPins.Count -eq 4 -and $script:controlCommandHashes -eq 4 `
                     -and $script:controlLaunchBindings -eq 1 -and $script:controlStops -eq 1 `
                     -and $script:controlDisposed -eq 1 -and $report.armingVerified -eq 0)
@@ -3649,22 +3786,23 @@ foreach ($case in $cases) {
                 Assert-Control ($state.Bounds -eq 1 -and $state.Block.Flags -eq -1)
             }
             211 {
-                $source = (New-TraceEventCommands)['startup-ibp.cdb']
+                $source = (New-ScopedCreateCommands $extension)['startup-arm.cdb']
                 $lines = $source -split "`r`n"
-                Assert-Control ($lines.Count -eq 8 -and $lines[5].StartsWith('.catch { .if (') `
-                    -and $lines[5].EndsWith(') } }') `
-                    -and $lines[5].Contains('@@c++(sizeof(@$peb->NtGlobalFlag)) == 4') `
-                    -and $lines[5].Contains('@@c++(@$peb->NtGlobalFlag)') `
-                    -and [regex]::Matches($lines[5], '@\$peb->NtGlobalFlag').Count -eq 2 `
-                    -and $lines[5] -notmatch 'ntdll|_PEB|\*|(?<!@)\$peb|0x|(?i:BeingDebugged|Environment)' `
+                Assert-Control ($lines.Count -eq 7 -and $lines[4].StartsWith('.catch { !"') `
+                    -and $lines[4].Contains('".gflag +sls; .if (') `
+                    -and $lines[4].EndsWith(') } }') `
+                    -and $lines[4].Contains('@@c++(sizeof(@$peb->NtGlobalFlag)) == 4') `
+                    -and $lines[4].Contains('@@c++(@$peb->NtGlobalFlag)') `
+                    -and [regex]::Matches($lines[4], '@\$peb->NtGlobalFlag').Count -eq 2 `
+                    -and $lines[4] -notmatch 'ntdll|_PEB|\*|(?<!@)\$peb|0x|(?i:BeingDebugged|Environment)' `
                     -and @($lines | Where-Object { $_ -cmatch '\.catch' }).Count -eq 1 `
-                    -and @($lines[5].ToCharArray() | Where-Object { $_ -eq '{' }).Count -eq 2 `
-                    -and @($lines[5].ToCharArray() | Where-Object { $_ -eq '}' }).Count -eq 2 `
-                    -and $lines[5] -notmatch 'HERMES_CDB|;|\b(?:g|r|ed|ew|eb|eq|ep)\b' `
-                    -and $lines[6] -ceq '.printf "HERMES_CDB v=3 kind=6 pid=%u\n", @$tpid' `
-                    -and $lines[7] -ceq '' -and $source -notmatch '(?m)^g\r?$')
+                    -and @($lines[4].ToCharArray() | Where-Object { $_ -eq '{' }).Count -eq 2 `
+                    -and @($lines[4].ToCharArray() | Where-Object { $_ -eq '}' }).Count -eq 2 `
+                    -and $lines[4] -notmatch 'HERMES_CDB|\b(?:g|r|ed|ew|eb|eq|ep)\b' `
+                    -and $lines[5] -ceq '.printf "HERMES_CDB v=4 kind=8 pid=%u\n", @$tpid' `
+                    -and $lines[6] -ceq '' -and $source -notmatch '(?m)^g\r?$')
                 $condensed = $source.Replace("`r", ';').Replace("`n", '')
-                Assert-Control ($condensed.Contains(') } };.printf "HERMES_CDB v=3 kind=6 pid=%u\n", @$tpid;'))
+                Assert-Control ($condensed.Contains(') } };.printf "HERMES_CDB v=4 kind=8 pid=%u\n", @$tpid;'))
             }
             212 {
                 # Model .catch returning after a query error, not native CDB
@@ -5166,8 +5304,8 @@ foreach ($case in $cases) {
                         Hash = '5fb09e6b92ea4344099598c8057ef775745ebf2994662651cabf052d67dc7d7f'; Goes = 1 },
                     @{ File = 'startup-epr.cdb'; Field = 'exitCommandSha256'; Length = 115
                         Hash = 'f3944355a34ef71d377a79075bc802c8be0e233ea02bcbc94c52d27bbfe02138'; Goes = 1 },
-                    @{ File = 'startup-ibp.cdb'; Field = 'initialCommandSha256'; Length = 289
-                        Hash = '13be3b23c1d7300a3f194497cfd64b9e6562169082404ff9f8646833c7e82ee0'; Goes = 0 }
+                    @{ File = 'startup-ibp.cdb'; Field = 'initialCommandSha256'; Length = 116
+                        Hash = '48714490926d5dbee8117768355f9c6dece7e69840f28220096708eb54587c4e'; Goes = 0 }
                 )
                 foreach ($source in $fixed) {
                     $sourcePath = Join-Path $root $source.File
@@ -5557,7 +5695,7 @@ foreach ($case in $cases) {
                         -and $node.Left.Extent.Text -ceq '$state'
                 }, $true))
                 Assert-Control ($selection.Count -eq 1 `
-                    -and $selection[0].Right.Extent.Text -ceq 'New-HermesStartupState -DiagnosticMode Inventory' `
+                    -and $selection[0].Right.Extent.Text -ceq 'New-HermesStartupState -DiagnosticMode ScopedCreateV1' `
                     -and $driverAst.ParamBlock.Parameters.Count -eq 0)
                 . $controlCommandDriver
                 $expected = Get-TraceSelectedSources $extension
@@ -5954,6 +6092,1049 @@ foreach ($case in $cases) {
                         Close-TraceRead $state.Out $debugger.StandardOutput
                         Close-TraceRead $state.Err $debugger.StandardError
                         $debugger.StandardInput.Dispose()
+                    }
+                }
+            }
+            421 {
+                $state = New-ControlScopedCreated
+                $physical = [StartupControlWriteStream]::new(0)
+                $writer = [IO.StreamWriter]::new($physical)
+                $debugger = [pscustomobject]@{ HasExited = $false; StandardInput = $writer }
+                try {
+                    Assert-Control ((Test-HermesStartupScopedAction $state Arm) -and $null -eq $state.Arm `
+                        -and $state.Created.Kind -eq 1 -and $state.Created.EventPid -eq 22)
+                    $physical.AfterWrite = {
+                        Assert-Control ($state.ArmAttempted -and -not $state.Acked -and -not $state.Continued)
+                    }
+                    Invoke-ControlScopedPublisher
+                    Assert-Control ($physical.Writes -eq 1 -and $state.ArmWritten -and -not $physical.Closed `
+                        -and -not (Test-HermesStartupScopedAction $state Arm))
+                    $expected = '$$><' + (Join-Path $root 'startup-arm.cdb') + "`n"
+                    Assert-Control ([Text.Encoding]::ASCII.GetString($physical.ToArray()) -ceq $expected)
+                    Add-HermesStartupText $state $state.Out (Get-ControlScopedReadback) $true
+                    Assert-Control ((Test-HermesStartupScopedAction $state Target) -and $state.Arm.Flags -eq 2 `
+                        -and $state.Arm.Kind -eq 7 -and $state.Arm.EventPid -eq 22 -and -not $state.Acked)
+                    $physical.AfterWrite = {
+                        Assert-Control ($state.Acked -and $state.ContinueAttempted -and $null -ne $state.ArmedBinding `
+                            -and -not $state.Continued)
+                    }
+                    Invoke-ControlScopedPublisher
+                    $physical.AfterWrite = $null
+                    Assert-Control ($state.Continued -and (Test-HermesStartupArmed $state) -and -not $state.InputClosed)
+                    $report = Complete-ControlScoped $state $writer
+                    Assert-Control ($report.completed -eq 1 -and $report.armingVerified -eq 1 -and $report.firstFailureKind -eq 1 `
+                        -and $report.originalGatePassed -eq 0 -and $report.nativeAcceptance -eq 0 `
+                        -and $report.scopedCreateVersion -eq 1 -and $report.debuggerExitAvailable -eq 1 `
+                        -and $report.debuggerExitValue -eq 0 -and $report.cleanupComplete -eq 1 -and $report.parentUnchanged -eq 1 `
+                        -and $state.InputTasks.Count -eq 4 -and $physical.Writes -eq 4 -and $physical.Closed `
+                        -and $state.Inventory.Subjects.Count -eq 2 -and $state.Protocol -eq 0 `
+                        -and [Text.Encoding]::ASCII.GetString($physical.ToArray()) -ceq ($expected + "g`ng`ng`n"))
+                } finally { $writer.Dispose() }
+            }
+            422 {
+                foreach ($arguments in @(@{ WithoutReady = $true }, @{ WithoutAck = $true }, @{ WithoutResumed = $true })) {
+                    $state = New-ControlScopedCreated @arguments
+                    Assert-Control (-not (Test-HermesStartupScopedAction $state Arm) -and -not $state.ArmAttempted)
+                    $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                }
+                foreach ($change in @(
+                    { $state.Target.born = 124 }, { $state.Target.image = 0 }, { $state.Target.context = 0 },
+                    { $state.Target.debug = 0 }, { $state.Target.pid = 23 }, { $state.Target.helper = 12 },
+                    { $state.TargetText = $readyV2.Replace('born=123', 'born=124') }
+                )) {
+                    $state = New-ControlScopedCreated
+                    . $change
+                    Assert-Control (-not (Test-HermesStartupScopedAction $state Arm) -and $null -eq $state.ScopedInvocation)
+                    $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                }
+            }
+            423 {
+                foreach ($change in @(
+                    { $state.Initial = 12 }, { $state.Inventory.Root = 12 },
+                    { $state.ScopedPublication.Root += '-wrong' }, { $state.ScopedPublication.Extension += '-wrong' },
+                    { $state.CreatedBinding.Scoped.Root += '-wrong' }, { $state.Inventory.RootFault = 1 },
+                    { $state.ExtensionSha256 = 'f' * 64 }
+                )) {
+                    $state = New-ControlScopedCreated
+                    . $change
+                    Assert-Control (-not (Test-HermesStartupScopedAction $state Arm))
+                    $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                }
+            }
+            { $_ -in 424..432 } {
+                $state = New-ControlScopedCreated
+                $name = @('DebuggerSha256', 'HelperSha256', 'DriverSha256', 'ModuleSha256',
+                    'CommandSha256', 'CreateCommandSha256', 'InitialCommandSha256', 'ExitCommandSha256',
+                    'ArmCommandSha256')[$case - 424]
+                $state[$name] = 'f' * 64
+                Assert-Control (-not (Test-HermesStartupScopedAction $state Arm))
+                $state.ScopedPublication[$name] = $state[$name]
+                Assert-Control (-not (Test-HermesStartupScopedAction $state Arm))
+            }
+            433 {
+                foreach ($change in @(
+                    { $state.DiagnosticMode = 'Inventory' }, { $state.PublishedMode = 'Trace' },
+                    { $state.ScopedPublication.Mode = 'Trace' }, { $state.CreatedBinding.Mode = 'Trace' }
+                )) {
+                    $state = New-ControlScopedCreated
+                    . $change
+                    Assert-Control (-not (Test-HermesStartupScopedAction $state Arm))
+                    $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                }
+                $state = New-ControlScopedCreated
+                Assert-Control ($driverAst.ParamBlock.Parameters.Count -eq 0)
+                $selection = $driverAst.Find({
+                    param($n)
+                    $n -is [Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -ceq '$state'
+                }, $true)
+                Assert-Control ($selection.Right.Extent.Text -ceq 'New-HermesStartupState -DiagnosticMode ScopedCreateV1')
+            }
+            434 {
+                foreach ($change in @(
+                    { $state.CreatedAcked = $false }, { $state.CreatedBinding = $null },
+                    { $state.CreatedBinding.Born = 124 }, { $state.Resumed = $null },
+                    { $state.CreatedBinding.RootHash = 'f' * 64 }, { $state.NativeRowSnapshots.Resumed = $null },
+                    { $state.NativeRowSnapshots.Resumed.Row.born = 124 },
+                    { $state.Resumed.resumed = 0 }, { $state.Resumed.born = 124 },
+                    { $state.ResumedText = $resumedV2.Replace('resumed=1', 'resumed=0') },
+                    { Update-HermesStartupRows $state ($readyV2.Replace('pid=22', 'pid=23') + "`n") }
+                )) {
+                    $state = New-ControlScopedCreated
+                    . $change
+                    Assert-Control (-not (Test-HermesStartupScopedAction $state Arm))
+                    $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                }
+            }
+            435 {
+                foreach ($change in @(
+                    { $state.Held.Pid = 23 }, { $state.Held.EventPid = 23 }, { $state.Held.Kind = 5 },
+                    { $state.Held.Version = 1 }, { $state.Held.Event = 0 }, { $state.Held.Valid = $false },
+                    { $state.Held.Released = $true }, { $state.Created.EventPid = 23 }
+                )) {
+                    $state = New-ControlScopedCreated
+                    . $change
+                    Assert-Control (-not (Test-HermesStartupScopedAction $state Arm))
+                    $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                }
+            }
+            436 {
+                foreach ($prompt in @('', 'idle', '1:000>', '1:000> x', '22:0000> ', '1000:000> ', '1:00g> ')) {
+                    $state = New-ControlScopedCreated
+                    $state.Out.Tail = ''
+                    Add-HermesStartupText $state $state.Out $prompt $true
+                    Assert-Control (-not (Test-HermesStartupScopedAction $state Arm))
+                    $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                }
+                foreach ($change in @(
+                    { $state.Out.End = $true }, { $state.Out.Faulted = $true },
+                    { $state.Err.Faulted = $true }, { $state.Stopped = $false }
+                )) {
+                    $state = New-ControlScopedCreated
+                    . $change
+                    Assert-Control (-not (Test-HermesStartupScopedAction $state Arm))
+                    $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                }
+                $state = New-ControlScopedCreated
+                $state.Out.Tail = ''
+                Add-HermesStartupText $state $state.Out '99:abc> ' $true
+                Assert-Control ((Test-HermesStartupScopedAction $state Arm) -and $state.Held.Pid -eq 22)
+            }
+            437 {
+                foreach ($mode in @('Trace', 'Inventory', 'ScopedCreateV1')) {
+                    $state = Native-StartupTrace\New-HermesStartupState -DiagnosticMode $mode
+                    $sources = Get-TraceSelectedSources $extension
+                    foreach ($name in @('cpr', 'ibp', 'epr')) {
+                        $text = $sources['startup-' + $name + '.cdb']
+                        Assert-Control ($text -cnotmatch '(?i:gflag|peb|sizeof|@@|\.load|\.chain|\|#s|\b(?:dt|db|dd|dq|ed|eb|eq|r|k)\b)')
+                        if ($mode -ceq 'ScopedCreateV1') { Assert-Control ($text -cnotmatch '(?m)^g\r?$') }
+                    }
+                    if ($mode -ceq 'ScopedCreateV1') {
+                        Assert-Control ($sources.Count -eq 5 -and $sources['startup.cdb'] -cnotmatch 'gflag|peb|\.load|\.chain' `
+                            -and $sources['startup-arm.cdb'] -match '\.load "' `
+                            -and [regex]::Matches(($sources.Values -join ''), '!"[^\r\n"]+"\.gflag \+sls').Count -eq 1 `
+                            -and $sources['startup-arm.cdb'] -cnotmatch '(?m)^g\r?$|\|#s')
+                    }
+                    $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                }
+            }
+            438 {
+                $state = New-ControlScopedCreated -WithoutCreate
+                $physical = [StartupControlWriteStream]::new(0)
+                $writer = [IO.StreamWriter]::new($physical)
+                try {
+                    foreach ($kind in @('Create', 'Initial', 'Exit')) {
+                        Add-HermesStartupText $state $state.Out ((Get-ControlInventoryEvent -Kind $kind -Current 33) + '1:000> ') $true
+                        Assert-Control (-not (Test-HermesStartupScopedAction $state Arm) -and (Test-HermesStartupScopedAction $state Side))
+                        Invoke-HermesStartupScopedInput $state $writer Side
+                        Assert-Control ($null -eq $state.Created -and $null -eq $state.Arm -and -not $state.ArmAttempted)
+                    }
+                    Add-HermesStartupText $state $state.Out ((Get-ControlInventoryEvent) + '1:000> ') $true
+                    Assert-Control ((Test-HermesStartupScopedAction $state Arm) -and $state.Protocol -eq 0 `
+                        -and $state.Inventory.Subjects.Count -eq 2 -and $state.SideWrites -eq 3 `
+                        -and [Text.Encoding]::ASCII.GetString($physical.ToArray()) -ceq "g`ng`ng`n")
+                } finally { Close-HermesStartupScopedInput $state $writer }
+            }
+            439 {
+                $state = New-ControlScopedCreated -WithoutCreate
+                $writer = [IO.StreamWriter]::new([StartupControlWriteStream]::new(0))
+                try {
+                    Add-HermesStartupText $state $state.Out ((Get-ControlInventoryEvent -Kind Initial -Current 11) + '1:000> ') $true
+                    Invoke-HermesStartupScopedInput $state $writer Side
+                    Add-HermesStartupText $state $state.Out ((Get-ControlInventoryEvent -Kind Exit -Current 11).Replace('code 25', 'code 0') + '1:000> ') $true
+                    Invoke-HermesStartupScopedInput $state $writer Side
+                    Add-HermesStartupText $state $state.Out ((Get-ControlInventoryEvent) + '1:000> ') $true
+                    Assert-Control (-not (Test-HermesStartupScopedAction $state Arm) -and $null -eq $state.Arm `
+                        -and -not $state.ArmAttempted -and $state.SideWrites -eq 2)
+                } finally { Close-HermesStartupScopedInput $state $writer }
+            }
+            440 {
+                foreach ($flags in @('', '00000000', '00000001', '0000000', '000000002', 'unavailable')) {
+                    $state = New-ControlScopedCreated
+                    $writer = [IO.StreamWriter]::new([StartupControlWriteStream]::new(0))
+                    try {
+                        Invoke-HermesStartupScopedInput $state $writer Arm
+                        Add-HermesStartupText $state $state.Out (Get-ControlScopedReadback $flags) $true
+                        Assert-Control (-not (Test-HermesStartupScopedAction $state Target) `
+                            -and -not $state.Acked -and (Get-HermesStartupTypedFlags $state) -eq -1)
+                        if ($flags -ceq '') { Assert-Control ($state.Arm.Flags -eq -1 -and $state.Unknown -eq 1) }
+                    } finally {
+                        Close-HermesStartupScopedInput $state $writer
+                        $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                    }
+                }
+            }
+            441 {
+                foreach ($change in @(
+                    { param($t) $t.Replace('kind=7 pid=22', 'kind=7 pid=33') },
+                    { param($t) $t.Replace('Last event: 16.1:', 'Last event: 21.1:') },
+                    { param($t) $t.Replace('Create process 1:16', 'Break instruction exception - code 80000003 (first chance)') },
+                    { param($t) $t.Replace('kind=8 pid=22', 'kind=8 pid=33') },
+                    { param($t) $t.Replace('v=1 pid=22 value=', 'v=1 pid=33 value=') }
+                )) {
+                    $state = New-ControlScopedCreated
+                    $writer = [IO.StreamWriter]::new([StartupControlWriteStream]::new(0))
+                    try {
+                        Invoke-HermesStartupScopedInput $state $writer Arm
+                        Add-HermesStartupText $state $state.Out (& $change (Get-ControlScopedReadback)) $true
+                        Assert-Control (-not (Test-HermesStartupScopedAction $state Target) -and -not $state.Continued `
+                            -and $state.InputTasks.Count -eq 1)
+                    } finally {
+                        Close-HermesStartupScopedInput $state $writer
+                        $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                    }
+                }
+            }
+            442 {
+                $state = New-ControlScopedCreated
+                $physical = [StartupControlWriteStream]::new(0)
+                $writer = [IO.StreamWriter]::new($physical)
+                try {
+                    Invoke-HermesStartupScopedInput $state $writer Arm
+                    Add-HermesStartupText $state $state.Out (Get-ControlScopedReadback) $true
+                    $refused = $false
+                    try { Invoke-HermesStartupScopedInput $state $writer Arm } catch { $refused = $true }
+                    Assert-Control ($refused -and $physical.Writes -eq 1)
+                    Invoke-HermesStartupScopedInput $state $writer Target
+                    $refused = $false
+                    try { Invoke-HermesStartupScopedInput $state $writer Target } catch { $refused = $true }
+                    Assert-Control ($refused -and $physical.Writes -eq 2 -and $state.Acked -and $state.Continued)
+                    Add-HermesStartupText $state $state.Out (Get-ControlScopedReadback) $true
+                    Assert-Control ($state.Protocol -eq 1 -and $physical.Writes -eq 2)
+                } finally { Close-HermesStartupScopedInput $state $writer }
+            }
+            443 {
+                $state = New-ControlScopedCreated
+                Add-HermesStartupLine $state $failureLine
+                Assert-Control ($state.Protocol -eq 1 -and $null -eq $state.Failure `
+                    -and -not (Test-HermesStartupScopedAction $state Arm))
+            }
+            444 {
+                $state = New-ControlScopedCreated
+                $writer = [IO.StreamWriter]::new([StartupControlWriteStream]::new(0))
+                try {
+                    Invoke-HermesStartupScopedInput $state $writer Arm
+                    Add-HermesStartupText $state $state.Out (Get-ControlScopedReadback) $true
+                    Add-HermesStartupLine $state $failureLine
+                    Assert-Control ($state.Protocol -eq 1 -and $null -eq $state.Failure -and -not $state.Acked `
+                        -and -not (Test-HermesStartupScopedAction $state Target))
+                } finally { Close-HermesStartupScopedInput $state $writer }
+            }
+            445 {
+                foreach ($late in @('Final', 'Target', 'Helper')) {
+                    $state = New-ControlScopedCreated
+                    $writer = [IO.StreamWriter]::new([StartupControlWriteStream]::new(0))
+                    try {
+                        Invoke-HermesStartupScopedInput $state $writer Arm
+                        Add-HermesStartupText $state $state.Out (Get-ControlScopedReadback) $true
+                        Invoke-HermesStartupScopedInput $state $writer Target
+                        switch ($late) {
+                            Final { Update-HermesStartupRows $state ($readyV2 + "`n" + $resumedV2 + "`n" + $finalV2 + "`n") }
+                            Target { Add-HermesStartupText $state $state.Out (Get-ControlInventoryEvent -Kind Exit) $true }
+                            Helper { Add-HermesStartupText $state $state.Out (Get-ControlInventoryEvent -Kind Exit -Current 11) $true }
+                        }
+                        Add-HermesStartupLine $state $failureLine
+                        Assert-Control ($null -eq $state.Failure -and $state.Protocol -eq 1)
+                    } finally {
+                        Close-HermesStartupScopedInput $state $writer
+                        $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                    }
+                }
+            }
+            446 {
+                foreach ($mode in @(1, 3)) {
+                    $state = New-ControlScopedCreated
+                    $physical = [StartupControlWriteStream]::new($mode)
+                    $writer = [IO.StreamWriter]::new($physical)
+                    $clock = [Diagnostics.Stopwatch]::StartNew()
+                    try {
+                        $refused = $false
+                        try { Invoke-HermesStartupScopedInput $state $writer Arm } catch { $refused = $true }
+                        Assert-Control ($refused -and $state.Error -eq 13 -and $state.ArmAttempted -and -not $state.ArmWritten `
+                            -and $state.InputClosed -and $physical.Closed -and $physical.Writes -eq 1 `
+                            -and $state.InputTasks.Count -eq 1 -and $state.InputTasks[0].IsCompleted `
+                            -and -not $state.Acked -and $clock.ElapsedMilliseconds -lt 10000)
+                    } finally {
+                        $writer.Dispose()
+                        $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                    }
+                }
+            }
+            447 {
+                $state = New-ControlScopedCreated
+                $pipe = New-ControlPipe
+                $handle = $pipe.Writer.SafePipeHandle
+                $writer = [IO.StreamWriter]::new($pipe.Writer, [Text.Encoding]::ASCII)
+                try {
+                    $bytes = [byte[]]::new(1024)
+                    $read = $pipe.Reader.BaseStream.ReadAsync($bytes, 0, $bytes.Length)
+                    Invoke-HermesStartupScopedInput $state $writer Arm
+                    Assert-Control ($read.Wait(5000))
+                    $count = $read.GetAwaiter().GetResult()
+                    Assert-Control ([Text.Encoding]::ASCII.GetString($bytes, 0, $count) -ceq
+                        ('$$><' + (Join-Path $root 'startup-arm.cdb') + "`n") -and -not $handle.IsClosed -and -not $state.InputClosed)
+                    Add-HermesStartupText $state $state.Out (Get-ControlScopedReadback) $true
+                    $read = $pipe.Reader.BaseStream.ReadAsync($bytes, 0, $bytes.Length)
+                    Invoke-HermesStartupScopedInput $state $writer Target
+                    Assert-Control ($read.Wait(5000) -and $read.GetAwaiter().GetResult() -eq 2 `
+                        -and $bytes[0] -eq 103 -and $bytes[1] -eq 10 -and $state.Acked -and -not $handle.IsClosed)
+                    $read = $pipe.Reader.BaseStream.ReadAsync($bytes, 0, $bytes.Length)
+                    Close-HermesStartupScopedInput $state $writer
+                    Assert-Control ($read.Wait(5000) -and $read.GetAwaiter().GetResult() -eq 0 -and $handle.IsClosed `
+                        -and $state.InputClosed -and $state.CleanupFault -eq 0 `
+                        -and @($state.InputTasks | Where-Object { -not $_.IsCompletedSuccessfully }).Count -eq 0)
+                } finally { $writer.Dispose(); $pipe.Writer.Dispose(); $pipe.Reader.Dispose() }
+            }
+            448 {
+                $state = New-ControlScopedCreated
+                $physical = [StartupControlWriteStream]::new(0)
+                $writer = [IO.StreamWriter]::new($physical)
+                $otherPhysical = [StartupControlWriteStream]::new(0)
+                $other = [IO.StreamWriter]::new($otherPhysical)
+                try {
+                    Invoke-HermesStartupScopedInput $state $writer Arm
+                    Add-HermesStartupText $state $state.Out (Get-ControlScopedReadback) $true
+                    $refused = $false
+                    try { Invoke-HermesStartupScopedInput $state $other Target } catch { $refused = $true }
+                    Assert-Control ($refused -and $physical.Writes -eq 1 -and $otherPhysical.Writes -eq 0 -and -not $state.Acked)
+                    $refused = $false
+                    try { Invoke-HermesStartupScopedInput $state $writer 'g;!gflag' } catch { $refused = $true }
+                    Assert-Control ($refused -and $physical.Writes -eq 1)
+                } finally { Close-HermesStartupScopedInput $state $writer; $other.Dispose() }
+            }
+            449 {
+                foreach ($fault in @(1, 2, 3)) {
+                    $script:controlCommandFaultName = 'startup-arm.cdb'; $script:controlCommandFault = $fault
+                    $refused = $false
+                    try { $state = New-ControlScopedCreated } catch { $refused = $true }
+                    Assert-Control ($refused -and $script:controlCommandWrites.Count -eq 5 `
+                        -and $script:controlLaunchBindings -eq 0)
+                }
+            }
+            450 {
+                foreach ($which in @('Command', 'Source')) {
+                    $state = New-ControlScopedCreated
+                    $physical = [StartupControlWriteStream]::new(0)
+                    $writer = [IO.StreamWriter]::new($physical)
+                    $bad = [IO.MemoryStream]::new([byte[]]@(1, 2, 3), $false)
+                    $pins.Add($bad)
+                    try {
+                        if ($which -ceq 'Command') { $state.CommandPins['startup-arm.cdb'] = $bad }
+                        else { $state.SourcePins.Driver = $bad }
+                        $debugger = [pscustomobject]@{ HasExited = $false; StandardInput = $writer }
+                        $refused = $false
+                        try { Invoke-ControlScopedPublisher } catch { $refused = $true }
+                        Assert-Control ($refused -and $physical.Writes -eq 0 -and -not $state.ArmAttempted)
+                    } finally {
+                        Close-HermesStartupScopedInput $state $writer
+                        $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                    }
+                }
+            }
+            451 {
+                $state = New-ControlScopedCreated
+                $before = Get-ControlStreamSnapshot $state.Out
+                $hash = [Convert]::ToHexString($state.Out.Hash.GetCurrentHash())
+                $count = $state.Out.Count
+                $state.AcceptedUtf8Bytes = [long]8388607
+                Add-HermesStartupText $state $state.Err 'x' $false
+                $stream = [StartupControlIdleStream]::new((Get-ControlScopedReadback))
+                try {
+                    Start-TraceRead $state.Out $stream
+                    Add-HermesStartupText $state $state.Out (Get-ControlScopedReadback) $true
+                    Add-HermesStartupLine $state 'HERMES_CDB v=4 kind=7 pid=22'
+                    Assert-Control ($state.Bounds -eq 1 -and $state.AcceptedUtf8Bytes -eq 8388608 `
+                        -and $stream.Reads -eq 0 -and $null -eq $state.Out.Pending -and $state.Out.Count -eq $count `
+                        -and (Get-ControlStreamSnapshot $state.Out) -ceq $before `
+                        -and [Convert]::ToHexString($state.Out.Hash.GetCurrentHash()) -ceq $hash `
+                        -and -not (Test-HermesStartupScopedAction $state Arm) -and $null -eq $state.Arm)
+                } finally { $stream.Dispose() }
+            }
+            452 {
+                $state = New-ControlScopedCreated
+                foreach ($name in @($state.Observations.Keys)) { $state.Observations[$name] = 8388608 }
+                foreach ($stream in @($state.Out, $state.Err)) {
+                    $stream.Count = [long]8388608; $stream.Prefix = 'x' * 4096; $stream.Fingerprint = 'f' * 64
+                }
+                $state.AcceptedUtf8Bytes = [long]8388608; $state.SideWrites = 48
+                $state.DebuggerExitAvailable = 1; $state.DebuggerExitValue = [long][uint32]::MaxValue
+                $report = New-HermesStartupReport $state $true $true
+                $json = $report | ConvertTo-Json -Depth 4 -Compress
+                Assert-Control ([Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
+                    -and $json -notmatch 'command-root|selected-sdk|fixed-source|HERMES_CDB|pid|S-1-|"Subjects":\{' `
+                    -and $report.completed -eq 0 -and $report.originalGatePassed -eq 0 -and $report.nativeAcceptance -eq 0)
+            }
+            453 {
+                $state = New-ControlScopedCreated
+                $writer = [IO.StreamWriter]::new([StartupControlWriteStream]::new(0))
+                try {
+                    Invoke-HermesStartupScopedInput $state $writer Arm
+                    Add-HermesStartupText $state $state.Out (Get-ControlScopedReadback) $true
+                    Invoke-HermesStartupScopedInput $state $writer Target
+                    $null = Complete-ControlScoped $state $writer
+                    foreach ($value in @([int]13, [int]-1073741502, [long]4294967295)) {
+                        Set-HermesStartupDebuggerExit $state $value
+                        $state.Error = 13
+                        $report = New-HermesStartupReport $state $true $true
+                        Assert-Control ($report.completed -eq 0 -and $report.status -eq 8 -and $report.error -eq 13 `
+                            -and $report.debuggerExitAvailable -eq 1 -and $report.debuggerExitValue -ge 0 `
+                            -and $report.firstFailureKind -eq 1 -and $report.armingVerified -eq 1 `
+                            -and $report.originalGatePassed -eq 0 -and $report.nativeAcceptance -eq 0)
+                    }
+                    foreach ($bad in @($null, '0', [long]-2147483649, [long]4294967296, $true)) {
+                        $state.DebuggerExitAvailable = 0; $state.DebuggerExitValue = [long]0
+                        Set-HermesStartupDebuggerExit $state $bad
+                        Assert-Control ($state.DebuggerExitAvailable -eq 0 -and $state.Error -eq 13)
+                    }
+                } finally { $writer.Dispose() }
+            }
+            454 {
+                $state = New-ControlScopedCreated -WithoutCreate
+                $writer = [IO.StreamWriter]::new([StartupControlWriteStream]::new(0))
+                try {
+                    foreach ($current in 33..48) {
+                        foreach ($kind in @('Create', 'Initial', 'Exit')) {
+                            Add-HermesStartupText $state $state.Out ((Get-ControlInventoryEvent -Kind $kind -Current $current) + '1:000> ') $true
+                            Invoke-HermesStartupScopedInput $state $writer Side
+                        }
+                    }
+                    Assert-Control ($state.Inventory.Subjects.Count -eq 16 -and $state.SideWrites -eq 48 `
+                        -and -not $state.ArmAttempted -and $state.Protocol -eq 0)
+                    Add-HermesStartupText $state $state.Out ((Get-ControlInventoryEvent) + '1:000> ') $true
+                    Assert-Control ($state.Protocol -eq 1 -and $state.Inventory.Limit -eq 1 `
+                        -and $state.Inventory.Subjects.Count -eq 16 -and -not (Test-HermesStartupScopedAction $state Arm))
+                } finally { Close-HermesStartupScopedInput $state $writer }
+            }
+            455 {
+                foreach ($bad in @(
+                    (Get-ControlInventoryEvent), (Get-ControlInventoryEvent -Event 23),
+                    (Get-ControlInventoryEvent -Close 23),
+                    "HERMES_CDB v=3 kind=2 pid=22`n", "Last event: 16.1: Create process 1:16`n",
+                    "HERMES_CDB v=3 kind=1 pid=0`n"
+                )) {
+                    $state = New-ControlScopedCreated
+                    Add-HermesStartupText $state $state.Out $bad $true
+                    Assert-Control ($state.Protocol -eq 1 -and -not (Test-HermesStartupScopedAction $state Arm) `
+                        -and -not $state.ArmAttempted)
+                    $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                }
+            }
+            456 {
+                $state = New-ControlScopedCreated -WithoutCreate
+                Add-HermesStartupText $state $state.Out ((Get-ControlInventoryEvent -Current 33) + '1:000> ') $true
+                Add-HermesStartupLine $state ($failureLine.Replace('16:1', '21:1'))
+                Assert-Control ($state.Unknown -eq 0 -and $state.Protocol -eq 0 -and $null -eq $state.Failure `
+                    -and -not (Test-HermesStartupScopedAction $state Arm))
+                Add-HermesStartupLine $state 'HERMES_NTGLOBALFLAG v=1 pid=33 value=00000002'
+                Assert-Control ($state.Protocol -eq 1 -and $null -eq $state.Arm -and -not $state.ArmAttempted)
+            }
+            457 {
+                foreach ($change in @(
+                    { $state.Error = 13 }, { $state.Timeout = 1 }, { $state.CleanupFault = 13 },
+                    { $state.Protocol = 1 }, { $state.Unknown = 1 }, { $state.Bounds = 1 },
+                    { $state.Final = ConvertFrom-HermesStartupRow $finalV2 },
+                    { $state.Exits['22'] = 3221225794 }, { $state.Exits['11'] = 0 }
+                )) {
+                    $state = New-ControlScopedCreated
+                    . $change
+                    Assert-Control (-not (Test-HermesStartupScopedAction $state Arm) -and -not $state.ArmAttempted)
+                    $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                }
+            }
+            458 {
+                foreach ($change in @(
+                    { param($t) $state.ScopedInvocation.Source.Extension += '.wrong'; $t },
+                    { param($t) $t.Replace('Extension DLL chain:', 'No export gflag found') },
+                    { param($t) $t.Replace('HERMES_NTGLOBALFLAG', "Unable to read PEB`nHERMES_NTGLOBALFLAG") }
+                )) {
+                    $state = New-ControlScopedCreated
+                    $writer = [IO.StreamWriter]::new([StartupControlWriteStream]::new(0))
+                    try {
+                        Invoke-HermesStartupScopedInput $state $writer Arm
+                        Add-HermesStartupText $state $state.Out (& $change (Get-ControlScopedReadback)) $true
+                        Assert-Control (-not (Test-HermesStartupScopedAction $state Target) -and -not $state.Acked)
+                    } finally {
+                        Close-HermesStartupScopedInput $state $writer
+                        $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                    }
+                }
+            }
+            459 {
+                & {
+                    foreach ($name in @('Assert-TracePath', 'Open-TracePin', 'Get-TraceHash', 'Write-TraceCommandFile',
+                            'Read-TraceControl', 'Publish-TraceCreated', 'Publish-TraceArm')) {
+                        $definition = $driverAst.Find({
+                            param($n)
+                            $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $name
+                        }, $true)
+                        . ([scriptblock]::Create($definition.Extent.Text))
+                    }
+                    function Start-Sleep { param([int]$Milliseconds) [Threading.Thread]::Sleep($Milliseconds) }
+                    $scope = [guid]::NewGuid().ToString('N')
+                    $root = Join-Path $PSScriptRoot ('obj/startup-pipe-controls/' + $scope)
+                    $null = [IO.Directory]::CreateDirectory($root)
+                    $extension = Join-Path $root 'selected-sdk/winxp/exts.dll'
+                    $state = Native-StartupTrace\New-HermesStartupState -DiagnosticMode ScopedCreateV1
+                    $state.DebuggerSha256 = 'd' * 64; $state.HelperSha256 = 'e' * 64
+                    $sdkPin = [IO.MemoryStream]::new([Text.Encoding]::ASCII.GetBytes('synthetic signed SDK source'), $false)
+                    $pins.Add($sdkPin)
+                    $state.ExtensionSha256 = Get-ControlCommandHash $sdkPin
+                    $state.ExtensionSource = @{ Path = $extension; Sha256 = $state.ExtensionSha256; Pin = $sdkPin }
+                    $owned = [Diagnostics.Process]::new()
+                    try {
+                        foreach ($entry in @(
+                            @('Driver', (Join-Path $PSScriptRoot 'Invoke-NativeStartupTrace.ps1')),
+                            @('Module', (Join-Path $PSScriptRoot 'Native-StartupTrace.psm1'))
+                        )) {
+                            $pin = Open-TracePin $entry[1]
+                            $state.SourcePins[$entry[0]] = $pin
+                            $state[$entry[0] + 'Sha256'] = Get-TraceHash $pin
+                        }
+                        Set-HermesStartupTracePoint $state 24
+                        $null = Publish-TraceCommands $extension
+                        Confirm-TraceCommandSelection $extension
+                        $start = [Diagnostics.ProcessStartInfo]::new()
+                        $start.FileName = [Environment]::ProcessPath
+                        $start.UseShellExecute = $false
+                        $start.RedirectStandardInput = $true; $start.StandardInputEncoding = [Text.Encoding]::ASCII
+                        $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true
+                        foreach ($argument in @('-NoLogo', '-NoProfile', '-File', $PSCommandPath,
+                                '-PipeFixture', '4096', '-PipeScope', $scope)) { $start.ArgumentList.Add($argument) }
+                        $owned.StartInfo = $start
+                        Assert-Control ($owned.Start())
+                        $handle = $owned.SafeHandle
+                        $debugger = $owned
+                        Start-TraceRead $state.Out $owned.StandardOutput.BaseStream
+                        Start-TraceRead $state.Err $owned.StandardError.BaseStream
+                        Set-HermesStartupTracePoint $state 26
+                        Invoke-TraceCollection
+                        Assert-Control ($owned.WaitForExit(5000) -and $owned.ExitCode -eq 0)
+                        $report = New-HermesStartupReport $state $true $true
+                        Assert-Control ($report.completed -eq 1 -and $report.armingVerified -eq 1 -and $report.firstFailureKind -eq 1 `
+                            -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0 `
+                            -and $state.ArmAttempted -and $state.ArmWritten -and $state.Continued -and $state.InputClosed `
+                            -and $state.SideWrites -eq 4 -and $state.Inventory.Subjects.Count -eq 3 `
+                            -and $state.Inventory.Subjects['22'].Initial -eq 0 -and $state.Protocol -eq 0 `
+                            -and $state.InputTasks.Count -eq 6 -and $state.Out.End -and $state.Err.End `
+                            -and $report.debuggerExitAvailable -eq 1 -and $report.debuggerExitValue -eq 0 `
+                            -and [Text.Encoding]::UTF8.GetByteCount(($report | ConvertTo-Json -Depth 4 -Compress) + "`n") -le 4096)
+                    } finally {
+                        if (-not $state.InputClosed -and $null -ne $state.InputWriter) {
+                            Close-HermesStartupScopedInput $state $owned.StandardInput
+                        }
+                        if (-not $owned.HasExited) { $owned.Kill() }
+                        Assert-Control ($owned.WaitForExit(5000))
+                        Close-TraceRead $state.Out $owned.StandardOutput
+                        Close-TraceRead $state.Err $owned.StandardError
+                        $owned.Dispose()
+                        foreach ($pin in $pins) { $pin.Dispose() }
+                        $pins.Clear()
+                        $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                        Remove-Item -LiteralPath $root -Recurse -Force
+                    }
+                }
+            }
+            460 {
+                $state = New-ControlScopedCreated -WithoutCreate
+                $output = New-ControlPipe
+                $physical = [StartupControlWriteStream]::new(0)
+                $writer = [IO.StreamWriter]::new($physical)
+                try {
+                    Start-TraceRead $state.Out $output.Reader.BaseStream
+                    foreach ($text in @((Get-ControlInventoryEvent), '1:0', '00> ')) {
+                        Write-ControlPipe $output ([Text.Encoding]::UTF8.GetBytes($text))
+                        Receive-ControlPipe $state.Out $output $true
+                        if ($text -cne '00> ') { Assert-Control (-not (Test-HermesStartupScopedAction $state Arm)) }
+                    }
+                    Assert-Control ((Test-HermesStartupScopedAction $state Arm) -and $physical.Writes -eq 0)
+                    $output.Writer.Dispose()
+                    Receive-ControlPipe $state.Out $output $true
+                    Assert-Control ($state.Out.End -and -not (Test-HermesStartupScopedAction $state Arm) -and $physical.Writes -eq 0)
+                } finally { Close-ControlPipe $state.Out $output; $writer.Dispose() }
+            }
+            461 {
+                $state = New-ControlScopedCreated
+                $pipe = New-ControlPipe
+                $handle = $pipe.Writer.SafePipeHandle
+                $encoding = [Text.Encoding]::GetEncoding('us-ascii',
+                    [Text.EncoderFallback]::ExceptionFallback, [Text.DecoderFallback]::ExceptionFallback)
+                $writer = [IO.StreamWriter]::new($pipe.Writer, $encoding)
+                try {
+                    $bytes = [byte[]]::new(1024)
+                    $read = $pipe.Reader.BaseStream.ReadAsync($bytes, 0, $bytes.Length)
+                    Invoke-HermesStartupScopedInput $state $writer Arm
+                    Assert-Control ($read.Wait(5000) -and $read.GetAwaiter().GetResult() -gt 2)
+                    Add-HermesStartupText $state $state.Out (Get-ControlScopedReadback) $true
+                    $read = $pipe.Reader.BaseStream.ReadAsync($bytes, 0, $bytes.Length)
+                    Invoke-HermesStartupScopedInput $state $writer Target
+                    Assert-Control ($read.Wait(5000) -and $read.GetAwaiter().GetResult() -eq 2)
+                    $writer.Write([char]0x100)
+                    $read = $pipe.Reader.BaseStream.ReadAsync($bytes, 0, $bytes.Length)
+                    Close-HermesStartupScopedInput $state $writer
+                    Assert-Control ($state.CleanupFault -eq 13 -and -not $state.InputClosed -and $handle.IsClosed `
+                        -and $read.Wait(5000) -and $read.GetAwaiter().GetResult() -eq 0 `
+                        -and $state.Continued -and $state.InputTasks.Count -eq 2)
+                } finally { $writer.Dispose(); $pipe.Writer.Dispose(); $pipe.Reader.Dispose() }
+            }
+            462 {
+                foreach ($role in @('Target', 'Side')) {
+                    $state = New-ControlScopedCreated
+                    $physical = [StartupControlWriteStream]::new(0)
+                    $writer = [IO.StreamWriter]::new($physical)
+                    try {
+                        Invoke-HermesStartupScopedInput $state $writer Arm
+                        Add-HermesStartupText $state $state.Out (Get-ControlScopedReadback) $true
+                        if ($role -ceq 'Side') {
+                            Invoke-HermesStartupScopedInput $state $writer Target
+                            Add-HermesStartupText $state $state.Out ((Get-ControlInventoryEvent -Current 33) + '1:000> ') $true
+                        }
+                        $physical.Mode = 3
+                        $refused = $false
+                        try { Invoke-HermesStartupScopedInput $state $writer $role } catch { $refused = $true }
+                        Assert-Control ($refused -and $state.Error -eq 13 -and $state.InputClosed -and $physical.Closed `
+                            -and $state.InputPending.IsCompleted -and -not $state.InputPending.IsCompletedSuccessfully `
+                            -and (New-HermesStartupReport $state $false $false).completed -eq 0)
+                        if ($role -ceq 'Target') { Assert-Control ($state.Acked -and -not $state.Continued) }
+                    } finally {
+                        $writer.Dispose()
+                        $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                    }
+                }
+            }
+            463 {
+                foreach ($parse in @($false, $true)) {
+                    $state = New-ControlScopedCreated
+                    $stream = if ($parse) { $state.Out } else { $state.Err }
+                    $stream.Tail = ''
+                    Add-HermesStartupText $state $stream ('x' * 4096) $parse
+                    Assert-Control ($state.Bounds -eq 0 -and $stream.Tail.Length -eq 4096)
+                    Add-HermesStartupText $state $stream "x`nHERMES_CDB v=1 kind=0 pid=99`n" $parse
+                    $before = Get-ControlStreamSnapshot $stream
+                    Add-HermesStartupText $state $stream 'after-bound' $parse
+                    Assert-Control ($state.Bounds -eq 1 -and $stream.Prefix.Length -eq 4096 `
+                        -and (Get-ControlStreamSnapshot $stream) -ceq $before -and $state.Initial -eq 11 `
+                        -and -not (Test-HermesStartupScopedAction $state Arm))
+                    $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                }
+            }
+            464 {
+                & {
+                    # Windows command-string encoding only; no file or SDK load.
+                    function Assert-TraceCommandPath { param([string]$Path) return $Path }
+                    $sdk = 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\winxp\exts.dll'
+                    $sources = New-ScopedCreateCommands $sdk
+                    $module = $sdk.Substring(0, $sdk.Length - 4).Replace('\', '\\')
+                    Assert-Control ($sources['startup-arm.cdb'].Contains(('.load "' + $sdk.Replace('\', '\\') + '"')) `
+                        -and $sources['startup-arm.cdb'].Contains(('!"' + $module + '".gflag +sls')) `
+                        -and $sources['startup-arm.cdb'] -cnotmatch '!exts\.gflag|!gflag|\.loadby|\.extpath|\.setdll' `
+                        -and $sources['startup-arm.cdb'] -notmatch '\bg\r?\n')
+                    $refused = $false
+                    try { $null = New-ScopedCreateCommands ('C:\' + ('x\' * 127) + 'exts.dll') } catch { $refused = $true }
+                    Assert-Control ($refused)
+                }
+            }
+            465 {
+                $state = New-ControlScopedCreated
+                $writer = [IO.StreamWriter]::new([StartupControlWriteStream]::new(0))
+                try {
+                    Invoke-HermesStartupScopedInput $state $writer Arm
+                    Add-HermesStartupText $state $state.Out (Get-ControlScopedReadback) $true
+                    Invoke-HermesStartupScopedInput $state $writer Target
+                    $null = Complete-ControlScoped $state $writer
+                    $state.Final.born = 124
+                    $report = New-HermesStartupReport $state $true $true
+                    Assert-Control ($report.completed -eq 0 -and $report.parentUnchanged -eq 0 -and $report.cleanupComplete -eq 0)
+                    $state.Final.born = 123
+                    $state.DebuggerExitAvailable = 0
+                    $report = New-HermesStartupReport $state $true $true
+                    Assert-Control ($report.completed -eq 0 -and $report.status -eq 8 -and $report.error -eq 13 `
+                        -and $report.firstFailureKind -eq 1 -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0)
+                } finally { $writer.Dispose() }
+            }
+            466 {
+                $state = New-ControlScopedCreated
+                $sources = Get-TraceSelectedSources $extension
+                foreach ($text in $sources.Values) {
+                    foreach ($line in ($text -split '\r?\n')) {
+                        if ($line.Contains('.printf', [StringComparison]::Ordinal)) {
+                            Add-HermesStartupLine $state ('1:000> ' + $line)
+                        }
+                    }
+                }
+                Assert-Control ($state.Protocol -eq 0 -and $null -eq $state.Arm -and -not $state.ArmAttempted)
+                Add-HermesStartupLine $state 'HERMES_CDB v=3 kind=1 pid=99 .printf malformed'
+                Assert-Control ($state.Protocol -eq 1 -and -not (Test-HermesStartupScopedAction $state Arm))
+            }
+            467 {
+                $state = New-ControlScopedCreated -WithoutCreate
+                $reader = New-ControlReader ((Get-ControlInventoryEvent) + '1:000> ')
+                try {
+                    Start-TraceRead $state.Err $reader.BaseStream
+                    Receive-TraceRead $state.Err $reader.BaseStream $false
+                    Assert-Control ($state.Err.End -and $null -eq $state.Created -and $null -eq $state.Held `
+                        -and -not (Test-HermesStartupScopedAction $state Arm))
+                    $state.AcceptedUtf8Bytes = [long]8388608
+                    $source = [IO.MemoryStream]::new([Text.Encoding]::ASCII.GetBytes($readyV2 + "`n"))
+                    try {
+                        Invoke-ControlRowsRead $source
+                        Assert-Control ($source.Position -eq 0 -and $state.Bounds -eq 1)
+                    } finally { $source.Dispose() }
+                } finally { Close-TraceRead $state.Err $reader }
+            }
+            468 {
+                foreach ($change in @(
+                    { $state.NativeRowsFault = 1 }, { Add-HermesStartupSdkError $state 'Unable to read PEB' }
+                )) {
+                    $state = New-ControlScopedCreated
+                    . $change
+                    Assert-Control (-not (Test-HermesStartupScopedAction $state Arm))
+                    $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                }
+                $state = New-ControlScopedCreated
+                $writer = [IO.StreamWriter]::new([StartupControlWriteStream]::new(0))
+                try {
+                    Invoke-HermesStartupScopedInput $state $writer Arm
+                    Add-HermesStartupText $state $state.Out (Get-ControlScopedReadback) $true
+                    $state.ScopedInvocation.Source.ArmCommandSha256 = 'f' * 64
+                    Assert-Control (-not (Test-HermesStartupScopedAction $state Target) -and -not $state.Acked `
+                        -and $state.InputTasks.Count -eq 1)
+                } finally { Close-HermesStartupScopedInput $state $writer }
+            }
+            469 {
+                $state = New-ControlScopedCreated
+                $physical = [StartupControlWriteStream]::new(0)
+                $writer = [IO.StreamWriter]::new($physical)
+                try {
+                    Invoke-HermesStartupScopedInput $state $writer Arm
+                    Add-HermesStartupText $state $state.Out (Get-ControlScopedReadback) $true
+                    Invoke-HermesStartupScopedInput $state $writer Target
+                    $created = $state.Created.Clone()
+                    foreach ($kind in @('Create', 'Initial', 'Exit')) {
+                        Add-HermesStartupText $state $state.Out ((Get-ControlInventoryEvent -Kind $kind -Current 33) +
+                            $failureLine.Replace('16:1', '21:1') + "`n1:000> ") $true
+                        Assert-Control ((Test-HermesStartupArmed $state) -and $state.Protocol -eq 0 -and $null -eq $state.Failure `
+                            -and -not (Test-HermesStartupScopedAction $state Arm) -and $state.Created.Pid -eq $created.Pid)
+                        Invoke-HermesStartupScopedInput $state $writer Side
+                    }
+                    $report = Complete-ControlScoped $state $writer
+                    $text = [Text.Encoding]::ASCII.GetString($physical.ToArray())
+                    Assert-Control ($report.completed -eq 1 -and $report.firstFailureKind -eq 1 -and $state.SideWrites -eq 5 `
+                        -and $state.Inventory.Subjects['22'].Create -eq 1 -and $state.Inventory.Subjects['33'].Create -eq 1 `
+                        -and $state.Inventory.Subjects['33'].Exit -eq 1 -and $state.InputTasks.Count -eq 7 `
+                        -and [regex]::Matches($text, '\$\$><').Count -eq 1 `
+                        -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0)
+                } finally { $writer.Dispose() }
+            }
+            470 {
+                $state = New-ControlScopedCreated
+                $writer = [IO.StreamWriter]::new([StartupControlWriteStream]::new(0))
+                try {
+                    Invoke-HermesStartupScopedInput $state $writer Arm
+                    Add-HermesStartupText $state $state.Out (Get-ControlScopedReadback) $true
+                    Invoke-HermesStartupScopedInput $state $writer Target
+                    Add-HermesStartupText $state $state.Out ((Get-ControlInventoryEvent) + '1:000> ') $true
+                    Assert-Control ($state.Protocol -eq 1 -and $state.Inventory.Subjects['22'].Create -eq 2 `
+                        -and $state.Created.Pid -eq 22 -and $state.Created.Kind -eq 1 `
+                        -and -not (Test-HermesStartupScopedAction $state Side) -and $state.InputTasks.Count -eq 2)
+                } finally { Close-HermesStartupScopedInput $state $writer }
+            }
+            471 {
+                $state = New-ControlScopedCreated
+                $writer = [IO.StreamWriter]::new([StartupControlWriteStream]::new(0))
+                try {
+                    Invoke-HermesStartupScopedInput $state $writer Arm
+                    Add-HermesStartupText $state $state.Out (Get-ControlScopedReadback -Chain (
+                        "Extension DLL chain:`n    " + $extension.ToUpperInvariant() + ": image 10.0.1.1, API 1.0.0`n")) $true
+                    Assert-Control ((Test-HermesStartupScopedAction $state Target) `
+                        -and $state.Observations.SdkSelectedExtensionChain -eq 3)
+                } finally { Close-HermesStartupScopedInput $state $writer }
+            }
+            472 {
+                foreach ($earlyCreate in @($true, $false)) {
+                    $state = if ($earlyCreate) { New-ControlScopedCreated -WithoutReady } else { New-ControlScopedCreated -WithoutCreate }
+                    try {
+                        if ($earlyCreate) {
+                            Assert-Control ($null -eq $state.Created -and $state.Held.Kind -eq 1 `
+                                -and -not (Test-HermesStartupScopedAction $state Arm))
+                            Update-HermesStartupRows $state ($readyV2 + "`n")
+                            Set-HermesStartupCreatedAcknowledged $state
+                            Assert-Control (-not (Test-HermesStartupScopedAction $state Arm))
+                            Update-HermesStartupRows $state ($readyV2 + "`n" + $resumedV2 + "`n")
+                        } else {
+                            Add-HermesStartupText $state $state.Out ((Get-ControlInventoryEvent) + '1:000> ') $true
+                        }
+                        Assert-Control ((Test-HermesStartupScopedAction $state Arm) -and $state.Created.Pid -eq 22 `
+                            -and $state.Inventory.Subjects['22'].Initial -eq 0 -and $state.Protocol -eq 0)
+                    } finally { $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose() }
+                }
+            }
+            473 {
+                foreach ($bound in @(
+                    @{ Bounds = 1; Bytes = [long]8388608 },
+                    @{ Bounds = 0; Bytes = [long]8388608 },
+                    @{ Bounds = 1; Bytes = [long]8388609 },
+                    @{ Bounds = 1; Bytes = [long]4097 }
+                )) {
+                    $state = New-ControlScopedCreated
+                    $writer = [IO.StreamWriter]::new([StartupControlWriteStream]::new(0))
+                    $module = Get-Module Native-StartupTrace
+                    try {
+                        Invoke-HermesStartupScopedInput $state $writer Arm
+                        Add-HermesStartupText $state $state.Out (Get-ControlScopedReadback) $true
+                        Invoke-HermesStartupScopedInput $state $writer Target
+                        Assert-Control ((Complete-ControlScoped $state $writer).completed -eq 1 `
+                            -and $null -ne $state.NativeRowSnapshots.Final -and $null -ne $state.NativeRowSnapshots.Resumed)
+                        $state.Bounds = $bound.Bounds; $state.AcceptedUtf8Bytes = $bound.Bytes
+                        $outBefore = Get-ControlStreamSnapshot $state.Out
+                        $errBefore = Get-ControlStreamSnapshot $state.Err
+                        $outHash = [Convert]::ToHexString($state.Out.Hash.GetCurrentHash())
+                        $errHash = [Convert]::ToHexString($state.Err.Hash.GetCurrentHash())
+                        & $module {
+                            $script:controlOriginalRowParser = (Get-Item Function:ConvertFrom-HermesStartupRow).ScriptBlock
+                            $script:controlReportRowParses = 0
+                            Set-Item Function:script:ConvertFrom-HermesStartupRow {
+                                param([string]$Line)
+                                $script:controlReportRowParses++
+                                & $script:controlOriginalRowParser $Line
+                            }
+                        }
+                        foreach ($call in 1..2) {
+                            $report = New-HermesStartupReport $state $true $true
+                            Assert-Control ((& $module { $script:controlReportRowParses }) -eq 0 `
+                                -and $report.status -eq 7 -and $report.completed -eq 0 `
+                                -and $report.cleanupComplete -eq 1 -and $report.parentUnchanged -eq 1 `
+                                -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0)
+                        }
+                        Assert-Control ((Get-ControlStreamSnapshot $state.Out) -ceq $outBefore `
+                            -and (Get-ControlStreamSnapshot $state.Err) -ceq $errBefore `
+                            -and [Convert]::ToHexString($state.Out.Hash.GetCurrentHash()) -ceq $outHash `
+                            -and [Convert]::ToHexString($state.Err.Hash.GetCurrentHash()) -ceq $errHash)
+                    } finally {
+                        & $module {
+                            if (Test-Path Variable:script:controlOriginalRowParser) {
+                                Set-Item Function:script:ConvertFrom-HermesStartupRow $script:controlOriginalRowParser
+                                Remove-Variable controlOriginalRowParser, controlReportRowParses -Scope Script
+                            }
+                        }
+                        $writer.Dispose()
+                        $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                    }
+                }
+            }
+            474 {
+                foreach ($chain in @('', ("Extension DLL chain:`n" + ("    unsupported SDK display`n" * 8)))) {
+                    $state = New-ControlScopedCreated
+                    $physical = [StartupControlWriteStream]::new(0)
+                    $writer = [IO.StreamWriter]::new($physical)
+                    try {
+                        Invoke-HermesStartupScopedInput $state $writer Arm
+                        $text = Get-ControlScopedReadback -Chain $chain
+                        Add-HermesStartupText $state $state.Out $text $true
+                        Assert-Control ((Test-HermesStartupScopedAction $state Target) `
+                            -and (Get-HermesStartupTypedFlags $state) -eq 2 `
+                            -and $state.Observations.SdkChainSupportedRows -eq 0 `
+                            -and $state.Observations.SdkSelectedExtensionChain -eq [int]($chain -cne '') `
+                            -and $state.Observations.SdkChainLines -eq $(if ($chain -ceq '') { 0 } else { 9 }) `
+                            -and $state.ScopedInvocation.Source.QualifiedModule -ceq
+                                $extension.Substring(0, $extension.Length - 4).Replace('\', '\\'))
+                        Invoke-HermesStartupScopedInput $state $writer Target
+                        $report = Complete-ControlScoped $state $writer
+                        Assert-Control ($report.completed -eq 1 -and $report.armingVerified -eq 1 `
+                            -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0 `
+                            -and $physical.Writes -eq 4)
+                    } finally {
+                        $writer.Dispose()
+                        $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                    }
+                }
+            }
+            475 {
+                foreach ($change in @(
+                    { $state.Final = $null }, { $state.Resumed = $null },
+                    { $state.NativeRowSnapshots.Ready = $null },
+                    { $state.NativeRowSnapshots.Resumed = $null }, { $state.NativeRowSnapshots.Final = $null },
+                    { $state.NativeRowSnapshots.Final.Remove('Row') },
+                    { $state.NativeRowSnapshots.Final.Remove('Text') },
+                    { $state.NativeRowSnapshots.Final.Row.born = 124 },
+                    { $state.NativeRowSnapshots.Ready.Row.born = 124 },
+                    { $state.NativeRowSnapshots.Resumed.Row.resumed = 0 },
+                    { $state.NativeRowSnapshots.Final.Text += 'x' },
+                    { $state.Final.Remove('fault') }, { $state.Final.cleanup = 0 },
+                    { $state.Final.cleanup = '1' }, { $state.NativeRowSnapshots.Final.Row.parent = $true },
+                    { $state.Final.born = 124 }, { $state.Resumed.born = 124 }, { $state.Target.born = 124 },
+                    { $state.TargetText = $readyV2.Replace('born=123', 'born=124') },
+                    { $state.ResumedText = $resumedV2.Replace('resumed=1', 'resumed=0') },
+                    { $state.FinalText = $finalV2.Replace('pid=22', 'pid=022') },
+                    { $state.RowsText = $state.RowsText.TrimEnd("`n") },
+                    { $state.RowsText = $state.RowsText.Substring(0, $state.RowsText.Length - 8) },
+                    { $state.RowsText = $state.RowsText.Replace('pid=22', 'pid=022') },
+                    { $state.RowsText += 'partial' }, { $state.NativeRowsFault = 1 },
+                    { $state.CreatedBinding.Born = 124 }, { $state.CreatedBinding.RootHash = 'f' * 64 },
+                    { $state.CreatedBinding.Scoped.ExtensionSha256 = 'f' * 64 },
+                    { $state.ScopedPublication.QualifiedModule += '.wrong' },
+                    { $state.ExtensionSource.Sha256 = 'f' * 64 }
+                )) {
+                    $state = New-ControlScopedCreated
+                    $writer = [IO.StreamWriter]::new([StartupControlWriteStream]::new(0))
+                    try {
+                        Invoke-HermesStartupScopedInput $state $writer Arm
+                        Add-HermesStartupText $state $state.Out (Get-ControlScopedReadback) $true
+                        Invoke-HermesStartupScopedInput $state $writer Target
+                        Assert-Control ((Complete-ControlScoped $state $writer).completed -eq 1)
+                        . $change
+                        $state.AcceptedUtf8Bytes = [long]8388608; $state.Bounds = 1
+                        $report = New-HermesStartupReport $state $true $true
+                        Assert-Control ($report.status -eq 7 -and $report.completed -eq 0 `
+                            -and $report.parentUnchanged -eq 0 -and $report.cleanupComplete -eq 0 `
+                            -and $report.firstFailureKind -eq 0 -and $report.armingVerified -eq 0 `
+                            -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0)
+                    } finally {
+                        $writer.Dispose()
+                        $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                    }
+                }
+            }
+            476 {
+                foreach ($change in @(
+                    { $state.ScopedInvocation.Source.Extension += '.wrong' },
+                    { $state.ScopedInvocation.Source.QualifiedModule = 'exts' },
+                    { $state.ScopedInvocation.Source.QualifiedModule += '.dll' },
+                    { $state.ScopedInvocation.Source.QualifiedModule = 'C:\\other\\exts' },
+                    { $state.ScopedInvocation.Source.ExtensionSha256 = 'f' * 64 },
+                    { $state.ScopedInvocation.Source.ArmCommandSha256 = 'f' * 64 },
+                    { $state.ScopedInvocation.Source = $null },
+                    { $state.ScopedPublication.Remove('QualifiedModule') },
+                    { $state.ExtensionSha256 = 'f' * 64 },
+                    { $state.ExtensionSource.Path += '.wrong' },
+                    { $state.ExtensionSource.Sha256 = 'f' * 64 },
+                    { $state.ExtensionSource.Pin = $null },
+                    { $state.ScopedInvocation.Born = 124 },
+                    { $state.ScopedInvocation.EventPid = 23 }
+                )) {
+                    $state = New-ControlScopedCreated
+                    $writer = [IO.StreamWriter]::new([StartupControlWriteStream]::new(0))
+                    try {
+                        Invoke-HermesStartupScopedInput $state $writer Arm
+                        Add-HermesStartupText $state $state.Out (Get-ControlScopedReadback) $true
+                        . $change
+                        Assert-Control (-not (Test-HermesStartupScopedAction $state Target) `
+                            -and (Get-HermesStartupTypedFlags $state) -eq -1 -and -not $state.Acked `
+                            -and $state.InputTasks.Count -eq 1)
+                    } finally {
+                        Close-HermesStartupScopedInput $state $writer
+                        $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                    }
+                }
+            }
+            477 {
+                foreach ($role in @('Arm', 'Target')) {
+                    foreach ($fault in @('Changed', 'Closed')) {
+                        $state = New-ControlScopedCreated
+                        $physical = [StartupControlWriteStream]::new(0)
+                        $writer = [IO.StreamWriter]::new($physical)
+                        try {
+                            if ($role -ceq 'Target') {
+                                Invoke-HermesStartupScopedInput $state $writer Arm
+                                Add-HermesStartupText $state $state.Out (Get-ControlScopedReadback) $true
+                            }
+                            $bad = [IO.MemoryStream]::new([byte[]]@(1, 2, 3), $false)
+                            $pins.Add($bad)
+                            $state.ExtensionSource.Pin = $bad
+                            if ($fault -ceq 'Closed') { $bad.Dispose() }
+                            $debugger = [pscustomobject]@{ HasExited = $false; StandardInput = $writer }
+                            $refused = $false
+                            try { Invoke-ControlScopedPublisher } catch { $refused = $true }
+                            Assert-Control ($refused -and -not $state.Acked `
+                                -and $physical.Writes -eq $(if ($role -ceq 'Arm') { 0 } else { 1 }) `
+                                -and $state.ArmAttempted -eq ($role -ceq 'Target'))
+                        } finally {
+                            Close-HermesStartupScopedInput $state $writer
+                            $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                        }
+                    }
+                }
+            }
+            478 {
+                $selectedRow = "Extension DLL chain:`n    " + $extension + ": image 10.0.1.1, API 1.0.0`n"
+                $state = New-ControlScopedCreated
+                $writer = [IO.StreamWriter]::new([StartupControlWriteStream]::new(0))
+                try {
+                    Add-HermesStartupText $state $state.Out $selectedRow $true
+                    Assert-Control ($null -eq $state.ScopedInvocation -and $null -eq $state.Arm -and -not $state.ArmAttempted)
+                    Add-HermesStartupText $state $state.Out '1:000> ' $true
+                    Invoke-HermesStartupScopedInput $state $writer Arm
+                    Add-HermesStartupText $state $state.Out (Get-ControlScopedReadback -Flags '' -Chain $selectedRow) $true
+                    Assert-Control ($state.Observations.SdkSelectedExtensionChain -eq 2 `
+                        -and -not (Test-HermesStartupScopedAction $state Target) `
+                        -and (Get-HermesStartupTypedFlags $state) -eq -1 -and -not $state.Acked)
+                } finally { Close-HermesStartupScopedInput $state $writer }
+            }
+            479 {
+                foreach ($replace in @(
+                    '!gflag +sls', '!exts.gflag +sls', '!"C:\\other\\exts".gflag +sls',
+                    ('!"' + $extension.Replace('\', '\\') + '".gflag +sls'),
+                    ('!"' + $extension.Substring(0, $extension.Length - 4).Replace('\', '\\') + '".gflag -sls')
+                )) {
+                    $state = New-ControlScopedCreated
+                    $physical = [StartupControlWriteStream]::new(0)
+                    $writer = [IO.StreamWriter]::new($physical)
+                    try {
+                        $sources = Get-TraceSelectedSources $extension
+                        $qualified = '!"' + $state.ScopedPublication.QualifiedModule + '".gflag +sls'
+                        $bytes = [Text.Encoding]::ASCII.GetBytes($sources['startup-arm.cdb'].Replace($qualified, $replace))
+                        $bad = [IO.MemoryStream]::new($bytes, $false)
+                        $pins.Add($bad)
+                        $hash = Get-ControlCommandHash $bad
+                        $state.CommandPins['startup-arm.cdb'] = $bad
+                        $state.ArmCommandSha256 = $hash
+                        $state.ScopedPublication.ArmCommandSha256 = $hash
+                        $state.CreatedBinding.Scoped.ArmCommandSha256 = $hash
+                        $debugger = [pscustomobject]@{ HasExited = $false; StandardInput = $writer }
+                        $refused = $false
+                        try { Invoke-ControlScopedPublisher } catch { $refused = $true }
+                        Assert-Control ($refused -and $physical.Writes -eq 0 -and -not $state.ArmAttempted)
+                    } finally {
+                        Close-HermesStartupScopedInput $state $writer
+                        $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
                     }
                 }
             }
