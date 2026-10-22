@@ -382,7 +382,7 @@ function Receive-TraceRead {
                         Add-HermesStartupText $state $Stream (
                             [string]::new($Stream.Buffer, 0, $written)) $Parse
                         if ($state.NativeProtocol -and $null -ne $state.CreateCloseClock `
-                            -and $state.Observations.CreatedCheckFirst -eq 0) {
+                            -and $state.Observations.CreateCheckDelay -eq 0) {
                             Set-HermesStartupWorkBucket $state 'CreateParseWork' $parseWork.ElapsedMilliseconds
                             if (-not $createdBefore -and $null -ne $state.Created) {
                                 Set-HermesStartupWorkBucket $state 'CreateReadAge' $readAge -First
@@ -408,7 +408,7 @@ function Receive-TraceRead {
         }
     } finally {
         if ($state.NativeProtocol -and $null -ne $state.CreateCloseClock `
-            -and $state.Observations.CreatedCheckFirst -eq 0) {
+            -and $state.Observations.CreateCheckDelay -eq 0) {
             Set-HermesStartupWorkBucket $state 'CreateReceiveDelay' $state.CreateCloseClock.ElapsedMilliseconds -First
         }
     }
@@ -439,7 +439,7 @@ function Invoke-TraceCollection {
         $rowsWork = [Diagnostics.Stopwatch]::StartNew()
         Read-TraceControl (Join-Path $root 'helper.rows')
         if ($state.NativeProtocol -and $null -ne $state.CreateCloseClock `
-            -and $state.Observations.CreatedCheckFirst -eq 0) {
+            -and $state.Observations.CreateCheckDelay -eq 0) {
             Set-HermesStartupWorkBucket $state 'CreateRowsWork' $rowsWork.ElapsedMilliseconds
         }
         Publish-TraceCreated
@@ -460,6 +460,7 @@ function Invoke-TraceCollection {
 }
 
 function Publish-TraceCreated {
+    # Latch the actual check with Ready alone; never wait for a joint CPR.
     Set-HermesStartupCreatedPhase $state 'CreatedCheckFirst'
     if (-not (Test-HermesStartupCreated $state)) { return }
     $state.Observations.CreatedPublishAttempted = 1

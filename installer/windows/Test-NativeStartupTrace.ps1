@@ -50,7 +50,7 @@ function New-ControlNativeCreated {
     param(
         [bool]$Acknowledge = $true, [bool]$WithResumed = $true,
         [ValidateSet('AfterClose', 'BeforeClose', 'Absent')][string]$ReadyOrder = 'AfterClose',
-        [switch]$DeferClose
+        [switch]$DeferClose, [switch]$WithoutCreateCallback
     )
     $native = Native-StartupTrace\New-HermesStartupState
     $native.CommandSha256 = 'a' * 64
@@ -66,12 +66,14 @@ function New-ControlNativeCreated {
             [Text.Encoding]::ASCII.GetBytes($sources['startup-' + $name.ToLowerInvariant() + '.cdb']))).ToLowerInvariant()
     }
     if ($ReadyOrder -ceq 'BeforeClose') { Update-HermesStartupRows $native ($readyV2 + "`n") }
-    foreach ($line in @(
-        'HERMES_CDB v=1 kind=0 pid=11',
-        'HERMES_CDB v=3 kind=1 pid=22',
-        'Last event: 16.1: Create process 1:16'
-    )) { Add-HermesStartupLine $native $line }
-    if (-not $DeferClose) { Add-HermesStartupLine $native 'HERMES_CDB v=3 kind=2 pid=22' }
+    Add-HermesStartupLine $native 'HERMES_CDB v=1 kind=0 pid=11'
+    if (-not $WithoutCreateCallback) {
+        foreach ($line in @(
+            'HERMES_CDB v=3 kind=1 pid=22',
+            'Last event: 16.1: Create process 1:16'
+        )) { Add-HermesStartupLine $native $line }
+        if (-not $DeferClose) { Add-HermesStartupLine $native 'HERMES_CDB v=3 kind=2 pid=22' }
+    }
     if ($ReadyOrder -ceq 'AfterClose') { Update-HermesStartupRows $native ($readyV2 + "`n") }
     if ($Acknowledge) {
         Set-HermesStartupCreatedAcknowledged $native
@@ -86,9 +88,16 @@ function New-ControlNativeStopped {
     param(
         [string]$Flags = '00000002', [bool]$WithResumed = $true,
         [string]$EventLine = 'Last event: 16.1: Break instruction exception - code 80000003 (first chance)',
-        [string]$Prompt = '1:000> '
+        [string]$Prompt = '1:000> ', [switch]$ResumeBeforeCreate
     )
-    $native = New-ControlNativeCreated -WithResumed $WithResumed
+    $native = New-ControlNativeCreated -WithResumed $WithResumed -WithoutCreateCallback:$ResumeBeforeCreate
+    if ($ResumeBeforeCreate) {
+        foreach ($line in @(
+            'HERMES_CDB v=3 kind=1 pid=22',
+            'Last event: 16.1: Create process 1:16',
+            'HERMES_CDB v=3 kind=2 pid=22'
+        )) { Add-HermesStartupLine $native $line }
+    }
     Add-HermesStartupLine $native 'HERMES_CDB v=3 kind=5 pid=22'
     Add-HermesStartupLine $native $EventLine
     if ($Flags -cne '') {
@@ -602,7 +611,7 @@ function Get-HermesSetupPublishFiles {
     }
 }
 
-$cases = 1..373 # Preserve all 369 intents; literal CPR source/publication/mode controls.
+$cases = 1..385 # Preserve 373 intents; migrate CPR absence to trace authority, add readiness staging controls.
 $passed = 0
 foreach ($case in $cases) {
     $state = $null
@@ -4180,8 +4189,11 @@ foreach ($case in $cases) {
                     Start-TraceRead $state.Out $pipe.Reader.BaseStream
                     Write-ControlPipe $pipe ([Text.Encoding]::UTF8.GetBytes($text.Substring(0, $boundary)))
                     Receive-ControlPipe $state.Out $pipe $true
+                    # Partial CPR output is not trace authority, even where
+                    # Ready now permits the fixed diagnostic's native Resume.
                     Assert-Control ($state.Initial -eq 11 -and $null -eq $state.Created `
-                        -and $state.Out.Count -eq $boundary -and -not (Test-HermesStartupCreated $state))
+                        -and $state.Out.Count -eq $boundary -and -not (Test-HermesStartupCreatedBinding $state) `
+                        -and -not (Test-HermesStartupArm $state))
                     Write-ControlPipe $pipe ([Text.Encoding]::UTF8.GetBytes($text.Substring($boundary)))
                     Receive-ControlPipe $state.Out $pipe $true
                     Assert-Control ($pipe.Writer.CanWrite -and -not $state.Out.End `
@@ -4750,7 +4762,7 @@ foreach ($case in $cases) {
                 Invoke-ControlCreatedPublication
                 Assert-Control ($state.Protocol -eq 1 -and $state.Observations.ReadyFirst -eq 3 `
                     -and $state.Observations.CreateCloseFirst -eq 0 -and $state.Observations.CreatedJointFirst -eq 0 `
-                    -and $state.Observations.CreatedCheckSeen -eq 1 -and $state.Observations.CreatedCheckFirst -eq 0 `
+                    -and $state.Observations.CreatedCheckSeen -eq 1 -and $state.Observations.CreatedCheckFirst -eq 4099 `
                     -and $state.Observations.CreatedPublishAttempted -eq 0 -and $null -eq $state.Created)
             }
             353 {
@@ -5195,6 +5207,310 @@ foreach ($case in $cases) {
                     -and $report.completed -eq 0 -and $report.armingVerified -eq 0 `
                     -and $report.originalGatePassed -eq 0 -and $report.nativeAcceptance -eq 0 `
                     -and $script:controlStops -eq 1 -and $script:controlDisposed -eq 1)
+            }
+            374 {
+                $state = New-ControlNativeCreated -Acknowledge $false -ReadyOrder Absent -WithoutCreateCallback
+                & {
+                    $definition = @($driverAst.FindAll({
+                        param($node)
+                        $node -is [Management.Automation.Language.FunctionDefinitionAst] `
+                            -and $node.Name -ceq 'Publish-TraceCreated'
+                    }, $true))
+                    . ([scriptblock]::Create($definition[0].Extent.Text))
+                    function Read-TraceControl {
+                        param([string]$Path)
+                        Invoke-ControlRowsRead ([IO.MemoryStream]::new(
+                            [Text.Encoding]::ASCII.GetBytes($readyV2 + "`n")))
+                    }
+                    function Open-TracePin {
+                        param([string]$Path)
+                        $pin = [IO.File]::Open($Path, [IO.FileMode]::Open,
+                            [IO.FileAccess]::Read, [IO.FileShare]::Read)
+                        $pins.Add($pin)
+                        return $pin
+                    }
+                    $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "../../.artifacts/startup-ready-$PID"))
+                    Assert-Control (-not [IO.Directory]::Exists($root))
+                    $null = [IO.Directory]::CreateDirectory($root)
+                    $debugger = [pscustomobject]@{
+                        StandardOutput = New-ControlReader ''; StandardError = New-ControlReader ''
+                        HasExited = $true; ExitCode = 0
+                    }
+                    try {
+                        Start-TraceRead $state.Out $debugger.StandardOutput.BaseStream
+                        Start-TraceRead $state.Err $debugger.StandardError.BaseStream
+                        Invoke-TraceCollection
+                        $path = Join-Path $root 'created.row'
+                        Assert-Control ([IO.File]::ReadAllText($path) -ceq
+                            "HERMES_STARTUP_CREATED v=2 phase=created helper=11 pid=22 born=123`n")
+                        Assert-Control ($pins.Count -eq 1 -and $pins[0].CanRead -and -not $pins[0].CanWrite `
+                            -and ([IO.File]::GetAttributes($path) -band [IO.FileAttributes]::ReadOnly) -ne 0 `
+                            -and $state.CreatedAcked -and $null -ne $state.CreatedBinding `
+                            -and $null -eq $state.Created -and $null -eq $state.Resumed `
+                            -and -not (Test-HermesStartupCreatedBinding $state) -and -not (Test-HermesStartupArm $state) `
+                            -and -not $state.ContinueAttempted -and -not [IO.File]::Exists((Join-Path $root 'armed.row')))
+                        $observed = (New-HermesStartupReport $state $true $true).observations
+                        Assert-Control ($observed.ReadyFirst -eq 131 -and $observed.CreatedCheckFirst -eq 131 `
+                            -and $observed.CreatedCheckSeen -eq 1 -and $observed.CreatedPublishAttempted -eq 1 `
+                            -and $observed.CreateCloseFirst -eq 0 -and $observed.CreatedJointFirst -eq 0)
+                        Publish-TraceCreated
+                        Assert-Control ($pins.Count -eq 1 -and $state.Protocol -eq 0)
+                    } finally {
+                        $debugger.StandardOutput.Dispose(); $debugger.StandardError.Dispose()
+                        foreach ($pin in $pins) { $pin.Dispose() }
+                        Remove-Item -LiteralPath $root -Recurse -Force
+                    }
+                }
+            }
+            375 {
+                $state = New-ControlNativeCreated -WithoutCreateCallback
+                Assert-Control ($state.CreatedAcked -and $state.Resumed.resumed -eq 1 -and $null -eq $state.Created)
+                foreach ($line in @(
+                    'HERMES_CDB v=3 kind=5 pid=22',
+                    'Last event: 16.1: Break instruction exception - code 80000003 (first chance)',
+                    'HERMES_NTGLOBALFLAG v=1 pid=22 value=00000002',
+                    'HERMES_CDB v=3 kind=6 pid=22'
+                )) { Add-HermesStartupLine $state $line }
+                Add-HermesStartupText $state $state.Out '1:000> ' $true
+                $physical = [StartupControlWriteStream]::new(0)
+                $writer = [IO.StreamWriter]::new($physical)
+                try {
+                    Assert-Control ($state.Protocol -eq 0 -and $state.Stopped -and $state.Arm.Flags -eq 2 `
+                        -and -not (Test-HermesStartupCreatedBinding $state) `
+                        -and -not (Test-HermesStartupInitialBinding $state) -and -not (Test-HermesStartupArm $state))
+                    $refused = $false
+                    try { Invoke-HermesStartupContinue $state $writer } catch { $refused = $true }
+                    Assert-Control ($refused -and $physical.Writes -eq 0 -and -not $state.Acked `
+                        -and -not (Test-HermesStartupArmed $state))
+                    Add-HermesStartupLine $state $failureLine
+                    $report = New-HermesStartupReport $state $false $false
+                    Assert-Control ($null -eq $state.Failure -and $report.firstFailureKind -eq 0 `
+                        -and $report.armingVerified -eq 0 -and $report.completed -eq 0 `
+                        -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0)
+                } finally { $writer.Dispose() }
+            }
+            376 {
+                $state = New-ControlNativeStopped -ResumeBeforeCreate
+                Assert-Control ($state.CreatedAcked -and $state.Resumed.resumed -eq 1 `
+                    -and (Test-HermesStartupCreatedBinding $state) -and (Test-HermesStartupInitialBinding $state) `
+                    -and (Test-HermesStartupArm $state) -and -not $state.Acked)
+                $physical = [StartupControlWriteStream]::new(0)
+                $physical.AfterWrite = {
+                    Assert-Control ($state.Acked -and $null -ne $state.ArmedBinding `
+                        -and (Test-HermesStartupArmed $state) -and $state.ContinueAttempted)
+                }
+                Invoke-HermesStartupContinue $state ([IO.StreamWriter]::new($physical))
+                Add-HermesStartupLine $state $failureLine
+                $report = Complete-ControlNative $state
+                Assert-Control ($physical.Writes -eq 1 -and $physical.Closed -and $state.InputClosed `
+                    -and $state.InputPending.IsCompleted -and [Text.Encoding]::ASCII.GetString($physical.ToArray()) -ceq "g`n" `
+                    -and $report.completed -eq 1 -and $report.armingVerified -eq 1 `
+                    -and $report.firstFailureKind -eq 1 -and $report.cleanupComplete -eq 1 -and $report.parentUnchanged -eq 1 `
+                    -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0)
+            }
+            377 {
+                $mutations = @(
+                    { $state.Initial = 0 }, { $state.Initial = 12 },
+                    { $state.Target.helper = 12 }, { $state.Target.pid = 11 },
+                    { $state.Target.pid = 0 }, { $state.Target.helper = 0 }, { $state.Target.born = 0 },
+                    { $state.Target.image = 0 }, { $state.Target.debug = 0 }, { $state.Target.context = 0 },
+                    { $state.Target.version = 1 }, { $state.Target.stage = 3 }, { $state.Target.resumed = 1 }
+                )
+                foreach ($mutation in $mutations) {
+                    $state = New-ControlNativeCreated -Acknowledge $false -WithoutCreateCallback
+                    try {
+                        . $mutation
+                        Assert-Control (-not (Test-HermesStartupNativeReadinessBinding $state) `
+                            -and -not (Test-HermesStartupCreated $state) -and -not (Test-HermesStartupArm $state))
+                        Invoke-ControlCreatedPublication
+                        Assert-Control ($state.Observations.CreatedPublishAttempted -eq 0 -and -not $state.CreatedAcked)
+                    } finally { $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose() }
+                }
+            }
+            378 {
+                foreach ($name in @('CommandSha256', 'CreateCommandSha256', 'InitialCommandSha256', 'ExitCommandSha256')) {
+                    foreach ($value in @('', ('A' * 64), ('a' * 63), 'D:\owned\startup.cdb')) {
+                        $state = New-ControlNativeCreated -Acknowledge $false -WithoutCreateCallback
+                        try {
+                            $state[$name] = $value
+                            Invoke-ControlCreatedPublication
+                            Assert-Control (-not (Test-HermesStartupNativeReadinessBinding $state) `
+                                -and -not (Test-HermesStartupCreated $state) -and -not $state.CreatedAcked `
+                                -and $state.Observations.CreatedPublishAttempted -eq 0)
+                        } finally { $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose() }
+                    }
+                }
+            }
+            379 {
+                $mutations = @(
+                    { $state.FilterVerified.Cpr = $false }, { $state.FilterVerified.Epr = $false },
+                    { $state.FilterVerified.Ibp = $false }, { $state.IbpBreak = $false },
+                    { $state.Observations.CprFilter = 1 }, { $state.Observations.EprFilter = 1 }
+                )
+                foreach ($mutation in $mutations) {
+                    $state = New-ControlNativeCreated -Acknowledge $false -WithoutCreateCallback
+                    try {
+                        . $mutation
+                        Invoke-ControlCreatedPublication
+                        Assert-Control (-not (Test-HermesStartupNativeReadinessBinding $state) `
+                            -and -not (Test-HermesStartupCreated $state) -and -not $state.CreatedAcked `
+                            -and $state.Observations.CreatedPublishAttempted -eq 0)
+                    } finally { $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose() }
+                }
+            }
+            380 {
+                $mutations = @(
+                    { $state.Target = $null },
+                    {
+                        $state.Target = $null; $state.TargetText = ''; $state.RowsText = ''
+                        Update-HermesStartupRows $state ($finalV2.Replace('resumed=1', 'resumed=0') + "`n")
+                    },
+                    { Update-HermesStartupRows $state ($readyV2 + "`n" + $finalV2.Replace('resumed=1', 'resumed=0') + "`n") },
+                    { $state.Exits['22'] = 37 }, { $state.Exits['11'] = 0 },
+                    { Add-HermesStartupLine $state 'HERMES_CDB v=3 kind=1 pid=22' },
+                    { Update-HermesStartupRows $state ($readyV2 + "`n" + $resumedV2 + "`n") },
+                    { $state.CreatedAcked = $true }, { $state.CreatedBinding = @{ Helper = 11; Pid = 22; Born = 123 } },
+                    { $state.Error = 13 }, { $state.Protocol = 1 }, { $state.Unknown = 1 },
+                    { $state.Bounds = 1 }, { $state.AcceptedUtf8Bytes = [long]8388608 },
+                    { $state.AcceptedUtf8Bytes = [long]8388609 }
+                )
+                foreach ($mutation in $mutations) {
+                    $state = New-ControlNativeCreated -Acknowledge $false -WithoutCreateCallback
+                    try {
+                        . $mutation
+                        foreach ($name in @('ReadyFirst', 'CreateCloseFirst', 'CreatedJointFirst')) {
+                            $state.Observations[$name] = 199
+                        }
+                        Assert-Control (-not (Test-HermesStartupCreated $state))
+                        Invoke-ControlCreatedPublication
+                        Assert-Control ($state.Observations.CreatedPublishAttempted -eq 0 `
+                            -and -not $state.ContinueAttempted -and $null -eq $state.InputPending)
+                    } finally { $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose() }
+                }
+            }
+            381 {
+                $mutations = @(
+                    { $state.Created.Kind = 5 }, { $state.Created.Version = 2 },
+                    { $state.Created.Event = 0 }, { $state.Created.Pid = 23 }, { $state.Created.EventPid = 23 }
+                )
+                foreach ($mutation in $mutations) {
+                    $state = New-ControlNativeCreated -Acknowledge $false
+                    try {
+                        . $mutation
+                        Assert-Control ((Test-HermesStartupNativeReadinessBinding $state) `
+                            -and -not (Test-HermesStartupCreatedBinding $state) -and -not (Test-HermesStartupCreated $state))
+                        Invoke-ControlCreatedPublication
+                        Assert-Control (-not $state.CreatedAcked -and $state.Observations.CreatedPublishAttempted -eq 0)
+                    } finally { $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose() }
+                }
+                $state = New-ControlNativeCreated -Acknowledge $false -WithoutCreateCallback
+                foreach ($line in @(
+                    'HERMES_CDB v=3 kind=1 pid=23', 'Last event: 17.1: Create process 1:17',
+                    'HERMES_CDB v=3 kind=2 pid=23'
+                )) { Add-HermesStartupLine $state $line }
+                Invoke-ControlCreatedPublication
+                Assert-Control ($state.Protocol -eq 0 -and $state.Created.Pid -eq 23 `
+                    -and -not (Test-HermesStartupCreated $state) -and -not $state.CreatedAcked `
+                    -and $state.Observations.CreatedPublishAttempted -eq 0)
+            }
+            382 {
+                $mutations = @(
+                    { $state.Target.born = 124; $state.Resumed.born = 124 },
+                    { $state.Resumed.born = 124 }, { $state.CreatedAcked = $false }, { $state.CreatedBinding = $null },
+                    { $state.CommandSha256 = 'c' * 64 }, { $state.CreateCommandSha256 = 'c' * 64 },
+                    { $state.InitialCommandSha256 = 'c' * 64 }, { $state.ExitCommandSha256 = 'c' * 64 }
+                )
+                foreach ($mutation in $mutations) {
+                    $state = New-ControlNativeStopped -ResumeBeforeCreate
+                    try {
+                        Assert-Control ((Test-HermesStartupArm $state))
+                        . $mutation
+                        Assert-Control (-not (Test-HermesStartupInitialBinding $state) -and -not (Test-HermesStartupArm $state) `
+                            -and -not (Test-HermesStartupArmed $state) -and -not $state.ContinueAttempted `
+                            -and (New-HermesStartupReport $state $false $false).completed -eq 0)
+                    } finally { $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose() }
+                }
+            }
+            383 {
+                foreach ($duplicate in @('Acknowledgement', 'Resumed')) {
+                    $state = New-ControlNativeCreated -WithoutCreateCallback
+                    try {
+                        if ($duplicate -ceq 'Acknowledgement') { Set-HermesStartupCreatedAcknowledged $state }
+                        else { Update-HermesStartupRows $state ($readyV2 + "`n" + $resumedV2 + "`n" + $resumedV2 + "`n") }
+                        Assert-Control ($state.Protocol -eq 1 -and -not (Test-HermesStartupCreated $state) `
+                            -and -not (Test-HermesStartupArm $state) -and -not $state.ContinueAttempted)
+                    } finally { $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose() }
+                }
+                $mutations = @(
+                    { $state.Resumed = $null }, { $state.Resumed.resumed = 0 },
+                    { $state.Arm.Flags = -1 }, { $state.Arm.Flags = 0 }, { $state.Arm.Flags = 1 },
+                    { $state.Arm.Flags = [long][uint32]::MaxValue + 1 },
+                    { $state.Stopped = $false }, { $state.Out.Tail = '' }, { $state.Out.End = $true },
+                    { $state.Final = @{ stage = 3 } }, { $state.Exits['22'] = 37 }, { $state.Exits['11'] = 0 }
+                )
+                foreach ($mutation in $mutations) {
+                    $state = New-ControlNativeStopped -ResumeBeforeCreate
+                    $physical = [StartupControlWriteStream]::new(0)
+                    $writer = [IO.StreamWriter]::new($physical)
+                    try {
+                        . $mutation
+                        $refused = $false
+                        try { Invoke-HermesStartupContinue $state $writer } catch { $refused = $true }
+                        Assert-Control ($refused -and -not (Test-HermesStartupArm $state) -and $physical.Writes -eq 0 `
+                            -and -not $state.Acked -and -not $state.ContinueAttempted)
+                    } finally { $writer.Dispose(); $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose() }
+                }
+            }
+            384 {
+                foreach ($later in @('Final', 'ChildExit', 'HelperExit')) {
+                    $state = New-ControlNativeCreated -Acknowledge $false -WithoutCreateCallback
+                    try {
+                        Set-HermesStartupCreatedPhase $state 'CreatedCheckFirst'
+                        Assert-Control ((Test-HermesStartupCreated $state) -and $state.Observations.CreatedCheckFirst -eq 131)
+                        switch ($later) {
+                            'Final' { Update-HermesStartupRows $state ($readyV2 + "`n" + $finalV2.Replace('resumed=1', 'resumed=0') + "`n") }
+                            'ChildExit' { $state.Exits['22'] = 37 }
+                            'HelperExit' { $state.Exits['11'] = 0 }
+                        }
+                        Invoke-ControlCreatedPublication
+                        Assert-Control (-not (Test-HermesStartupCreated $state) -and -not $state.CreatedAcked `
+                            -and $state.Observations.CreatedCheckFirst -eq 131 -and $state.Observations.CreatedPublishAttempted -eq 0)
+                    } finally { $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose() }
+                }
+            }
+            385 {
+                $state = New-ControlNativeCreated -Acknowledge $false -WithoutCreateCallback
+                Set-HermesStartupCreatedPhase $state 'CreatedCheckFirst'
+                $observed = (New-HermesStartupReport $state $false $false).observations
+                Assert-Control ($observed.CreatedCheckFirst -eq 131 -and ($observed.CreatedCheckFirst -band 64) -eq 0 `
+                    -and $observed.CreateCloseFirst -eq 0 -and $observed.CreatedJointFirst -eq 0)
+                Set-HermesStartupCreatedAcknowledged $state
+                Update-HermesStartupRows $state ($readyV2 + "`n" + $resumedV2 + "`n")
+                foreach ($line in @(
+                    'HERMES_CDB v=3 kind=1 pid=22', 'Last event: 16.1: Create process 1:16',
+                    'HERMES_CDB v=3 kind=2 pid=22'
+                )) { Add-HermesStartupLine $state $line }
+                Assert-Control ($state.Observations.CreateCheckDelay -eq 0)
+                Invoke-ControlCreatedPublication
+                $report = New-HermesStartupReport $state $false $false
+                Assert-Control ($report.observations.CreatedCheckFirst -eq 131 -and $report.observations.ReadyFirst -eq 131 `
+                    -and $report.observations.CreateCloseFirst -eq 3655 -and $report.observations.CreatedJointFirst -eq 3655 `
+                    -and $report.observations.CreateCheckDelay -in 1..6 -and $report.observations.CreatedPublishAttempted -eq 0 `
+                    -and (Test-HermesStartupCreatedBinding $state) -and -not (Test-HermesStartupArm $state))
+                $delay = $state.Observations.CreateCheckDelay
+                Invoke-ControlCreatedPublication
+                Assert-Control ($state.Observations.CreateCheckDelay -eq $delay)
+                foreach ($value in @(3, 131)) {
+                    $state.Observations.CreatedCheckFirst = $value
+                    Assert-Control ((New-HermesStartupReport $state $false $false).observations.CreatedCheckFirst -eq $value)
+                }
+                foreach ($value in @(1, 4, 5, 16384, -1, 'private', [long]131)) {
+                    $state.Observations.CreatedCheckFirst = $value
+                    Assert-Control ((New-HermesStartupReport $state $false $false).observations.CreatedCheckFirst -eq 0)
+                }
+                $json = $report | ConvertTo-Json -Depth 4 -Compress
+                Assert-Control ([Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
+                    -and $report.completed -eq 0 -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0)
             }
         }
         $passed++

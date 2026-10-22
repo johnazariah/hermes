@@ -239,17 +239,16 @@ function Update-HermesStartupNativeRows {
     if ($previous -eq 3 -and $lines[-1].Length -ne 0) { $State.Protocol = 1 }
 }
 
-function Test-HermesStartupCreatedBinding {
+function Test-HermesStartupNativeReadinessBinding {
     param([hashtable]$State)
     $target = $State.Target
-    $created = $State.Created
     return $State.NativeProtocol -and $State.Protocol -eq 0 -and $State.Unknown -eq 0 `
-        -and $State.Bounds -eq 0 -and $null -ne $target -and $null -ne $created `
+        -and $State.Error -eq 0 -and $State.Bounds -eq 0 -and $State.AcceptedUtf8Bytes -lt 8388608 `
+        -and $null -ne $target -and $target.version -eq 2 -and $target.stage -eq 1 `
+        -and $target.resumed -eq 0 -and $target.helper -gt 0 -and $target.pid -gt 0 `
         -and $State.Initial -eq $target.helper -and $target.pid -ne $target.helper `
         -and $target.born -gt 0 -and $target.image -eq 1 -and $target.debug -eq 1 `
-        -and $target.context -eq 1 -and $created.Kind -eq 1 -and $created.Version -eq 3 `
-        -and $created.Event -eq 1 -and $created.Pid -eq $target.pid `
-        -and $created.EventPid -eq $target.pid `
+        -and $target.context -eq 1 `
         -and $State.FilterVerified.Cpr -and $State.FilterVerified.Ibp -and $State.IbpBreak `
         -and $State.FilterVerified.Epr -and $State.Observations.CprFilter -eq 9 `
         -and $State.Observations.EprFilter -eq 9 `
@@ -259,9 +258,21 @@ function Test-HermesStartupCreatedBinding {
         -and $State.ExitCommandSha256 -cmatch '\A[0-9a-f]{64}\z'
 }
 
+function Test-HermesStartupCreatedBinding {
+    param([hashtable]$State)
+    $created = $State.Created
+    return (Test-HermesStartupNativeReadinessBinding $State) `
+        -and $null -ne $created -and $created.Kind -eq 1 -and $created.Version -eq 3 `
+        -and $created.Event -eq 1 -and $created.Pid -eq $State.Target.pid `
+        -and $created.EventPid -eq $State.Target.pid
+}
+
 function Test-HermesStartupCreated {
     param([hashtable]$State)
-    return (Test-HermesStartupCreatedBinding $State) `
+    # Permission is only for the existing fixed diagnostic. Trace authority
+    # still needs the real matching CPR, even when it arrives after Resume.
+    return (Test-HermesStartupNativeReadinessBinding $State) `
+        -and ($null -eq $State.Created -or (Test-HermesStartupCreatedBinding $State)) `
         -and -not $State.CreatedAcked -and $null -eq $State.CreatedBinding `
         -and $null -eq $State.Block -and $null -eq $State.Final `
         -and $null -eq $State.Resumed `
@@ -272,7 +283,7 @@ function Test-HermesStartupCreated {
 function Get-HermesStartupCreatedPhase {
     param([hashtable]$State)
     # Observation bits, not authority: 1 observed; 2 Ready; 4 create closed;
-    # 8 Final; 16/32 target/helper exit; 64 binding predicate; 128 eligibility
+    # 8 Final; 16/32 target/helper exit; 64 actual CPR binding; 128 readiness eligibility
     # predicate; 256 open callback; 512 Resumed; 1024 acknowledged;
     # 2048 retained created binding; 4096 protocol fault; 8192 unknown.
     $facts = 1
@@ -303,13 +314,14 @@ function Set-HermesStartupCreatedPhase {
     if (-not $State.NativeProtocol -or $State.Bounds -ne 0 `
         -or $State.AcceptedUtf8Bytes -ge 8388608) { return }
     if ($Name -ceq 'CreatedCheckFirst') { $State.Observations.CreatedCheckSeen = 1 }
-    if ($State.Observations[$Name] -ne 0) { return }
-    if ($Name -in @('CreatedJointFirst', 'CreatedCheckFirst') `
-        -and ($null -eq $State.Target -or $null -eq $State.Created)) { return }
-    $State.Observations[$Name] = Get-HermesStartupCreatedPhase $State
+    if ($Name -in @('CreatedJointFirst', 'CreatedCheckFirst') -and $null -eq $State.Target) { return }
+    if ($Name -ceq 'CreatedJointFirst' -and $null -eq $State.Created) { return }
+    # Create-close timing remains independent of an earlier Ready-only check.
     if ($Name -ceq 'CreatedCheckFirst' -and $null -ne $State.CreateCloseClock) {
         Set-HermesStartupWorkBucket $State 'CreateCheckDelay' $State.CreateCloseClock.ElapsedMilliseconds -First
     }
+    if ($State.Observations[$Name] -ne 0) { return }
+    $State.Observations[$Name] = Get-HermesStartupCreatedPhase $State
 }
 
 function Set-HermesStartupCreatedAcknowledged {
@@ -318,6 +330,7 @@ function Set-HermesStartupCreatedAcknowledged {
         $State.Protocol = 1
         return
     }
+    # Snapshot Ready and pinned sources, not a claim that CPR has occurred.
     $State.CreatedBinding = @{
         Helper = $State.Target.helper; Pid = $State.Target.pid; Born = $State.Target.born
         RootHash = $State.CommandSha256; CreateHash = $State.CreateCommandSha256
@@ -1299,11 +1312,13 @@ function New-HermesStartupObservations {
     $observations.TargetRowPresent = [int]($null -ne $State.Target)
     $observations.FinalRowPresent = [int]($null -ne $State.Final)
     if ($State.NativeProtocol) {
-        # Latch parser transitions and the actual driver's first joint check
+        # Latch parser transitions and the actual driver's first Ready check
         # separately: a single row snapshot can contain both Ready and Final.
         foreach ($name in @('ReadyFirst', 'CreateCloseFirst', 'CreatedJointFirst', 'CreatedCheckFirst')) {
             $facts = Get-HermesStartupObservation $State $name 16383
-            $required = switch ($name) { 'ReadyFirst' { 3 }; 'CreateCloseFirst' { 5 }; default { 7 } }
+            $required = switch ($name) {
+                'CreateCloseFirst' { 5 }; 'CreatedJointFirst' { 7 }; default { 3 }
+            }
             $observations[$name] = if (($facts -band $required) -eq $required) { $facts } else { 0 }
         }
         foreach ($name in @('CreatedCheckSeen', 'CreatedPublishAttempted')) {

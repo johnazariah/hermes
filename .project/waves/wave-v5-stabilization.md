@@ -100,6 +100,24 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Implement the native-readiness permit without changing trace authority
+
+- **Changed:** A fresh owner extracts native readiness from actual CPR binding. Lower permission may precede CPR; already-observed wrong callbacks, stale Final/exit, faults, missing source/registration proof and replay still refuse. Stronger initial-breakpoint/ARMED proof continues to require matching post-Resume CPR.
+- **Validation:** Parent source review, all 385 controls, installer static controls, warning-free root build and 2,184 tests pass. The prior safety and transport intents remain, with missing-CPR assertions explicitly migrated to trace authority and twelve new staging/boundary cases.
+- **Independent review:** A fresh C# reviewer approves the unchanged helper composition: actual retained native handles, fixed source, verified context before Ready, identity re-read, ResumeThread previous count exactly one and receipt before Wait. Ready rows depend on that trusted producer; they do not independently attest a token or debugger identity.
+- **Preserved:** Exact v2 wire, callback bytes/modes, one fixed debugger continuation, output/report bounds, owned cleanup and all original product/MSI/authentication/exit-37 gates.
+- **Blockers:** Actual Windows progression and the PowerShell loader cause remain unproved; this is source approval only.
+- **Next:** Publish the coherent policy change and inspect whether native Resume now reaches matching CPR and initial-breakpoint evidence.
+
+### 2026-10-22 - Separate native creation readiness from debugger event proof
+
+- **Evidence:** Published `1006df2`, run `39702721604`, job `119575510730`, passes 373 controls and 500/501 native cases with no skips. Exact literal CPR readback verifies, but the 3/199/95 phase transition, fast consumer classes and missing acknowledgement are unchanged. The script-mode control has not resolved the boundary.
+- **Decision:** Within the existing authority to execute this one fixed inert diagnostic, native Ready may grant its one checked Resume before a debugger-create callback is observed. Ready must still bind the held child identity, image, Medium context, debug port, helper, pinned sources and verified event registration, with no current Final, exit or open callback. An already-observed mismatched create callback refuses.
+- **Trace boundary:** Actual matching create-event proof remains mandatory before initial-breakpoint flag/stopped-state verification and trace arming. Native readiness is not accepted trace evidence. No original exit-37, installed lifecycle, MSI or owner-authentication gate changes.
+- **Rationale:** Pre-Resume callback delivery has not been demonstrated on this SDK. Removing that dependency from lower synthetic execution permission tests the staging assumption without inventing a Windows event-order guarantee or accepting a stale event.
+- **Blockers:** The loader cause remains unknown. The revised permission policy needs fresh source implementation, explicit regression updates and independent review before publication.
+- **Next:** Implement the bounded native-readiness permit while retaining full post-Resume event and pre-DllMain trace proof.
+
 ### 2026-10-22 - Pin the CPR-only literal-script experiment
 
 - **Changed:** A fresh owner changes only the create callback invocation/readback from condensed `$$><` to literal `$$<`. EPR/IBP invocation and all callback-file bytes remain unchanged; no debugger continuation or permission is added.

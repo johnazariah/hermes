@@ -2,6 +2,29 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Native Ready grants only the fixed diagnostic's lower execution permit
+
+All **385 controls** pass. The lower v2 permission may now precede a CPR
+callback, but requires trusted helper/root/source bindings, valid native
+Ready, exact registrations and no current fault, Final, exit, open callback,
+receipt or prior acknowledgement. An already-present mismatched CPR refuses.
+This intentionally changes diagnostic staging, not accepted trace authority.
+
+Matching CPR remains mandatory after Resume and before registered initial
+breakpoint, typed flag bit 2, stopped stdout and receipt can arm the trace.
+The one fixed debugger continuation, C# wire and checked native Resume are
+unchanged. Cases 315–316 now test missing CPR as a trace-authority negative;
+the historical 199-to-fresh-95 refusal remains covered. Twelve new cases
+cover early publication, post-Resume CPR, source/identity/filter barriers,
+replays, immutable bindings, required arming facts and bounded observations.
+
+Fresh independent C# review approves the existing helper composition for
+this lower permit. Ready's context meaning depends on the trusted fixed
+helper's verified native path; image evidence is a retained-handle path
+match, not binary attestation, and debugger presence is not debugger
+identity. Parent source review, installer static controls, warning-free
+root build and 2,184 tests pass. Actual Windows progress remains pending.
+
 ## CPR-only literal-script execution control
 
 All **373 controls** pass, retaining the prior 369 and adding four
