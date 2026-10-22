@@ -2,6 +2,24 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## First stage refusal separates record grammar from frame rejection
+
+All **508 controls** pass, retaining 500 prior intents and adding eight
+observation cases. The first stage refusal now distinguishes malformed
+record/source-diagnostic shape, the unchanged arm-frame guard, state
+mismatch, duplicate and ordering failures.
+
+A bounded mask records anchored prefix, optional CDB prompt, `.echo`,
+fixed syntax/caret/numeric/resolver shapes and exact SDK/query record
+equality after observation-only HorizontalTrim. Trimming never makes a
+record acceptable. First facts freeze; no lexical or frame work occurs
+after the exact output bound, and reports stay below 4,096 bytes.
+
+Driver bytes, all five command-file goldens and the existing frame
+predicate are unchanged and hash-checked by the controls. Installer static
+controls pass. The preceding actual run's stage refusal remains
+unclassified until these fields are observed on Windows.
+
 ## Independent SDK and query completion identifies the failing component
 
 All **500 controls** pass, retaining 489 prior intents and adding eleven

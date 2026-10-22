@@ -28,6 +28,7 @@ function New-HermesStartupState {
         ScopedPublication = $null; ScopedInvocation = $null; ExtensionSource = $null
         ScopedPhase = 0; ScopedStages = 0
         ScopedFault = @{ Reason = 0; Phase = 0; Block = 0; Held = 0; Echo = 0 }
+        ScopedStageFault = @{ Reason = 0; Shape = 0 }
         Held = $null; ArmAttempted = $false; ArmWritten = $false; SideWrites = 0
         InputWriter = $null; InputTasks = [Collections.Generic.List[Threading.Tasks.Task]]::new()
         DriverSha256 = ''; ModuleSha256 = ''; ArmCommandSha256 = ''; ExtensionSha256 = ''
@@ -1599,11 +1600,46 @@ function Test-HermesStartupScopedArmFrame {
     return $true
 }
 
+function Get-HermesStartupScopedStageShape {
+    param([hashtable]$State, [string]$Line)
+    if ($State.DiagnosticMode -cne 'ScopedCreateV1' -or $State.Protocol -ne 0 `
+        -or $State.Bounds -ne 0 -or $State.AcceptedUtf8Bytes -ge 8388608 -or $Line.Length -gt 4096) { return 0 }
+    $display = $Line -creplace '\A[0-9]{1,3}:[0-9a-f]{3}> ', ''
+    $mask = if ($display -cne $Line) { 2 } else { 0 }
+    if ($display -cmatch '\AHERMES_ARM_STAGE(?:[ \t]|\z)') { $mask = $mask -bor 1 }
+    if ($display.Contains('.echo', [StringComparison]::Ordinal)) { $mask = $mask -bor 4 }
+    foreach ($rule in @(
+        @("(?:\A|[ \t;])Syntax error in '[\x20-\x7e]{1,4096}'(?:\z|[ \t;])", 8),
+        @("(?:\A|[ \t;])Syntax error at '[\x20-\x7e]{1,4096}'(?:\z|[ \t;])", 16),
+        @('\A[ \t]*\^(?:[ \t]|\z)', 32),
+        @("(?:\A|[ \t;])Numeric expression missing from '[\x20-\x7e]{1,4096}'(?:\z|[ \t;])", 64),
+        @("(?:\A|[ \t;])Couldn't resolve error at '[\x20-\x7e]{1,4096}'(?:\z|[ \t;])", 128),
+        @('(?:\A|[ \t;])Type ntdll!_PEB not found(?:\z|[ \t;])', 128)
+    )) {
+        if ($display -cmatch $rule[0]) { $mask = $mask -bor $rule[1] }
+    }
+    # HorizontalTrim: remove edge ASCII spaces/tabs from the prompt-stripped
+    # display only. No collapse, case or escape changes; never acceptance.
+    $horizontalTrim = $display.Trim([char[]]@(' ', [char]9))
+    if ($horizontalTrim -ceq 'HERMES_ARM_STAGE v=1 stage=1') { $mask = $mask -bor 256 }
+    if ($horizontalTrim -ceq 'HERMES_ARM_STAGE v=1 stage=2') { $mask = $mask -bor 512 }
+    return $mask
+}
+
+function Set-HermesStartupScopedStageRefusal {
+    param([hashtable]$State, [ValidateRange(1, 5)][int]$Reason, [string]$Line = '')
+    if ($State.DiagnosticMode -cne 'ScopedCreateV1' -or $State.Protocol -ne 0 `
+        -or $State.Bounds -ne 0 -or $State.AcceptedUtf8Bytes -ge 8388608 `
+        -or $State.ScopedStageFault.Reason -ne 0) { return }
+    $State.ScopedStageFault = @{ Reason = $Reason; Shape = (Get-HermesStartupScopedStageShape $State $Line) }
+}
+
 function Add-HermesStartupScopedStage {
-    param([hashtable]$State, [ValidateSet(1, 2)][int]$Stage)
+    param([hashtable]$State, [ValidateSet(1, 2)][int]$Stage, [string]$Line = '')
     if ($State.DiagnosticMode -cne 'ScopedCreateV1' -or $State.Protocol -ne 0 `
         -or $State.Bounds -ne 0 -or $State.AcceptedUtf8Bytes -ge 8388608) { return }
     if (-not (Test-HermesStartupScopedArmFrame $State)) {
+        Set-HermesStartupScopedStageRefusal $State 2 $Line
         Set-HermesStartupProtocolFault $State 15; return
     }
     $block = $State.Inventory.Block
@@ -1611,6 +1647,9 @@ function Add-HermesStartupScopedStage {
     # SDK cannot return after the query; query can return without a field.
     if ($block.Stages -ne $State.ScopedStages -or ($State.ScopedStages -band $Stage) -ne 0 `
         -or ($Stage -eq 1 -and ($State.ScopedStages -ne 0 -or $block.Flags -ne -1))) {
+        $reason = if ($block.Stages -ne $State.ScopedStages) { 3 } `
+            elseif (($State.ScopedStages -band $Stage) -ne 0) { 4 } else { 5 }
+        Set-HermesStartupScopedStageRefusal $State $reason $Line
         Set-HermesStartupProtocolFault $State 15; return
     }
     $State.ScopedStages = $State.ScopedStages -bor $Stage
@@ -1662,6 +1701,9 @@ function Add-HermesStartupScopedLine {
             # A closed display shape, not a diagnosis or a new SDK-success
             # rule. Both shapes retain exactly the same source-echo refusal.
             $reason = if ($echo -cmatch "\ASyntax error at '[\x20-\x7e]{1,4096}'\z") { 14 } else { 1 }
+            if ($Line.Contains('HERMES_ARM_STAGE', [StringComparison]::OrdinalIgnoreCase)) {
+                Set-HermesStartupScopedStageRefusal $State 1 $Line
+            }
             Set-HermesStartupProtocolFault $State $reason (Get-HermesStartupScopedEchoMask $State $Line)
         }
         return
@@ -1670,8 +1712,11 @@ function Add-HermesStartupScopedLine {
         $echo = $Line -creplace '\A[0-9]{1,3}:[0-9a-f]{3}> ', ''
         if ($State.ScopedEchoes.Contains($echo)) { return }
         if ($Line -cmatch '\AHERMES_ARM_STAGE v=1 stage=(?<s>[12])\z') {
-            Add-HermesStartupScopedStage $State ([int]$Matches.s)
-        } else { Set-HermesStartupProtocolFault $State 15 }
+            Add-HermesStartupScopedStage $State ([int]$Matches.s) $Line
+        } else {
+            Set-HermesStartupScopedStageRefusal $State 1 $Line
+            Set-HermesStartupProtocolFault $State 15
+        }
         return
     }
     if ($Line -cmatch '\AHERMES_CDB v=(?<v>[134]) kind=(?<k>[0-8]) pid=(?<p>[1-9][0-9]{0,9})\z' `
@@ -1702,7 +1747,10 @@ function Add-HermesStartupScopedLine {
             -or $State.Exits.ContainsKey([string]$State.Target.pid) `
             -or $State.Exits.ContainsKey([string]$State.Target.helper)) { Set-HermesStartupProtocolFault $State 9; return }
         if ($block.Flags -ne -1) { Set-HermesStartupProtocolFault $State 8; return }
-        if (($State.ScopedStages -band 2) -ne 0) { Set-HermesStartupProtocolFault $State 15; return }
+        if (($State.ScopedStages -band 2) -ne 0) {
+            Set-HermesStartupScopedStageRefusal $State 5 $Line
+            Set-HermesStartupProtocolFault $State 15; return
+        }
         $block.Flags = [long][Convert]::ToUInt32($Matches.f, 16)
         $State.ScopedPhase = $State.ScopedPhase -bor 8
         return
@@ -2290,6 +2338,15 @@ function New-HermesStartupReport {
         # syntax shape; 32 no-export text; 64 closed resolver text;
         # 128 exact source after HorizontalWhitespaceCollapse. Never authority.
         $selected.scopedFirstEchoMask = Get-HermesStartupInventoryNumber $State.ScopedFault['Echo'] 255
+        # First stage refusal: 0 unavailable; 1 record grammar (including
+        # diagnostic/source shapes); 2 the unchanged arm-frame guard refused;
+        # 3 state mismatch; 4 duplicate; 5 order. Never completion evidence.
+        $selected.scopedStageFirstReason = Get-HermesStartupInventoryNumber $State.ScopedStageFault.Reason 5
+        # Shape bits: 1 anchored prefix after optional CDB prompt; 2 prompt;
+        # 4 .echo; 8/16 quoted Syntax error in/at; 32 leading caret token;
+        # 64 quoted numeric-expression diagnostic; 128 closed resolver shape;
+        # 256/512 exact SDK/query marker after observation-only HorizontalTrim.
+        $selected.scopedStageFirstShape = Get-HermesStartupInventoryNumber $State.ScopedStageFault.Shape 1023
         $report.observations = $selected
     }
     return $report

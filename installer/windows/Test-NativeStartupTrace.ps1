@@ -788,7 +788,7 @@ function Complete-ControlScoped {
     return New-HermesStartupReport $State $true $true
 }
 
-$cases = 1..500 # All 489 prior intents retained, plus contained-stage isolation controls.
+$cases = 1..508 # All 500 prior intents retained, plus first stage-refusal observations.
 $passed = 0
 foreach ($case in $cases) {
     $state = $null
@@ -7953,6 +7953,293 @@ foreach ($case in $cases) {
                         }
                     }
                 }
+            }
+            501 {
+                $sdk = 'HERMES_ARM_STAGE v=1 stage=1'
+                $query = 'HERMES_ARM_STAGE v=1 stage=2'
+                foreach ($entry in @(
+                    @{ Text = $sdk + ' '; Shape = 257; Original = 15 },
+                    @{ Text = " `t" + $sdk + "`t"; Shape = 256; Original = 15 },
+                    @{ Text = '1:000> ' + $sdk; Shape = 259; Original = 15 },
+                    @{ Text = $query + "`t"; Shape = 513; Original = 15 },
+                    @{ Text = 'HERMES_ARM_STAGE v=1 stage=3'; Shape = 1; Original = 15 },
+                    @{ Text = 'hermes_arm_stage v=1 stage=1'; Shape = 0; Original = 15 },
+                    @{ Text = '.echo ' + $sdk; Shape = 4; Original = 15 },
+                    @{ Text = "Syntax error in '.echo $sdk'"; Shape = 12; Original = 15 },
+                    @{ Text = "Syntax error at '.echo $sdk'"; Shape = 20; Original = 15 },
+                    @{ Text = "1:000> Syntax error in '.echo $sdk'"; Shape = 14; Original = 15 },
+                    @{ Text = "  ^ Syntax error at '.echo $sdk'"; Shape = 52; Original = 15 },
+                    @{ Text = "^ Numeric expression missing from '.echo $sdk'"; Shape = 100; Original = 15 },
+                    @{ Text = "Numeric expression missing from '.echo $sdk'"; Shape = 68; Original = 15 },
+                    @{ Text = "Couldn't resolve error at '.echo $sdk'"; Shape = 132; Original = 15 },
+                    @{ Text = 'Type ntdll!_PEB not found; .echo ' + $sdk; Shape = 132; Original = 15 },
+                    @{ Text = "Syntax error in '.echo $sdk"; Shape = 4; Original = 15 },
+                    @{ Text = "syntax error in '.echo $sdk'"; Shape = 4; Original = 15 },
+                    @{ Text = "Syntax error IN '.echo $sdk'"; Shape = 4; Original = 15 },
+                    @{ Text = '.Echo ' + $sdk; Shape = 0; Original = 15 },
+                    @{ Text = $sdk + [char]0xa0; Shape = 1; Original = 15 },
+                    @{ Text = $sdk + [char]11; Shape = 1; Original = 15 },
+                    @{ Text = "Syntax error at '.printf private; .echo $sdk'"; Shape = 20; Original = 14 },
+                    @{ Text = "Syntax error in '.printf private; .echo $sdk'"; Shape = 12; Original = 1 }
+                )) {
+                    $state = New-ControlScopedCreated
+                    $physical = [StartupControlWriteStream]::new(0)
+                    $writer = [IO.StreamWriter]::new($physical)
+                    try {
+                        Invoke-HermesStartupScopedInput $state $writer Arm
+                        Add-HermesStartupText $state $state.Out (
+                            "HERMES_CDB v=4 kind=7 pid=22`nLast event: 16.1: Create process 1:16`n") $true
+                        Add-HermesStartupLine $state $entry.Text
+                        $report = New-HermesStartupReport $state $false $false
+                        $json = $report | ConvertTo-Json -Depth 4 -Compress
+                        Assert-Control ($state.Protocol -eq 1 -and $state.ScopedFault.Reason -eq $entry.Original `
+                            -and $state.ScopedStageFault.Reason -eq 1 -and $state.ScopedStageFault.Shape -eq $entry.Shape `
+                            -and $report.observations.scopedStageFirstReason -eq 1 `
+                            -and $report.observations.scopedStageFirstShape -eq $entry.Shape `
+                            -and $state.ScopedStages -eq 0 -and $physical.Writes -eq 1 -and -not $state.Acked `
+                            -and -not (Test-HermesStartupScopedAction $state Target) -and $report.completed -eq 0 `
+                            -and $json -notmatch 'HERMES_ARM_STAGE|private|Syntax error|Numeric expression|\.echo')
+                    } finally {
+                        Close-HermesStartupScopedInput $state $writer
+                        $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                    }
+                }
+            }
+            502 {
+                foreach ($change in @(
+                    { $state.ArmWritten = $false }, { $state.Held.Released = $true },
+                    { $state.ScopedInvocation.Source.ArmCommandSha256 = 'f' * 64 },
+                    { $state.NativeRowsFault = 1 }, { $state.Inventory.Block.Event = 0 }
+                )) {
+                    foreach ($stage in @(1, 2)) {
+                        $state = New-ControlScopedCreated
+                        $writer = [IO.StreamWriter]::new([StartupControlWriteStream]::new(0))
+                        try {
+                            Invoke-HermesStartupScopedInput $state $writer Arm
+                            Add-HermesStartupText $state $state.Out (
+                                "HERMES_CDB v=4 kind=7 pid=22`nLast event: 16.1: Create process 1:16`n") $true
+                            . $change
+                            Assert-Control (-not (Test-HermesStartupScopedArmFrame $state))
+                            Add-HermesStartupLine $state ("HERMES_ARM_STAGE v=1 stage=$stage")
+                            $report = New-HermesStartupReport $state $false $false
+                            Assert-Control ($state.Protocol -eq 1 -and $state.ScopedFault.Reason -eq 15 `
+                                -and $state.ScopedStageFault.Reason -eq 2 -and $state.ScopedStages -eq 0 `
+                                -and $report.observations.scopedStageFirstReason -eq 2 `
+                                -and $report.observations.scopedStageFirstShape -eq $(if ($stage -eq 1) { 257 } else { 513 }) `
+                                -and -not (Test-HermesStartupScopedAction $state Target) -and -not $state.Acked)
+                        } finally {
+                            Close-HermesStartupScopedInput $state $writer
+                            $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                        }
+                    }
+                }
+            }
+            503 {
+                $sdk = 'HERMES_ARM_STAGE v=1 stage=1'
+                $query = 'HERMES_ARM_STAGE v=1 stage=2'
+                $typed = 'HERMES_NTGLOBALFLAG v=1 pid=22 value=00000002'
+                foreach ($entry in @(
+                    @{ Before = @(); Change = { $state.ScopedStages = 1 }; Last = $query; Reason = 3; Shape = 513 },
+                    @{ Before = @($sdk); Change = {}; Last = $sdk; Reason = 4; Shape = 257 },
+                    @{ Before = @($query); Change = {}; Last = $query; Reason = 4; Shape = 513 },
+                    @{ Before = @($query); Change = {}; Last = $sdk; Reason = 5; Shape = 257 },
+                    @{ Before = @($typed); Change = {}; Last = $sdk; Reason = 5; Shape = 257 },
+                    @{ Before = @($sdk, $query); Change = {}; Last = $typed; Reason = 5; Shape = 0 }
+                )) {
+                    $state = New-ControlScopedCreated
+                    $writer = [IO.StreamWriter]::new([StartupControlWriteStream]::new(0))
+                    try {
+                        Invoke-HermesStartupScopedInput $state $writer Arm
+                        Add-HermesStartupText $state $state.Out (
+                            "HERMES_CDB v=4 kind=7 pid=22`nLast event: 16.1: Create process 1:16`n") $true
+                        foreach ($line in $entry.Before) { Add-HermesStartupLine $state $line }
+                        . $entry.Change
+                        Add-HermesStartupLine $state $entry.Last
+                        $report = New-HermesStartupReport $state $false $false
+                        Assert-Control ($state.Protocol -eq 1 -and $state.ScopedFault.Reason -eq 15 `
+                            -and $report.observations.scopedStageFirstReason -eq $entry.Reason `
+                            -and $report.observations.scopedStageFirstShape -eq $entry.Shape `
+                            -and $null -eq $state.Arm -and -not $state.Acked -and $state.InputTasks.Count -eq 1 `
+                            -and -not (Test-HermesStartupScopedAction $state Target))
+                    } finally {
+                        Close-HermesStartupScopedInput $state $writer
+                        $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                    }
+                }
+            }
+            504 {
+                $state = New-ControlScopedCreated
+                $writer = [IO.StreamWriter]::new([StartupControlWriteStream]::new(0))
+                $module = Get-Module Native-StartupTrace
+                try {
+                    Invoke-HermesStartupScopedInput $state $writer Arm
+                    Add-HermesStartupText $state $state.Out (
+                        "HERMES_CDB v=4 kind=7 pid=22`nLast event: 16.1: Create process 1:16`n") $true
+                    Add-HermesStartupLine $state "Syntax error at '.echo HERMES_ARM_STAGE v=1 stage=1 private-path S-1-5-21-secret'"
+                    $first = $state.ScopedStageFault | ConvertTo-Json -Compress
+                    $protocolFirst = $state.ScopedFault | ConvertTo-Json -Compress
+                    & $module {
+                        $script:controlOriginalStageShape = (Get-Item Function:Get-HermesStartupScopedStageShape).ScriptBlock
+                        Set-Item Function:script:Get-HermesStartupScopedStageShape {
+                            throw 'A frozen first stage refusal must not be reclassified.'
+                        }
+                    }
+                    Set-HermesStartupScopedStageRefusal $state 5 'HERMES_ARM_STAGE v=1 stage=2'
+                    Add-HermesStartupLine $state 'HERMES_ARM_STAGE v=1 stage=2'
+                    Add-HermesStartupScopedStage $state 1 'HERMES_ARM_STAGE v=1 stage=1'
+                    Set-HermesStartupProtocolFault $state 1
+                    $state.ScopedEchoes.Clear()
+                    $report = New-HermesStartupReport $state $false $false
+                    $json = $report | ConvertTo-Json -Depth 4 -Compress
+                    Assert-Control (($state.ScopedStageFault | ConvertTo-Json -Compress) -ceq $first `
+                        -and ($state.ScopedFault | ConvertTo-Json -Compress) -ceq $protocolFirst `
+                        -and $report.observations.scopedStageFirstReason -eq 1 `
+                        -and $report.observations.scopedStageFirstShape -eq 20 `
+                        -and $report.observations.scopedFirstReason -eq 15 -and $state.ScopedStages -eq 0 `
+                        -and $json -notmatch 'private-path|secret|S-1-|HERMES_ARM_STAGE|Syntax error|\.echo' `
+                        -and $report.completed -eq 0 -and $report.armingVerified -eq 0)
+                } finally {
+                    & $module {
+                        if (Test-Path Variable:script:controlOriginalStageShape) {
+                            Set-Item Function:script:Get-HermesStartupScopedStageShape $script:controlOriginalStageShape
+                            Remove-Variable controlOriginalStageShape -Scope Script
+                        }
+                    }
+                    Close-HermesStartupScopedInput $state $writer
+                }
+            }
+            505 {
+                foreach ($outcome in @('Full', 'SdkMissing', 'QueryMissing', 'FieldUnavailable')) {
+                    $state = New-ControlScopedCreated
+                    $writer = [IO.StreamWriter]::new([StartupControlWriteStream]::new(0))
+                    try {
+                        Invoke-HermesStartupScopedInput $state $writer Arm
+                        $source = (Get-TraceSelectedSources $extension)['startup-arm.cdb']
+                        foreach ($line in ($source -split "`r`n" | Where-Object { $_.Contains('HERMES_ARM_STAGE') })) {
+                            Add-HermesStartupLine $state ('1:000> ' + $line)
+                        }
+                        Add-HermesStartupText $state $state.Err "Syntax error at '.echo HERMES_ARM_STAGE v=1 stage=1'`n" $false
+                        $text = Get-ControlScopedReadback -Flags $(if ($outcome -ceq 'FieldUnavailable') { '' } else { '00000002' })
+                        if ($outcome -ceq 'SdkMissing') { $text = $text.Replace("HERMES_ARM_STAGE v=1 stage=1`n", '') }
+                        if ($outcome -ceq 'QueryMissing') { $text = $text.Replace("HERMES_ARM_STAGE v=1 stage=2`n", '') }
+                        Add-HermesStartupText $state $state.Out $text $true
+                        Assert-Control ($state.Protocol -eq 0 -and $state.ScopedStageFault.Reason -eq 0 `
+                            -and $state.ScopedStageFault.Shape -eq 0 `
+                            -and (Test-HermesStartupScopedAction $state Target) -eq ($outcome -ceq 'Full'))
+                        if ($outcome -ceq 'Full') {
+                            Invoke-HermesStartupScopedInput $state $writer Target
+                            $report = Complete-ControlScoped $state $writer
+                            Assert-Control ($report.completed -eq 1 -and $report.armingVerified -eq 1)
+                        } else { $report = New-HermesStartupReport $state $false $false }
+                        Assert-Control ($report.observations.scopedStageFirstReason -eq 0 `
+                            -and $report.observations.scopedStageFirstShape -eq 0 `
+                            -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0)
+                    } finally {
+                        Close-HermesStartupScopedInput $state $writer
+                        $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                    }
+                }
+            }
+            506 {
+                foreach ($captured in @($false, $true)) {
+                    foreach ($bounds in @(0, 1)) {
+                        $state = New-ControlScopedCreated
+                        $writer = [IO.StreamWriter]::new([StartupControlWriteStream]::new(0))
+                        $module = Get-Module Native-StartupTrace
+                        try {
+                            Invoke-HermesStartupScopedInput $state $writer Arm
+                            Add-HermesStartupText $state $state.Out (
+                                "HERMES_CDB v=4 kind=7 pid=22`nLast event: 16.1: Create process 1:16`n") $true
+                            if ($captured) { Add-HermesStartupLine $state 'HERMES_ARM_STAGE v=1 stage=1 ' }
+                            $first = $state.ScopedStageFault | ConvertTo-Json -Compress
+                            $protocolFirst = $state.ScopedFault | ConvertTo-Json -Compress
+                            $state.Bounds = $bounds; $state.AcceptedUtf8Bytes = [long]8388608
+                            $outBefore = Get-ControlStreamSnapshot $state.Out
+                            $errBefore = Get-ControlStreamSnapshot $state.Err
+                            $outHash = [Convert]::ToHexString($state.Out.Hash.GetCurrentHash())
+                            $errHash = [Convert]::ToHexString($state.Err.Hash.GetCurrentHash())
+                            Assert-Control ((Get-HermesStartupScopedStageShape $state 'HERMES_ARM_STAGE v=1 stage=1 ') -eq 0)
+                            & $module {
+                                $script:controlOriginalStageShape = (Get-Item Function:Get-HermesStartupScopedStageShape).ScriptBlock
+                                $script:controlOriginalArmFrame = (Get-Item Function:Test-HermesStartupScopedArmFrame).ScriptBlock
+                                Set-Item Function:script:Get-HermesStartupScopedStageShape { throw 'No post-bound stage lexing.' }
+                                Set-Item Function:script:Test-HermesStartupScopedArmFrame { throw 'No post-bound frame parsing.' }
+                            }
+                            Set-HermesStartupScopedStageRefusal $state 2 'HERMES_ARM_STAGE v=1 stage=2'
+                            Add-HermesStartupScopedStage $state 2 'HERMES_ARM_STAGE v=1 stage=2'
+                            Add-HermesStartupLine $state 'HERMES_ARM_STAGE v=1 stage=1 '
+                            Add-HermesStartupText $state $state.Out (Get-ControlScopedReadback) $true
+                            Add-HermesStartupText $state $state.Err '.echo HERMES_ARM_STAGE private after-bound' $false
+                            $report = New-HermesStartupReport $state $false $false
+                            Assert-Control (($state.ScopedStageFault | ConvertTo-Json -Compress) -ceq $first `
+                                -and ($state.ScopedFault | ConvertTo-Json -Compress) -ceq $protocolFirst `
+                                -and $report.observations.scopedStageFirstReason -eq [int]$captured `
+                                -and $report.observations.scopedStageFirstShape -eq $(if ($captured) { 257 } else { 0 }) `
+                                -and (Get-ControlStreamSnapshot $state.Out) -ceq $outBefore `
+                                -and (Get-ControlStreamSnapshot $state.Err) -ceq $errBefore `
+                                -and [Convert]::ToHexString($state.Out.Hash.GetCurrentHash()) -ceq $outHash `
+                                -and [Convert]::ToHexString($state.Err.Hash.GetCurrentHash()) -ceq $errHash `
+                                -and $report.status -eq 7 -and $report.completed -eq 0 -and $state.ScopedStages -eq 0)
+                        } finally {
+                            & $module {
+                                if (Test-Path Variable:script:controlOriginalStageShape) {
+                                    Set-Item Function:script:Get-HermesStartupScopedStageShape $script:controlOriginalStageShape
+                                    Set-Item Function:script:Test-HermesStartupScopedArmFrame $script:controlOriginalArmFrame
+                                    Remove-Variable controlOriginalStageShape, controlOriginalArmFrame -Scope Script
+                                }
+                            }
+                            Close-HermesStartupScopedInput $state $writer
+                            $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                        }
+                    }
+                }
+            }
+            507 {
+                $state = New-ControlScopedCreated
+                foreach ($name in @($state.Observations.Keys)) { $state.Observations[$name] = 8388608 }
+                foreach ($stream in @($state.Out, $state.Err)) {
+                    $stream.Count = [long]8388608; $stream.Prefix = 'x' * 4096; $stream.Fingerprint = 'f' * 64
+                }
+                $state.AcceptedUtf8Bytes = [long]8388608; $state.Bounds = 1
+                $state.ScopedStages = 3; $state.ScopedPhase = 15; $state.SideWrites = 48
+                $state.ScopedFault = @{ Reason = 15; Phase = 15; Block = 7; Held = 5; Echo = 255 }
+                $state.ScopedStageFault = @{ Reason = 5; Shape = 1023 }
+                $state.DebuggerKillRequested = 1
+                foreach ($subject in 100..114) {
+                    $state.Inventory.Subjects[[string]$subject] = @{ Create = 1; Initial = 1; Exit = 1; ExitCode = 0 }
+                }
+                while ($state.InputTasks.Count -lt 50) { $state.InputTasks.Add([Threading.Tasks.Task]::CompletedTask) }
+                Set-HermesStartupDebuggerExit $state ([int]-1)
+                $report = New-HermesStartupReport $state $false $false
+                $json = $report | ConvertTo-Json -Depth 4 -Compress
+                Assert-Control ([Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
+                    -and $report.observations.scopedStageFirstReason -eq 5 -and $report.observations.scopedStageFirstShape -eq 1023 `
+                    -and $report.observations.subjects -eq 16 -and $report.observations.inputTasks -eq 50 `
+                    -and $report.status -eq 7 -and $report.completed -eq 0 -and $report.nativeAcceptance -eq 0 `
+                    -and $report.originalGatePassed -eq 0 `
+                    -and $json -notmatch 'HERMES_ARM_STAGE|private|selected-sdk|command-root|pid|\.echo')
+                foreach ($bad in @(-1, 1024, '1023', $true, $null)) {
+                    $state.ScopedStageFault.Shape = $bad
+                    Assert-Control ((New-HermesStartupReport $state $false $false).observations.scopedStageFirstShape -eq 0)
+                }
+                foreach ($bad in @(-1, 6, '5', $true, $null)) {
+                    $state.ScopedStageFault.Reason = $bad
+                    Assert-Control ((New-HermesStartupReport $state $false $false).observations.scopedStageFirstReason -eq 0)
+                }
+            }
+            508 {
+                $moduleAst = [Management.Automation.Language.Parser]::ParseFile(
+                    (Join-Path $PSScriptRoot 'Native-StartupTrace.psm1'), [ref]$null, [ref]$null)
+                $predicate = $moduleAst.Find({
+                    param($n)
+                    $n -is [Management.Automation.Language.FunctionDefinitionAst] `
+                        -and $n.Name -ceq 'Test-HermesStartupScopedArmFrame'
+                }, $true)
+                $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+                    [Text.Encoding]::UTF8.GetBytes($predicate.Extent.Text))).ToLowerInvariant()
+                Assert-Control ($hash -ceq 'fa7409059885a5a52cf6d59f62ea71d2e81f280db26e5f094271857b37f31a92' `
+                    -and (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'Invoke-NativeStartupTrace.ps1') -Algorithm SHA256).Hash `
+                        -ceq 'D8A2FC3D5E0376C00E5D33EF92CF735210AF4F77878387F1A001EBC14E1FE077')
             }
             { $_ -in 415..420 } {
                 $closure = ($case - 415) % 3

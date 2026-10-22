@@ -100,6 +100,22 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Classify the first stage refusal without changing marker acceptance
+
+- **Changed:** Numeric first-stage subreason distinguishes grammar/source display, the existing frame guard, state mismatch, duplicate and ordering refusal. Closed shape bits identify prompt/prefix/echo and fixed diagnostic forms, plus exact record equality after observational HorizontalTrim.
+- **Validation:** Parent review, all 508 controls and installer static controls pass. Eight new cases cover grammar versus scope, first-fault retention, positive-path preservation, post-budget sentinels, privacy and report maximum.
+- **Preserved:** Driver bytes, all five program goldens and the arm-frame predicate are unchanged and hash-verified. No SDK/query, marker grammar, authority, input or continuation change.
+- **Blockers:** Actual stage subreason and loader cause remain unknown.
+- **Next:** Publish the observational subreason fields and inspect the first native refusal.
+
+### 2026-10-22 - Stage isolation reaches a stricter stage-record refusal
+
+- **Evidence:** Published `5d7864e`, run `39725233665`, job `119647500352`, passes 500 controls and 500/501 native cases without skips. Only the original PowerShell case fails.
+- **Observed:** Neither scoped completion is accepted. The first refusal is stage grammar/scope/sequence (reason 15), with arm-begin phase and held target-create frame. Typed data and target continuation remain absent. A controller Kill request precedes the later `0xFFFFFFFF` exit.
+- **Unknown:** This result does not distinguish an actual completion marker failing its frame checks from diagnostic text containing the fixed `.echo` marker.
+- **Action:** The contained-stage owner is adding the first stage-specific subreason and closed line/frame facts. Accepted marker grammar, SDK/query text, source pins and all authority gates remain unchanged.
+- **Blockers:** The refusing stage line, SDK/query completion and PowerShell loader cause remain unresolved.
+
 ### 2026-10-22 - Isolate SDK and query returns with scoped completion markers
 
 - **Changed:** A fresh narrow owner separates the unchanged qualified SDK command and typed read into independent error-contained blocks. Fixed non-printf completion markers are emitted only after their respective operations return.
