@@ -129,20 +129,93 @@ function Assert-HermesCrashEventReport {
     } finally { $document.Dispose() }
 }
 
+function New-EventProjection {
+    param([int]$Check = 0, [int]$Field = 0, [string]$Facts =
+        'HERMES_CRASH_EVENT_FACTS v=1 available=0 status=0 controlStatus=0 reason=0 matched=0 lowerEmpty=0 upperEmpty=0 controlError=0 cleanupError=0 reportError=0 originalGatePassed=0 nativeAcceptance=0')
+    return [pscustomobject]@{ Check = $Check; Field = $Field; Facts = $Facts }
+}
+
+# Check codes: 0 admitted; 1 inaccessible field; 2 integer type; 3 helper exit;
+# 4 deadline; 5/6 stdout/stderr completion; 7 wait; 8/9 stdout type/length;
+# 10/11 stderr type/length; 12/13 task-array type/count; 14/15 task type/state;
+# 16 task join; 17 UTF-8; 18 complete grammar; 19 UInt32; 20 observation reason;
+# 21 helper/event status binding; 22 event reason; 23 control fault; 24 cleanup
+# flags; 25 exit advisory binding; 26 success projection; 27 internal refusal.
+# Field codes: 1..5 capture integers in declaration order, 6 stdout, 7 stderr,
+# 8 tasks; 9..22 protocol numbers in the fixed parser order below. Zero = none.
+function Get-EventCaptureCheck {
+    param([object]$Capture)
+    $field = 0
+    try {
+        if ($null -eq $Capture) { return New-EventProjection 1 }
+        foreach ($name in @('ExitCode', 'Deadline', 'StdoutComplete', 'StderrComplete', 'WaitSettled')) {
+            $field++
+            if ($Capture.$name -isnot [int]) { return New-EventProjection 2 $field }
+        }
+        if ($Capture.ExitCode -notin @(0, 1)) { return New-EventProjection 3 1 }
+        if ($Capture.Deadline -ne 0) { return New-EventProjection 4 2 }
+        if ($Capture.StdoutComplete -ne 1) { return New-EventProjection 5 3 }
+        if ($Capture.StderrComplete -ne 1) { return New-EventProjection 6 4 }
+        if ($Capture.WaitSettled -ne 1) { return New-EventProjection 7 5 }
+        $field = 6
+        if ($Capture.Stdout -isnot [byte[]]) { return New-EventProjection 8 $field }
+        if ($Capture.Stdout.Length -lt 1 -or $Capture.Stdout.Length -gt 511) { return New-EventProjection 9 $field }
+        $field = 7
+        if ($Capture.Stderr -isnot [byte[]]) { return New-EventProjection 10 $field }
+        if ($Capture.Stderr.Length -ne 0) { return New-EventProjection 11 $field }
+        $field = 8
+        if ($Capture.Tasks -isnot [object[]]) { return New-EventProjection 12 $field }
+        if ($Capture.Tasks.Count -lt 3 -or $Capture.Tasks.Count -gt 514) { return New-EventProjection 13 $field }
+        foreach ($task in $Capture.Tasks) {
+            if ($task -isnot [Threading.Tasks.Task]) { return New-EventProjection 14 $field }
+            if ($task.Status -ne [Threading.Tasks.TaskStatus]::RanToCompletion) { return New-EventProjection 15 $field }
+            try { $null = $task.GetAwaiter().GetResult() } catch { return New-EventProjection 16 $field }
+        }
+        return New-EventProjection
+    } catch { return New-EventProjection 1 $field }
+}
+
 function Assert-EventCapture {
     param([object]$Capture)
-    foreach ($name in @('ExitCode', 'Deadline', 'StdoutComplete', 'StderrComplete', 'WaitSettled')) {
-        if ($Capture.$name -isnot [int]) { throw '16' }
+    if ((Get-EventCaptureCheck $Capture).Check -ne 0) { throw '16' }
+}
+
+function Get-EventCaptureShape {
+    param([object]$Capture)
+    # 512 output bytes, 515 tasks and 7 rows are overflow sentinels;
+    # err=1 means any nonempty byte capture, not an exported error byte.
+    $out = 0
+    $err = 0
+    $tasks = 0
+    $rows = 0
+    $shape = 0
+    try {
+        if ($Capture.Stdout -is [byte[]]) { $out = [Math]::Min(512, $Capture.Stdout.Length) }
+        if ($Capture.Stderr -is [byte[]]) { $err = [Math]::Min(1, $Capture.Stderr.Length) }
+        if ($Capture.Tasks -is [object[]]) { $tasks = [Math]::Min(515, $Capture.Tasks.Count) }
+    } catch { }
+    if ($out -gt 0 -and $out -lt 512) {
+        try {
+            $text = [Text.UTF8Encoding]::new($false, $true).GetString($Capture.Stdout)
+            if ($text.EndsWith("`n", [StringComparison]::Ordinal)) { $text = $text.Substring(0, $text.Length - 1) }
+            $lines = $text.Split("`n")
+            $rows = [Math]::Min(7, $lines.Length)
+            $place = 1
+            # Six base-7 prefix codes, first row least significant: 0 absent,
+            # 1 observation, 2 base, 3 exit, 4 event, 5 unknown, 6 empty.
+            $prefixes = @('HERMES_CRASH_EVENT_OBSERVATION ', 'HERMES_CRASH_CONTROL ',
+                'HERMES_CRASH_EXIT ', 'HERMES_CRASH_EVENT_CONTROL ')
+            foreach ($line in @($lines | Select-Object -First 6)) {
+                $code = if ($line.Length -eq 0) { 6 } else { 5 }
+                for ($index = 0; $index -lt $prefixes.Count; $index++) {
+                    if ($line.StartsWith($prefixes[$index], [StringComparison]::Ordinal)) { $code = $index + 1; break }
+                }
+                $shape += $code * $place
+                $place *= 7
+            }
+        } catch { }
     }
-    if ($Capture.ExitCode -notin @(0, 1) -or $Capture.Deadline -ne 0 -or $Capture.StdoutComplete -ne 1 `
-        -or $Capture.StderrComplete -ne 1 -or $Capture.WaitSettled -ne 1 `
-        -or $Capture.Stdout -isnot [byte[]] -or $Capture.Stdout.Length -lt 1 -or $Capture.Stdout.Length -gt 511 `
-        -or $Capture.Stderr -isnot [byte[]] -or $Capture.Stderr.Length -ne 0 `
-        -or $Capture.Tasks -isnot [object[]] -or $Capture.Tasks.Count -lt 3 -or $Capture.Tasks.Count -gt 514) { throw '16' }
-    foreach ($task in $Capture.Tasks) {
-        if ($task -isnot [Threading.Tasks.Task] -or $task.Status -ne [Threading.Tasks.TaskStatus]::RanToCompletion) { throw '16' }
-        $null = $task.GetAwaiter().GetResult()
-    }
+    return [pscustomobject]@{ Out = $out; Err = $err; Tasks = $tasks; Rows = $rows; Shape = $shape }
 }
 
 function Assert-HermesCrashEventOutcome {
@@ -174,48 +247,73 @@ function ConvertTo-HermesCrashEventDiagnostic {
         [object[]]@([int]$match.Groups[1].Value, [int]$match.Groups[2].Value, [int]$match.Groups[3].Value))
 }
 
-function ConvertTo-HermesCrashEventFacts {
+function Get-EventFactsProjection {
     param([object]$Capture)
-    $unavailable = 'HERMES_CRASH_EVENT_FACTS v=1 available=0 status=0 controlStatus=0 reason=0 matched=0 lowerEmpty=0 upperEmpty=0 controlError=0 cleanupError=0 reportError=0 originalGatePassed=0 nativeAcceptance=0'
     try {
-        Assert-EventCapture $Capture
-        $text = [Text.UTF8Encoding]::new($false, $true).GetString($Capture.Stdout)
+        $check = Get-EventCaptureCheck $Capture
+        if ($check.Check -ne 0) { return $check }
+        try { $text = [Text.UTF8Encoding]::new($false, $true).GetString($Capture.Stdout) }
+        catch [Text.DecoderFallbackException] { return New-EventProjection 17 6 }
         $u = '(0|[1-9][0-9]{0,9})'
+        # Observer refusal, coordinator failure diagnostic, then final receipt
+        # refusal can emit three observations before the two terminal summaries.
+        # The unchanged 511-byte cap still bounds the complete captured protocol.
         $pattern = '\A' +
-            "(?:HERMES_CRASH_EVENT_OBSERVATION v=1 reason=(?<observation>$u) matched=(?<matched>[01]) lowerEmpty=(?<lower>[01]) upperEmpty=(?<upper>[01]) nativeAcceptance=0\n){0,2}" +
+            "(?:HERMES_CRASH_EVENT_OBSERVATION v=1 reason=(?<observation>$u) matched=(?<matched>[01]) lowerEmpty=(?<lower>[01]) upperEmpty=(?<upper>[01]) nativeAcceptance=0\n){0,3}" +
             "HERMES_CRASH_CONTROL v=1 status=(?<controlStatus>[01]) exit=(?<exit>$u) error=(?<error>$u) cleanupError=(?<cleanup>$u) reportError=(?<baseReport>[01]) nativeAcceptance=0\n" +
             "(?:HERMES_CRASH_EXIT v=1 check=(?<check>$u) nativeError=(?<native>$u) nativeAcceptance=0\n)?" +
             "HERMES_CRASH_EVENT_CONTROL v=1 status=(?<status>[01]) reason=(?<reason>$u) reportError=(?<report>[01]) originalGatePassed=0 nativeAcceptance=0\n\z"
         $match = [regex]::Match($text, $pattern, [Text.RegularExpressions.RegexOptions]::CultureInvariant)
-        if (-not $match.Success) { return $unavailable }
+        if (-not $match.Success) { return New-EventProjection 18 }
         $values = @{}
+        $field = 8
         foreach ($name in @('observation', 'matched', 'lower', 'upper', 'controlStatus', 'exit',
                 'error', 'cleanup', 'baseReport', 'check', 'native', 'status', 'reason', 'report')) {
+            $field++
             $values[$name] = [uint32]0
             foreach ($item in $match.Groups[$name].Captures) {
                 [uint32]$value = 0
                 if (-not [uint32]::TryParse($item.Value, [Globalization.NumberStyles]::None,
-                        [Globalization.CultureInfo]::InvariantCulture, [ref]$value)) { return $unavailable }
-                if ($name -ceq 'observation' -and $value -gt 21) { return $unavailable }
+                        [Globalization.CultureInfo]::InvariantCulture, [ref]$value)) { return New-EventProjection 19 $field }
+                if ($name -ceq 'observation' -and $value -gt 21) { return New-EventProjection 20 $field }
                 $values[$name] = $value
             }
         }
-        if ($values.status -ne $Capture.ExitCode -or $values.reason -gt 21 -or $values.error -gt 11 `
-            -or $values.cleanup -gt 255 -or ($match.Groups['check'].Success -and (
-                $values.controlStatus -ne 1 -or $values.error -ne 6 -or $values.check -lt 1 -or $values.check -gt 25))) {
-            return $unavailable
+        if ($values.status -ne $Capture.ExitCode) { return New-EventProjection 21 20 }
+        if ($values.reason -gt 21) { return New-EventProjection 22 21 }
+        if ($values.error -gt 11) { return New-EventProjection 23 15 }
+        if ($values.cleanup -gt 255) { return New-EventProjection 24 16 }
+        if ($match.Groups['check'].Success -and (
+                $values.controlStatus -ne 1 -or $values.error -ne 6 -or $values.check -lt 1 -or $values.check -gt 25)) {
+            return New-EventProjection 25 18
         }
         if ($values.status -eq 0 -and ($values.controlStatus -ne 0 -or $values.reason -ne 0 `
                 -or $values.report -ne 0 -or $values.baseReport -ne 0 -or $values.error -ne 0 -or $values.cleanup -ne 0 `
                 -or $values.exit -notin @(0x80131506L, 0x80131623L, 0xc0000409L, 0xc0000602L, 0xe0434352L) `
                 -or $match.Groups['observation'].Captures.Count -ne 1 -or $values.observation -ne 0 `
-                -or $values.matched -ne 1 -or $values.lower -ne 1 -or $values.upper -ne 1)) { return $unavailable }
+                -or $values.matched -ne 1 -or $values.lower -ne 1 -or $values.upper -ne 1)) { return New-EventProjection 26 }
         # Advisory only. Never echo captures, hashes, exit/native codes or exception text.
-        return [string]::Format([Globalization.CultureInfo]::InvariantCulture,
+        $facts = [string]::Format([Globalization.CultureInfo]::InvariantCulture,
             'HERMES_CRASH_EVENT_FACTS v=1 available=1 status={0} controlStatus={1} reason={2} matched={3} lowerEmpty={4} upperEmpty={5} controlError={6} cleanupError={7} reportError={8} originalGatePassed=0 nativeAcceptance=0',
             [object[]]@($values.status, $values.controlStatus, $values.reason, $values.matched, $values.lower,
                 $values.upper, $values.error, $values.cleanup, $values.report))
-    } catch { return $unavailable }
+        return New-EventProjection -Facts $facts
+    } catch { return New-EventProjection 27 }
+}
+
+function ConvertTo-HermesCrashEventFacts {
+    param([object]$Capture)
+    return (Get-EventFactsProjection $Capture).Facts
+}
+
+function ConvertTo-HermesCrashEventCaptureDiagnostic {
+    param([object]$Capture)
+    $projection = Get-EventFactsProjection $Capture
+    $shape = Get-EventCaptureShape $Capture
+    return [string]::Format([Globalization.CultureInfo]::InvariantCulture,
+        'HERMES_CRASH_EVENT_CAPTURE v=1 check={0} field={1} out={2} err={3} tasks={4} rows={5} shape={6}',
+        [object[]]@($projection.Check, $projection.Field, $shape.Out, $shape.Err,
+            $shape.Tasks, $shape.Rows, $shape.Shape))
 }
 
 function Assert-HermesCrashEventAbsent {
@@ -440,6 +538,7 @@ function Complete-HermesCrashEventScope {
 
 Export-ModuleMember -Function Assert-HermesCrashEventSchema, Assert-HermesCrashEventReport,
     Assert-HermesCrashEventOutcome, ConvertTo-HermesCrashEventFacts, ConvertTo-HermesCrashEventDiagnostic,
+    ConvertTo-HermesCrashEventCaptureDiagnostic,
     Assert-HermesCrashEventAbsent,
     Get-HermesCrashEventWorkflowEntry, Assert-HermesCrashEventFreshness, Read-HermesCrashEventPublication,
     Assert-HermesCrashEventPublicationBinding, Invoke-HermesCrashEventSchemaPublication,

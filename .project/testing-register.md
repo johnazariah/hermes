@@ -32,6 +32,41 @@ local baseline. Both standalone Release suites use byte-identical shared
 Servicing assemblies; mixed Debug/Release line maps are not merged.
 Actual controlled Windows event precision remains pending.
 
+At published `d043a94`, supported Windows job `120040971974` and macOS job
+`120040972440` both pass all 911 Servicing cases and 2,194 selected / 2,198
+Core cases respectively, without failed/skipped executions. Actual coverage
+is 87.0176% line / 62.4834% branch on Windows and
+86.7871% / 62.3620% on macOS. The native Windows path-equivalence assertions
+therefore execute successfully. The separate original owned-control run
+also succeeds: artifact `12452019121` retains the exact 591-byte, 28-field
+success contract. Native event correlation itself is not established.
+
+## Event failure projection diagnoses refusal without exporting its input
+
+The first actual event workflow reaches fresh publication and same-job
+metadata success, then refuses at wrapper phase 9 with unavailable advisory
+facts. The actual inner cause remains unknown.
+
+A reproduced legitimate failed-command transcript has three observation
+rows and is 508 bytes; the old failure decoder allowed only two. Its
+failure-only grammar now admits that bounded form. This does not establish
+that the unavailable native capture had that form. Success still requires
+the original exact single-observation transcript, complete reports and
+zero actual helper exit.
+
+The new diagnostic exposes only closed refusal/field codes, capped byte/
+task/row counts and six bounded prefix-shape codes. It never echoes input
+bytes, text, identity, paths, hashes or exception data. Pure and real-process
+fixtures cover missing/wrong fields, completion faults, UTF-8/grammar/range
+refusals, contradictory status, injected text, overflow sentinels, all five
+failed-command forms and flushed wrapper output.
+
+All **1,081 event controls**, 985 existing crash controls and 3,120 metadata
+controls pass independently. Direct delta review approves the unchanged
+success gates; root build and all 2,198 Core cases pass, and actionlint
+passes all three fixed diagnostic workflows. Actual native diagnosis is the
+next step, not a result inferred from elapsed time or synthetic fixtures.
+
 ## Metadata acquisition admits only its two fixed hosted jobs
 
 The metadata-only host guard accepts the exact, case-sensitive job names
@@ -82,7 +117,7 @@ coverage is 86.7206% line / 62.3626% branch on Windows and
 
 ## Fixed event supervision preserves separate control and event status
 
-The fixed wrapper, module and workflow pass **816 portable controls**,
+The fixed wrapper, module and workflow pass **1,081 portable controls**,
 alongside 985 existing crash controls and 3,120 metadata controls. Direct
 source review covers all four new files and their reused publication,
 capture and pinning helpers. No blocking supervision defect is found.

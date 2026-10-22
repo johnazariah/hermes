@@ -16,6 +16,7 @@ function Write-CrashEventFailure {
     [Console]::Out.WriteLine($diagnostic)
     if ($script:phase -eq 9 -and $null -ne $script:capture) {
         try { [Console]::Out.WriteLine((ConvertTo-HermesCrashEventFacts $script:capture)) } catch { }
+        try { [Console]::Out.WriteLine((ConvertTo-HermesCrashEventCaptureDiagnostic $script:capture)) } catch { }
     }
     [Console]::Out.Flush()
 }

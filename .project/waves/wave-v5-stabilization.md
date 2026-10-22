@@ -100,6 +100,15 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-23 - Distinguish native event-report refusals without raw capture
+
+- **Actual evidence:** At `d043a94`, both supported hosts pass all 911 Servicing cases and their complete Core selections. Windows coverage is 87.0176% / 62.4834%; macOS is 86.7871% / 62.3620%. The original owned-control run `39840795553`, job `120040941956`, succeeds; independently checked artifact `12452019121` preserves all 28 success facts and the documented FailFast status.
+- **Refusal:** New event run `39840795712`, job `120040941471`, passes portable controls, fresh publication and same-job metadata acquisition. The execution step refuses at phase 9 / family 1 / reason 12, with unavailable event facts. No failed capture is printed or uploaded, and no event precision or inner cause is inferred.
+- **Changed:** A legitimate synthetic 508-byte failure has three observations, beyond the old decoder's two-row bound. The failure-only decoder admits that form while preserving the exact success grammar and 511-byte cap. Separate closed check/field codes, capped capture counts and prefix-shape codes make any remaining advisory refusal distinguishable without text, identity or exception export. Whether this explains the actual old capture remains unknown.
+- **Validation:** Direct review approves the complete three-file delta. Independent controls pass 985 existing / 3,120 metadata / 1,081 event assertions; root build passes without warnings/errors and all 2,198 Core cases pass without skips. All three fixed workflows pass actionlint.
+- **Blockers:** Actual native event precision, original PowerShell execution and installed acceptance remain unresolved.
+- **Next:** Publish this bounded observability correction and inspect the next genuine closed failure facts.
+
 ### 2026-10-23 - Preserve genuine outcomes in the fixed owned event probe
 
 - **Changed:** The exact new synthetic command binds strict metadata admission to the retained owned child's held scope. Completed bounded queries require one exact identity match and empty birth-minus/plus-one controls. Reports retain separate base-control and event status; original commands and report shape remain intact.
