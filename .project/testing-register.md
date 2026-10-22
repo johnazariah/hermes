@@ -2,6 +2,27 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Independent SDK and query completion identifies the failing component
+
+All **500 controls** pass, retaining 489 prior intents and adding eleven
+stage-isolation cases. The unchanged qualified SDK setter and unchanged
+typed query now have separate `.catch` blocks. Each fixed `.echo` completion
+marker occurs inside its block after the operation returns; Microsoft
+documents that an error skips the remaining commands in that block.
+
+Both scoped completions, the typed four-byte flag bit 2, frame closure and
+all existing held-target/source/stop checks are required before target
+continuation. Missing SDK completion refuses even with flag 2; query failure
+retains the earlier SDK fact. Query completion without an available field
+remains unavailable. Echoed/forged/replayed/out-of-frame stage strings cannot
+supply completion.
+
+The other four program-file goldens, fixed no-echo input, writer/continuation
+roles and original acceptance gates are unchanged. Added cases cover source
+tampering, stage scope/order, stderr non-authority, post-budget freezing and
+the report bound. Installer static controls pass. Actual SDK/query stage
+completion and the PowerShell loader cause remain pending.
+
 ## Fixed no-echo invocation isolates the arming program's display behaviour
 
 All **489 controls** pass, retaining 486 prior intents and adding three

@@ -26,7 +26,8 @@ function New-HermesStartupState {
         CommandPins = @{}; SourcePins = @{}
         ScopedEchoes = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
         ScopedPublication = $null; ScopedInvocation = $null; ExtensionSource = $null
-        ScopedPhase = 0; ScopedFault = @{ Reason = 0; Phase = 0; Block = 0; Held = 0; Echo = 0 }
+        ScopedPhase = 0; ScopedStages = 0
+        ScopedFault = @{ Reason = 0; Phase = 0; Block = 0; Held = 0; Echo = 0 }
         Held = $null; ArmAttempted = $false; ArmWritten = $false; SideWrites = 0
         InputWriter = $null; InputTasks = [Collections.Generic.List[Threading.Tasks.Task]]::new()
         DriverSha256 = ''; ModuleSha256 = ''; ArmCommandSha256 = ''; ExtensionSha256 = ''
@@ -1380,6 +1381,7 @@ function Test-HermesStartupScopedBinding {
         -and $invocation.Helper -eq $State.Target.helper -and $invocation.EventPid -eq $State.Target.pid `
         -and $null -ne $arm -and $arm.Kind -eq 7 -and $arm.Version -eq 4 -and $arm.Event -eq 1 `
         -and $arm.Pid -eq $invocation.Pid -and $arm.EventPid -eq $invocation.Pid `
+        -and $State.ScopedStages -eq 3 -and $arm.Stages -eq 3 `
         -and $arm.Flags -ge 0 -and $arm.Flags -le [uint32]::MaxValue -and ($arm.Flags -band 2) -eq 2 `
         -and (Get-HermesStartupObservation $State 'SdkCommandErrors' 15) -eq 0
 }
@@ -1497,7 +1499,7 @@ function Invoke-HermesStartupScopedInput {
 }
 
 function Set-HermesStartupProtocolFault {
-    param([hashtable]$State, [ValidateRange(1, 14)][int]$Reason,
+    param([hashtable]$State, [ValidateRange(1, 15)][int]$Reason,
         [ValidateRange(0, 255)][int]$EchoMask = 0)
     if ($State.DiagnosticMode -ceq 'ScopedCreateV1') {
         if ($State.Bounds -ne 0 -or $State.AcceptedUtf8Bytes -ge 8388608) { return }
@@ -1545,6 +1547,7 @@ function Add-HermesStartupScopedMarker {
         }
         $inventory.Block = @{ Kind = $Kind; Version = $Version; Pid = $Pid
             EventPid = [uint32]0; Event = 0; Valid = $true; Code = [long]0; Flags = [long]-1; Released = $false }
+        if ($Kind -eq 7) { $inventory.Block.Stages = 0 }
         $State.Stopped = $false
         return
     }
@@ -1555,7 +1558,8 @@ function Add-HermesStartupScopedMarker {
     if ($Kind -eq 8) {
         $inventory.Block = $null
         $State.Arm = $block
-        if ($block.Flags -lt 0 -or ($block.Flags -band 2) -ne 2) { $State.Unknown = 1 }
+        if ($block.Stages -ne 3 -or $State.ScopedStages -ne 3 `
+            -or $block.Flags -lt 0 -or ($block.Flags -band 2) -ne 2) { $State.Unknown = 1 }
         return
     }
     Complete-HermesStartupInventoryBlock $inventory $Kind $Pid $Version
@@ -1569,6 +1573,48 @@ function Add-HermesStartupScopedMarker {
     $State.Held = $block
     $State.Stopped = $false
     Set-HermesStartupScopedCreated $State
+}
+
+function Test-HermesStartupScopedArmFrame {
+    param([hashtable]$State)
+    if ($State.DiagnosticMode -cne 'ScopedCreateV1' -or $State.Bounds -ne 0 `
+        -or $State.AcceptedUtf8Bytes -ge 8388608 -or -not $State.ArmAttempted -or -not $State.ArmWritten `
+        -or -not (Test-HermesStartupScopedReceipt $State) -or -not (Test-HermesStartupCreatedBinding $State) `
+        -or $State.Acked -or $State.ContinueAttempted -or $null -ne $State.Arm -or $null -ne $State.Final `
+        -or $State.DebuggerExitAvailable -ne 0 -or $State.InputClosed -or $State.Out.End `
+        -or $State.Out.Faulted -or $State.Err.Faulted) { return $false }
+    $block = $State.Inventory.Block; $held = $State.Held; $invocation = $State.ScopedInvocation
+    if ($null -eq $block -or $block.Kind -ne 7 -or $block.Version -ne 4 -or -not $block.Valid `
+        -or $block.Event -ne 1 -or $block.Pid -ne $State.Target.pid -or $block.EventPid -ne $block.Pid `
+        -or $null -eq $held -or $held.Kind -ne 1 -or $held.Version -ne 3 -or -not $held.Valid `
+        -or $held.Released -or $held.Event -ne 1 -or $held.Pid -ne $block.Pid -or $held.EventPid -ne $block.Pid `
+        -or $null -eq $invocation -or $invocation.Source -isnot [hashtable] `
+        -or $invocation.Pid -ne $block.Pid -or $invocation.EventPid -ne $block.Pid `
+        -or $invocation.Born -ne $State.Target.born -or $invocation.Helper -ne $State.Target.helper `
+        -or $State.Exits.ContainsKey([string]$State.Target.pid) `
+        -or $State.Exits.ContainsKey([string]$State.Target.helper)) { return $false }
+    foreach ($name in $State.ScopedPublication.Keys) {
+        if ($invocation.Source[$name] -cne $State.ScopedPublication[$name]) { return $false }
+    }
+    return $true
+}
+
+function Add-HermesStartupScopedStage {
+    param([hashtable]$State, [ValidateSet(1, 2)][int]$Stage)
+    if ($State.DiagnosticMode -cne 'ScopedCreateV1' -or $State.Protocol -ne 0 `
+        -or $State.Bounds -ne 0 -or $State.AcceptedUtf8Bytes -ge 8388608) { return }
+    if (-not (Test-HermesStartupScopedArmFrame $State)) {
+        Set-HermesStartupProtocolFault $State 15; return
+    }
+    $block = $State.Inventory.Block
+    # Missing completion is a contained-stage outcome, not a forged record.
+    # SDK cannot return after the query; query can return without a field.
+    if ($block.Stages -ne $State.ScopedStages -or ($State.ScopedStages -band $Stage) -ne 0 `
+        -or ($Stage -eq 1 -and ($State.ScopedStages -ne 0 -or $block.Flags -ne -1))) {
+        Set-HermesStartupProtocolFault $State 15; return
+    }
+    $State.ScopedStages = $State.ScopedStages -bor $Stage
+    $block.Stages = $State.ScopedStages
 }
 
 function Get-HermesStartupScopedEchoMask {
@@ -1620,6 +1666,14 @@ function Add-HermesStartupScopedLine {
         }
         return
     }
+    if ($Line.Contains('HERMES_ARM_STAGE', [StringComparison]::OrdinalIgnoreCase)) {
+        $echo = $Line -creplace '\A[0-9]{1,3}:[0-9a-f]{3}> ', ''
+        if ($State.ScopedEchoes.Contains($echo)) { return }
+        if ($Line -cmatch '\AHERMES_ARM_STAGE v=1 stage=(?<s>[12])\z') {
+            Add-HermesStartupScopedStage $State ([int]$Matches.s)
+        } else { Set-HermesStartupProtocolFault $State 15 }
+        return
+    }
     if ($Line -cmatch '\AHERMES_CDB v=(?<v>[134]) kind=(?<k>[0-8]) pid=(?<p>[1-9][0-9]{0,9})\z' `
         -and [long]$Matches.p -le [uint32]::MaxValue) {
         Add-HermesStartupScopedMarker $State ([int]$Matches.v) ([int]$Matches.k) ([uint32]$Matches.p)
@@ -1648,6 +1702,7 @@ function Add-HermesStartupScopedLine {
             -or $State.Exits.ContainsKey([string]$State.Target.pid) `
             -or $State.Exits.ContainsKey([string]$State.Target.helper)) { Set-HermesStartupProtocolFault $State 9; return }
         if ($block.Flags -ne -1) { Set-HermesStartupProtocolFault $State 8; return }
+        if (($State.ScopedStages -band 2) -ne 0) { Set-HermesStartupProtocolFault $State 15; return }
         $block.Flags = [long][Convert]::ToUInt32($Matches.f, 16)
         $State.ScopedPhase = $State.ScopedPhase -bor 8
         return
@@ -2222,9 +2277,12 @@ function New-HermesStartupReport {
         # binding, 5 last-event shape/sequence, 6 event identity, 7 typed format,
         # 8 typed duplicate, 9 scope/sequence, 10 subject replay/limit,
         # 11 native rows, 12 readiness ack, 13 failure scope,
-        # 14 syntax-shaped unknown printf. Zero is no captured refusal.
+        # 14 syntax-shaped unknown printf; 15 stage grammar/scope/sequence.
+        # Completion bits are bound earlier observations, never flag evidence:
+        # 1 SDK returned; 2 query returned (possibly without an available field).
+        $selected.scopedStages = Get-HermesStartupInventoryNumber $State.ScopedStages 3
         $selected.scopedPhase = Get-HermesStartupInventoryNumber $State.ScopedPhase 15
-        $selected.scopedFirstReason = Get-HermesStartupInventoryNumber $State.ScopedFault.Reason 14
+        $selected.scopedFirstReason = Get-HermesStartupInventoryNumber $State.ScopedFault.Reason 15
         $selected.scopedFirstPhase = Get-HermesStartupInventoryNumber $State.ScopedFault.Phase 15
         $selected.scopedFirstBlock = Get-HermesStartupInventoryNumber $State.ScopedFault.Block 7
         $selected.scopedFirstHeld = Get-HermesStartupInventoryNumber $State.ScopedFault.Held 5

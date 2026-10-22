@@ -100,6 +100,24 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Isolate SDK and query returns with scoped completion markers
+
+- **Changed:** A fresh narrow owner separates the unchanged qualified SDK command and typed read into independent error-contained blocks. Fixed non-printf completion markers are emitted only after their respective operations return.
+- **Validation:** Parent complete source/test review, all 500 controls and installer static controls pass. Eleven new cases cover missing SDK completion despite flag 2, retained SDK facts on query failure, unavailable fields, successful full transport, stage forgery/replay/scope/order, source tampering and budget/report bounds.
+- **Preserved:** Other four program files, SDK/query text, selected signed source, no-echo invocation, one held-target SDK action, finite input roles, immutable snapshots and all original acceptance gates.
+- **Grounding:** Primary `.echo` documentation confirms a semicolon terminates its unquoted text, so the fixed marker remains inside the containing block. No SDK syntax or token/console/permission change is inferred.
+- **Blockers:** Actual contained-stage results and the loader cause remain unknown.
+- **Next:** Publish stage isolation and inspect whether the SDK command, the typed query or both complete on Windows.
+
+### 2026-10-22 - Separate SDK command completion from typed-query completion
+
+- **Evidence:** Published `a5d34fc`, run `39722302391`, job `119638312385`, passes 489 controls, both supported OS jobs, Tray and 500/501 native cases without skips. No-echo invocation leaves the same first unknown printf refusal: arm-begin phase, no typed candidate/end, lexical mask zero. The control has not resolved the boundary.
+- **Decision:** Isolate the unchanged qualified SDK setter and unchanged typed read in separate contained stages. Fixed non-printf completion markers will distinguish a returned SDK command from a completed query; missing SDK completion must refuse even if a flag value is present.
+- **Grounding:** Microsoft's `.catch` reference says a command error skips the remaining commands inside that block and resumes after it. The current shared block obscures which component stopped. C++ documentation supports the existing sizeof/member syntax; no replacement expression is assumed.
+- **Preserved:** One held-target SDK action, exact selected module/source pins, no-echo invocation, metadata-only automatic callbacks, typed flag bit 2 and all original acceptance gates.
+- **Blockers:** SDK DSL failure, flag readback and PowerShell loader cause remain unknown. The preceding source owner has completed three cycles and is not reused.
+- **Next:** Have a fresh narrowly scoped owner implement and validate SDK/query stage isolation before another semantic change.
+
 ### 2026-10-22 - Pin no-echo invocation while preserving condensed execution
 
 - **Changed:** The single fixed arming input uses documented `$$>a<` with one quoted pinned filename and no arguments. All five program-file bytes/hashes, SDK grammar and target authority remain unchanged; there is no command/path/PID selector.
