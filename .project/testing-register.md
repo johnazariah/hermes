@@ -2,6 +2,21 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Pinned discovery failures expose only closed field/result codes
+
+Seven new cases retain exact typed
+`Error(InvalidWire IdentityMismatch)` equality for every pinned Send control.
+Peer field codes distinguish PID, birth, Origin and config key; exhaustive
+result codes distinguish success, transport and codec failures without
+rendering response payloads or identities.
+
+Success and unexpected transport errors must still fail, with the exact
+sequential Send count. All four negative controls remain in their original
+order with the complete instance pin. The real owned fixture, deadlines and
+cleanup are unchanged. Fresh F# review approves; all 54 selected instrumented
+discovery cases and all 2,198 Core cases pass without skips. This adds
+observability, not a fix or evidence of the actual failing macOS result case.
+
 ## Fixed crash-event query candidates preserve unproven precision
 
 The query component passes **98 portable cases** and serial portable/

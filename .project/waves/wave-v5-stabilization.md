@@ -100,6 +100,15 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-23 - Expose the pinned discovery failure without relaxing it
+
+- **Evidence:** Reader head `2a8f7bc`, CI `39809031924`, macOS job `119929933520` fails the pinned Send assertion in `rejectBadPeers` line 83. Its generic Result message hides acceptance versus transport/codec failure; the actual case is unknown. Windows succeeds, and the owned-control workflow still succeeds.
+- **Changed:** Closed field/result codes annotate exactly the same typed identity-mismatch equality. PID, birth, Origin and config-key mutations remain sequential and fully pinned. No request/response/identity/token/path is formatted into the assertion.
+- **Validation:** Seven new cases prove success and unexpected transport results still fail, disclose only their closed numeric cases and retain all four controls. Fresh independent F# review approves. Root build and 54 selected instrumented discovery cases pass; full Core passes 2,198 without skips.
+- **Boundary:** This is observation-only. No fixture lifetime, deadline, production protocol or owner-auth rule is changed, and fake timeout cases establish no actual cause.
+- **Blockers:** The real macOS failure needs typed classification or a deterministic reproduction before a fix; original PowerShell and installed acceptance remain unresolved.
+- **Next:** Publish the diagnostic with the query component and inspect exact-head supported CI.
+
 ### 2026-10-23 - Construct only bounded, explicitly unproven event-query candidates
 
 - **Changed:** The fixed query retains channel/provider/event/version, exact decimal PID/birth, literal image and bounded UTC-window predicates. It uses one synchronous two-slot batch and visits only a single candidate while query/event handles remain owned on their creating thread. Events close before the query; errors and cleanup faults cannot become empty/success.
