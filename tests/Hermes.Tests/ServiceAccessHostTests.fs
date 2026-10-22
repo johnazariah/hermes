@@ -28,6 +28,16 @@ let private assertStartingOwner (server: Server) : Task<unit> =
         | _ -> failwith "Expected starting owner status."
     }
 
+let private assertIdentityReply (server: Server) (captured: CapturedHost)
+    (current: Process) (reply: Reply) : unit =
+    Assert.Equal(200, reply.Status)
+    let identity = json reply
+    Assert.Equal(current.Id, identity.GetProperty("processId").GetInt32())
+    Assert.Equal(server.Origin, field "origin" identity)
+    Assert.Equal(
+        captured.Context.Identity.ProcessStartTimeUtc,
+        identity.GetProperty("processStartTimeUtc").GetDateTimeOffset())
+
 let private assertActualIdentity (server: Server) : Task<unit> =
     task {
         let! captured = wait server.Captured
@@ -37,13 +47,7 @@ let private assertActualIdentity (server: Server) : Task<unit> =
             DateTimeOffset(current.StartTime.ToUniversalTime()),
             captured.Context.Identity.ProcessStartTimeUtc)
         let! reply = get server accessPath
-        Assert.Equal(200, reply.Status)
-        let identity = json reply
-        Assert.Equal(current.Id, identity.GetProperty("processId").GetInt32())
-        Assert.Equal(server.Origin, field "origin" identity)
-        Assert.Equal(
-            captured.Context.Identity.ProcessStartTimeUtc,
-            identity.GetProperty("processStartTimeUtc").GetDateTimeOffset())
+        assertIdentityReply server captured current reply
     }
 
 let private assertClosedAuthority
@@ -65,9 +69,8 @@ let private assertClosedAuthority
             Assert.Equal(AccessError.AccessUnavailable, error))
     }
 
-[<Fact>]
-let ``bound HTTP remains closed until private control readiness`` () : Task =
-    withServer ignore (fun server -> task {
+let private assertStartingClosed (server: Server) : Task<unit> =
+    task {
         do! wait server.Probe.Listening.Task
         let! health = get server healthPath
         assertUnavailable health
@@ -78,6 +81,12 @@ let ``bound HTTP remains closed until private control readiness`` () : Task =
         Assert.Empty(server.Probe.Effects)
         Assert.False(server.Probe.WorkerStarted.Task.IsCompleted)
         do! assertStartingOwner server
+    }
+
+[<Fact>]
+let ``bound HTTP remains closed until private control readiness`` () : Task =
+    withServer ignore (fun server -> task {
+        do! assertStartingClosed server
         do! becomeReady server
         let! ready = get server healthPath
         Assert.Equal(200, ready.Status)
@@ -105,31 +114,27 @@ let ``unclassified application endpoint fails before HTTP or owner binding`` () 
 [<Fact>]
 let ``control startup failure tears down the already bound HTTP listener`` () : Task =
     withServer ignore (fun server -> task {
-        do! wait server.Probe.Listening.Task
-        let! health = get server healthPath
+        let! health = startingHealth server
         assertUnavailable health
-        server.Probe.Release.SetResult(Error PipeFailure.OwnershipUnavailable)
-        let! result = wait server.Run
-        Assert.Equal(1, result.ExitCode)
-        Assert.Equal(Lifetime.Quiesced, result.Disposition)
-        Assert.False(server.Probe.WorkerStarted.Task.IsCompleted)
-        Assert.Empty(server.Probe.Effects)
-        let! captured = wait server.Captured
-        Assert.True(Option.isNone (captured.Context.Public()))
-        assertPortReleased server
+        do! failStartup server
     })
 
-[<Fact>]
-let ``pending pairing grants no mutation and private approval enables real HTTP work`` () : Task =
-    withServer ignore (fun server -> task {
-        do! becomeReady server
-        let! pairing = createPairing server
+let private assertPendingDenied (server: Server) (pairing: PendingPairing) : Task<unit> =
+    task {
         let! pending = exchange server pairing
         Assert.Equal(202, pending.Status)
         let! denied = post server mutationPath None """{"value":"pending"}"""
         Assert.Equal(401, denied.Status)
         Assert.False(File.Exists(Path.Combine(server.Probe.Root, "accepted.txt")))
         Assert.Empty(server.Probe.Effects)
+    }
+
+[<Fact>]
+let ``pending pairing grants no mutation and private approval enables real HTTP work`` () : Task =
+    withServer ignore (fun server -> task {
+        do! becomeReady server
+        let! pairing = createPairing server
+        do! assertPendingDenied server pairing
         do! approve server pairing
         let! issued = exchange server pairing
         Assert.Equal(201, issued.Status)
@@ -140,6 +145,15 @@ let ``pending pairing grants no mutation and private approval enables real HTTP 
             """{"value":"approved"}""",
             File.ReadAllText(Path.Combine(server.Probe.Root, "accepted.txt")))
     })
+
+let private joinFailedWorkers (server: Server) : Task<unit> =
+    task {
+        server.Probe.JoinRelease.SetResult(())
+        let! result = wait server.Run
+        Assert.Equal(1, result.ExitCode)
+        Assert.True(server.Probe.WorkerStopped.Task.IsCompleted)
+        assertPortReleased server
+    }
 
 let private verifyTerminalFailure (server: Server) : Task<unit> =
     task {
@@ -155,11 +169,7 @@ let private verifyTerminalFailure (server: Server) : Task<unit> =
         Assert.True(server.Probe.QueuesClosed.Task.IsCompleted)
         Assert.True(Option.isNone (captured.Context.Public()))
         do! assertClosedAuthority publicAccess credential
-        server.Probe.JoinRelease.SetResult(())
-        let! result = wait server.Run
-        Assert.Equal(1, result.ExitCode)
-        Assert.True(server.Probe.WorkerStopped.Task.IsCompleted)
-        assertPortReleased server
+        do! joinFailedWorkers server
     }
 
 [<Fact>]

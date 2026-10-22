@@ -87,6 +87,18 @@ let private configure
     { Workers = [ { Name = "synthetic-worker"; Start = worker probe } ]
       StopQueues = fun () -> probe.QueuesClosed.TrySetResult(()) |> ignore }
 
+let private runHost
+    (shutdownBudget: TimeSpan)
+    (observations: Probe)
+    (options: AccessHostOptions)
+    (workload: WebApplication -> HostContext -> AccessHostWorkload)
+    : Task<AccessHostResult> =
+    Task.Factory.StartNew(
+        Func<AccessHostResult>(fun () ->
+            ServiceAccessHost.runWithControlAndShutdownBudget shutdownBudget
+                (controlFactory observations) options TestHelpers.silentLogger workload),
+        CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default)
+
 let private start (shutdownBudget: TimeSpan) (extra: WebApplication -> unit) : Server =
     let root = Path.Combine(Path.GetTempPath(), "hermes-host-" + Guid.NewGuid().ToString("N"))
     Directory.CreateDirectory(root) |> ignore
@@ -97,13 +109,7 @@ let private start (shutdownBudget: TimeSpan) (extra: WebApplication -> unit) : S
     let options: AccessHostOptions =
         { ConfigDirectory = root; Port = port; ExtraOrigins = []
           Models = { IsAvailable = fun _ -> true } }
-    let logger: Algebra.Logger =
-        { info = ignore; warn = ignore; error = ignore; debug = ignore }
-    let run: Task<AccessHostResult> =
-        Task.Run(Func<AccessHostResult>(fun () ->
-            ServiceAccessHost.runWithControlAndShutdownBudget shutdownBudget
-                (controlFactory observations)
-                options logger (configure observations captured extra)))
+    let run = runHost shutdownBudget observations options (configure observations captured extra)
     let handler = new HttpClientHandler(AllowAutoRedirect = false)
     { Probe = observations; Origin = origin; Captured = captured.Task; Run = run
       Client = new HttpClient(handler, true, BaseAddress = Uri(origin),
@@ -168,4 +174,21 @@ let becomeReady (server: Server) : Task<unit> =
         do! wait server.Probe.Listening.Task
         server.Probe.Release.SetResult(Ok ())
         do! wait server.Probe.WorkerStarted.Task
+    }
+
+let failStartup (server: Server) : Task<unit> =
+    task {
+        server.Probe.Release.SetResult(Error PipeFailure.OwnershipUnavailable)
+        let! result = wait server.Run
+        Assert.Equal(1, result.ExitCode)
+        Assert.Equal(Lifetime.Quiesced, result.Disposition)
+        Assert.False(server.Probe.WorkerStarted.Task.IsCompleted)
+        Assert.Empty(server.Probe.Effects)
+        let! captured = wait server.Captured
+        let! failure = wait captured.Context.Failure
+        Assert.Equal(
+            AccessHostFailure.OwnerControlFailed PipeFailure.OwnershipUnavailable,
+            failure)
+        Assert.True(Option.isNone (captured.Context.Public()))
+        assertPortReleased server
     }

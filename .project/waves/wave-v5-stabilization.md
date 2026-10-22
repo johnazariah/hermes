@@ -100,6 +100,25 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Publish the owned authentication-startup fixture revision
+
+- **Changed:** The fixture joins a dedicated synchronous host task and gives startup health a separate linked 20-second budget; ordinary two-second requests and all production deadlines remain unchanged. The original real 503-before-failure and exact failure/quiescence/authority/port-release proof is preserved.
+- **Ownership:** Separately started HTTP operations are cancelled and actually observed before fixture cleanup. A token-cancellation handshake holds settlement; the original verification exception and identical unrelated transport exception remain observable even when HttpClient wraps cancellation.
+- **Review:** Two candidates were rejected for unjoined failure paths and a cancellation/exception race. Their authors were locked out; independent revisions were mechanically applied. Fresh final F# review `7be2846d` approves correctness and mandatory idioms.
+- **Validation:** Root build passes with zero warnings/errors; all 17 instrumented host/drain tests and 2,189 full Core tests pass without skips. Exact authored replacement bytes, BOM/LF and diff hygiene were verified. Five new discovered cases exercise real forwarding, transport failure and three held-unwind paths.
+- **Preserved:** No production authentication, native child, installer, coverage-threshold or 501-case Windows-gate changes. Existing assertions remain; no timeout is treated as success.
+- **Blockers:** Instrumented hosted Windows must verify the observed CI failure is resolved. Genuine restricted PowerShell and installed acceptance remain blocked; the independent event diagnostic remains unimplemented.
+- **Next:** Publish the exact fixture source and inspect the supported Windows coverage job before closing its reproducibility task.
+
+### 2026-10-22 - Retain verified schema and address the actual authentication CI failure
+
+- **Evidence:** Metadata-only run `39749138163`, job `119724986791`, artifact `12412462737` succeeds at `81239bc`. Application Error event 1000/version 0 has 15 fields and all six known names uniquely present. PID is HexInt32, creation time HexInt64, and image/exception/module fields are UnicodeString; template hash is `cd0a3d85a95e98a2909d1a77bada29db34ed1abbe37a058d6c06e9aca599557e`.
+- **Authoring gap:** The C# owner delivered no patch after its final cycle. Owned crash-control lifetime, selective identity-first event reading and fail-closed orchestration remain unimplemented. These are unfinished implementation obligations, not demonstrated Windows/API limitations. No event query or fallback was introduced.
+- **New failure:** Supported Windows run `39749145727`, job `119725013267`, fails the authentication test that proves control-startup failure tears down an already-bound HTTP listener. Its HTTP request exceeds the fixture's two-second client timeout under coverage. Servicing 318, Setup 1,277 and Control 133 tests pass; macOS and Tray pass.
+- **Decision:** A fresh F# owner is investigating deterministic fixture/barrier or budget separation while preserving the real before/failure/teardown proof. Do not skip assertions, swallow timeouts or change production deadlines.
+- **Blockers:** Authentication CI reproducibility and genuine restricted PowerShell/installed acceptance remain unresolved. The independent event diagnostic is not implemented.
+- **Next:** Review the F# fix and verify its exact assertions under instrumented Windows before making any completion or merge claim.
+
 ### 2026-10-22 - Publish the fixed publisher-metadata probe
 
 - **Changed:** A dedicated short hosted Windows job reads only Application Error event-1000 publisher templates. Exact known field names/types become finite numeric codes and template hashes; no event bodies, messages, resource paths or raw templates are exported.

@@ -4,6 +4,7 @@ open System
 open System.Collections.Concurrent
 open System.IO
 open System.Net.Http
+open System.Runtime.ExceptionServices
 open System.Text
 open System.Text.Json
 open System.Threading
@@ -60,8 +61,10 @@ let cell<'Value> () : TaskCompletionSource<'Value> =
     TaskCompletionSource<'Value>(
         TaskCreationOptions.RunContinuationsAsynchronously)
 
+let testBudget: TimeSpan = TimeSpan.FromSeconds 20.0
+
 let wait (pending: Task<'Value>) : Task<'Value> =
-    pending.WaitAsync(TimeSpan.FromSeconds 20.0)
+    pending.WaitAsync(testBudget)
 
 let ok (value: Result<'Value, 'Error>) : 'Value =
     value |> Result.defaultWith (fun error -> failwithf "Unexpected failure: %A" error)
@@ -75,18 +78,58 @@ let field (name: string) (value: JsonElement) : string =
     |> Option.ofObj
     |> Option.defaultWith (fun () -> failwith "Expected a JSON string.")
 
-let private send (server: Server) (request: HttpRequestMessage) : Task<Reply> =
+let observeStartup (work: unit -> Task<'Value>) : Task<Result<'Value, exn>> =
+    task {
+        try
+            let! value = work ()
+            return Ok value
+        with error -> return Error error
+    }
+
+let private startupErrors (outcome: Result<'Value, exn>) : exn list =
+    outcome |> Result.map (fun _ -> []) |> Result.defaultWith List.singleton
+
+let finishStartup (expected: exn option) (verification: Result<unit, exn>)
+    (cancellation: Result<unit, exn>) (settlement: Result<'Value, exn>) : unit =
+    let unexpected =
+        startupErrors settlement
+        |> List.filter (fun error ->
+            expected |> Option.forall (fun known -> not (Object.ReferenceEquals(known, error))))
+    match startupErrors verification @ startupErrors cancellation @ unexpected with
+    | [] -> ()
+    | [ error ] -> ExceptionDispatchInfo.Capture(error).Throw()
+    | errors -> raise (AggregateException("Startup HTTP verification and settlement failed.", errors))
+
+let private send (client: HttpClient) (token: CancellationToken)
+    (request: HttpRequestMessage) : Task<Reply> =
     task {
         use request = request
-        use! response = server.Client.SendAsync(request)
-        let! body = response.Content.ReadAsStringAsync()
+        use! response = client.SendAsync(request, token)
+        let! body = response.Content.ReadAsStringAsync(token)
         return
             { Status = int response.StatusCode; Body = body
               CacheControl = string response.Headers.CacheControl }
     }
 
 let get (server: Server) (path: string) : Task<Reply> =
-    send server (new HttpRequestMessage(HttpMethod.Get, path))
+    send server.Client CancellationToken.None
+        (new HttpRequestMessage(HttpMethod.Get, path))
+
+let startingHealthUsing (handler: HttpMessageHandler) (cancellation: CancellationToken)
+    (server: Server) : Task<Reply> =
+    task {
+        use client =
+            new HttpClient(handler, true, BaseAddress = Uri(server.Origin),
+                           Timeout = Timeout.InfiniteTimeSpan)
+        use deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellation)
+        deadline.CancelAfter(testBudget)
+        do! server.Probe.Listening.Task.WaitAsync(deadline.Token)
+        return! send client deadline.Token
+                    (new HttpRequestMessage(HttpMethod.Get, healthPath))
+    }
+
+let startingHealth (server: Server) : Task<Reply> =
+    startingHealthUsing (new HttpClientHandler(AllowAutoRedirect = false)) CancellationToken.None server
 
 let post
     (server: Server)
@@ -103,7 +146,7 @@ let post
         request.Headers.Add("Authorization", "Bearer " + token))
     |> Option.defaultValue ()
     request.Content <- new StringContent(body, Encoding.UTF8, "application/json")
-    send server request
+    send server.Client CancellationToken.None request
 
 let assertUnavailable (reply: Reply) : unit =
     Assert.Equal(503, reply.Status)

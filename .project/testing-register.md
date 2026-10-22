@@ -2,6 +2,33 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Owner-auth startup failure separates transport budget and joins every HTTP task
+
+The host fixture runs its synchronous lifetime on a dedicated, explicitly
+joined LongRunning task rather than a pool worker. Startup health has one
+linked 20-second listening/send/body budget; ordinary requests retain the
+two-second client timeout and production deadlines are unchanged.
+
+The original test still obtains real HTTP 503/access_unavailable/no-store
+before injecting owner-control failure, then checks exit 1, Quiesced, no
+worker/effects/public authority, the exact propagated failure and real port
+rebinding. Delayed forwarding and identical transport-fault tests accompany
+three gated unwind cases: before entry, after entry and unrelated transport
+failure. Pending HTTP is cancelled and actually joined before fixture
+cleanup; handler disposal occurs exactly once.
+
+The unwind gate waits for actual request-token cancellation observation.
+Its exception assertions preserve the original verification exception and
+the identical transport exception inside the real cancellation wrapper,
+rather than racing or treating cancellation as success.
+
+Fresh independent F# review approves after separate authors revised two
+rejected candidates. Parent build passes with zero warnings/errors; all
+**17 instrumented ServiceAccessHost tests** and **2,189 full Core tests**
+pass without skips. BOM/LF and exact authored replacement bytes were checked.
+The original supported-Windows coverage failure still needs exact-head
+hosted verification.
+
 ## Fixed Application Error publisher metadata has independent portable controls
 
 `Test-StartupEventSchema.ps1` passes **3,066 assertions**, with a largest
