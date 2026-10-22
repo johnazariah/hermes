@@ -16,7 +16,7 @@ function New-HermesStartupStream {
 
 function New-HermesStartupState {
     param([switch]$LegacyParserControls)
-    @{
+    $state = @{
         NativeProtocol = -not $LegacyParserControls
         Created = $null; CreatedBinding = $null; CreatedAcked = $false
         Resumed = $null; ResumedText = ''; RowsText = ''
@@ -54,6 +54,15 @@ function New-HermesStartupState {
         DebuggerSha256 = ''; HelperSha256 = ''; CommandSha256 = ''
         CreateCommandSha256 = ''; ExitCommandSha256 = ''; InitialCommandSha256 = ''
     }
+    if ($state.NativeProtocol) {
+        foreach ($name in @('ReadyFirst', 'CreateCloseFirst', 'CreatedJointFirst',
+                'CreatedCheckFirst', 'CreatedCheckSeen', 'CreatedPublishAttempted',
+                'RowsReads', 'RowsMissing', 'RowsEmpty', 'RowsFirstDataLength',
+                'RowsFirstDataRead', 'RowsReadyRead')) {
+            $state.Observations[$name] = 0
+        }
+    }
+    return $state
 }
 
 function Get-HermesStartupObservation {
@@ -69,7 +78,11 @@ function Get-HermesStartupObservation {
             'SdkLoadLibraryDisplay', 'SdkChainLines', 'SdkChainSupportedRows',
             'CprFilter', 'EprFilter', 'CprCommandShape', 'EprCommandShape',
             'CprCommandTransform', 'EprCommandTransform',
-            'CprPayloadLength', 'EprPayloadLength', 'CprSourceLength', 'EprSourceLength')]
+            'CprPayloadLength', 'EprPayloadLength', 'CprSourceLength', 'EprSourceLength',
+            'ReadyFirst', 'CreateCloseFirst', 'CreatedJointFirst',
+            'CreatedCheckFirst', 'CreatedCheckSeen', 'CreatedPublishAttempted',
+            'RowsReads', 'RowsMissing', 'RowsEmpty', 'RowsFirstDataLength',
+            'RowsFirstDataRead', 'RowsReadyRead')]
         [string]$Name,
         [long]$Maximum = 8388608
     )
@@ -175,7 +188,11 @@ function Update-HermesStartupNativeRows {
             }
         }
         switch ($row.stage) {
-            1 { $State.Target = $row; $State.TargetText = $line }
+            1 {
+                $State.Target = $row; $State.TargetText = $line
+                Set-HermesStartupCreatedPhase $State 'ReadyFirst'
+                Set-HermesStartupCreatedPhase $State 'CreatedJointFirst'
+            }
             2 { $State.Resumed = $row; $State.ResumedText = $line }
             3 {
                 if (($previous -eq 2 -and $row.resumed -ne 1) `
@@ -219,6 +236,46 @@ function Test-HermesStartupCreated {
         -and $null -eq $State.Resumed `
         -and -not $State.Exits.ContainsKey([string]$State.Target.pid) `
         -and -not $State.Exits.ContainsKey([string]$State.Target.helper)
+}
+
+function Get-HermesStartupCreatedPhase {
+    param([hashtable]$State)
+    # Observation bits, not authority: 1 observed; 2 Ready; 4 create closed;
+    # 8 Final; 16/32 target/helper exit; 64 binding predicate; 128 eligibility
+    # predicate; 256 open callback; 512 Resumed; 1024 acknowledged;
+    # 2048 retained created binding; 4096 protocol fault; 8192 unknown.
+    $facts = 1
+    if ($null -ne $State.Target) {
+        $facts = $facts -bor 2
+        if ($State.Exits.ContainsKey([string]$State.Target.pid)) { $facts = $facts -bor 16 }
+        if ($State.Exits.ContainsKey([string]$State.Target.helper)) { $facts = $facts -bor 32 }
+    }
+    if ($null -ne $State.Created) { $facts = $facts -bor 4 }
+    if ($null -ne $State.Final) { $facts = $facts -bor 8 }
+    if (Test-HermesStartupCreatedBinding $State) { $facts = $facts -bor 64 }
+    if (Test-HermesStartupCreated $State) { $facts = $facts -bor 128 }
+    if ($null -ne $State.Block) { $facts = $facts -bor 256 }
+    if ($null -ne $State.Resumed) { $facts = $facts -bor 512 }
+    if ($State.CreatedAcked) { $facts = $facts -bor 1024 }
+    if ($null -ne $State.CreatedBinding) { $facts = $facts -bor 2048 }
+    if ($State.Protocol -ne 0) { $facts = $facts -bor 4096 }
+    if ($State.Unknown -ne 0) { $facts = $facts -bor 8192 }
+    return $facts
+}
+
+function Set-HermesStartupCreatedPhase {
+    param(
+        [hashtable]$State,
+        [ValidateSet('ReadyFirst', 'CreateCloseFirst', 'CreatedJointFirst', 'CreatedCheckFirst')]
+        [string]$Name
+    )
+    if (-not $State.NativeProtocol -or $State.Bounds -ne 0 `
+        -or $State.AcceptedUtf8Bytes -ge 8388608) { return }
+    if ($Name -ceq 'CreatedCheckFirst') { $State.Observations.CreatedCheckSeen = 1 }
+    if ($State.Observations[$Name] -ne 0) { return }
+    if ($Name -in @('CreatedJointFirst', 'CreatedCheckFirst') `
+        -and ($null -eq $State.Target -or $null -eq $State.Created)) { return }
+    $State.Observations[$Name] = Get-HermesStartupCreatedPhase $State
 }
 
 function Set-HermesStartupCreatedAcknowledged {
@@ -302,6 +359,10 @@ function Add-HermesStartupNativeMarker {
         }
     }
     $State.Block = $null
+    if ($Kind -eq 2) {
+        Set-HermesStartupCreatedPhase $State 'CreateCloseFirst'
+        Set-HermesStartupCreatedPhase $State 'CreatedJointFirst'
+    }
 }
 
 function Add-HermesStartupNativeLastEvent {
@@ -1203,6 +1264,22 @@ function New-HermesStartupObservations {
     $observations.TargetRowPresent = [int]($null -ne $State.Target)
     $observations.FinalRowPresent = [int]($null -ne $State.Final)
     if ($State.NativeProtocol) {
+        # Latch parser transitions and the actual driver's first joint check
+        # separately: a single row snapshot can contain both Ready and Final.
+        foreach ($name in @('ReadyFirst', 'CreateCloseFirst', 'CreatedJointFirst', 'CreatedCheckFirst')) {
+            $facts = Get-HermesStartupObservation $State $name 16383
+            $required = switch ($name) { 'ReadyFirst' { 3 }; 'CreateCloseFirst' { 5 }; default { 7 } }
+            $observations[$name] = if (($facts -band $required) -eq $required) { $facts } else { 0 }
+        }
+        foreach ($name in @('CreatedCheckSeen', 'CreatedPublishAttempted')) {
+            $observations[$name] = Get-HermesStartupObservation $State $name 1
+        }
+        foreach ($name in @('RowsReads', 'RowsMissing', 'RowsEmpty')) {
+            $observations[$name] = Get-HermesStartupObservation $State $name
+        }
+        foreach ($name in @('RowsFirstDataLength', 'RowsFirstDataRead', 'RowsReadyRead')) {
+            $observations[$name] = Get-HermesStartupObservation $State $name 2049
+        }
         $observations.CreatedAcknowledged = [int]$State.CreatedAcked
         $observations.ResumedRowPresent = [int]($null -ne $State.Resumed)
         $observations.InitialCallback = [int]($null -ne $State.Arm -and $State.Arm.Kind -eq 5)

@@ -100,6 +100,16 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-22 - Distinguish live CREATED eligibility from late combined observations
+
+- **Evidence:** Published `0aec2bc`, run `39695158774`, job `119550629480`, passes both supported OS jobs, Tray, all 335 pure controls and 500/501 native cases without skips. Only the original PowerShell case fails. The diagnostic still records no CREATED acknowledgement, error 1460 and cleanup fault 5; the raw-reader correction has not established that timeout's cause.
+- **Changed:** First-observed numeric snapshots separate Ready, create callback closure, their first joint candidate and the driver's actual publication check. Bounded control-file read samples distinguish missing/empty output from rows first encountered with Final. No predicate, permission, continuation or timeout changes.
+- **Validation:** Parent review, all 361 pure controls, installer static controls, warning-free root build and 2,184 tests pass. The report remains within 4,096 bytes; all prior intents and exact output exhaustion remain covered.
+- **Source facts:** Independent C# review confirms Ready is live-flushed before the 45-second acknowledgement wait, after native creation and identity checks. The controller's read/write sharing is compatible with the held writer. No C# until-close buffering defect or CDB-specific producer-buffering fact is established.
+- **Coverage:** Current published five-assembly evidence is 14,739/17,137 lines and 15,213/24,668 branches, above the unchanged 85%/60% gates.
+- **Blockers:** Actual observation ordering, genuine PowerShell exit 37 and installed Medium acceptance remain pending; PR #30 remains draft and unmerged.
+- **Next:** Publish the closed ordering observations and use their actual first-check facts to select the next correction.
+
 ### 2026-10-22 - Read available debugger bytes without waiting for a character block
 
 - **Changed:** A fresh owner replaces buffered character reads with retained asynchronous raw-pipe reads and strict incremental UTF-8 decoding. The controller's CREATED, checked Resume receipt, actual initial breakpoint, stopped prompt and one fixed continuation remain unchanged.

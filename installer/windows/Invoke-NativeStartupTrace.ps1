@@ -284,11 +284,17 @@ function New-TraceRoot {
 
 function Read-TraceControl {
     param([string]$Path)
-    if (-not [IO.File]::Exists($Path)) { return }
+    $observe = $state.NativeProtocol -and $state.Bounds -eq 0 -and $state.AcceptedUtf8Bytes -lt 8388608
+    if ($observe) { Add-HermesStartupObservation $state 'RowsReads' }
+    if (-not [IO.File]::Exists($Path)) {
+        if ($observe) { Add-HermesStartupObservation $state 'RowsMissing' }
+        return
+    }
     $null = Assert-TracePath $Path
     $stream = [IO.File]::Open($Path, [IO.FileMode]::Open,
         [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
     try {
+        $length = if ($observe) { [int][Math]::Min(2049, $stream.Length) } else { 0 }
         $buffer = [byte[]]::new(2049)
         $count = 0
         while ($count -lt $buffer.Length) {
@@ -296,12 +302,26 @@ function Read-TraceControl {
             if ($read -eq 0) { break }
             $count += $read
         }
+        if ($observe) {
+            if ($count -eq 0) { Add-HermesStartupObservation $state 'RowsEmpty' }
+            # First nonempty length sample OR read, not the eventual file.
+            # A concurrent append can make the sampled length smaller.
+            if ($state.Observations.RowsFirstDataLength -eq 0 `
+                -and $state.Observations.RowsFirstDataRead -eq 0 -and ($length -gt 0 -or $count -gt 0)) {
+                $state.Observations.RowsFirstDataLength = $length
+                $state.Observations.RowsFirstDataRead = $count
+            }
+        }
         if ($count -gt 2048) { $state.Protocol = 1; return }
         if (@($buffer[0..([Math]::Max(0, $count - 1))] | Where-Object { $_ -gt 127 }).Count -ne 0) {
             $state.Protocol = 1
             return
         }
+        $hadReady = $null -ne $state.Target
         Update-HermesStartupRows $state ([Text.Encoding]::ASCII.GetString($buffer, 0, $count))
+        if ($observe -and -not $hadReady -and $null -ne $state.Target) {
+            $state.Observations.RowsReadyRead = $count
+        }
     } finally { $stream.Dispose() }
 }
 
@@ -407,7 +427,9 @@ function Invoke-TraceCollection {
 }
 
 function Publish-TraceCreated {
+    Set-HermesStartupCreatedPhase $state 'CreatedCheckFirst'
     if (-not (Test-HermesStartupCreated $state)) { return }
+    $state.Observations.CreatedPublishAttempted = 1
     $row = [string]::Format([Globalization.CultureInfo]::InvariantCulture,
         "HERMES_STARTUP_CREATED v=2 phase=created helper={0} pid={1} born={2}`n",
         [object[]]@($state.Target.helper, $state.Target.pid, $state.Target.born))

@@ -2,6 +2,26 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## CREATED diagnostics retain first-observed ordering
+
+All **361 pure controls** pass, preserving the prior 335 and adding 26
+ordering, publication, bounded-read and report-shape cases. Numeric-only
+snapshots retain the first Ready row, complete create callback, joint
+candidate and actual publication check. Separate facts distinguish an
+eligible candidate from one already carrying Final or exit observations;
+they do not grant authority. Bounded row-read counters and first length/read
+samples distinguish absent, empty, partial and complete control output.
+
+The expanded maximum-value report remains below 4,096 bytes. Admission,
+the 8 MiB budget, raw pipe reads, fixed continuation and cleanup are
+unchanged. Root build, 2,184 tests and installer static controls pass.
+
+Actual `0aec2bc`, run 39695158774, passes 335 pure controls and 500/501
+native cases with no skips; only the original PowerShell case fails.
+The diagnostic still records no CREATED acknowledgement and error 1460.
+The reader correction therefore does not establish the hosted timeout's
+cause. The new first-observation evidence requires another Windows run.
+
 ## Owned debugger pipes make progress before EOF
 
 The trace pump now reads available bytes from each retained process pipe,
