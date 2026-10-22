@@ -13,6 +13,47 @@ internal enum CrashFault
     Stdout, Stderr, Cancelled, Deadline
 }
 
+// Failure-location observations only; none of these values grants acceptance.
+internal enum CrashExitCheck
+{
+    None = 0, Lifetime = 1, Wait = 2, Drains = 3, Checkpoint = 4,
+    Handle = 5, ProcessId = 6, ProcessTimes = 7, ProcessExitCode = 8,
+    ProcessIdMatch = 9, ImageQuery = 10, ImageLength = 11,
+    Pins = 12, PublicationPath = 13, ImageHash = 14, SourceHash = 15,
+    SourceMvid = 16, IdentityProcess = 17, IdentityPath = 18,
+    IdentityImage = 19, IdentitySource = 20, ExitTimeOrder = 21,
+    ExitTimePresent = 22, ExitCodeMatch = 23, Status = 24, IdentityRead = 25
+}
+
+internal sealed class CrashExitException(
+    CrashExitCheck check, Exception? cause = null)
+    : IOException("Crash-control exit check refused.", cause)
+{
+    internal CrashExitCheck Check { get; } = check;
+    internal uint NativeError { get; } = cause is Win32Exception native
+        ? unchecked((uint)native.NativeErrorCode) : 0;
+}
+
+internal static class CrashExitChecks
+{
+    internal static T Read<T>(CrashExitCheck check, Func<T> read)
+    {
+        try { return read(); }
+        catch (Exception error) when (
+            error is not (CrashExitException or OperationCanceledException) &&
+            CrashControl.Operational(error))
+        {
+            throw new CrashExitException(check, error);
+        }
+    }
+
+    internal static void Require(CrashExitCheck check, bool accepted)
+    {
+        if (!accepted)
+            throw new CrashExitException(check);
+    }
+}
+
 [Flags]
 internal enum CrashCleanup
 {
@@ -226,9 +267,14 @@ internal sealed record CrashIdentity(
 
     internal void RequireExit(CrashIdentity original, uint actualExit)
     {
-        if (!SameInstance(original) || ExitFileTime < Process.CreationFileTime ||
-            ExitFileTime == 0 || ExitCode != actualExit)
-            throw new InvalidDataException("Crash-control exit identity refused.");
+        CrashExitChecks.Require(CrashExitCheck.IdentityProcess, Process == original.Process);
+        CrashExitChecks.Require(CrashExitCheck.IdentityPath,
+            string.Equals(ImagePath, original.ImagePath, StringComparison.OrdinalIgnoreCase));
+        CrashExitChecks.Require(CrashExitCheck.IdentityImage, ImageSha256 == original.ImageSha256);
+        CrashExitChecks.Require(CrashExitCheck.IdentitySource, SourceSha256 == original.SourceSha256);
+        CrashExitChecks.Require(CrashExitCheck.ExitTimePresent, ExitFileTime != 0);
+        CrashExitChecks.Require(CrashExitCheck.ExitTimeOrder, ExitFileTime >= Process.CreationFileTime);
+        CrashExitChecks.Require(CrashExitCheck.ExitCodeMatch, ExitCode == actualExit);
     }
 }
 
@@ -252,6 +298,8 @@ internal sealed record CrashResult
     internal bool Cancelled { get; init; }
     internal uint Exit { get; init; }
     internal CrashFault Error { get; init; }
+    internal CrashExitCheck ExitCheck { get; init; }
+    internal uint ExitNativeError { get; init; }
     internal CrashCleanup CleanupError { get; init; }
     internal int ReportError { get; init; }
     internal string ImageSha256 { get; init; } = CrashControl.EmptyHash;
@@ -301,7 +349,15 @@ internal static class CrashReport
 
     internal static string Summary(CrashResult result) =>
         FormattableString.Invariant(
-            $"HERMES_CRASH_CONTROL v=1 status={result.ExitCode} exit={result.Exit} error={(int)result.Error} cleanupError={(int)result.CleanupError} reportError={result.ReportError} nativeAcceptance=0\n");
+            $"HERMES_CRASH_CONTROL v=1 status={result.ExitCode} exit={result.Exit} error={(int)result.Error} cleanupError={(int)result.CleanupError} reportError={result.ReportError} nativeAcceptance=0\n")
+        + ExitSummary(result);
+
+    private static string ExitSummary(CrashResult result) => result is
+        { Error: CrashFault.Exit, ExitCheck: not CrashExitCheck.None } &&
+        Enum.IsDefined(result.ExitCheck)
+            ? FormattableString.Invariant(
+                $"HERMES_CRASH_EXIT v=1 check={(int)result.ExitCheck} nativeError={result.ExitNativeError} nativeAcceptance=0\n")
+            : "";
 
     private static int Bit(bool value) => value ? 1 : 0;
 }

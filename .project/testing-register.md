@@ -4,7 +4,7 @@
 
 ## Hosted crash-control wrapper binds publication and owns real capture tasks
 
-`Test-CrashControl.ps1` passes **766 portable controls on macOS**. Windows
+`Test-CrashControl.ps1` passes **985 portable controls on macOS**. Windows
 omits the non-Windows host-refusal and guard-output checks. Real owned
 PowerShell fixtures exercise exact stdout, noise, contradictions, CRLF,
 invalid UTF-8, stderr, nonzero exit, overflow and timeout. Every actual read
@@ -37,6 +37,14 @@ Wrapper fixture expectations use the platform newline emitted by
 `Console.WriteLine`; all five exact-output assertions remain. The helper
 protocol still requires LF and rejects CRLF.
 
+Exit-stage failures can add one closed `HERMES_CRASH_EXIT` observation:
+checks 1-25 distinguish lifetime/wait/drain/checkpoint, retained native
+queries, publication predicates, identity predicates and supported status.
+Only a direct Win32 error becomes an unsigned native code. The advisory
+parser requires failed status/error coherence, exact grammar and defined
+checks; the strict success summary and 28-field JSON report stay unchanged.
+Synthetic predicate/error fixtures identify no actual Windows cause.
+
 Workflow lint passes. Native execution is fixed to the published apphost,
 inside the reviewed current-step private job and an independently armed
 two-minute worker step deadline. Only a fresh, validated report after helper
@@ -46,7 +54,7 @@ publication, containment and control execution still require a hosted run.
 
 ## Owned crash-control lifetime and shared native-handle ownership
 
-The fixed crash-control command has **85 portable cases** covering exact
+The fixed crash-control command has **112 portable cases** covering exact
 ready/arm framing, retained identity, one arm, actual exit observation,
 post-exit handle retention, joined operations and explicit cleanup/report
 failures. Unknown commands, guard refusal, malformed output and incomplete
@@ -70,14 +78,14 @@ finalization can retain a raw resource until process exit. Portable tests do
 not invoke Windows job APIs or crash a process.
 
 The measured candidate passes both portable and Windows-targeted builds with
-zero warnings/errors, **492/492 Servicing tests** and **2,191/2,191 Core
+zero warnings/errors, **519/519 Servicing tests** and **2,191/2,191 Core
 tests**, without skips. The existing native Coverlet runner and flush hook
-measure the same five assemblies at **15,854/18,410 lines (86.1162%)** and
-**15,649/25,347 branches (61.7391%)**; unchanged 85%/60% gates pass.
-Both added control branches are hit. Compared with the prior local run,
-unchanged Core and Service files lose 55 branch hits net; the measured
-aggregate is below the earlier 61.9530% local result. Exact-head hosted
-coverage remains required.
+measure the same five assemblies at **15,908/18,465 lines (86.1522%)** and
+**15,653/25,357 branches (61.7305%)**; unchanged 85%/60% gates pass.
+This local branch aggregate remains below the earlier 61.9530% measurement.
+The prior exact-status source has actual supported-Windows proof at
+86.4182% line and 62.0364% branch; the new observation source still requires
+exact-head hosted coverage.
 Independent C# review approves the final ownership source. Windows containment,
 the independent deadline, event correlation and original PowerShell acceptance
 still require actual hosted evidence.

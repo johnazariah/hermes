@@ -100,6 +100,23 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-23 - Preserve exit gates while observing their first refusing predicate
+
+- **Changed:** Independent C# authoring adds fixed check IDs for the exit stage, retained native reads, pinned publication and identity predicates. Operational failures retain their location and direct Win32 code; cancellation and unexpected exceptions retain their existing treatment. Failure-only advisory output gains the observation; the success summary and strict 28-field report are unchanged.
+- **Review:** The final independent control review approves the six-file delta. The zero-exit-time predicate now precedes chronological ordering but accepts exactly the same identities. Synthetic `check=10/nativeError=31` is test data, not a Windows finding.
+- **Validation:** Mechanical application verifies all 27 literal hunks and six exact file hashes. Serial portable/Windows-targeted and root builds pass with zero warnings/errors; 112 control, 519 full Servicing, 2,191 Core and 985 PowerShell controls pass without skips. Lint and diff hygiene pass.
+- **Coverage:** The same five assemblies measure 15,908/18,465 lines (86.1522%) and 15,653/25,357 branches (61.7305%), passing unchanged gates. Earlier exact-status head `8e50baf` also has both supported jobs green; its actual Windows coverage is 86.4182%/62.0364%. New-head hosted coverage remains pending.
+- **Blockers:** Actual initiating exit-stage failure, successful control completion and original PowerShell/installed acceptance remain unresolved.
+- **Next:** Publish the reviewed observations and inspect the actual first failing check.
+
+### 2026-10-22 - Retain the remaining exit-stage refusal after correcting the status
+
+- **Evidence:** Published `8e50baf`, run `39789403070`, job `119861091237`: all 762 Windows controls and fresh publication pass. The wrapper still refuses phase 9; typed facts remain `status=1 exit=2148734499 error=6 cleanupError=0 reportError=0`.
+- **Observed:** Recognising the documented status is necessary but does not establish actual control success. Another exit-stage condition or operational failure remains; cleanup/report fault fields are zero. No additional status, weakened predicate or PowerShell cause is inferred.
+- **Ownership:** The same control author is tracing only the coupled retained-exit/native-adapter boundary, with a reproducing test or bounded predicate facts required before another change.
+- **Blockers:** Actual accepted control completion and the original PowerShell/installed lifecycle gates remain open.
+- **Next:** Identify the remaining exit-stage predicate without changing its acceptance requirement.
+
 ### 2026-10-22 - Accept only the verified .NET 9 FailFast code
 
 - **Changed:** Independent C# authoring and review approve adding exactly `0x80131623` to the control and PowerShell report allowlists. The four prior values remain; neighbours, ordinary/refusal exits, `0xC0000142` and forced termination remain negative. All other success and original acceptance gates are unchanged.

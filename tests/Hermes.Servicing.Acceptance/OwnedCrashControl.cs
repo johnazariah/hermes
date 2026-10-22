@@ -50,7 +50,7 @@ internal sealed class CrashObservation(
     {
         if (!_active)
             throw new ObjectDisposedException(nameof(CrashObservation));
-        var current = read();
+        var current = CrashExitChecks.Read(CrashExitCheck.IdentityRead, read);
         current.RequireExit(identity, exit);
         return current;
     }
@@ -113,6 +113,7 @@ internal static class OwnedCrashControl
         private Exception? _unexpected;
         private CrashResult _result = new();
         private CrashFault _stage = CrashFault.Start;
+        private CrashExitCheck _exitCheck;
         private bool _inputClosed;
 
         internal async Task ObserveAsync(
@@ -208,18 +209,31 @@ internal static class OwnedCrashControl
         private async Task<CrashObservation> PrepareObservationAsync(CrashOwnedChild child)
         {
             _stage = CrashFault.Exit;
+            _exitCheck = CrashExitCheck.Lifetime;
             if (_wait is not { } wait || _identity is not { } identity ||
                 _output is not { } output || _error is not { } error)
                 throw new InvalidOperationException("Crash-control lifetime incomplete.");
-            var exit = await wait.WaitAsync(run.Token);
-            _result = _result with { Exited = true, Exit = exit };
-            await Task.WhenAll(output, error).WaitAsync(run.Token);
-            checkpoint();
+            var exit = await WaitAndDrainAsync(wait, output, error);
             var scope = new CrashObservation(identity, exit, child.ReadIdentity);
             _scope = scope;
+            _exitCheck = CrashExitCheck.IdentityRead;
             _ = scope.Recheck();
+            _exitCheck = CrashExitCheck.Checkpoint;
             checkpoint();
             return scope;
+        }
+
+        private async Task<uint> WaitAndDrainAsync(
+            Task<uint> wait, Task<CrashFault> output, Task<CrashFault> error)
+        {
+            _exitCheck = CrashExitCheck.Wait;
+            var exit = await wait.WaitAsync(run.Token);
+            _result = _result with { Exited = true, Exit = exit };
+            _exitCheck = CrashExitCheck.Drains;
+            await Task.WhenAll(output, error).WaitAsync(run.Token);
+            _exitCheck = CrashExitCheck.Checkpoint;
+            checkpoint();
+            return exit;
         }
 
         private async Task ObserveExitAsync(CrashOwnedChild child,
@@ -233,6 +247,7 @@ internal static class OwnedCrashControl
             checkpoint();
             _result = _result with { Held = true };
             _stage = CrashFault.Exit;
+            _exitCheck = CrashExitCheck.Status;
             if (!CrashControl.IsCrashStatus(_result.Exit))
                 throw new InvalidDataException("Crash-control exit was not a supported crash.");
         }
@@ -240,6 +255,7 @@ internal static class OwnedCrashControl
         internal void Fail(Exception error, bool deadline, bool cancelled)
         {
             RememberUnexpected(error);
+            CaptureExitFailure(error);
             if (_stage == CrashFault.Start && _child is null)
                 AddCleanup(CrashCleanup.Ownership);
             if (error is CrashStartException startup)
@@ -249,6 +265,21 @@ internal static class OwnedCrashControl
                     cancelled ? CrashFault.Cancelled : _stage
                 : _stage;
             _result = _result with { Error = fault };
+        }
+
+        private void CaptureExitFailure(Exception error)
+        {
+            if (_stage != CrashFault.Exit)
+                return;
+            var observation = error switch
+            {
+                CrashExitException failure => (failure.Check, failure.NativeError),
+                System.ComponentModel.Win32Exception native =>
+                    (_exitCheck, unchecked((uint)native.NativeErrorCode)),
+                _ => (_exitCheck, 0u)
+            };
+            _result = _result with
+                { ExitCheck = observation.Item1, ExitNativeError = observation.Item2 };
         }
 
         private void RememberUnexpected(Exception error)

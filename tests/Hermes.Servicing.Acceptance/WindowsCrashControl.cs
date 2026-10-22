@@ -156,11 +156,18 @@ internal static partial class WindowsCrashControl
 
         internal string RequireSource(string loadedImage)
         {
-            Require.That(!image.SafeFileHandle.IsClosed && !source.SafeFileHandle.IsClosed);
-            Require.That(InstalledSource.SamePath(loadedImage, imagePath));
-            Require.That(Files.Hash(loadedImage) == imageHash);
-            Require.That(Files.Hash(sourcePath) == sourceHash);
-            Require.That(Files.Mvid(sourcePath) ==
+            CrashExitChecks.Require(CrashExitCheck.Pins,
+                CrashExitChecks.Read(CrashExitCheck.Pins,
+                    () => !image.SafeFileHandle.IsClosed && !source.SafeFileHandle.IsClosed));
+            CrashExitChecks.Require(CrashExitCheck.PublicationPath,
+                CrashExitChecks.Read(CrashExitCheck.PublicationPath,
+                    () => InstalledSource.SamePath(loadedImage, imagePath)));
+            CrashExitChecks.Require(CrashExitCheck.ImageHash,
+                CrashExitChecks.Read(CrashExitCheck.ImageHash, () => Files.Hash(loadedImage)) == imageHash);
+            CrashExitChecks.Require(CrashExitCheck.SourceHash,
+                CrashExitChecks.Read(CrashExitCheck.SourceHash, () => Files.Hash(sourcePath)) == sourceHash);
+            CrashExitChecks.Require(CrashExitCheck.SourceMvid,
+                CrashExitChecks.Read(CrashExitCheck.SourceMvid, () => Files.Mvid(sourcePath)) ==
                 typeof(Program).Assembly.ManifestModule.ModuleVersionId);
             return imageHash;
         }
@@ -189,22 +196,34 @@ internal static partial class WindowsCrashControl
                 ReadIdentity, WaitAsync, Stop, Dispose);
         }
 
-        private unsafe CrashIdentity ReadIdentity()
+        private CrashIdentity ReadIdentity()
         {
-            _handle ??= process.SafeHandle;
+            _handle ??= CrashExitChecks.Read(CrashExitCheck.Handle, () => process.SafeHandle);
             if (_handle is not { IsClosed: false, IsInvalid: false } handle)
-                throw new InvalidOperationException("Crash-control handle closed.");
+                throw new CrashExitException(CrashExitCheck.Handle);
+            var native = ReadProcess(handle);
+            CrashExitChecks.Require(CrashExitCheck.ProcessIdMatch,
+                native.ProcessId == CrashExitChecks.Read(
+                    CrashExitCheck.ProcessIdMatch, () => checked((uint)process.Id)));
+            var path = ReadImage(handle);
+            var hash = publication.RequireSource(path);
+            return new(new(native.ProcessId, native.Born), path, hash,
+                publication.SourceHash, native.Exited, native.Code);
+        }
+
+        private static unsafe (uint ProcessId, long Born, long Exited, uint Code)
+            ReadProcess(SafeProcessHandle handle)
+        {
             long born = 0, exited = 0, kernel = 0, user = 0;
             uint code = 0;
             var pid = GetProcessId(handle);
-            if (pid == 0 || GetProcessTimes(
-                handle, &born, &exited, &kernel, &user) == 0 ||
-                GetExitCodeProcess(handle, &code) == 0)
-                throw NativeFailure();
-            Require.That(pid == checked((uint)process.Id));
-            var path = ReadImage(handle);
-            var hash = publication.RequireSource(path);
-            return new(new(pid, born), path, hash, publication.SourceHash, exited, code);
+            if (pid == 0)
+                throw new CrashExitException(CrashExitCheck.ProcessId, NativeFailure());
+            if (GetProcessTimes(handle, &born, &exited, &kernel, &user) == 0)
+                throw new CrashExitException(CrashExitCheck.ProcessTimes, NativeFailure());
+            if (GetExitCodeProcess(handle, &code) == 0)
+                throw new CrashExitException(CrashExitCheck.ProcessExitCode, NativeFailure());
+            return (pid, born, exited, code);
         }
 
         private static unsafe string ReadImage(SafeProcessHandle handle)
@@ -213,9 +232,9 @@ internal static partial class WindowsCrashControl
             char* buffer = stackalloc char[capacity];
             uint length = capacity;
             if (QueryFullProcessImageName(handle, 0, buffer, &length) == 0)
-                throw NativeFailure();
+                throw new CrashExitException(CrashExitCheck.ImageQuery, NativeFailure());
             if (length is 0 or >= capacity)
-                throw new InvalidDataException("Crash-control image length refused.");
+                throw new CrashExitException(CrashExitCheck.ImageLength);
             return new string(buffer, 0, checked((int)length));
         }
 

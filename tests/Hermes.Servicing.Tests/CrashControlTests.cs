@@ -268,6 +268,7 @@ public sealed class CrashControlTests
         var result = await Run(child);
         Assert.Equal(exit, result.Exit);
         Assert.Equal(CrashFault.Exit, result.Error);
+        Assert.Equal(CrashExitCheck.Status, result.ExitCheck);
         Assert.Equal(1, result.ExitCode);
         Assert.True(result.Held);
         AssertSettled(child, result);
@@ -284,9 +285,125 @@ public sealed class CrashControlTests
             return Task.CompletedTask;
         });
         Assert.Equal(CrashFault.Exit, result.Error);
+        Assert.Equal(CrashExitCheck.ExitCodeMatch, result.ExitCheck);
         Assert.False(called);
         Assert.False(result.Held);
         AssertSettled(child, result);
+    }
+
+    [Fact]
+    public void Exit_annotation_preserves_values_cancellation_and_unexpected_failures()
+    {
+        Assert.Equal(42, CrashExitChecks.Read(CrashExitCheck.IdentityRead, () => 42));
+        var cancelled = new OperationCanceledException();
+        Assert.Same(cancelled, Assert.Throws<OperationCanceledException>(() =>
+            CrashExitChecks.Read<int>(CrashExitCheck.IdentityRead, () => throw cancelled)));
+        var unexpected = new ApplicationException();
+        Assert.Same(unexpected, Assert.Throws<ApplicationException>(() =>
+            CrashExitChecks.Read<int>(CrashExitCheck.IdentityRead, () => throw unexpected)));
+        var annotated = new CrashExitException(CrashExitCheck.ImageQuery,
+            new System.ComponentModel.Win32Exception(5));
+        Assert.Same(annotated, Assert.Throws<CrashExitException>(() =>
+            CrashExitChecks.Read<int>(CrashExitCheck.IdentityRead, () => throw annotated)));
+    }
+
+    [Theory]
+    [InlineData((int)CrashExitCheck.Handle)]
+    [InlineData((int)CrashExitCheck.ProcessId)]
+    [InlineData((int)CrashExitCheck.ProcessTimes)]
+    [InlineData((int)CrashExitCheck.ProcessExitCode)]
+    [InlineData((int)CrashExitCheck.ProcessIdMatch)]
+    [InlineData((int)CrashExitCheck.ImageQuery)]
+    [InlineData((int)CrashExitCheck.ImageLength)]
+    [InlineData((int)CrashExitCheck.Pins)]
+    [InlineData((int)CrashExitCheck.PublicationPath)]
+    [InlineData((int)CrashExitCheck.ImageHash)]
+    [InlineData((int)CrashExitCheck.SourceHash)]
+    [InlineData((int)CrashExitCheck.SourceMvid)]
+    [InlineData((int)CrashExitCheck.IdentityRead)]
+    public async Task Annotated_exit_reads_reproduce_failure_without_leaking_details(int check)
+    {
+        var child = new Child
+        {
+            ExitedIdentity = () => CrashExitChecks.Read<CrashIdentity>(
+                (CrashExitCheck)check,
+                () => throw new System.ComponentModel.Win32Exception(5, "private/path"))
+        };
+        var result = await Run(child);
+        Assert.Equal((1, 2148734499u, CrashFault.Exit, CrashCleanup.None, 0),
+            (result.ExitCode, result.Exit, result.Error, result.CleanupError, result.ReportError));
+        Assert.Equal((CrashExitCheck)check, result.ExitCheck);
+        Assert.Equal(5u, result.ExitNativeError);
+        Assert.False(result.Held);
+        Assert.True(result.Cleanup);
+        var summary = CrashReport.Summary(result);
+        Assert.EndsWith(FormattableString.Invariant(
+            $"HERMES_CRASH_EXIT v=1 check={check} nativeError=5 nativeAcceptance=0\n"), summary);
+        Assert.DoesNotContain("private/path", summary);
+        AssertSettled(child, result);
+    }
+
+    [Theory]
+    [InlineData((int)CrashExitCheck.IdentityProcess)]
+    [InlineData((int)CrashExitCheck.IdentityPath)]
+    [InlineData((int)CrashExitCheck.IdentityImage)]
+    [InlineData((int)CrashExitCheck.IdentitySource)]
+    [InlineData((int)CrashExitCheck.ExitTimeOrder)]
+    [InlineData((int)CrashExitCheck.ExitTimePresent)]
+    [InlineData((int)CrashExitCheck.ExitCodeMatch)]
+    public async Task Each_retained_identity_predicate_remains_required(int check)
+    {
+        var child = new Child { ExitedIdentity = () => InvalidExit((CrashExitCheck)check) };
+        var result = await Run(child);
+        Assert.Equal((1, 2148734499u, CrashFault.Exit, CrashCleanup.None, 0),
+            (result.ExitCode, result.Exit, result.Error, result.CleanupError, result.ReportError));
+        Assert.Equal((CrashExitCheck)check, result.ExitCheck);
+        Assert.Equal(0u, result.ExitNativeError);
+        Assert.False(result.Held);
+        Assert.True(result.Cleanup);
+        AssertSettled(child, result);
+    }
+
+    [Fact]
+    public async Task Exit_observation_is_summary_only_and_report_stays_strict()
+    {
+        var child = new Child { ExitedIdentity = () => throw new IOException("private/path") };
+        var result = await Run(child);
+        Assert.Equal(CrashExitCheck.IdentityRead, result.ExitCheck);
+        using var document = JsonDocument.Parse(CrashReport.Encode(result));
+        var report = document.RootElement;
+        Assert.Equal(28, report.EnumerateObject().Count());
+        Assert.Equal(1, report.GetProperty("status").GetInt32());
+        Assert.Equal((int)CrashFault.Exit, report.GetProperty("error").GetInt32());
+        Assert.Equal(0, report.GetProperty("held").GetInt32());
+        Assert.Equal(0, report.GetProperty("nativeAcceptance").GetInt32());
+        Assert.Equal(0, report.GetProperty("originalGatePassed").GetInt32());
+        var commands = new Commands(result);
+        Assert.Equal(1, await CrashCommands.DispatchAsync(
+            [CrashControl.ProbeCommand], commands.Effects, CancellationToken.None));
+        Assert.Equal(CrashReport.Summary(result), Assert.Single(commands.Summaries));
+        Assert.InRange(commands.Summaries[0].Length, 1, 256);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(0)]
+    [InlineData(26)]
+    [InlineData(int.MaxValue)]
+    public void Undefined_exit_observations_are_not_emitted(int check)
+    {
+        var result = new CrashResult
+            { Error = CrashFault.Exit, Exit = CrashExit, ExitCheck = (CrashExitCheck)check };
+        Assert.Equal(
+            "HERMES_CRASH_CONTROL v=1 status=1 exit=2148734499 error=6 cleanupError=0 reportError=0 nativeAcceptance=0\n",
+            CrashReport.Summary(result));
+    }
+
+    [Fact]
+    public void Exit_observation_numeric_contract_is_contiguous_and_bounded()
+    {
+        Assert.Equal(Enumerable.Range(0, 26),
+            Enum.GetValues<CrashExitCheck>().Select(value => (int)value));
     }
 
     [Fact]
@@ -530,6 +647,7 @@ public sealed class CrashControlTests
         Assert.Equal("Hermes.Servicing.Acceptance.Model", assembly.GetName().Name);
         Assert.Same(assembly, typeof(CrashCommands).Assembly);
         Assert.Same(assembly, typeof(CrashWire).Assembly);
+        Assert.Same(assembly, typeof(CrashExitChecks).Assembly);
         Assert.Same(assembly, typeof(OwnedCrashControl).Assembly);
         Assert.NotSame(typeof(CrashControlTests).Assembly, assembly);
     }
@@ -688,6 +806,22 @@ public sealed class CrashControlTests
         Assert.DoesNotContain("crash", calls);
     }
 
+    private static CrashIdentity InvalidExit(CrashExitCheck check)
+    {
+        var identity = Live with { ExitFileTime = 200, ExitCode = CrashExit };
+        return check switch
+        {
+            CrashExitCheck.IdentityProcess => identity with { Process = new(43, 100) },
+            CrashExitCheck.IdentityPath => identity with { ImagePath = Live.ImagePath + ".other" },
+            CrashExitCheck.IdentityImage => identity with { ImageSha256 = new string('c', 64) },
+            CrashExitCheck.IdentitySource => identity with { SourceSha256 = new string('c', 64) },
+            CrashExitCheck.ExitTimeOrder => identity with { ExitFileTime = 99 },
+            CrashExitCheck.ExitTimePresent => identity with { ExitFileTime = 0 },
+            CrashExitCheck.ExitCodeMatch => identity with { ExitCode = 37 },
+            _ => throw new ArgumentOutOfRangeException(nameof(check))
+        };
+    }
+
     private static CrashChildEffects ChildEffects(string input, List<string> calls) => new(
         new Pipe(input).Capability,
         _ => { calls.Add("ready"); return Task.CompletedTask; },
@@ -748,6 +882,7 @@ public sealed class CrashControlTests
         private TaskCompletionSource<bool>? _writeRelease;
         internal List<string> Events { get; } = [];
         internal Func<int, CrashIdentity>? Identity { get; init; }
+        internal Func<CrashIdentity>? ExitedIdentity { get; init; }
         internal Action OnWrite { get; set; } = static () => { };
         internal Action OnStop { get; init; } = static () => { };
         internal bool WriteFailure { get; init; }
@@ -810,6 +945,8 @@ public sealed class CrashControlTests
         private CrashIdentity ReadIdentity()
         {
             Events.Add("identity");
+            if (Exited && ExitedIdentity is { } read)
+                return read();
             if (Identity is { } custom && !Exited)
                 return custom(_reads++);
             var result = Changed ? Live with { SourceSha256 = new string('c', 64) } : Live;

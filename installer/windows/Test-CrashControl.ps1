@@ -3,7 +3,8 @@
 param(
     [ValidateSet('controls', 'fixture')][string]$Mode = 'controls',
     [ValidateSet('valid', 'noise', 'contradiction', 'crlf', 'utf8', 'stderr', 'exit', 'overflow', 'timeout',
-        'failed', 'maximum', 'wrapper-report', 'wrapper-early', 'wrapper-late', 'wrapper-missing', 'wrapper-malformed')]
+        'failed', 'maximum', 'wrapper-report', 'wrapper-early', 'wrapper-late', 'wrapper-missing', 'wrapper-malformed',
+        'wrapper-exit-check')]
     [string]$Fixture = 'valid'
 )
 Set-StrictMode -Version Latest
@@ -33,6 +34,11 @@ if ($Mode -ceq 'fixture') {
             Stderr = [byte[]]::new(0); Tasks = @($complete, $complete, $complete)
         }
         if ($Fixture -ceq 'wrapper-missing') { $script:capture = $null }
+        if ($Fixture -ceq 'wrapper-exit-check') {
+            $script:capture.Stdout = [Text.Encoding]::UTF8.GetBytes(
+                "HERMES_CRASH_CONTROL v=1 status=1 exit=2148734499 error=6 cleanupError=0 reportError=0 nativeAcceptance=0`n" +
+                "HERMES_CRASH_EXIT v=1 check=10 nativeError=31 nativeAcceptance=0`n")
+        }
         if ($Fixture -ceq 'wrapper-malformed') {
             $script:capture.Stdout = [Text.Encoding]::UTF8.GetBytes("private/path`n$('a' * 64)`n$([char]27)[31m")
         }
@@ -271,6 +277,65 @@ function Assert-ControlFactsUnavailable {
     $lines = @(ConvertTo-HermesCrashControlFacts -Capture $Capture)
     Assert-Control ($lines.Count -eq 1 -and $lines[0] -is [string] -and $lines[0] -ceq (
         'HERMES_CRASH_CONTROL_FACTS v=1 available=0 status=0 exit=0 error=0 cleanupError=0 reportError=0 nativeAcceptance=0'))
+}
+
+function Test-CrashExitFacts {
+    $row = "HERMES_CRASH_CONTROL v=1 status=1 exit=2148734499 error=6 cleanupError=0 reportError=0 nativeAcceptance=0`n"
+    $trace = "HERMES_CRASH_EXIT v=1 check=10 nativeError=31 nativeAcceptance=0`n"
+    $facts = 'HERMES_CRASH_CONTROL_FACTS v=1 available=1 status=1 exit=2148734499 error=6 cleanupError=0 reportError=0 nativeAcceptance=0'
+    foreach ($check in 1..25) {
+        foreach ($native in @(0, 31, 4294967295L)) {
+            $capture = New-ControlFactsCapture (
+                $row + "HERMES_CRASH_EXIT v=1 check=$check nativeError=$native nativeAcceptance=0`n") 1
+            $lines = @(ConvertTo-HermesCrashControlFacts $capture)
+            Assert-Control ($lines.Count -eq 1 -and $lines[0] -is [string] `
+                -and $lines[0] -ceq "$facts exitCheck=$check nativeError=$native")
+            Assert-Refused { Assert-HermesCrashOutcome $capture $script:validReport }
+        }
+    }
+    foreach ($bad in @(
+        $trace.TrimEnd([char]10), ($trace * 2), $trace.Replace("`n", "`r`n"),
+        ("noise`n" + $trace), ($trace + "noise`n"), ($trace + "`n"),
+        ([string][char]0xfeff + $trace), ($trace + [char]0),
+        $trace.Replace('check=10', 'check=0'), $trace.Replace('check=10', 'check=26'),
+        $trace.Replace('check=10', 'check=10 check=10'),
+        $trace.Replace('check=10', 'Check=10'),
+        $trace.Replace('v=1', 'v=2'),
+        $trace.Replace('nativeAcceptance=0', 'nativeAcceptance=1'),
+        $trace.Replace('nativeAcceptance=0', 'nativeAcceptance=0 extra=0')
+    )) { Assert-ControlFactsUnavailable (New-ControlFactsCapture ($row + $bad) 1) }
+    foreach ($field in @('check=10', 'nativeError=31')) {
+        $name = $field.Split('=')[0]
+        foreach ($value in @('00', '01', '+1', '-1', '-0', ' 1', '1 ', '1.0', '1e0',
+                '0x10', '4294967296', ('9' * 400), 'true', 'false', '', 'private/path',
+                ([string][char]0x0661))) {
+            Assert-ControlFactsUnavailable (
+                New-ControlFactsCapture ($row + $trace.Replace($field, "$name=$value")) 1)
+        }
+    }
+    foreach ($fault in @(0..11 | Where-Object { $_ -ne 6 })) {
+        Assert-ControlFactsUnavailable (
+            New-ControlFactsCapture ($row.Replace('error=6', "error=$fault") + $trace) 1)
+    }
+    Assert-ControlFactsUnavailable (
+        New-ControlFactsCapture ($row.Replace('status=1', 'status=0') + $trace) 0)
+    $capture = New-ControlFactsCapture ($row + $trace) 1
+    $capture.Stdout = [Text.Encoding]::UTF8.GetBytes($trace + $row)
+    Assert-ControlFactsUnavailable $capture
+    $culture = [Globalization.CultureInfo]::CurrentCulture
+    try {
+        [Globalization.CultureInfo]::CurrentCulture = [Globalization.CultureInfo]::GetCultureInfo('ar-SA')
+        Assert-Control ((ConvertTo-HermesCrashControlFacts (
+            New-ControlFactsCapture ($row + $trace) 1)) -ceq "$facts exitCheck=10 nativeError=31")
+    } finally { [Globalization.CultureInfo]::CurrentCulture = $culture }
+    $capture = Invoke-ControlFixture 'wrapper-exit-check' $false -PassThru
+    $newline = [Environment]::NewLine
+    $expected = "HERMES_CRASH_WRAPPER v=1 status=1 published=0 nativeAcceptance=0$newline" +
+        "HERMES_CRASH_DIAGNOSTIC v=1 phase=9 family=1 reason=12 nativeError=0$newline" +
+        "$facts exitCheck=10 nativeError=31$newline" +
+        "HERMES_CRASH_FIXTURE_DISPOSE v=1$newline"
+    Assert-Control ($capture.ExitCode -eq 1 -and $capture.Stderr.Length -eq 0 `
+        -and [Text.UTF8Encoding]::new($false, $true).GetString($capture.Stdout) -ceq $expected)
 }
 
 function Test-CrashControlFacts {
@@ -614,6 +679,8 @@ try {
         $json.Replace('"status":0', '"Status":0'),
         $json.Replace('"status":0,', ''),
         $json.Replace('"status":0', '"status":0,"extra":0'),
+        $json.Replace('"status":0', '"status":0,"exitCheck":10'),
+        $json.Replace('"status":0', '"status":0,"nativeError":31'),
         $json.Replace('"status":0', '"status":false'),
         $json.Replace('"status":0', '"status":"0"'),
         $json.Replace('"status":0', '"status":0.0'),
@@ -804,6 +871,7 @@ try {
     [IO.Directory]::CreateDirectory($existingReport) | Out-Null
     Assert-Refused { Assert-HermesCrashReportAbsent $scratch }
     Test-CrashControlFacts
+    Test-CrashExitFacts
 } finally { Remove-Item -LiteralPath $scratch -Recurse -Force }
 [Console]::Out.WriteLine("HERMES_CRASH_TESTS v=1 passed=$script:passed failed=$script:failed")
 if ($script:failed -ne 0) { exit 1 }

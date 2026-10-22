@@ -510,9 +510,11 @@ function ConvertTo-HermesCrashControlFacts {
         $text = [Text.UTF8Encoding]::new($false, $true).GetString($Capture.Stdout)
         $uint = '(0|[1-9][0-9]{0,9})'
         $match = [regex]::Match($text, (
-            "\AHERMES_CRASH_CONTROL v=1 status=([01]) exit=$uint error=$uint cleanupError=$uint reportError=$uint nativeAcceptance=0\n\z"))
+            "\AHERMES_CRASH_CONTROL v=1 status=([01]) exit=$uint error=$uint cleanupError=$uint reportError=$uint nativeAcceptance=0\n" +
+            "(?:HERMES_CRASH_EXIT v=1 check=$uint nativeError=$uint nativeAcceptance=0\n)?\z"))
         if (-not $match.Success) { return $unavailable }
-        $values = [uint32[]]::new(5)
+        $count = if ($match.Groups[6].Success) { 7 } else { 5 }
+        $values = [uint32[]]::new($count)
         for ($index = 0; $index -lt $values.Length; $index++) {
             [uint32]$value = 0
             if (-not [uint32]::TryParse($match.Groups[$index + 1].Value,
@@ -523,10 +525,17 @@ function ConvertTo-HermesCrashControlFacts {
         }
         if ($values[0] -ne $Capture.ExitCode -or $values[2] -gt 11 `
             -or $values[3] -gt 255 -or $values[4] -gt 1) { return $unavailable }
+        if ($count -eq 7 -and ($values[0] -ne 1 -or $values[2] -ne 6 `
+                -or $values[5] -lt 1 -or $values[5] -gt 25)) { return $unavailable }
         # Advisory observations only: reconstruct numeric fields, never echo the captured line.
-        return [string]::Format([Globalization.CultureInfo]::InvariantCulture,
+        $line = [string]::Format([Globalization.CultureInfo]::InvariantCulture,
             'HERMES_CRASH_CONTROL_FACTS v=1 available=1 status={0} exit={1} error={2} cleanupError={3} reportError={4} nativeAcceptance=0',
-            [object[]]$values)
+            [object[]]@($values[0], $values[1], $values[2], $values[3], $values[4]))
+        if ($count -eq 7) {
+            $line += [string]::Format([Globalization.CultureInfo]::InvariantCulture,
+                ' exitCheck={0} nativeError={1}', [object[]]@($values[5], $values[6]))
+        }
+        return $line
     } catch { return $unavailable }
 }
 
