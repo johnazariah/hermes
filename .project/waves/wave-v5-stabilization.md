@@ -100,6 +100,24 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-23 - Verify the lifetime and pool corrections on both supported hosts
+
+- **Evidence:** Exact head `438408d`, CI run `39801163486`: supported Windows job `119901908751` and macOS job `119901908909` both succeed. Tray and excluded compatibility builds also pass.
+- **Validation:** Windows executes 549 Servicing and 2,187 selected Core cases without failures/skips, confirming the revised real-pool ownership proof on its failing platform. Four governed Unix-only exclusions remain explicit.
+- **Coverage:** Actual artifact `12435329820` reports 15,446/17,857 lines (86.4983%) and 15,570/25,062 branches (62.1259%) over the unchanged five assemblies, above the earlier hosted measurement and both fixed gates.
+- **Completed prerequisite:** The same head also has the genuine owned control success in run `39801150608` and its validated 591-byte report. The lifetime and pool-reproducibility work now have persistent target-host evidence.
+- **Blockers:** Installer job `119901908019` still fails the original native PowerShell gate and diagnostic; publish is skipped. Event correlation, original PowerShell cause and installed Medium acceptance remain open.
+- **Next:** Implement and review the fixed identity-first event-value reader without broad event rendering.
+
+### 2026-10-23 - Complete the genuine owned crash-control prerequisite
+
+- **Evidence:** At published `438408d`, run `39801150608`, job `119901864576`, the dedicated hosted workflow succeeds in 2m3s. All 981 Windows controls, fresh source-bound publication, fixed supervised probe and success-only upload pass.
+- **Verified report:** Artifact `12436330969` contains one 591-byte JSON file with exactly 28 fields. Ready, identity, one arm, actual exit, held observation, every task/output settlement and cleanup are one; status/faults/deadline/cancellation are zero. Exit is the documented `0x80131623`. Independent wrapper checks and normal private-job release precede publication.
+- **Boundary:** Original-gate/native acceptance remain zero, and synchronous calls remain explicitly non-interruptible. This completes the control lifetime prerequisite under its configured external deadline, not forced-timeout teardown or the original PowerShell/installer gates.
+- **Follow-on:** A fresh C# author is implementing only the bounded identity-first event-value reader. Verified Microsoft SDK declarations and rendering documentation are supplied; selective rendering, exact query correlation and baseline observation remain separately gated.
+- **Blockers:** Supported-Windows pool repair and exact-head aggregate CI are still pending. Original PowerShell and installed Medium acceptance remain unresolved.
+- **Next:** Verify supported CI and review the selective reader before integrating any event query.
+
 ### 2026-10-23 - Replace idle-handle identity with owned SQLite pool proof
 
 - **Evidence:** Supported Windows job `119874095957` at `cc58b32` fails the pool-cleanup test's `Assert.Same`: the old native handle is closed and a new handle is returned. The old helper disposed its connection before returning the handle; Reflow cleanup also contained a concrete global pool-clear path. Which mechanism caused that particular failure is not established.

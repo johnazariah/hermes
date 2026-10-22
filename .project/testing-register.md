@@ -21,9 +21,10 @@ identity or timer assumption supplies acceptance.
 Reflow cleanup clears only its exact `reflow.sqlite` pool after both owners
 are disposed; the global `ClearAllPools` call is removed. All 67 selected
 instrumented drain/Reflow cases and all 2,191 Core tests pass without skips.
-Independent F# review approves. The concrete collateral-clear path and old
-unowned-handle assumption are corrected; the particular historical Windows
-failure's mechanism and current Windows acceptance still require evidence.
+Independent F# review approves. Exact-head Windows job `119901908751` and
+macOS job `119901908909` both pass at `438408d`, including all selected Core
+cases. The concrete collateral-clear path and old unowned-handle assumption
+are corrected; which mechanism caused the historical failure is not claimed.
 
 ## Hosted crash-control wrapper binds publication and owns real capture tasks
 
@@ -73,7 +74,21 @@ inside the reviewed current-step private job and an independently armed
 two-minute worker step deadline. Only a fresh, validated report after helper
 exit, complete capture and normal scope release is eligible for three-day
 upload. These controls establish portable behaviour; actual Windows
-publication, containment and control execution still require a hosted run.
+publication, private-job completion and control execution also pass at
+`438408d`, run `39801150608`, job `119901864576`.
+
+The sole bounded artifact `12436330969` contains a 591-byte, 28-field report:
+all readiness/identity/arming/held/settlement/cleanup facts are one, faults,
+deadline and cancellation are zero, and exit is `0x80131623`. The wrapper
+independently validates source/bundle bindings and normal scope release before
+publication. Original/native acceptance remain zero. Forced-timeout teardown,
+event correlation and original PowerShell execution are separate gates.
+
+At the same head, supported Windows runs 549 Servicing and 2,187 selected
+Core cases without skips. Coverage artifact `12435329820` reports
+15,446/17,857 lines (86.4983%) and 15,570/25,062 branches (62.1259%), retaining
+the same five assemblies and unchanged thresholds. Both supported jobs are
+green; the installer job still fails the original native gate and diagnostic.
 
 ## Owned crash-control lifetime and shared native-handle ownership
 
@@ -118,9 +133,10 @@ This local branch aggregate remains below the earlier 61.9530% measurement.
 The prior exact-status source has actual supported-Windows proof at
 86.4182% line and 62.0364% branch; the new observation source still requires
 exact-head hosted coverage.
-Independent C# review approves the final ownership source. Windows containment,
-the independent deadline, event correlation and original PowerShell acceptance
-still require actual hosted evidence.
+Independent C# review approves the final ownership source, and the configured
+private-job/deadline control run succeeds on actual Windows. Deliberate
+timeout teardown, event correlation and original PowerShell acceptance still
+require their own evidence.
 
 ## MASM-bound first refusal records only closed wording and syntax classes
 
