@@ -100,6 +100,21 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-25 - Reconcile coverage evidence and reject an incomplete repair lock
+
+- **Coverage:** All seven exact coverage-gate controls and eight test-execution controls pass again. Existing issue #18 now links actual candidate evidence rather than leaving its last below-threshold main measurements as the apparent current result. It stays open until merge and remote-main verification; the installer failure is still explicit.
+- **Repair authority:** Primary `chattr(1)` documentation warns that immutable flags do not affect writes through pre-existing file descriptors. The design now explicitly rejects treating recursive inode flags as sufficient protection. No flags, mounts, ACLs or source files are changed; concrete protected authority is still required.
+- **Plan persistence:** The approved diagnostic scope and sequence are recorded above and in the Squad decision inbox. Root build passes with zero warnings/errors; all 2,198 Core cases pass without failures/skips. This commit records decisions and evidence, not a product fix or enabled repair.
+- **Next:** Apply and independently qualify the fresh specialist's bounded diagnostic proposal before its one actual invocation.
+
+### 2026-10-25 - Approve and sequence the remaining remediation
+
+- **Authority:** After the explicit five-step remediation proposal, John directs: "make the plan, and then make it so". This approves the specifically described owned-process candidate-presence diagnostic: omit only the server-side process-start-time condition; retain fixed Application Error/1000/v0, PID, executable and time window; read identity fields only and export bounded numeric facts. It does not approve broader discovery, raw event output, host-policy changes or weaker installer acceptance.
+- **Plan:** First implement and independently review that bounded diagnostic, then execute it once on disposable public hosted Windows. Use its actual outcome to select a targeted restricted-startup fix rather than guessing. Prove the complete installed lifecycle and preserved data before readying/merging PR #30, then verify remote main and reconcile #16/#18/#28.
+- **Legacy repair:** Keep #24 separate from the installer merge and retain its strict uniqueness contract. Establish and independently review a concrete protection mechanism before implementing repair; do not silently replace it with owner-selected assignment or treat an unavailable operator as delivery. Synthetic fixtures only.
+- **Unchanged gates:** Current published source is `2e14c04`; both supported application jobs pass, original installer acceptance fails. No shared Pelican experiments, personal corpus access, global WER change, skipped cases, timeout inflation or acceptance substitution is authorised by this plan.
+- **Next:** A fresh C# specialist owns the diagnostic source, portable regression coverage and its fixed supervised invocation; the coordinator retains publication and evidence integration.
+
 ### 2026-10-23 - Qualify access lifecycle measurements on both actual hosts
 
 - **Published:** Observer source `d025a46e72feeffe58879a5f4e07fe559175f653`, CI `39871680120`, passes both supported application jobs. Windows `120147344119` and macOS `120147344190` each pass 1,039 Servicing and 61 browser cases; Core selections pass 2,194 and 2,198 respectively, without failures/skips.

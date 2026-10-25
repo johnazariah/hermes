@@ -81,6 +81,27 @@ to this requirement.
 No platform snapshot, ACL change, elevated permission or maintenance environment
 is implied by the operator interface.
 
+### Platform mechanisms that do not establish this authority
+
+Directory handles and a second enumeration do not by themselves exclude new
+entries or writes through existing file handles. A read-only mounted view also
+does not protect a separately writable alias of the underlying source volume.
+Any proposed mount-based authority must account for those aliases and retain
+the same protected namespace through the SQLite commit.
+
+Linux inode immutability is not an accepted replacement for that proof.
+`FS_IMMUTABLE_FL` restricts content and namespace changes, but the `chattr(1)`
+documentation explicitly warns that immutable and append-only flags do not
+affect writes through already-existing file descriptors. Recursively setting
+`+i` therefore does not satisfy the pre-existing-handle requirement. Filesystem
+and kernel-specific behaviour would need direct qualification before reliance
+on a stronger guarantee.
+
+A concrete maintenance authority must establish exclusive source ownership,
+exclude pre-existing writers and writable aliases, preserve ancestor/root
+identity, and provide the narrowly scoped writable SQLite exception. Merely
+stopping Hermes or changing ordinary file permissions is insufficient.
+
 ## Local operator contract
 
 The proposed command is `repair-saved-paths`, routed before normal Service
@@ -196,6 +217,8 @@ The latter is a different recovery contract, not fulfilment of strict uniqueness
 - [28 - File-first archive](28-file-first-archive.md)
 - [30 - Pipeline V5](30-pipeline-v5-architecture.md)
 - Issue #24 and the active stabilization wave
+- [Linux inode flag semantics](https://man7.org/linux/man-pages/man2/ioctl_iflags.2.html)
+  and [`chattr(1)` limitations](https://man7.org/linux/man-pages/man1/chattr.1.html)
 - `SavedPathSchema.fs`, `SourceFileAccess.fs`, `Database.fs`,
   `FileContentSchema.fs`, `ArchiveWriter.fs`, `PublicationFence.fs`,
   `Generation.fs`, `FileContentReindex.fs`, `PersistedComprehension.fs`
