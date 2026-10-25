@@ -2,6 +2,30 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Freshness predicate fixtures do not assume live clock ordering
+
+The first genuine manual run at `394aabf`, `40243239129` / job
+`121319330076`, refuses the portable publication fixture before helper
+publication, schema acquisition or native execution. Its same-source
+independent push job passes those controls. No candidate-presence query
+has run in that failed manual attempt.
+
+`Test-Publication` now uses explicit synthetic ticks for its pure receipt
+and five-minute freshness-predicate cases, rather than assuming filesystem
+timestamps are ordered within immediately sampled wall-clock bounds.
+Actual file hashes, pins and replacement timestamps remain observed.
+Replacement deltas test identity change against the synthetic receipt;
+they are not described as genuine live publication evidence. Four added
+cases reject creation/write timestamps before start or after completion.
+The production receipt/freshness predicate is unchanged.
+
+Direct review confirms this is a one-file test-only correction with no
+sleep, retry, tolerance, skipped assertion or production guard change.
+All **4,360 event**, **985 original** and **3,120 schema** controls pass
+locally. Root build passes with zero warnings/errors and all **2,198 Core**
+cases pass without failures/skips. The earlier C# coverage remains
+applicable because no C# source changes.
+
 ## Owned candidate-presence diagnostic retains the strict acceptance gate
 
 The explicitly approved diagnostic omits only the server-side creation-time

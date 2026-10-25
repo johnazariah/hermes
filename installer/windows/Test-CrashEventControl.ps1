@@ -895,21 +895,25 @@ function Test-Publication {
     $metadata = Join-Path $Scratch 'startup-event-schema.json'
     [IO.File]::WriteAllText($source, 'synthetic fixed metadata source')
     [IO.File]::WriteAllText($workflow, 'synthetic fixed workflow source')
-    $started = [DateTime]::UtcNow.Ticks
     [IO.File]::WriteAllBytes($metadata, $script:schemaBytes)
+    $fileCreated = [IO.File]::GetCreationTimeUtc($metadata).Ticks
+    $fileWritten = [IO.File]::GetLastWriteTimeUtc($metadata).Ticks
     $entries = @(
         (Get-HermesCrashFileEntry $source 'schema-source.ps1' 4096),
         (Get-HermesCrashFileEntry $workflow 'workflow.yml' 4096),
         (Get-HermesCrashFileEntry $metadata 'startup-event-schema.json' 4096)
     )
     $checkout = [pscustomobject]@{ Revision = ('a' * 40); Tree = ('b' * 40); SourceSha256 = ('c' * 64) }
+    # Synthetic predicate inputs: filesystem and wall clocks need not share ordering or precision.
+    # Real file observations below test replacement identity, not genuine publication freshness.
+    $started = [DateTime]::new(2026, 1, 1, 0, 0, 0, [DateTimeKind]::Utc).Ticks
     $shape = [ordered]@{
         schemaVersion = 1; revision = $checkout.Revision; tree = $checkout.Tree; sourceSha256 = $checkout.SourceSha256
         workflowSha256 = $entries[1].sha256; schemaSourceSha256 = $entries[0].sha256
         metadataSha256 = $entries[2].sha256; length = $entries[2].length; runId = 123; runAttempt = 2
-        startedUtcTicks = $started; completedUtcTicks = [DateTime]::UtcNow.Ticks
-        createdUtcTicks = [IO.File]::GetCreationTimeUtc($metadata).Ticks
-        writtenUtcTicks = [IO.File]::GetLastWriteTimeUtc($metadata).Ticks
+        startedUtcTicks = $started; completedUtcTicks = $started + (10 * [TimeSpan]::TicksPerSecond)
+        createdUtcTicks = $started + [TimeSpan]::TicksPerSecond
+        writtenUtcTicks = $started + (2 * [TimeSpan]::TicksPerSecond)
     }
     $bytes = ConvertTo-Bytes $shape
     $receipt = Read-HermesCrashEventPublication $bytes
@@ -917,7 +921,7 @@ function Test-Publication {
     Assert-HermesCrashEventPublicationBinding $receipt $checkout $entries[1] $entries[0] $entries[2] '123' '2'
     $created = $shape.createdUtcTicks
     $written = $shape.writtenUtcTicks
-    Assert-HermesCrashEventFreshness $receipt $created $written ([DateTime]::UtcNow.Ticks)
+    Assert-HermesCrashEventFreshness $receipt $created $written $shape.completedUtcTicks
     Assert-Control $true
     foreach ($name in @($shape.Keys)) {
         $saved = $shape[$name]
@@ -967,6 +971,14 @@ function Test-Publication {
         Assert-Refused { Assert-HermesCrashEventFreshness $receipt $created $written $boundary }
         $receipt[$name] = $saved
     }
+    foreach ($name in @('createdUtcTicks', 'writtenUtcTicks')) {
+        $saved = $receipt[$name]
+        foreach ($outside in @(($started - 1), ($shape.completedUtcTicks + 1))) {
+            $receipt[$name] = $outside
+            Assert-Refused { Assert-HermesCrashEventFreshness $receipt $receipt.createdUtcTicks $receipt.writtenUtcTicks $boundary }
+        }
+        $receipt[$name] = $saved
+    }
     $pins = Open-HermesCrashPins $Scratch $entries
     try {
         Assert-HermesCrashPins $pins
@@ -980,9 +992,13 @@ function Test-Publication {
     [IO.File]::WriteAllText($source, 'synthetic fixed metadata source')
     [IO.File]::Delete($metadata)
     [IO.File]::WriteAllBytes($metadata, $script:schemaBytes)
-    [IO.File]::SetLastWriteTimeUtc($metadata, [DateTime]::new($written + 10000000, [DateTimeKind]::Utc))
-    Assert-Refused { Assert-HermesCrashEventFreshness $receipt ([IO.File]::GetCreationTimeUtc($metadata).Ticks) `
-        ([IO.File]::GetLastWriteTimeUtc($metadata).Ticks) $boundary }
+    [IO.File]::SetLastWriteTimeUtc($metadata, [DateTime]::new($fileWritten + [TimeSpan]::TicksPerSecond, [DateTimeKind]::Utc))
+    $replacementCreated = [IO.File]::GetCreationTimeUtc($metadata).Ticks
+    $replacementWritten = [IO.File]::GetLastWriteTimeUtc($metadata).Ticks
+    Assert-Control ($replacementWritten -ne $fileWritten)
+    # Apply real replacement deltas to the synthetic clock, without claiming live publication proof.
+    Assert-Refused { Assert-HermesCrashEventFreshness $receipt ($created + ($replacementCreated - $fileCreated)) `
+        ($written + ($replacementWritten - $fileWritten)) $boundary }
     $link = Join-Path $Scratch 'metadata-link'
     if (-not [OperatingSystem]::IsWindows()) {
         $null = [IO.File]::CreateSymbolicLink($link, $metadata)

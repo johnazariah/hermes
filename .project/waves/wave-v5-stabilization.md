@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-26 - Remove mixed-clock assumptions from the portable fixture
+
+- **Actual dispatch:** GitHub accepts genuine manual run `40243239129` at `394aabf`; its job `121319330076` refuses the portable freshness fixture before publication or native execution. The same-source push job passes that fixture. Manual dispatch is therefore available, but no candidate-presence query has run.
+- **Correction:** A fresh PowerShell author separates the pure freshness predicate's synthetic time axis from observed file hashes, pins and replacement timestamps. Four new cases exercise creation/write times outside the interval. Direct one-file review confirms all production predicates and diagnostic/runtime code are unchanged; no sleep, retry, tolerance or skipped assertion is added.
+- **Validation:** Event controls pass 4,360; original and schema controls pass 985/3,120. Root build passes with zero warnings/errors; all 2,198 Core cases pass without failures/skips. The previous non-regressing C# coverage is unchanged.
+- **Regression evidence:** At `394aabf`, both supported application jobs in CI `40243231450` pass, as do Tray and compatibility builds; original installer acceptance and its diagnostic still fail. Managed run `40243227201` succeeds with independently checked artifact `12617457940`, one 591-byte/28-field success report preserving every original fact. Strict event run `40243227234` observes 79 clean empty returns and WindowExpired, not precision proof.
+- **Next:** Publish the fixture-only correction, then request the still-unperformed approved native diagnostic. Keep preflight failure separate from a diagnostic result.
+
 ### 2026-10-26 - Approve the diagnostic source for one genuine invocation
 
 - **Review:** The final independent review approves the combined C#, PowerShell and workflow source. All first-reader-failure, final-field mutation and output-sink cleanup findings are resolved. Prior authors remain excluded from rejected revisions; the coordinator applies authored corrections mechanically.
