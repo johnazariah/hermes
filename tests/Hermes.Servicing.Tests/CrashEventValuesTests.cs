@@ -5,7 +5,7 @@ using Xunit;
 
 namespace Hermes.Servicing.Tests;
 
-public sealed class CrashEventValuesTests
+public sealed partial class CrashEventValuesTests
 {
     private const ulong Address = 0x10000;
     private const ulong Birth = (1UL << 53) + 1;

@@ -130,6 +130,7 @@ if ($Mode -ceq 'fixture') {
         }, $false)
         . ([scriptblock]::Create($definition.Extent.Text))
         $script:failureReported = $false
+        $script:ownedPresence = $false
         $script:phase = 9
         $done = [Threading.Tasks.Task]::CompletedTask
         $script:capture = [pscustomobject]@{
@@ -1526,6 +1527,324 @@ function Test-WerPolicyBoundaries {
     }
 }
 
+function Assert-PresenceRefused {
+    param([object]$Capture)
+    Assert-Refused { Assert-HermesCrashEventPresence $Capture }
+    Assert-Control ((ConvertTo-HermesCrashEventFacts $Capture -OwnedPresence) -ceq (
+        'HERMES_CRASH_EVENT_PRESENCE_FACTS v=1 available=0 originalGatePassed=0 precisionAccepted=0 nativeAcceptance=0'))
+    Assert-Control ([string]::IsNullOrEmpty((ConvertTo-HermesCrashEventTiming $Capture -OwnedPresence)))
+}
+
+function Test-OwnedPresence {
+    $presence = "HERMES_CRASH_EVENT_PRESENCE v=1 status=1 outcome=2 reason=1 controlStatus=0 controlError=0 cleanupError=0 receiptClosed=1 polls=1 queries=1 originalGatePassed=0 precisionAccepted=0 nativeAcceptance=0`n"
+    $row = $timing.Replace('last=3', 'last=9').Replace('expiry=1', 'expiry=0')
+    $row = $row.Replace('location=3', 'location=0').Replace('rejected=1', 'rejected=0')
+    $text = $row + $presence
+    $capture = New-Capture $text 1
+    $saved = [Convert]::ToBase64String($capture.Stdout)
+    Assert-Control (@(Assert-HermesCrashEventPresence $capture).Count -eq 0)
+    Assert-Control ((ConvertTo-HermesCrashEventFacts $capture -OwnedPresence) -ceq (
+        'HERMES_CRASH_EVENT_PRESENCE_FACTS v=1 available=1 status=1 outcome=2 reason=1 controlStatus=0 controlError=0 cleanupError=0 receiptClosed=1 polls=1 queries=1 originalGatePassed=0 precisionAccepted=0 nativeAcceptance=0'))
+    Assert-Control ((ConvertTo-HermesCrashEventTiming $capture -OwnedPresence) -ceq (
+        $row.Replace('HERMES_CRASH_EVENT_DIAGNOSTIC ', 'HERMES_CRASH_EVENT_TIMING ').TrimEnd([char]10)))
+    Assert-Control ((ConvertTo-HermesCrashEventCaptureDiagnostic $capture -OwnedPresence).Contains('check=0 field=0'))
+    Assert-Control ([Convert]::ToBase64String($capture.Stdout) -ceq $saved)
+    Assert-Refused { Assert-HermesCrashEventOutcome $capture $script:control }
+    Assert-FactsUnavailable $capture
+    Assert-PresenceRefused (New-Capture $text 0)
+    Assert-PresenceRefused (New-Capture $protocol)
+    Assert-PresenceRefused (New-Capture $protocol 1)
+
+    $guard = $presence.Replace('outcome=2', 'outcome=0').Replace('reason=1', 'reason=2')
+    $guard = $guard.Replace('controlStatus=0', 'controlStatus=1').Replace('controlError=0', 'controlError=1')
+    $guard = $guard.Replace('receiptClosed=1', 'receiptClosed=0').Replace('polls=1', 'polls=0').Replace('queries=1', 'queries=0')
+    Assert-Control (@(Assert-HermesCrashEventPresence (New-Capture $guard 1)).Count -eq 0)
+    Assert-Control ([string]::IsNullOrEmpty((ConvertTo-HermesCrashEventTiming (New-Capture $guard 1) -OwnedPresence)))
+    Assert-PresenceRefused (New-Capture $presence 1)
+
+    $fields = [ordered]@{
+        v = 1; status = 1; outcome = 2; reason = 1; controlStatus = 0
+        controlError = 0; cleanupError = 0; receiptClosed = 1; polls = 1; queries = 1
+        originalGatePassed = 0; precisionAccepted = 0; nativeAcceptance = 0
+    }
+    Assert-Control ($fields.Count -eq 13)
+    Assert-Control ($presence.EndsWith(" nativeAcceptance=0`n", [StringComparison]::Ordinal))
+    foreach ($name in $fields.Keys) {
+        # Match the token, not its delimiter: the last field ends with LF.
+        $token = [regex]::new(
+            [regex]::Escape(" $name=$($fields[$name])") + '(?= |\n)')
+        Assert-Control ($token.Matches($presence).Count -eq 1)
+        foreach ($bad in @('-0', '+0', '00', '01', '1.0', '1e0', '-1', '4294967296',
+                '18446744073709551616', 'true', 'null', '"1"', '١')) {
+            Assert-PresenceRefused (New-Capture ($row + $token.Replace($presence, " $name=$bad", 1)) 1)
+        }
+        Assert-PresenceRefused (New-Capture ($row + $token.Replace($presence, '', 1)) 1)
+        Assert-PresenceRefused (New-Capture ($row + $token.Replace(
+            $presence, " $name=$($fields[$name]) $name=$($fields[$name])", 1)) 1)
+    }
+    $bounds = [ordered]@{
+        outcome = 10; reason = 22; controlStatus = 2; controlError = 12
+        cleanupError = 256; receiptClosed = 2; polls = 82; queries = 82
+        status = 0; originalGatePassed = 1; precisionAccepted = 1; nativeAcceptance = 1
+    }
+    foreach ($name in $bounds.Keys) {
+        $token = [regex]::new(
+            [regex]::Escape(" $name=$($fields[$name])") + '(?= |\n)')
+        Assert-Control ($token.Matches($presence).Count -eq 1)
+        Assert-PresenceRefused (New-Capture ($row + $token.Replace(
+            $presence, " $name=$($bounds[$name])", 1)) 1)
+    }
+    foreach ($bad in @(
+        '', $row, ($text * 2), ($presence + $row), ($row + $row + $presence),
+        $text.TrimEnd([char]10), $text.Replace("`n", "`r`n"), ($text + "`n"),
+        ([string][char]0xfeff + $text), ($text + [char]0), ("private/path`n" + $text),
+        ($row + $presence.Replace(' outcome=2 ', ' unknown=0 outcome=2 ')),
+        ($row + $presence.Replace(' outcome=2 ', ' Outcome=2 ')),
+        ($row + $presence.Replace('queries=1', 'queries=2')),
+        ($row + $presence.Replace('polls=1', 'polls=0')),
+        ($row + $presence.Replace('polls=1', 'polls=3')),
+        ($row + $presence.Replace('controlError=0', 'controlError=1')),
+        ($row + $presence.Replace('cleanupError=0', 'cleanupError=1')),
+        ($row.Replace('polls=1', 'polls=0') + $presence),
+        ($row.Replace('attempts=1', 'attempts=0') + $presence),
+        ($row.Replace('returns=1', 'returns=2') + $presence),
+        ($row.Replace('empty=0', 'empty=2') + $presence),
+        ($row.Replace('qMaxUs=12000', 'qMaxUs=12001') + $presence),
+        ($row.Replace('native=-1', 'native=4294967296') + $presence),
+        ($row.Replace('native=-1', 'native=-0') + $presence),
+        ($row.Replace('queryMs=19999', 'queryMs=+19999') + $presence),
+        ($row.Replace('failure=0', 'failure=6') + $presence),
+        ($row.Replace('last=9', 'last=10') + $presence),
+        ($row.Replace('expiry=0', 'expiry=4') + $presence),
+        ($row.Replace('location=0', 'location=6') + $presence),
+        ($row.Replace('rejected=0', 'rejected=2') + $presence),
+        ('x' * 600)
+    )) { Assert-PresenceRefused (New-Capture $bad 1) }
+
+    $maximum = $presence.Replace('outcome=2', 'outcome=9').Replace('reason=1', 'reason=21')
+    $maximum = $maximum.Replace('controlStatus=0', 'controlStatus=1').Replace('controlError=0', 'controlError=11')
+    $maximum = $maximum.Replace('cleanupError=0', 'cleanupError=255').Replace('polls=1', 'polls=81').Replace('queries=1', 'queries=81')
+    $maximumTiming = $worstTiming.Replace('polls=999', 'polls=81').Replace('attempts=999', 'attempts=81')
+    $maximumTiming = $maximumTiming.Replace('returns=999', 'returns=81').Replace('empty=999', 'empty=81')
+    Assert-Control ($maximum.Length -eq 206 -and $worstTiming.Length -eq 393)
+    $capture = New-Capture ($maximumTiming + $maximum) 1
+    Assert-Control ($capture.Stdout.Length -le 599)
+    Assert-Control (@(Assert-HermesCrashEventPresence $capture).Count -eq 0)
+    Assert-Refused { Assert-HermesCrashEventOutcome $capture $script:control }
+
+    foreach ($name in @('ExitCode', 'Deadline', 'StdoutComplete', 'StderrComplete', 'WaitSettled')) {
+        foreach ($bad in @($null, $true, '1', 1L, -1, 2)) {
+            $capture = New-Capture $text 1
+            $capture.$name = $bad
+            Assert-PresenceRefused $capture
+        }
+    }
+    foreach ($name in @((New-Capture).PSObject.Properties.Name)) {
+        $capture = New-Capture $text 1
+        $capture.PSObject.Properties.Remove($name)
+        Assert-PresenceRefused $capture
+    }
+    $capture = New-Capture $text 1
+    $capture.Stdout = [byte[]]@(255)
+    Assert-PresenceRefused $capture
+    $capture = New-Capture $text 1
+    $capture.Stderr = [byte[]]@(120)
+    Assert-PresenceRefused $capture
+    $done = [Threading.Tasks.Task]::CompletedTask
+    $pending = [Threading.Tasks.TaskCompletionSource[int]]::new()
+    $faulted = [Threading.Tasks.Task]::FromException([ArithmeticException]::new('private/path'))
+    foreach ($tasks in @(
+        ([object[]]@($done, $done)), ([object[]]@($done, $done, $pending.Task)),
+        ([object[]]@($done, $done, $faulted)), ([object[]]@($done, $done, $null)),
+        ([Threading.Tasks.Task[]]@($done, $done, $done)), ([object[]](@($done) * 1027))
+    )) {
+        $capture = New-Capture $text 1
+        $capture.Tasks = $tasks
+        Assert-PresenceRefused $capture
+    }
+    $pending.SetResult(0)
+    try { $null = $faulted.GetAwaiter().GetResult() } catch { }
+
+    # Bind this protocol to actual operation references, including order and a
+    # second check. Parsed numeric settlement claims cannot replace this fence.
+    $operations = [Collections.Generic.List[Threading.Tasks.Task]]::new()
+    foreach ($index in 1..3) {
+        $source = [Threading.Tasks.TaskCompletionSource[int]]::new()
+        $source.SetResult($index)
+        $operations.Add($source.Task)
+    }
+    $capture = New-Capture $text 1
+    $capture.Tasks = [object[]]::new(3)
+    foreach ($index in 0..2) { $capture.Tasks[$index] = $operations[$index] }
+    Assert-HermesCrashEventTaskBinding $capture.Tasks $operations
+    Assert-HermesCrashEventPresence $capture
+    Assert-HermesCrashEventTaskBinding $capture.Tasks $operations
+    Assert-Control $true
+    $capture.Tasks[1] = $operations[0]
+    Assert-Refused { Assert-HermesCrashEventTaskBinding $capture.Tasks $operations }
+    $capture.Tasks = [object[]]@($operations[1], $operations[0], $operations[2])
+    Assert-Refused { Assert-HermesCrashEventTaskBinding $capture.Tasks $operations }
+    $capture.Tasks = [object[]]@($operations[0], $operations[1])
+    Assert-Refused { Assert-HermesCrashEventTaskBinding $capture.Tasks $operations }
+}
+
+function Test-OwnedPresenceSelection {
+    $eventName = $env:GITHUB_EVENT_NAME
+    $job = $env:GITHUB_JOB
+    try {
+        [Environment]::SetEnvironmentVariable('GITHUB_EVENT_NAME', 'workflow_dispatch')
+        [Environment]::SetEnvironmentVariable('GITHUB_JOB', 'installer')
+        Assert-Control ((Get-HermesCrashEventCommand) -ceq 'startup-crash-event-probe')
+        Assert-Control ((Get-HermesCrashEventCommand -OwnedPresence) -ceq 'startup-crash-event-presence')
+        foreach ($name in @('', 'push', 'pull_request', 'Workflow_dispatch')) {
+            [Environment]::SetEnvironmentVariable('GITHUB_EVENT_NAME', $name)
+            Assert-Refused { Get-HermesCrashEventCommand -OwnedPresence }
+            Assert-Control ((Get-HermesCrashEventCommand) -ceq 'startup-crash-event-probe')
+        }
+        [Environment]::SetEnvironmentVariable('GITHUB_EVENT_NAME', 'workflow_dispatch')
+        foreach ($name in @('', 'control', 'Installer')) {
+            [Environment]::SetEnvironmentVariable('GITHUB_JOB', $name)
+            Assert-Refused { Get-HermesCrashEventCommand -OwnedPresence }
+        }
+        $command = Get-Command Get-HermesCrashEventCommand
+        Assert-Control ($command.Parameters.ContainsKey('OwnedPresence') -and $command.Parameters.Count -eq 1)
+    } finally {
+        [Environment]::SetEnvironmentVariable('GITHUB_EVENT_NAME', $eventName)
+        [Environment]::SetEnvironmentVariable('GITHUB_JOB', $job)
+    }
+}
+
+function Test-EventCleanupFaults {
+    $calls = [Collections.Generic.List[int]]::new()
+    $capture = New-Capture
+    $process = [pscustomobject]@{ Calls = $calls }
+    $process | Add-Member ScriptMethod Dispose { $this.Calls.Add(1); throw 'private/process' }
+    $pins = @()
+    foreach ($index in 2..3) {
+        $stream = [pscustomobject]@{ Calls = $calls; Id = $index }
+        $stream | Add-Member ScriptMethod Dispose { $this.Calls.Add($this.Id); throw 'private/pin' }
+        $pins += [pscustomobject]@{ Stream = $stream }
+    }
+    $scope = [pscustomobject]@{ Calls = $calls }
+    $scope | Add-Member ScriptMethod CompleteAfterChildrenExited { $this.Calls.Add(99) }
+    $scope | Add-Member ScriptMethod Dispose { $this.Calls.Add(4); throw 'private/scope' }
+    $original = [ArithmeticException]::new('private/initiating')
+    $failure = $null
+    try { Close-HermesCrashEventResources $capture $process @($pins) $scope $original }
+    catch { $failure = $_.Exception.GetBaseException() }
+    Assert-Control ($failure -is [AggregateException])
+    if ($failure -is [AggregateException]) {
+        Assert-Control ([object]::ReferenceEquals($failure.InnerExceptions[0], $original))
+        Assert-Control ($failure.Flatten().InnerExceptions.Count -eq 5)
+        Assert-Control (@($failure.Flatten().InnerExceptions | Where-Object {
+            [object]::ReferenceEquals($_, $original)
+        }).Count -eq 1)
+    }
+    Assert-Control (($calls -join ',') -ceq '1,2,3,4')
+    Assert-Control (@($capture.Stdout | Where-Object { $_ -ne 0 }).Count -eq 0)
+    Assert-Control (@($capture.Stderr | Where-Object { $_ -ne 0 }).Count -eq 0)
+
+    $calls.Clear()
+    $scope | Add-Member ScriptMethod Dispose { $this.Calls.Add(4) } -Force
+    Assert-Control (@(Close-HermesCrashEventResources $null $null @() $scope $null).Count -eq 0)
+    Assert-Control (($calls -join ',') -ceq '4')
+}
+
+class CrashEventCleanupFaultWriter : IO.StringWriter {
+    [bool]$FailWrite
+    [Exception]$Failure
+    [Collections.Generic.List[int]]$Calls
+
+    [void] WriteLine([string]$Value) {
+        $this.Calls.Add(5)
+        if ($this.FailWrite) { throw $this.Failure }
+        $null = $this.GetStringBuilder().Append($Value).Append($this.NewLine)
+    }
+
+    [void] Flush() {
+        $this.Calls.Add(6)
+        throw $this.Failure
+    }
+}
+
+function Test-EventCleanupOutputFaults {
+    foreach ($mode in @('write', 'cleanup-flush', 'abandon-flush')) {
+        # Calls 1..4 are releases, 5 is WriteLine, 6 is Flush.
+        # CompleteAfterChildrenExited would add the forbidden call 99.
+        $calls = [Collections.Generic.List[int]]::new()
+        $resourceFaults = $mode -cne 'abandon-flush'
+        $resources = @(foreach ($index in 1..4) {
+            $resource = [pscustomobject]@{
+                Calls = $calls; Id = $index; Failure = $null
+            }
+            if ($resourceFaults) {
+                $resource.Failure = [ArithmeticException]::new("private/resource/$index")
+            }
+            $resource | Add-Member ScriptMethod Dispose {
+                $this.Calls.Add($this.Id)
+                if ($null -ne $this.Failure) { throw $this.Failure }
+            }
+            $resource
+        })
+        $process = $resources[0]
+        $pins = @(
+            [pscustomobject]@{ Stream = $resources[1] }
+            [pscustomobject]@{ Stream = $resources[2] }
+        )
+        $scope = $resources[3]
+        $scope | Add-Member ScriptMethod CompleteAfterChildrenExited { $this.Calls.Add(99) }
+        $capture = New-Capture
+        $capture.Stderr = [byte[]]@(120, 121)
+        $original = [ArithmeticException]::new('private/initiating')
+        $outputFailure = [IO.IOException]::new('private/output')
+        $writer = [CrashEventCleanupFaultWriter]::new()
+        $writer.Calls = $calls
+        $writer.FailWrite = $mode -ceq 'write'
+        $writer.Failure = $outputFailure
+        $failure = $null
+        try {
+            $output = [Console]::Out
+            try {
+                [Console]::SetOut($writer)
+                try { Close-HermesCrashEventResources $capture $process @($pins) $scope $original }
+                catch { $failure = $_.Exception.GetBaseException() }
+            } finally { [Console]::SetOut($output) }
+
+            # Assert only after restoring the real sink, including on failure.
+            Assert-Control ($failure -is [AggregateException])
+            if ($failure -is [AggregateException]) {
+                Assert-Control ([object]::ReferenceEquals($failure.InnerExceptions[0], $original))
+                $leaves = @($failure.Flatten().InnerExceptions | ForEach-Object {
+                    $_.GetBaseException()
+                })
+                $expected = @($original, $outputFailure)
+                if ($resourceFaults) {
+                    $expected += @($resources | ForEach-Object { $_.Failure })
+                }
+                Assert-Control ($leaves.Count -eq $expected.Count)
+                foreach ($error in $expected) {
+                    Assert-Control (@($leaves | Where-Object {
+                        [object]::ReferenceEquals($_, $error)
+                    }).Count -eq 1)
+                }
+            }
+            $expectedCalls = switch ($mode) {
+                'write' { '1,5,2,3,4' }
+                'cleanup-flush' { '1,5,6,2,3,4' }
+                'abandon-flush' { '1,2,3,6,4' }
+            }
+            Assert-Control (($calls -join ',') -ceq $expectedCalls)
+            Assert-Control (@($capture.Stdout | Where-Object { $_ -ne 0 }).Count -eq 0)
+            Assert-Control (@($capture.Stderr | Where-Object { $_ -ne 0 }).Count -eq 0)
+            $expectedText = if ($mode -ceq 'cleanup-flush') {
+                'HERMES_CRASH_EVENT_CLEANUP v=1 resource=2 failed=1 originalGatePassed=0 nativeAcceptance=0' +
+                    [Environment]::NewLine
+            } else { '' }
+            Assert-Control ($writer.ToString() -ceq $expectedText)
+        } finally { $writer.Dispose() }
+    }
+}
+
 function Test-StaticBoundaries {
     $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
     $wrapperPath = Join-Path $PSScriptRoot 'Invoke-CrashEventControl.ps1'
@@ -1535,7 +1854,9 @@ function Test-StaticBoundaries {
     $t = $null
     $e = $null
     $ast = [Management.Automation.Language.Parser]::ParseFile($wrapperPath, [ref]$t, [ref]$e)
-    Assert-Control ($e.Count -eq 0 -and $ast.ParamBlock.Parameters.Count -eq 0)
+    Assert-Control ($e.Count -eq 0 -and $ast.ParamBlock.Parameters.Count -eq 1)
+    Assert-Control ($ast.ParamBlock.Parameters[0].Name.VariablePath.UserPath -ceq 'OwnedPresence' `
+        -and $ast.ParamBlock.Parameters[0].StaticType -eq [Management.Automation.SwitchParameter])
     $failureFunction = $ast.Find({
         param($node)
         $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Write-CrashEventFailure'
@@ -1550,8 +1871,33 @@ function Test-StaticBoundaries {
         $null = [Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot $path), [ref]$t, [ref]$e)
         Assert-Control ($e.Count -eq 0)
     }
-    Assert-Control ($wrapper.Contains("ArgumentList.Add('startup-crash-event-probe')") `
+    Assert-Control ($wrapper.Contains('ArgumentList.Add($command)') `
         -and [regex]::Matches($wrapper, 'ArgumentList\.Add\(').Count -eq 1)
+    Assert-Control ($wrapper.Contains('$command = Get-HermesCrashEventCommand -OwnedPresence:$OwnedPresence') `
+        -and $wrapper.Contains('$script:ownedPresence = $OwnedPresence.IsPresent'))
+    Assert-Control ($module.Contains("return 'startup-crash-event-probe'") `
+        -and $module.Contains("return 'startup-crash-event-presence'") `
+        -and $module.Contains("`$env:GITHUB_EVENT_NAME -cne 'workflow_dispatch'") `
+        -and $module.Contains("`$env:GITHUB_JOB -cne 'installer'"))
+    Assert-Control ($wrapper.Contains('Assert-HermesCrashEventPresence $script:capture') `
+        -and [regex]::Matches($wrapper, 'Assert-HermesCrashEventAbsent \$root').Count -eq 4)
+    Assert-Control ($wrapper.Contains('ConvertTo-HermesCrashEventFacts $script:capture -OwnedPresence:$script:ownedPresence') `
+        -and $wrapper.Contains('ConvertTo-HermesCrashEventTiming $script:capture -OwnedPresence:$script:ownedPresence'))
+    $presenceBranches = $ast.FindAll({
+        param($node)
+        $node -is [Management.Automation.Language.IfStatementAst] `
+            -and $node.Clauses[0].Item1.Extent.Text -cmatch '\A\$OwnedPresence\z'
+    }, $true)
+    Assert-Control ($presenceBranches.Count -eq 2)
+    foreach ($branch in $presenceBranches) {
+        $body = $branch.Clauses[0].Item2.Extent.Text
+        Assert-Control ($body.Contains('Assert-HermesCrashEventAbsent $root') `
+            -and -not $body.Contains('AppendAllText') -and -not $body.Contains('Complete-HermesCrashEventScope') `
+            -and -not $body.Contains('Open-HermesCrashPins'))
+    }
+    Assert-Control (@($presenceBranches | Where-Object {
+        $_.Clauses[0].Item2.Extent.Text.Contains("throw '16'")
+    }).Count -eq 1)
     Assert-Control ($wrapper.Contains("Join-Path `$directory 'Hermes.Servicing.Acceptance.exe'") `
         -and $wrapper.Contains('$start.UseShellExecute = $false') -and $wrapper.Contains('$start.RedirectStandardInput = $true'))
     Assert-Control ($wrapper.IndexOf('$scope = $begin.Invoke(', [StringComparison]::Ordinal) -lt
@@ -1572,7 +1918,7 @@ function Test-StaticBoundaries {
     Assert-Control ($wrapper.IndexOf('Close-HermesCrashPins $pins', [StringComparison]::Ordinal) -lt
         $wrapper.IndexOf('Complete-HermesCrashEventScope $scope', [StringComparison]::Ordinal))
     Assert-Control ($wrapper.LastIndexOf('Clear-HermesCrashEventCapture $script:capture', [StringComparison]::Ordinal) -lt
-        $wrapper.IndexOf('if ($null -ne $scope) { $scope.Dispose() }', [StringComparison]::Ordinal))
+        $wrapper.IndexOf('Close-HermesCrashEventResources $script:capture', [StringComparison]::Ordinal))
     Assert-Control ([regex]::Matches($wrapper, 'Complete-HermesCrashEventScope \$scope').Count -eq 1)
     Assert-Control ($wrapper.Contains('Assert-HermesCrashAssemblies $directory $receipt.bundle') `
         -and $wrapper.Contains('Assert-HermesCrashTree $directory $receipt.bundle') `
@@ -1607,7 +1953,13 @@ function Test-StaticBoundaries {
     $jobs = [regex]::Match($workflow, '(?s)\njobs:\r?\n(?<jobs>.*)').Groups['jobs'].Value
     Assert-Control ([regex]::Matches($jobs, '(?m)^  [a-z][a-z_-]*:\r?$').Count -eq 1)
     Assert-Control ($workflow.Contains("persist-credentials: false") -and $workflow.Contains("contents: read"))
-    Assert-Control ($workflow -cmatch '(?s)id: control\s+shell: pwsh\s+(?:#[^\n]*\n\s*)*timeout-minutes: 2\s+run: ./installer/windows/Invoke-CrashEventControl.ps1')
+    Assert-Control ($workflow -cmatch '(?s)id: control\s+shell: pwsh\s+(?:#[^\n]*\n\s*)*timeout-minutes: 2\s+run: \|')
+    Assert-Control ($workflow -cmatch '(?m)^  workflow_dispatch:\s*\r?$' `
+        -and $workflow -cnotmatch '(?m)^\s+inputs:')
+    Assert-Control ($workflow.Contains("if (`$env:GITHUB_EVENT_NAME -ceq 'workflow_dispatch') {") `
+        -and $workflow.Contains("./installer/windows/Invoke-CrashEventControl.ps1 -OwnedPresence") `
+        -and [regex]::Matches($workflow, 'Invoke-CrashEventControl\.ps1 -OwnedPresence').Count -eq 1)
+    Assert-Control ($workflow -cmatch '(?s)if \(\$env:GITHUB_EVENT_NAME -ceq ''workflow_dispatch''\) \{\s+./installer/windows/Invoke-CrashEventControl.ps1 -OwnedPresence\s+\} else \{\s+./installer/windows/Invoke-CrashEventControl.ps1\s+\}')
     Assert-Control ($workflow.IndexOf('./installer/windows/Test-CrashControl.ps1', [StringComparison]::Ordinal) -lt
         $workflow.IndexOf('./installer/windows/Publish-CrashControl.ps1', [StringComparison]::Ordinal))
     Assert-Control ($workflow.IndexOf('./installer/windows/Test-CrashEventControl.ps1', [StringComparison]::Ordinal) -lt
@@ -1629,6 +1981,10 @@ function Test-StaticBoundaries {
         $node -is [Management.Automation.Language.TryStatementAst] -and $null -ne $node.Finally
     }, $true)
     foreach ($node in $finally) { Assert-Control (-not $node.Finally.Extent.Text.Contains('Complete-HermesCrashEventScope')) }
+    Assert-Control ($wrapper.Contains('$failure = $_.Exception') `
+        -and $wrapper.Contains(') $scope $failure') `
+        -and $module.Contains("$" + 'errors.Add($Failure)') `
+        -and $module.Contains('Add-EventCleanupFailure $errors $_.Exception 3'))
 }
 
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
@@ -1649,6 +2005,10 @@ try {
     Test-EventReport
     Test-OutcomeAndFacts
     Test-TaskContainerContract
+    Test-OwnedPresence
+    Test-OwnedPresenceSelection
+    Test-EventCleanupFaults
+    Test-EventCleanupOutputFaults
     Test-FailedCommandProtocols
     Test-Timing
     Test-ReadBudget

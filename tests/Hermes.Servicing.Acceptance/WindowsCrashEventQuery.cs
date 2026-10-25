@@ -16,6 +16,20 @@ namespace Hermes.Servicing.Acceptance;
 // No Task abandonment, async continuation, subscription, or cancellation claim.
 internal static class WindowsCrashEventQuery
 {
+    internal static CrashQueryResult EnumeratePresence(
+        CrashQueryRequest request, CrashQueryAdmission admission,
+        CrashEventTelemetry? telemetry = null)
+    {
+        if (!OperatingSystem.IsWindows())
+            return CrashEventQuery.Failure(
+                CrashEventFailureKind.Unavailable, CrashQueryReason.UnsupportedPlatform);
+        if (RuntimeInformation.ProcessArchitecture != Architecture.X64)
+            return CrashEventQuery.Failure(
+                CrashEventFailureKind.Refused, CrashQueryReason.UnsupportedAbi);
+        return CrashEventQuery.EnumeratePresence(
+            new PresenceApi(), request, admission, telemetry);
+    }
+
     internal static CrashQueryResult EnumerateCompletedCandidate(
         CrashQueryRequest request, CrashQueryAdmission admission,
         CrashEventTelemetry? telemetry = null)
@@ -42,7 +56,7 @@ internal static class WindowsCrashEventQuery
         return CrashEventQuery.EnumerateCandidate(new Api(), request, admission);
     }
 
-    private sealed class Api : ICrashEventQueryApi
+    private abstract class Transport : ICrashEventQueryTransport
     {
         private readonly int _thread = Environment.CurrentManagedThreadId;
 
@@ -65,14 +79,6 @@ internal static class WindowsCrashEventQuery
             return new(success, error, returned);
         }
 
-        public CrashEventRead Read(nint borrowedEvent, CrashEventSubject expected)
-        {
-            RequireThread();
-            // Both query and event remain owned by the portable lifetime.
-            // The existing reader rechecks all three identity fields before details.
-            return WindowsCrashEventValues.Read(borrowedEvent, expected);
-        }
-
         public CrashQueryCloseCall Close(nint ownedHandle)
         {
             RequireThread();
@@ -81,10 +87,31 @@ internal static class WindowsCrashEventQuery
             return new(success, error);
         }
 
-        private void RequireThread()
+        protected void RequireThread()
         {
             if (Environment.CurrentManagedThreadId != _thread)
                 throw new InvalidOperationException("Crash-event query thread changed.");
+        }
+    }
+
+    private sealed class Api : Transport, ICrashEventQueryApi
+    {
+        public CrashEventRead Read(nint borrowedEvent, CrashEventSubject expected)
+        {
+            RequireThread();
+            // Both query and event remain owned by the portable lifetime.
+            return WindowsCrashEventValues.Read(borrowedEvent, expected);
+        }
+    }
+
+    private sealed class PresenceApi : Transport, ICrashEventPresenceQueryApi
+    {
+        public CrashIdentityRead ReadIdentity(
+            nint borrowedEvent, CrashEventSubject expected)
+        {
+            RequireThread();
+            // This adapter exposes no details-reader method.
+            return WindowsCrashEventValues.ReadIdentity(borrowedEvent, expected);
         }
     }
 

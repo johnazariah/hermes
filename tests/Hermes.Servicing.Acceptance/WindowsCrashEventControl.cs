@@ -12,6 +12,31 @@ internal static partial class WindowsCrashControl
             TimeProvider.System, Task.Delay),
         PublishEventBase, PublishEventCorrelation, Console.Write);
 
+    internal static CrashEventControlEffects PresenceEffects
+    {
+        get
+        {
+            var effects = EventEffects;
+            return effects with
+            {
+                RequireContext = RequirePresenceContext,
+                Observation = effects.Observation with
+                {
+                    Query = WindowsCrashEventQuery.EnumeratePresence
+                }
+            };
+        }
+    }
+
+    private static void RequirePresenceContext()
+    {
+        RequireEventContext();
+        CrashCorrelationErrors.Require(
+            Environment.GetEnvironmentVariable("GITHUB_EVENT_NAME") == "workflow_dispatch" &&
+            Environment.GetEnvironmentVariable("GITHUB_JOB") == "installer",
+            CrashCorrelationReason.Guard);
+    }
+
     private static void RequireEventContext()
     {
         RequireContext();

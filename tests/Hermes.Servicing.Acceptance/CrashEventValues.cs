@@ -43,6 +43,19 @@ internal readonly record struct CrashEventFault(
 internal sealed record CrashEventFailure(
     ImmutableArray<CrashEventFault> Faults) : CrashEventRead;
 
+// Diagnostic-only results. These cannot carry identity values or event details
+// and deliberately do not derive from CrashEventRead/CrashEventMatched.
+internal enum CrashIdentityComparison
+{
+    Same = 1, BirthDifferent = 2, ProcessDifferent = 3, ImageDifferent = 4
+}
+
+internal abstract record CrashIdentityRead;
+internal sealed record CrashIdentityCompared(
+    CrashIdentityComparison Comparison) : CrashIdentityRead;
+internal sealed record CrashIdentityFailure(
+    ImmutableArray<CrashEventFault> Faults) : CrashIdentityRead;
+
 internal sealed class CrashEventValuesException(
     ImmutableArray<CrashEventFault> faults)
     : IOException("Selective crash-event values failed.")
@@ -119,18 +132,41 @@ internal static class CrashEventValues
     internal static CrashEventRead Read(
         ICrashEventApi api, nint borrowedEvent, CrashEventSubject expected)
     {
-        if (expected.ProcessId == 0 || expected.CreationFileTime == 0 ||
-            !IsCanonicalPath(expected.ActualImagePath))
-            return Failure(CrashEventFailureKind.Refused, CrashEventReason.InvalidSubject);
-        if (borrowedEvent == 0 || borrowedEvent == -1)
-            return Failure(CrashEventFailureKind.Refused, CrashEventReason.InvalidEventHandle);
-        if (api.Abi != CrashEventAbi.X64)
-            return Failure(CrashEventFailureKind.Refused, CrashEventReason.UnsupportedAbi);
-        try { return ReadCore(api, borrowedEvent, expected); }
+        try
+        {
+            ValidateRead(api, borrowedEvent, expected);
+            return ReadCore(api, borrowedEvent, expected);
+        }
         catch (CrashEventValuesException error)
         {
             return new CrashEventFailure(error.Faults);
         }
+    }
+
+    internal static CrashIdentityRead ReadIdentity(
+        ICrashEventApi api, nint borrowedEvent, CrashEventSubject expected)
+    {
+        try
+        {
+            ValidateRead(api, borrowedEvent, expected);
+            var identity = ReadSelection(
+                api, borrowedEvent, CrashEventSelection.Identity, DecodeIdentity);
+            return new CrashIdentityCompared(ComparePresence(identity, expected));
+        }
+        catch (CrashEventValuesException error)
+        {
+            return new CrashIdentityFailure(error.Faults);
+        }
+    }
+
+    private static void ValidateRead(
+        ICrashEventApi api, nint borrowedEvent, CrashEventSubject expected)
+    {
+        Require(expected.ProcessId != 0 && expected.CreationFileTime != 0 &&
+            IsCanonicalPath(expected.ActualImagePath), CrashEventReason.InvalidSubject);
+        Require(borrowedEvent != 0 && borrowedEvent != -1,
+            CrashEventReason.InvalidEventHandle);
+        Require(api.Abi == CrashEventAbi.X64, CrashEventReason.UnsupportedAbi);
     }
 
     private static CrashEventRead ReadCore(
@@ -329,6 +365,21 @@ internal static class CrashEventValues
             (_, false, _) => CrashEventReason.CreationTimeMismatch,
             (_, _, false) => CrashEventReason.ImagePathMismatch,
             _ => CrashEventReason.None
+        };
+
+    // PID/image disagreement wins over birth disagreement: a foreign identity
+    // must never be classified as our owned process merely having another birth.
+    private static CrashIdentityComparison ComparePresence(
+        CrashEventSubject current, CrashEventSubject expected) =>
+        (current.ProcessId == expected.ProcessId,
+            string.Equals(current.ActualImagePath, expected.ActualImagePath,
+                StringComparison.Ordinal),
+            current.CreationFileTime == expected.CreationFileTime) switch
+        {
+            (false, _, _) => CrashIdentityComparison.ProcessDifferent,
+            (_, false, _) => CrashIdentityComparison.ImageDifferent,
+            (_, _, false) => CrashIdentityComparison.BirthDifferent,
+            _ => CrashIdentityComparison.Same
         };
 
     internal static CrashEventFailure Failure(

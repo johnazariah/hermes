@@ -100,6 +100,20 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-26 - Approve the diagnostic source for one genuine invocation
+
+- **Review:** The final independent review approves the combined C#, PowerShell and workflow source. All first-reader-failure, final-field mutation and output-sink cleanup findings are resolved. Prior authors remain excluded from rejected revisions; the coordinator applies authored corrections mechanically.
+- **Qualification:** Full local results below pass, including 1,190 Servicing / 2,198 Core, 4,355 event controls and non-regressing five-assembly coverage. This is source approval, not native filtering or installer acceptance.
+- **Next:** Publish this exact source and attempt the approved genuine manual workflow dispatch. If GitHub refuses it, no diagnostic has run; do not spoof admission or merge workflow code to evade that prerequisite.
+
+### 2026-10-26 - Qualify the bounded diagnostic before native execution
+
+- **Implemented:** A fixed diagnostic-only command removes only the server-side birth predicate and uses a separate identity-only result path. The original managed control, strict precision/adjacent requirements, installer gate, host policy and artifact contract remain unchanged. Manual workflow selection adds no caller-supplied subject or query.
+- **Review corrections:** Independent review rejected lost first-reader failures and then final-field test mutations plus output-sink failures interrupting cleanup. Fresh authors supplied each revision under the lockout protocol. The final scoped correction also fixes one analyser violation and a static test's incorrect expected count; both owned-presence branches must still prove acceptance reports absent.
+- **Local evidence:** Portable and Windows-targeted Release builds pass with zero warnings/errors. All 783 focused, 1,190 complete Servicing and 2,198 Core cases pass without failures/skips. Root build/tests pass. Matching shared Release bytes precede the unchanged five-assembly merge: 16,608/19,081 lines (87.0395%), 16,281/25,763 branches (63.1953%), above the prior local level and fixed gates. Original/metadata/event PowerShell controls pass 985/3,120/4,355; targeted workflow lints, encoding and whitespace checks pass.
+- **Boundary:** These are local/source results, not native delivery or filtering proof. Final independent source review is pending. The workflow is registered but absent from default main; actual manual branch-dispatch availability is not yet established. No event is invoked, admission spoofed or workflow merged to bypass that question.
+- **Next:** Require final source approval, publish the reviewed revision and attempt its one approved fixed manual invocation. If GitHub refuses dispatch, record that no diagnostic ran and resolve the execution prerequisite without weakening acceptance.
+
 ### 2026-10-25 - Reconcile coverage evidence and reject an incomplete repair lock
 
 - **Coverage:** All seven exact coverage-gate controls and eight test-execution controls pass again. Existing issue #18 now links actual candidate evidence rather than leaving its last below-threshold main measurements as the apparent current result. It stays open until merge and remote-main verification; the installer failure is still explicit.

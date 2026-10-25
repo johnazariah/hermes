@@ -2,6 +2,45 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Owned candidate-presence diagnostic retains the strict acceptance gate
+
+The explicitly approved diagnostic omits only the server-side creation-time
+predicate. Application Error/1000/v0, the actual owned PID and executable,
+the existing bounded UTC window and schema admission remain fixed. Its
+separate identity-only reader cannot read exception/module details or return
+a precision-accepted result. Original managed control, exact/adjacent
+precision checks and installer acceptance remain unchanged.
+
+The fixed command is selected only by the workflow's manual-dispatch path.
+The wrapper retains current-source publication, schema/workflow receipts,
+pin/freshness checks, real task reference/settlement binding and private-job
+containment. Diagnostic execution returns non-success and publishes no
+acceptance report or new artifact. Only closed numeric facts are exported.
+
+Regression controls cover the expression's birth-only delta, fixed identity
+selection, mismatch precedence, query/event/context cleanup, first reader
+failure retention through later enumeration/cleanup faults, and separation
+from acceptance. PowerShell controls cover every protocol field including
+the final LF-terminated field, actual wrapper branch boundaries, and a
+throwing output sink during cleanup. Sink failure cannot prevent remaining
+release attempts or explicit scope abandonment.
+
+Current local qualification passes **783 focused**, **1,190 complete
+Servicing** and **2,198 Core** cases without failures/skips. Portable and
+Windows-targeted Release builds, root build and root tests pass. The same
+five-assembly native coverage merge measures **16,608/19,081 lines
+(87.0395%)** and **16,281/25,763 branches (63.1953%)**, above the previous
+local level and unchanged gates. Shared Release dependency bytes are checked
+before merging. Original/metadata/event PowerShell controls pass
+**985/3,120/4,355**; three targeted workflow lints and whitespace checks pass.
+
+Final independent review approves the complete C#/PowerShell/workflow
+source after the three-cycle review. These remain portable/source
+qualification results, not an actual Windows candidate-presence or
+filtering-precision result. The diagnostic has not yet been invoked on
+Windows; manual-dispatch availability for the unmerged workflow must also
+be established.
+
 ## Access bootstrap diagnostics preserve the original browser assertion
 
 The first anonymous-settings smoke case now observes only its actual fixed

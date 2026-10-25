@@ -26,6 +26,18 @@ internal static class WindowsCrashEventValues
         return CrashEventValues.Read(new Api(), borrowedEvent, expected);
     }
 
+    internal static CrashIdentityRead ReadIdentity(
+        nint borrowedEvent, CrashEventSubject expected)
+    {
+        if (!OperatingSystem.IsWindows())
+            return new CrashIdentityFailure([new(
+                CrashEventFailureKind.Unavailable, CrashEventReason.UnsupportedPlatform)]);
+        if (RuntimeInformation.ProcessArchitecture != Architecture.X64)
+            return new CrashIdentityFailure([new(
+                CrashEventFailureKind.Refused, CrashEventReason.UnsupportedAbi)]);
+        return CrashEventValues.ReadIdentity(new Api(), borrowedEvent, expected);
+    }
+
     [StructLayout(LayoutKind.Explicit)]
     private readonly struct VariantUnion
     {

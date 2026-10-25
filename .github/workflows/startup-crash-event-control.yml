@@ -64,7 +64,12 @@ jobs:
         # Armed by the worker BEFORE wrapper entry, BeginCurrentStep or Start.
         # No cooperative token/stopwatch claims to interrupt synchronous calls.
         timeout-minutes: 2
-        run: ./installer/windows/Invoke-CrashEventControl.ps1
+        run: |
+          if ($env:GITHUB_EVENT_NAME -ceq 'workflow_dispatch') {
+            ./installer/windows/Invoke-CrashEventControl.ps1 -OwnedPresence
+          } else {
+            ./installer/windows/Invoke-CrashEventControl.ps1
+          }
       - name: Validated bounded facts only (not original or native acceptance)
         if: success() && steps.control.outcome == 'success' && steps.control.outputs.published == '1'
         uses: actions/upload-artifact@v4

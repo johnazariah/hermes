@@ -16,6 +16,22 @@ $script:timingRanges = [ordered]@{
     fUs = @(0L, 999999999L); fMaxUs = @(0L, 999999999L)
     dUs = @(0L, 999999999L); dMaxUs = @(0L, 999999999L)
 }
+$script:presenceRanges = [ordered]@{
+    outcome = @(0L, 9L); reason = @(0L, 21L); controlStatus = @(0L, 1L)
+    controlError = @(0L, 11L); cleanupError = @(0L, 255L); receiptClosed = @(0L, 1L)
+    polls = @(0L, 81L); queries = @(0L, 81L)
+}
+$script:presenceUnavailable = 'HERMES_CRASH_EVENT_PRESENCE_FACTS v=1 available=0 originalGatePassed=0 precisionAccepted=0 nativeAcceptance=0'
+
+function Get-HermesCrashEventCommand {
+    param([switch]$OwnedPresence)
+    if ($OwnedPresence) {
+        # Cooperative context assertions, not workflow/job attestation.
+        if ($env:GITHUB_EVENT_NAME -cne 'workflow_dispatch' -or $env:GITHUB_JOB -cne 'installer') { throw '1' }
+        return 'startup-crash-event-presence'
+    }
+    return 'startup-crash-event-probe'
+}
 
 function Get-EventProperties {
     param([Text.Json.JsonElement]$Element, [string[]]$Names)
@@ -144,8 +160,10 @@ function Assert-HermesCrashEventReport {
 function New-EventProjection {
     param([int]$Check = 0, [int]$Field = 0, [string]$Facts =
         'HERMES_CRASH_EVENT_FACTS v=1 available=0 status=0 controlStatus=0 reason=0 matched=0 lowerEmpty=0 upperEmpty=0 controlError=0 cleanupError=0 reportError=0 originalGatePassed=0 nativeAcceptance=0',
-        [string]$Timing = '')
-    return [pscustomobject]@{ Check = $Check; Field = $Field; Facts = $Facts; Timing = $Timing }
+        [string]$Timing = '', [Collections.IDictionary]$Numbers = @{})
+    return [pscustomobject]@{
+        Check = $Check; Field = $Field; Facts = $Facts; Timing = $Timing; Numbers = $Numbers
+    }
 }
 
 function Test-EventTaskArray {
@@ -271,6 +289,104 @@ function ConvertTo-HermesCrashEventDiagnostic {
         [object[]]@([int]$match.Groups[1].Value, [int]$match.Groups[2].Value, [int]$match.Groups[3].Value))
 }
 
+function Get-EventTimingPattern {
+    $u = '(0|[1-9][0-9]{0,9})'
+    $fields = foreach ($name in $script:timingRanges.Keys) {
+        $number = switch -CaseSensitive ($name) {
+            'native' { '(-1|0|[1-9][0-9]{0,9})' }
+            { $_ -cin @('entryMs', 'queryMs') } { '(-1000000|0|-?[1-9][0-9]{0,5})' }
+            default { $u }
+        }
+        " $name=(?<timing$name>$number)"
+    }
+    return 'HERMES_CRASH_EVENT_DIAGNOSTIC v=1' + ($fields -join '') + ' nativeAcceptance=0'
+}
+
+function Get-EventTimingProjection {
+    param([Text.RegularExpressions.Match]$Match)
+    $row = [Text.StringBuilder]::new('HERMES_CRASH_EVENT_TIMING v=1')
+    $numbers = [ordered]@{}
+    $field = 22
+    foreach ($name in $script:timingRanges.Keys) {
+        $field++
+        [long]$value = 0
+        if (-not [long]::TryParse($Match.Groups["timing$name"].Value,
+                [Globalization.NumberStyles]::AllowLeadingSign, [Globalization.CultureInfo]::InvariantCulture,
+                [ref]$value) -or $value -lt $script:timingRanges[$name][0] `
+                -or $value -gt $script:timingRanges[$name][1]) { return New-EventProjection 28 $field }
+        $numbers[$name] = $value
+        $null = $row.Append(' ').Append($name).Append('=').Append($value.ToString([Globalization.CultureInfo]::InvariantCulture))
+    }
+    return New-EventProjection -Timing ($row.Append(' nativeAcceptance=0').ToString()) -Numbers $numbers
+}
+
+function Get-EventPresenceProjection {
+    param([object]$Capture)
+    try {
+        $check = Get-EventCaptureCheck $Capture
+        if ($check.Check -ne 0) { return $check }
+        if ($Capture.ExitCode -ne 1) { return New-EventProjection 21 1 }
+        if ($Capture.Stdout.Length -gt 599) { return New-EventProjection 9 6 }
+        try { $text = [Text.UTF8Encoding]::new($false, $true).GetString($Capture.Stdout) }
+        catch [Text.DecoderFallbackException] { return New-EventProjection 17 6 }
+        $fields = foreach ($name in $script:presenceRanges.Keys) {
+            " $name=(?<presence$name>(0|[1-9][0-9]{0,9}))"
+        }
+        # The producer has 13 fields including v. A pre-coordinator refusal
+        # has no timing row; any observed/querying path must have that row.
+        $pattern = '\A(?:(?<timing>' + (Get-EventTimingPattern) + ')\n)?' +
+            'HERMES_CRASH_EVENT_PRESENCE v=1 status=1' + ($fields -join '') +
+            ' originalGatePassed=0 precisionAccepted=0 nativeAcceptance=0\n\z'
+        $match = [regex]::Match($text, $pattern, [Text.RegularExpressions.RegexOptions]::CultureInvariant)
+        if (-not $match.Success) { return New-EventProjection 18 }
+        $numbers = [ordered]@{}
+        $field = 47
+        foreach ($name in $script:presenceRanges.Keys) {
+            $field++
+            [uint32]$value = 0
+            if (-not [uint32]::TryParse($match.Groups["presence$name"].Value,
+                    [Globalization.NumberStyles]::None, [Globalization.CultureInfo]::InvariantCulture,
+                    [ref]$value) -or $value -lt $script:presenceRanges[$name][0] `
+                    -or $value -gt $script:presenceRanges[$name][1]) { return New-EventProjection 29 $field }
+            $numbers[$name] = $value
+        }
+        if ($numbers.queries -gt $numbers.polls -or $numbers.polls - $numbers.queries -gt 1 `
+            -or ($numbers.outcome -ne 0 -and $numbers.queries -eq 0) `
+            -or ($numbers.controlStatus -eq 0 -and ($numbers.controlError -ne 0 -or $numbers.cleanupError -ne 0))) {
+            return New-EventProjection 30
+        }
+        $timing = New-EventProjection
+        if ($match.Groups['timing'].Success) {
+            $timing = Get-EventTimingProjection $match
+            if ($timing.Check -ne 0) { return $timing }
+            $counts = $timing.Numbers
+            if ($counts.polls -ne $numbers.polls -or $counts.attempts -ne $numbers.queries `
+                -or $counts.returns -gt $counts.attempts -or $counts.empty -gt $counts.returns) {
+                return New-EventProjection 30
+            }
+            foreach ($phase in @('q', 'n', 'r', 'c', 'f', 'd')) {
+                if ($counts["${phase}MaxUs"] -gt $counts["${phase}Us"]) { return New-EventProjection 30 }
+            }
+        } elseif ($numbers.polls -ne 0 -or $numbers.queries -ne 0 -or $numbers.outcome -ne 0) {
+            return New-EventProjection 31
+        }
+        # Reconstruct only admitted numbers. This result never enters the
+        # precision parser or report publisher and is always non-success.
+        $facts = [Text.StringBuilder]::new('HERMES_CRASH_EVENT_PRESENCE_FACTS v=1 available=1 status=1')
+        foreach ($name in $script:presenceRanges.Keys) {
+            $null = $facts.Append(' ').Append($name).Append('=').Append(
+                $numbers[$name].ToString([Globalization.CultureInfo]::InvariantCulture))
+        }
+        $null = $facts.Append(' originalGatePassed=0 precisionAccepted=0 nativeAcceptance=0')
+        return New-EventProjection -Facts $facts.ToString() -Timing $timing.Timing
+    } catch { return New-EventProjection 27 }
+}
+
+function Assert-HermesCrashEventPresence {
+    param([object]$Capture)
+    if ((Get-EventPresenceProjection $Capture).Check -ne 0) { throw '16' }
+}
+
 function Get-EventFactsProjection {
     param([object]$Capture)
     try {
@@ -279,16 +395,7 @@ function Get-EventFactsProjection {
         try { $text = [Text.UTF8Encoding]::new($false, $true).GetString($Capture.Stdout) }
         catch [Text.DecoderFallbackException] { return New-EventProjection 17 6 }
         $u = '(0|[1-9][0-9]{0,9})'
-        $timingFields = foreach ($name in $script:timingRanges.Keys) {
-            $number = switch -CaseSensitive ($name) {
-                'native' { '(-1|0|[1-9][0-9]{0,9})' }
-                { $_ -cin @('entryMs', 'queryMs') } { '(-1000000|0|-?[1-9][0-9]{0,5})' }
-                default { $u }
-            }
-            " $name=(?<timing$name>$number)"
-        }
-        $timingPattern = '(?<timing>HERMES_CRASH_EVENT_DIAGNOSTIC v=1' +
-            ($timingFields -join '') + ' nativeAcceptance=0\n)?'
+        $timingPattern = '(?<timing>' + (Get-EventTimingPattern) + '\n)?'
         # Observer refusal, coordinator failure diagnostic, then final receipt
         # refusal can emit three observations before the two terminal summaries.
         # At most one post-cleanup timing row precedes those terminal summaries.
@@ -332,18 +439,9 @@ function Get-EventFactsProjection {
         $timing = ''
         if ($match.Groups['timing'].Success) {
             # Reconstruct only validated closed numbers, never the captured row.
-            $row = [Text.StringBuilder]::new('HERMES_CRASH_EVENT_TIMING v=1')
-            $field = 22
-            foreach ($name in $script:timingRanges.Keys) {
-                $field++
-                [long]$value = 0
-                if (-not [long]::TryParse($match.Groups["timing$name"].Value,
-                        [Globalization.NumberStyles]::AllowLeadingSign, [Globalization.CultureInfo]::InvariantCulture,
-                        [ref]$value) -or $value -lt $script:timingRanges[$name][0] `
-                        -or $value -gt $script:timingRanges[$name][1]) { return New-EventProjection 28 $field }
-                $null = $row.Append(' ').Append($name).Append('=').Append($value.ToString([Globalization.CultureInfo]::InvariantCulture))
-            }
-            $timing = $row.Append(' nativeAcceptance=0').ToString()
+            $projection = Get-EventTimingProjection $match
+            if ($projection.Check -ne 0) { return $projection }
+            $timing = $projection.Timing
         }
         # Advisory only. Never echo captures, hashes, exit/native codes or exception text.
         $facts = [string]::Format([Globalization.CultureInfo]::InvariantCulture,
@@ -355,18 +453,24 @@ function Get-EventFactsProjection {
 }
 
 function ConvertTo-HermesCrashEventFacts {
-    param([object]$Capture)
+    param([object]$Capture, [switch]$OwnedPresence)
+    if ($OwnedPresence) {
+        $projection = Get-EventPresenceProjection $Capture
+        if ($projection.Check -ne 0) { return $script:presenceUnavailable }
+        return $projection.Facts
+    }
     return (Get-EventFactsProjection $Capture).Facts
 }
 
 function ConvertTo-HermesCrashEventTiming {
-    param([object]$Capture)
+    param([object]$Capture, [switch]$OwnedPresence)
+    if ($OwnedPresence) { return (Get-EventPresenceProjection $Capture).Timing }
     return (Get-EventFactsProjection $Capture).Timing
 }
 
 function ConvertTo-HermesCrashEventCaptureDiagnostic {
-    param([object]$Capture)
-    $projection = Get-EventFactsProjection $Capture
+    param([object]$Capture, [switch]$OwnedPresence)
+    $projection = if ($OwnedPresence) { Get-EventPresenceProjection $Capture } else { Get-EventFactsProjection $Capture }
     $shape = Get-EventCaptureShape $Capture
     return [string]::Format([Globalization.CultureInfo]::InvariantCulture,
         'HERMES_CRASH_EVENT_CAPTURE v=1 check={0} field={1} out={2} err={3} tasks={4} rows={5} shape={6}',
@@ -735,6 +839,63 @@ function Complete-HermesCrashEventScope {
     $Scope.Dispose()
 }
 
+function Add-EventCleanupFailure {
+    param([Collections.Generic.List[Exception]]$Errors, [Exception]$Failure,
+        [ValidateRange(1, 4)][int]$Resource, [bool]$OutputFailed)
+    if (-not $Errors.Contains($Failure)) { $Errors.Add($Failure) }
+    # Retain the first sink fault without retrying or recursively reporting it.
+    # Later resource failures must still be retained and releases attempted.
+    if ($OutputFailed) { return $true }
+    # 1 capture buffers; 2 process; 3 file pins; 4 abandoned private job.
+    # Never export ErrorRecord, exception text/type, paths or captured bytes.
+    try {
+        [Console]::Out.WriteLine("HERMES_CRASH_EVENT_CLEANUP v=1 resource=$Resource failed=1 originalGatePassed=0 nativeAcceptance=0")
+        [Console]::Out.Flush()
+        return $false
+    } catch {
+        if (-not $Errors.Contains($_.Exception)) { $Errors.Add($_.Exception) }
+        return $true
+    }
+}
+
+function Close-HermesCrashEventResources {
+    param([object]$Capture, [object]$Process, [object[]]$PinSets,
+        [object]$Scope, [Exception]$Failure)
+    $errors = [Collections.Generic.List[Exception]]::new()
+    if ($null -ne $Failure) { $errors.Add($Failure) }
+    $faulted = $false
+    $outputFailed = $false
+    try { Clear-HermesCrashEventCapture $Capture }
+    catch { $faulted = $true; $outputFailed = Add-EventCleanupFailure $errors $_.Exception 1 $outputFailed }
+    if ($null -ne $Process) {
+        try { $Process.Dispose() }
+        catch { $faulted = $true; $outputFailed = Add-EventCleanupFailure $errors $_.Exception 2 $outputFailed }
+    }
+    foreach ($pins in $PinSets) {
+        foreach ($pin in $pins) {
+            try { Close-HermesCrashPins @($pin) }
+            catch { $faulted = $true; $outputFailed = Add-EventCleanupFailure $errors $_.Exception 3 $outputFailed }
+        }
+    }
+    # Last: KillOnClose includes this caller. Flush initiating/cleanup facts and
+    # attempt every other release before abandoning it. Never complete here.
+    if (-not $outputFailed) {
+        try { [Console]::Out.Flush() }
+        catch {
+            $faulted = $true
+            $outputFailed = $true
+            if (-not $errors.Contains($_.Exception)) { $errors.Add($_.Exception) }
+        }
+    }
+    if ($null -ne $Scope) {
+        try { $Scope.Dispose() }
+        catch { $faulted = $true; $outputFailed = Add-EventCleanupFailure $errors $_.Exception 4 $outputFailed }
+    }
+    if ($faulted) {
+        throw [AggregateException]::new('Synthetic event-control cleanup failed.', $errors.ToArray())
+    }
+}
+
 Export-ModuleMember -Function Assert-HermesCrashEventSchema, Assert-HermesCrashEventReport,
     Assert-HermesCrashEventOutcome, ConvertTo-HermesCrashEventFacts, ConvertTo-HermesCrashEventDiagnostic,
     ConvertTo-HermesCrashEventCaptureDiagnostic, ConvertTo-HermesCrashEventTiming,
@@ -742,4 +903,5 @@ Export-ModuleMember -Function Assert-HermesCrashEventSchema, Assert-HermesCrashE
     Get-HermesCrashEventWorkflowEntry, Assert-HermesCrashEventFreshness, Read-HermesCrashEventPublication,
     Assert-HermesCrashEventPublicationBinding, Invoke-HermesCrashEventSchemaPublication,
     Clear-HermesCrashEventCapture, Invoke-HermesCrashEventCapture, Assert-HermesCrashEventSettled,
-    Assert-HermesCrashEventTaskBinding, Complete-HermesCrashEventScope
+    Assert-HermesCrashEventTaskBinding, Complete-HermesCrashEventScope,
+    Get-HermesCrashEventCommand, Assert-HermesCrashEventPresence, Close-HermesCrashEventResources

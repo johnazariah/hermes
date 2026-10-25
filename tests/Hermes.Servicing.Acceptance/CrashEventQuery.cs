@@ -64,6 +64,12 @@ internal sealed record CrashQueryCompleted(CrashEventRead Read) : CrashQueryResu
     public override string ToString() => nameof(CrashQueryCompleted);
 }
 
+// Identity-only diagnostic enumeration; never a CrashQueryCompleted match.
+internal sealed record CrashQueryPresence(CrashIdentityRead Read) : CrashQueryResult
+{
+    public override string ToString() => nameof(CrashQueryPresence);
+}
+
 internal readonly record struct CrashQueryFault(
     CrashEventFailureKind Kind, CrashQueryReason Reason, int NativeError = 0);
 
@@ -85,14 +91,24 @@ internal readonly record struct CrashQueryCloseCall(bool Success, int Error);
 // two-slot output array transfers ownership, including on failure/exception.
 // Read borrows the unique candidate synchronously and returns managed values.
 // No capability may retain handles, schedule work, or change the output later.
-internal interface ICrashEventQueryApi
+internal interface ICrashEventQueryTransport
 {
     CrashQueryOpenCall Open(
         nint session, string channel, string expression, uint flags);
     CrashQueryNextCall Next(
         nint query, nint[] events, uint timeoutMilliseconds, uint flags);
-    CrashEventRead Read(nint borrowedEvent, CrashEventSubject expected);
     CrashQueryCloseCall Close(nint ownedHandle);
+}
+
+internal interface ICrashEventQueryApi : ICrashEventQueryTransport
+{
+    CrashEventRead Read(nint borrowedEvent, CrashEventSubject expected);
+}
+
+// The diagnostic transport has no details-reader capability.
+internal interface ICrashEventPresenceQueryApi : ICrashEventQueryTransport
+{
+    CrashIdentityRead ReadIdentity(nint borrowedEvent, CrashEventSubject expected);
 }
 
 // Fixed Application / Application Error / 1000 / v0 construction and one batch.
@@ -120,6 +136,9 @@ internal static class CrashEventQuery
     internal static CrashQueryResult Construct(CrashQueryRequest request) =>
         Attempt(() => new CrashQueryConstructed(Build(request)));
 
+    internal static CrashQueryResult ConstructPresence(CrashQueryRequest request) =>
+        Attempt(() => new CrashQueryConstructed(BuildPresence(request)));
+
     internal static CrashQueryResult EnumerateCandidate(
         ICrashEventQueryApi api, CrashQueryRequest request,
         CrashQueryAdmission admission) => Attempt(() =>
@@ -140,7 +159,23 @@ internal static class CrashEventQuery
         var expression = Build(request);
         var lifetime = new Lifetime(telemetry);
         CrashQueryResult Run() => lifetime.Run(() =>
-            EnumerateCompleted(api, request, expression, lifetime, telemetry));
+            EnumerateCompleted(api, expression, lifetime, telemetry,
+                handle => new CrashQueryCompleted(
+                    Read(api, handle, request.Subject, telemetry))));
+        return telemetry is { } measured ? measured.Query(Run) : Run();
+    });
+
+    internal static CrashQueryResult EnumeratePresence(
+        ICrashEventPresenceQueryApi api, CrashQueryRequest request,
+        CrashQueryAdmission admission, CrashEventTelemetry? telemetry = null) => Attempt(() =>
+    {
+        Require(admission == CrashQueryAdmission.CallerAttestsFixedProviderAndSchema,
+            CrashQueryReason.AdmissionRequired);
+        var expression = BuildPresence(request);
+        var lifetime = new Lifetime(telemetry);
+        CrashQueryResult Run() => lifetime.Run(() =>
+            EnumerateCompleted(api, expression, lifetime, telemetry,
+                handle => ReadPresence(api, handle, request.Subject, telemetry)));
         return telemetry is { } measured ? measured.Query(Run) : Run();
     });
 
@@ -165,6 +200,18 @@ internal static class CrashEventQuery
             $"Data[@Name='AppPath']='{subject.ActualImagePath}']]";
         Require(expression.Length <= MaximumQueryCharacters, CrashQueryReason.QueryLength);
         return expression;
+    }
+
+    // Start with the admitted exact expression, including its original length
+    // bound. Delete only its one fixed decimal birth predicate. No new literal
+    // conversion, escaping, normalization or caller-supplied expression exists.
+    private static string BuildPresence(CrashQueryRequest request)
+    {
+        var exact = Build(request);
+        var birth = request.Subject.CreationFileTime.ToString(CultureInfo.InvariantCulture);
+        return exact.Replace(
+            $"Data[@Name='ProcessCreationTime']={birth} and ",
+            string.Empty, StringComparison.Ordinal);
     }
 
     private static void Validate(CrashQueryRequest request)
@@ -214,7 +261,7 @@ internal static class CrashEventQuery
     }
 
     private static nint Open(
-        ICrashEventQueryApi api, string expression, Lifetime lifetime,
+        ICrashEventQueryTransport api, string expression, Lifetime lifetime,
         CrashEventTelemetry? telemetry = null) =>
         Timed(telemetry, CrashEventPhase.EvtQuery, () =>
     {
@@ -228,8 +275,8 @@ internal static class CrashEventQuery
     });
 
     private static CrashQueryResult EnumerateCompleted(
-        ICrashEventQueryApi api, CrashQueryRequest request,
-        string expression, Lifetime lifetime, CrashEventTelemetry? telemetry)
+        ICrashEventQueryTransport api, string expression, Lifetime lifetime,
+        CrashEventTelemetry? telemetry, Func<nint, CrashQueryResult> read)
     {
         var query = Open(api, expression, lifetime, telemetry);
         var events = PrepareEvents(api, query, lifetime, telemetry);
@@ -240,8 +287,8 @@ internal static class CrashEventQuery
             return EndOrFail(call.Error);
         if (call.Returned == Capacity)
             return new CrashQueryAmbiguous();
-        var read = Read(api, events[0], request.Subject, telemetry);
-        return Complete(api, query, events[0], read, lifetime, telemetry);
+        var result = read(events[0]);
+        return Complete(api, query, events[0], result, lifetime, telemetry);
     }
 
     private static CrashEventRead Read(
@@ -254,9 +301,21 @@ internal static class CrashEventQuery
             return read;
         });
 
+    private static CrashQueryResult ReadPresence(
+        ICrashEventPresenceQueryApi api, nint borrowedEvent,
+        CrashEventSubject expected, CrashEventTelemetry? telemetry) =>
+        Timed(telemetry, CrashEventPhase.Reader, () =>
+        {
+            var read = api.ReadIdentity(borrowedEvent, expected);
+            // Record before completion enumeration or cleanup can replace this
+            // result. The accumulator retains numbers, never the read or faults.
+            telemetry?.ReadReturned(read);
+            return new CrashQueryPresence(read);
+        });
+
     private static CrashQueryResult Complete(
-        ICrashEventQueryApi api, nint query, nint first,
-        CrashEventRead read, Lifetime lifetime, CrashEventTelemetry? telemetry)
+        ICrashEventQueryTransport api, nint query, nint first,
+        CrashQueryResult result, Lifetime lifetime, CrashEventTelemetry? telemetry)
     {
         var events = PrepareEvents(api, query, lifetime, telemetry);
         var call = Timed(telemetry, CrashEventPhase.EvtNext,
@@ -266,11 +325,11 @@ internal static class CrashEventQuery
         if (call.Success)
             return new CrashQueryAmbiguous();
         _ = EndOrFail(call.Error);
-        return new CrashQueryCompleted(read);
+        return result;
     }
 
     private static nint[] PrepareEvents(
-        ICrashEventQueryApi api, nint query, Lifetime lifetime,
+        ICrashEventQueryTransport api, nint query, Lifetime lifetime,
         CrashEventTelemetry? telemetry = null)
     {
         var events = new nint[Capacity];
@@ -313,7 +372,7 @@ internal static class CrashEventQuery
     private static bool IsHandle(nint handle) => handle != 0 && handle != -1;
 
     private static void Close(
-        ICrashEventQueryApi api, nint handle, CrashQueryReason reason,
+        ICrashEventQueryTransport api, nint handle, CrashQueryReason reason,
         CrashEventTelemetry? telemetry = null) =>
         _ = Timed(telemetry, CrashEventPhase.Close, () =>
     {
@@ -508,12 +567,19 @@ internal sealed class CrashEventTelemetry(TimeProvider clock)
             case CrashQueryFailure failure: QueryFaults(failure.Faults); break;
             case CrashQueryCompleted completed: ReadReturned(completed.Read); break;
             case CrashQueryVisited visited: ReadReturned(visited.Read); break;
+            case CrashQueryPresence presence: ReadReturned(presence.Read); break;
         }
     }
 
     internal void ReadReturned(CrashEventRead read)
     {
         if (read is CrashEventFailure failure)
+            ReaderFaults(failure.Faults);
+    }
+
+    internal void ReadReturned(CrashIdentityRead read)
+    {
+        if (read is CrashIdentityFailure failure)
             ReaderFaults(failure.Faults);
     }
 

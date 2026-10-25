@@ -14,6 +14,12 @@ internal static class Program
             return await CrashEventControl.DispatchAsync(
                 arguments, WindowsCrashControl.EventEffects, CancellationToken.None);
 
+        // Fixed diagnostic only. The outer wrapper must independently bind the
+        // dispatch, current-source publication, actual task and private job.
+        if (arguments.FirstOrDefault() == CrashEventControl.PresenceCommand)
+            return await CrashEventControl.DispatchPresenceAsync(
+                arguments, WindowsCrashControl.PresenceEffects, CancellationToken.None);
+
         // Native invocation requires an outer fixed-helper process deadline and
         // disposable job containment. In-process budgets cannot interrupt Start.
         if (arguments.FirstOrDefault() is

@@ -4,7 +4,7 @@ using Xunit;
 
 namespace Hermes.Servicing.Tests;
 
-public sealed class CrashEventQueryTests
+public sealed partial class CrashEventQueryTests
 {
     private const ulong Birth = 9007199254740993UL;
     private const string BirthLiteral = "9007199254740993";

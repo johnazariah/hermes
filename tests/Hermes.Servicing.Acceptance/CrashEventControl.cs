@@ -322,7 +322,7 @@ internal sealed record CrashCorrelationEffects(
 internal sealed class CrashEventObserver(
     ICrashSchemaReceipt receipt, CrashSchemaAdmission admission,
     CrashCorrelationEffects effects, Action<string> summary,
-    CrashEventTelemetry? telemetry = null)
+    CrashEventTelemetry? telemetry = null, bool presenceOnly = false)
 {
     internal const int MaximumPolls = 81;
     internal static TimeSpan PollBudget => TimeSpan.FromSeconds(20);
@@ -330,6 +330,8 @@ internal sealed class CrashEventObserver(
 
     internal CrashEventTelemetry Telemetry { get; } =
         telemetry ?? new(effects.SamplingClock);
+
+    internal CrashPresenceOutcome Presence { get; private set; }
 
     internal CrashCorrelationProof Proof { get; private set; } = new()
     {
@@ -352,9 +354,15 @@ internal sealed class CrashEventObserver(
         else if (Telemetry.SamplingFailed)
             Proof = Proof with { Reason = CrashCorrelationReason.Unexpected };
         failure = CrashCorrelationErrors.Capture(
-            () => summary(CrashEventReport.ObservationSummary(Proof)), failure);
+            EmitObservation, failure);
         Telemetry.ThrowSamplingErrors(failure);
         CrashCorrelationErrors.Throw(failure);
+    }
+
+    private void EmitObservation()
+    {
+        if (!presenceOnly)
+            summary(CrashEventReport.ObservationSummary(Proof));
     }
 
     private async Task ObserveCoreAsync(
@@ -402,6 +410,8 @@ internal sealed class CrashEventObserver(
         CancellationToken cancellationToken)
     {
         var exact = Query(scope, plan, plan.Exact, started, cancellationToken);
+        if (presenceOnly)
+            return PollPresence(exact);
         if (exact is CrashQueryEmpty)
             return false;
         RequireMatch(exact);
@@ -411,6 +421,12 @@ internal sealed class CrashEventObserver(
         RequireEmpty(Query(scope, plan, plan.Upper, started, cancellationToken));
         Proof = Proof with { UpperEmpty = true };
         return true;
+    }
+
+    private bool PollPresence(CrashQueryResult result)
+    {
+        Presence = CrashEventPresence.Classify(result);
+        return CrashEventPresence.Continue(Presence);
     }
 
     private CrashQueryResult Query(
@@ -603,6 +619,7 @@ internal sealed record CrashEventControlEffects(
 internal static class CrashEventControl
 {
     internal const string Command = "startup-crash-event-probe";
+    internal const string PresenceCommand = "startup-crash-event-presence";
 
     internal static async Task<int> DispatchAsync(
         string[] arguments, CrashEventControlEffects effects,
@@ -618,21 +635,43 @@ internal static class CrashEventControl
         return await new Session(effects).RunAsync(cancellationToken);
     }
 
-    private static int Refuse(CrashEventControlEffects effects)
+    internal static async Task<int> DispatchPresenceAsync(
+        string[] arguments, CrashEventControlEffects effects,
+        CancellationToken cancellationToken)
+    {
+        if (arguments is not [PresenceCommand])
+            return 2;
+        try { effects.RequireContext(); }
+        catch (Exception error) when (CrashCorrelationErrors.Operational(error))
+        {
+            return Refuse(effects, presenceOnly: true);
+        }
+        return await new Session(effects, presenceOnly: true).RunAsync(cancellationToken);
+    }
+
+    private static int Refuse(
+        CrashEventControlEffects effects, bool presenceOnly = false)
     {
         var control = new CrashResult { Error = CrashFault.Guard };
         var result = new CrashEventControlResult(
             control, new(), false, CrashCorrelationReason.Guard);
         try
         {
-            effects.Summary(CrashReport.Summary(control));
-            effects.Summary(CrashEventReport.Summary(result));
+            if (presenceOnly)
+                effects.Summary(CrashEventPresenceReport.Summary(
+                    CrashPresenceOutcome.NotObserved, result));
+            else
+            {
+                effects.Summary(CrashReport.Summary(control));
+                effects.Summary(CrashEventReport.Summary(result));
+            }
         }
         catch (Exception error) when (CrashCorrelationErrors.Operational(error)) { }
         return 1;
     }
 
-    private sealed class Session(CrashEventControlEffects effects)
+    private sealed class Session(
+        CrashEventControlEffects effects, bool presenceOnly = false)
     {
         private readonly List<Exception> _unexpected = [];
         private readonly CrashEventTelemetry _telemetry =
@@ -641,6 +680,7 @@ internal static class CrashEventControl
         private Exception? _observationFailure;
         private CrashResult _control = new() { Error = CrashFault.Guard };
         private CrashCorrelationProof _proof = new();
+        private CrashPresenceOutcome _presence;
         private CrashCorrelationReason _failure;
         private bool _receiptClosed;
         private bool _coordinatorEscaped;
@@ -669,7 +709,8 @@ internal static class CrashEventControl
             _receipt = receipt;
             var admission = CrashEventSchema.Admit(receipt.Read());
             var observer = new CrashEventObserver(
-                receipt, admission, effects.Observation, effects.Summary, _telemetry);
+                receipt, admission, effects.Observation, effects.Summary,
+                _telemetry, presenceOnly);
             await RunCoordinatorAsync(observer, cancellationToken);
             CrashCorrelationErrors.Require(
                 CrashEventSchema.Admit(receipt.Read()) == admission,
@@ -690,6 +731,7 @@ internal static class CrashEventControl
             {
                 _coordinatorSettled = true;
                 _proof = observer.Proof;
+                _presence = observer.Presence;
                 if (_observationFailure is { } failure)
                     Fail(failure);
             }
@@ -736,6 +778,8 @@ internal static class CrashEventControl
 
         private void Diagnostic()
         {
+            if (presenceOnly)
+                return;
             try
             {
                 effects.Summary(CrashEventReport.ObservationSummary(
@@ -790,6 +834,8 @@ internal static class CrashEventControl
 
         private int Publish()
         {
+            if (presenceOnly)
+                return PublishPresence();
             var result = new CrashEventControlResult(
                 _control, _proof, _receiptClosed, _failure);
             result = PublishControl(result);
@@ -799,6 +845,17 @@ internal static class CrashEventControl
             effects.Summary(CrashReport.Summary(result.Control));
             effects.Summary(CrashEventReport.Summary(result));
             return result.ExitCode;
+        }
+
+        private int PublishPresence()
+        {
+            effects.RequireContext();
+            EmitTelemetry();
+            effects.Summary(CrashEventPresenceReport.Summary(_presence,
+                new(_control, _proof, _receiptClosed, _failure)));
+            // A completed diagnostic is still neither precision nor acceptance.
+            // Do not write either retained acceptance report on this route.
+            return 1;
         }
 
         private void EmitTelemetry()

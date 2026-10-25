@@ -6,7 +6,7 @@ using Xunit;
 
 namespace Hermes.Servicing.Tests;
 
-public sealed class CrashEventControlTests
+public sealed partial class CrashEventControlTests
 {
     private const long Birth = 9007199254740993;
     private const uint CrashExit = 0x80131623;
@@ -2277,14 +2277,15 @@ public sealed class CrashEventControlTests
             (_, request) => Matching(request);
         internal Exception? DelayError;
 
-        internal ObserverFixture(Clock? samplingClock = null)
+        internal ObserverFixture(
+            Clock? samplingClock = null, bool presenceOnly = false)
         {
             Receipt = new(Calls, Metadata);
             var admission = CrashEventSchema.Admit(Receipt.Read());
             Scope = new(Terminal with { ExitFileTime = 0, ExitCode = 259 }, CrashExit, ReadIdentity);
             Observer = new(Receipt, admission,
                 new(Query, Clock, Delay) { SamplingClock = samplingClock ?? Clock },
-                WriteSummary);
+                WriteSummary, presenceOnly: presenceOnly);
             Calls.Clear();
         }
 
@@ -2603,7 +2604,8 @@ public sealed class CrashEventControlTests
     private sealed record Batch(
         bool Success, int Error, uint Count, nint First = 0, nint Second = 0);
 
-    private sealed class BatchApi(IEnumerable<Batch> batches) : ICrashEventQueryApi
+    private sealed class BatchApi(IEnumerable<Batch> batches)
+        : ICrashEventQueryApi, ICrashEventPresenceQueryApi
     {
         private readonly Queue<Batch> _batches = new(batches);
         private readonly HashSet<nint> _closePending = [];
@@ -2611,6 +2613,10 @@ public sealed class CrashEventControlTests
         internal List<nint> CloseAttempts { get; } = [];
         internal int NextCalls { get; private set; }
         internal int ReadCalls { get; private set; }
+        internal int IdentityReadCalls { get; private set; }
+        internal string Expression { get; private set; } = string.Empty;
+        internal CrashIdentityRead IdentityReading { get; init; } =
+            new CrashIdentityCompared(CrashIdentityComparison.Same);
         internal bool FailClose { get; init; }
         internal bool ThrowOnSecondNext { get; init; }
         internal Action<CrashEventPhase>? OnPhase { get; init; }
@@ -2626,6 +2632,7 @@ public sealed class CrashEventControlTests
             Assert.Equal((nint)0, session);
             Assert.Equal(CrashEventQuery.Channel, channel);
             Assert.Equal(CrashEventQuery.QueryFlags, flags);
+            Expression = expression;
             _closePending.Add(11);
             OnPhase?.Invoke(CrashEventPhase.EvtQuery);
             return new(11, 0);
@@ -2665,6 +2672,20 @@ public sealed class CrashEventControlTests
             return Reading;
         }
 
+        public CrashIdentityRead ReadIdentity(
+            nint borrowedEvent, CrashEventSubject expected)
+        {
+            CheckThread();
+            Assert.Contains((nint)11, _closePending);
+            Assert.Contains(borrowedEvent, _closePending);
+            Assert.Equal(CrashCorrelationPlan.Create(Terminal).Exact.Subject, expected);
+            IdentityReadCalls++;
+            OnPhase?.Invoke(CrashEventPhase.Reader);
+            if (ReaderError is { } error)
+                throw error;
+            return IdentityReading;
+        }
+
         public CrashQueryCloseCall Close(nint ownedHandle)
         {
             CheckThread();
@@ -2685,6 +2706,7 @@ public sealed class CrashEventControlTests
             AssertClosed();
             Assert.InRange(NextCalls, 1, 2);
             Assert.InRange(ReadCalls, 0, 1);
+            Assert.InRange(IdentityReadCalls, 0, 1);
         }
     }
 }

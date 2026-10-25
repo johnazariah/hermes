@@ -7,6 +7,8 @@
   <ItemGroup>
     <Compile Include="../Hermes.Servicing.Acceptance/CrashEventControl.cs"
              Link="CrashEventControl.cs" />
+    <Compile Include="../Hermes.Servicing.Acceptance/CrashEventPresence.cs"
+             Link="CrashEventPresence.cs" />
     <Compile Include="../Hermes.Servicing.Acceptance/CrashEventQuery.cs"
              Link="CrashEventQuery.cs" />
     <Compile Include="../Hermes.Servicing.Acceptance/CrashEventValues.cs"

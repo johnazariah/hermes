@@ -1,8 +1,9 @@
 #Requires -Version 7.0
 [CmdletBinding()]
-param()
+param([switch]$OwnedPresence)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$script:ownedPresence = $OwnedPresence.IsPresent
 $script:failureReported = $false
 $script:capture = $null
 $script:phase = 0
@@ -15,10 +16,10 @@ function Write-CrashEventFailure {
     try { $diagnostic = ConvertTo-HermesCrashEventDiagnostic -Phase $script:phase -Failure $Failure } catch { }
     [Console]::Out.WriteLine($diagnostic)
     if ($script:phase -eq 9 -and $null -ne $script:capture) {
-        try { [Console]::Out.WriteLine((ConvertTo-HermesCrashEventFacts $script:capture)) } catch { }
-        try { [Console]::Out.WriteLine((ConvertTo-HermesCrashEventCaptureDiagnostic $script:capture)) } catch { }
+        try { [Console]::Out.WriteLine((ConvertTo-HermesCrashEventFacts $script:capture -OwnedPresence:$script:ownedPresence)) } catch { }
+        try { [Console]::Out.WriteLine((ConvertTo-HermesCrashEventCaptureDiagnostic $script:capture -OwnedPresence:$script:ownedPresence)) } catch { }
         try {
-            $timing = ConvertTo-HermesCrashEventTiming $script:capture
+            $timing = ConvertTo-HermesCrashEventTiming $script:capture -OwnedPresence:$script:ownedPresence
             if (-not [string]::IsNullOrEmpty($timing)) { [Console]::Out.WriteLine($timing) }
         } catch { }
     }
@@ -30,6 +31,7 @@ Import-Module (Join-Path $PSScriptRoot 'Crash-Control.psm1') -Force -DisableName
 Import-Module (Join-Path $PSScriptRoot 'Crash-Event-Control.psm1') -Force -DisableNameChecking
 $script:phase = 1
 Assert-HermesCrashHost
+$command = Get-HermesCrashEventCommand -OwnedPresence:$OwnedPresence
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 if ($root -cne [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)) { throw '1' }
 if ([string]::IsNullOrWhiteSpace($env:GITHUB_OUTPUT)) { throw '1' }
@@ -51,6 +53,7 @@ $baseReportPins = $null
 $eventReportPins = $null
 $scope = $null
 $process = $null
+$failure = $null
 $operations = [Collections.Generic.List[Threading.Tasks.Task]]::new()
 try {
     $script:phase = 2
@@ -111,7 +114,7 @@ try {
     $script:phase = 7
     $start = [Diagnostics.ProcessStartInfo]::new()
     $start.FileName = Join-Path $directory 'Hermes.Servicing.Acceptance.exe'
-    $start.ArgumentList.Add('startup-crash-event-probe')
+    $start.ArgumentList.Add($command)
     $start.WorkingDirectory = $directory
     $start.UseShellExecute = $false
     $start.CreateNoWindow = $true
@@ -130,18 +133,23 @@ try {
     $process.Dispose()
     $process = $null
     $script:phase = 9
-    $basePath = Join-Path $root '.artifacts/installer-evidence/startup-crash-control.json'
-    $eventPath = Join-Path $root '.artifacts/installer-evidence/event-correlation.json'
-    $baseEntry = Get-HermesCrashFileEntry $basePath 'startup-crash-control.json' 4096
-    $baseReportPins = Open-HermesCrashPins ([IO.Path]::GetDirectoryName($basePath)) @($baseEntry)
-    $eventEntry = Get-HermesCrashFileEntry $eventPath 'event-correlation.json' 4096
-    $eventReportPins = Open-HermesCrashPins ([IO.Path]::GetDirectoryName($eventPath)) @($eventEntry)
-    $image = @($receipt.bundle | Where-Object { $_.path -ceq 'Hermes.Servicing.Acceptance.exe' })
-    $source = @($receipt.bundle | Where-Object { $_.path -ceq 'Hermes.Servicing.Acceptance.dll' })
-    if ($image.Count -ne 1 -or $source.Count -ne 1) { throw '1' }
-    $control = Assert-HermesCrashReport (Read-HermesCrashBytes $basePath) $image[0].sha256 $source[0].sha256
-    $null = Assert-HermesCrashEventReport (Read-HermesCrashBytes $eventPath) $metadata.sha256 $schemaSource[0].sha256
-    Assert-HermesCrashEventOutcome $script:capture $control
+    if ($OwnedPresence) {
+        Assert-HermesCrashEventPresence $script:capture
+        Assert-HermesCrashEventAbsent $root
+    } else {
+        $basePath = Join-Path $root '.artifacts/installer-evidence/startup-crash-control.json'
+        $eventPath = Join-Path $root '.artifacts/installer-evidence/event-correlation.json'
+        $baseEntry = Get-HermesCrashFileEntry $basePath 'startup-crash-control.json' 4096
+        $baseReportPins = Open-HermesCrashPins ([IO.Path]::GetDirectoryName($basePath)) @($baseEntry)
+        $eventEntry = Get-HermesCrashFileEntry $eventPath 'event-correlation.json' 4096
+        $eventReportPins = Open-HermesCrashPins ([IO.Path]::GetDirectoryName($eventPath)) @($eventEntry)
+        $image = @($receipt.bundle | Where-Object { $_.path -ceq 'Hermes.Servicing.Acceptance.exe' })
+        $source = @($receipt.bundle | Where-Object { $_.path -ceq 'Hermes.Servicing.Acceptance.dll' })
+        if ($image.Count -ne 1 -or $source.Count -ne 1) { throw '1' }
+        $control = Assert-HermesCrashReport (Read-HermesCrashBytes $basePath) $image[0].sha256 $source[0].sha256
+        $null = Assert-HermesCrashEventReport (Read-HermesCrashBytes $eventPath) $metadata.sha256 $schemaSource[0].sha256
+        Assert-HermesCrashEventOutcome $script:capture $control
+    }
     $script:phase = 10
     Assert-HermesCrashAssemblies $directory $receipt.bundle
     Assert-HermesCrashTree $directory $receipt.bundle
@@ -156,6 +164,14 @@ try {
         $schemaReceiptPins, $metadataPins, $workflowPins, $baseReportPins, $eventReportPins)
     foreach ($pins in $pinSets) { Assert-HermesCrashPins $pins }
     Assert-HermesCrashEventTaskBinding $script:capture.Tasks $operations
+    if ($OwnedPresence) {
+        # All provenance/freshness/pin/task fences above apply to this path too.
+        # It is deliberately non-success: no report, output append or normal
+        # private-job release. The failure handler exports reconstructed facts.
+        Assert-HermesCrashEventAbsent $root
+        $script:phase = 9
+        throw '16'
+    }
     Clear-HermesCrashEventCapture $script:capture
     $script:phase = 11
     foreach ($pins in $pinSets) { Close-HermesCrashPins $pins }
@@ -167,18 +183,14 @@ try {
     Complete-HermesCrashEventScope $scope $pinSets $operations
     $scope = $null
 } catch {
+    $failure = $_.Exception
     Write-CrashEventFailure $_
     throw
 } finally {
-    Clear-HermesCrashEventCapture $script:capture
-    # A failed/unsettled scope is abandoned, never normally completed. Its
-    # KillOnClose fence includes this PowerShell and all descendants.
-    if ($null -ne $scope) { $scope.Dispose() }
-    if ($null -ne $process) { $process.Dispose() }
-    foreach ($pins in @($sourcePins, $sdkPins, $bundlePins, $receiptPins, $inventoryPins,
-            $schemaReceiptPins, $metadataPins, $workflowPins, $baseReportPins, $eventReportPins)) {
-        Close-HermesCrashPins $pins
-    }
+    Close-HermesCrashEventResources $script:capture $process @(
+        $sourcePins, $sdkPins, $bundlePins, $receiptPins, $inventoryPins,
+        $schemaReceiptPins, $metadataPins, $workflowPins, $baseReportPins, $eventReportPins
+    ) $scope $failure
 }
 $script:phase = 12
 [Console]::Out.WriteLine('HERMES_CRASH_EVENT_WRAPPER v=1 status=0 published=1 originalGatePassed=0 nativeAcceptance=0')
