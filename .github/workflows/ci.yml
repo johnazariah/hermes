@@ -2,6 +2,7 @@ name: CI
 
 on:
   workflow_call:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
@@ -236,8 +237,10 @@ jobs:
         run: dotnet build src/Hermes.Shell/Hermes.Shell.csproj -c Release -v q
 
   installer:
-    name: Supported Windows installer lifecycle
-    runs-on: windows-latest
+    # Only direct manual CI runs compare the older host; reusable callers retain latest.
+    # Keep the admission job ID, but never reuse the required promotion check name.
+    name: ${{ github.event_name == 'workflow_dispatch' && startsWith(github.workflow_ref, format('{0}/.github/workflows/ci.yml@', github.repository)) && 'Diagnostic Windows 2022 installer lifecycle (not promotion)' || 'Supported Windows installer lifecycle' }}
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && startsWith(github.workflow_ref, format('{0}/.github/workflows/ci.yml@', github.repository)) && 'windows-2022' || 'windows-latest' }}
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4

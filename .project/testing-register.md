@@ -2,6 +2,37 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Fixed manual Windows 2022 comparison is not promotion
+
+Direct manual dispatch of `ci.yml` selects `windows-2022` only for the
+existing `installer` job and gives it a distinct diagnostic check name.
+PRs, pushes and reusable callers retain `windows-latest` and the existing
+required promotion check name. The caller workflow identity is checked
+because reusable workflows inherit their caller's event context.
+All eleven installer steps, timeouts and retention settings are unchanged.
+The existing actual-main-push publication condition excludes every manual
+comparison, including a future dispatch on main.
+
+Direct source review, actionlint and the unchanged Setup contract controls
+pass. Private expression controls pass 72 event/caller routing cases and
+216 publication cases; they are not native admission or acceptance proof.
+Root build passes without warnings/errors and 2,198 Core cases pass.
+No comparison has run yet.
+
+## Current Windows portable transport blocker remains visible
+
+At `13f48ec`, CI `40244114037` passes macOS, Tray and compatibility
+builds, but Windows job `121321960025` fails the portable Setup phase:
+1,276 of 1,277 cases pass, zero skipped. The failing case is
+`SetupChildTransportTests.Every_diagnostic_record_is_consumed_and_semantically_bound`
+with a Completed report and two None diagnostic records. Later Windows
+coverage/browser steps do not run. This is not the earlier browser timeout.
+The unchanged C# source passes both supported hosts at `394aabf`; the cause
+of this failure remains unproved. A bounded local run of the named method
+passes all 31 cases without skips. Investigation must retain semantic
+binding, lifetime checks and deadlines rather than declaring it fixed or
+blindly retrying.
+
 ## Freshness predicate fixtures do not assume live clock ordering
 
 The first genuine manual run at `394aabf`, `40243239129` / job
@@ -25,6 +56,11 @@ All **4,360 event**, **985 original** and **3,120 schema** controls pass
 locally. Root build passes with zero warnings/errors and all **2,198 Core**
 cases pass without failures/skips. The earlier C# coverage remains
 applicable because no C# source changes.
+
+Actual Windows manual run `40244111382`, job `121321953576`, at `13f48ec`
+passes all selected portable controls (981 original, 3,119 schema, 4,356
+event), fresh publication and same-job schema acquisition. It reaches
+the native diagnostic, unlike the previous preflight refusal.
 
 ## Owned candidate-presence diagnostic retains the strict acceptance gate
 
@@ -59,11 +95,19 @@ before merging. Original/metadata/event PowerShell controls pass
 **985/3,120/4,355**; three targeted workflow lints and whitespace checks pass.
 
 Final independent review approves the complete C#/PowerShell/workflow
-source after the three-cycle review. These remain portable/source
-qualification results, not an actual Windows candidate-presence or
-filtering-precision result. The diagnostic has not yet been invoked on
-Windows; manual-dispatch availability for the unmerged workflow must also
-be established.
+source after the three-cycle review. Genuine manual invocation
+`40244111382` / `121321953576` at `13f48ec` now establishes actual
+diagnostic execution: 79 completed, successfully closed empty searches,
+no reader calls or native query fault, followed by WindowExpired.
+Presence facts report available=1, outcome=1, reason=9, receiptClosed=1,
+cleanupError=0, polls=79, queries=79 and all acceptance flags zero.
+The diagnostic intentionally remains non-success and publishes no report.
+
+Removing birth alone does not produce a match under the retained
+provider/event/PID/image/window restrictions. This is not proof that no
+event exists or that the remaining filters are correct. No broader
+query or second presence experiment is inferred. Original startup and
+installed lifecycle acceptance remain unresolved.
 
 ## Access bootstrap diagnostics preserve the original browser assertion
 

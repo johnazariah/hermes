@@ -100,6 +100,20 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-26 - Add a fixed OS comparison without replacing promotion
+
+- **Changed:** A fresh author adds direct manual CI routing to stock public Windows 2022 for the existing installer job. Its diagnostic display name differs from the required Windows-latest promotion name. Ordinary events and reusable callers retain latest; the actual job ID and all eleven acceptance steps remain unchanged. The existing main-push-only publish fence also excludes future manual runs on main.
+- **Validation:** Direct bounded source review, actionlint, unchanged Setup contract controls, 72 routing fixtures and 216 publication fixtures pass. Root build passes with zero warnings/errors and all 2,198 Core cases pass. Expression fixtures are not actual GitHub/native proof.
+- **Separate new blocker:** CI `40244114037` at `13f48ec` passes macOS/Tray/compatibility, but Windows fails one of 1,277 portable Setup cases before coverage/browser: duplicate None records in `Every_diagnostic_record_is_consumed_and_semantically_bound`. The same C# source passed the previous host run. A local focused run passes all 31 method cases; no root cause or fix is claimed. A fresh C# specialist is tracing this independent transport failure while the OS comparison proceeds.
+- **Next:** Publish and dispatch the fixed comparison, confirm the actual Windows image and unchanged checks, and keep both the original installer failure and new portable transport failure blocking merge.
+
+### 2026-10-26 - Complete the approved presence experiment without inventing a fix
+
+- **Genuine execution:** Manual run `40244111382`, actual job `121321953576`, is bound to `13f48ec`. Portable controls, source publication and same-job schema acquisition pass. The diagnostic then executes 79 successfully closed empty searches with only the server birth predicate removed; there are no reader calls or native query errors.
+- **Outcome:** Closed presence facts show available 1, outcome 1, reason 9 (WindowExpired), receiptClosed 1, cleanupError 0, polls/queries 79/79 and all acceptance flags zero. Failure is the deliberately non-success diagnostic disposition; no acceptance report is uploaded. The previous manual attempt stopped before native execution and is not counted as a presence experiment.
+- **Interpretation:** Removing birth alone does not restore matching. It does not establish missing event delivery, correctness of other predicates or a PowerShell root cause. The approved one-presence-experiment scope is complete; no wider query or host-policy change follows from it.
+- **Next chosen comparison:** Run the unchanged startup/installer acceptance commands on a fixed standard public Windows 2022 host, retaining ordinary Windows-latest promotion checks and a distinct diagnostic check name. This avoids further event-filter experiments or shared-host changes. A fresh author is checking the CI-only route against existing admission contracts before publication; no comparison has run yet.
+
 ### 2026-10-26 - Remove mixed-clock assumptions from the portable fixture
 
 - **Actual dispatch:** GitHub accepts genuine manual run `40243239129` at `394aabf`; its job `121319330076` refuses the portable freshness fixture before publication or native execution. The same-source push job passes that fixture. Manual dispatch is therefore available, but no candidate-presence query has run.
