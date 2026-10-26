@@ -39,8 +39,24 @@ five-assembly merge measures **16,788/19,261 lines (87.1606%)** and
 **16,358/25,875 branches (63.2193%)**, above the previous local level and
 fixed gates, with matching shared Release dependency bytes. Setup source
 contracts, workflow lint, encoding and whitespace checks pass.
-The actual source comparison has not yet run; the unchanged 501-case
-native gate must still be verified on the published source.
+
+Actual latest-host CI `40251523225`, job `121344275400`, at `72ef1af`
+now executes the source comparison. Its fixed numeric row reports role 1,
+flags 134742020, state 1, sourceHigh/childHigh/resumed 1, exitObserved 1,
+**exit 37**, error/cleanupError 0, closed/created/imageMatch 1, sourceBytes 8,
+stdin EOF/pipes/drains closed 1, zero output/error bytes and successful drain
+states. The identical source-token recipe therefore genuinely works.
+The original gate remains **501 cases: 500 pass, one unchanged failure,
+zero skipped**; the original five filtered arms are not accepted.
+Both current-source application jobs, Tray and compatibility builds pass;
+publish is skipped because installer acceptance remains red.
+
+This isolates a consequence of token filtering/integrity transformation
+relative to the held-source recipe, not a particular token property.
+Microsoft's current API contract explicitly supports LUA_TOKEN 4 on these
+Windows versions; removing it as an unsupported flag is not justified.
+The existing debugger refusal at source point 26 is being traced before
+choosing a further measurement or source fix.
 
 ## Portable Setup failures have a closed evidence path
 

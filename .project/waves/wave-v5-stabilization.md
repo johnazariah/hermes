@@ -100,6 +100,22 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-26 - Preserve the exact debugger refusal and its privacy boundary
+
+- **Existing evidence only:** Artifact `12621132808` from exact run `40251523225` contains one 2,300-byte `startup-debug.json`. Numeric inspection records first/stage reasons 1/1, stages 1, evaluator 1, echo mask 0 and read fingerprint kind/source/lexical/trim/wording/token = 1/0/128/0/1/0. No new launch or raw debugger inspection occurs.
+- **Exact meaning:** Independent source tracing establishes that the bound SDK operation completed and MASM readback was accepted, but the query-stage display containing `.printf`, `HERMES_ARM_STAGE`, the fixed read fragment and the word `error` is not a known pinned-source echo. It remains unclassified with unknown source. The reader deliberately refuses it; collection subsequently times out. This is not evidence to normalise or ignore the line.
+- **Stop condition:** These fingerprints do not establish the complete returned representation or distinguish a legitimate rendering from an error. No semantic parser/query/continuation change is justified. The held-source exit 37 narrows the startup issue but does not identify the changed token property.
+- **Authority:** A specific request proposes capturing only the first refused line, at most 1 KB, encrypted in transit with a local-only key, and no wider log/query/host/acceptance change. The response is owner-unavailable/autonomous-work, not explicit permission for that privacy exception. No encryption/capture change, new raw artifact or rerun is performed.
+- **Next:** Retain numeric-only diagnostics and the current acceptance gate until explicit one-line inspection/capture authority or an equally complete approved source-relative comparison is available. Do not infer the unknown line from lexical bits or manufacture a tolerant parser.
+
+### 2026-10-26 - Observe genuine exit 37 with the held source token
+
+- **Genuine result:** Current required CI `40251523225`, actual job `121344275400`, is bound to `72ef1af`. The source control reports verified High source and child, real resume/exit, **exit 37**, matching image/eight-byte script, stdin EOF, closed pipes/drains, zero output and no operation/cleanup error. This is a conclusive observation, not original acceptance.
+- **Original gate:** All 501 cases still execute: 500 pass, the same restricted-PowerShell case fails, zero skipped. The five filtered-token exit-37 requirements are unchanged. Both application jobs, Tray and compatibility builds pass; installed lifecycle remains skipped and publishing does not run.
+- **Interpretation:** The held-source version of the same arm-6 recipe works. The failure therefore accompanies the filtering/integrity transformation relative to this recipe; it does not identify which transformed property causes initialization failure.
+- **Primary contract:** Microsoft documents LUA_TOKEN 4 as supported on these Windows versions (unsupported only on XP/Server 2003). There is no evidence to drop flags 5 as an unsupported API combination. No token-policy waiver, privilege fallback or host setting is applied.
+- **Next:** Trace the existing source-point-26 debugger refusal using its current guarded code path, rather than speculate about token attributes or add a broader event query. A fresh C# specialist owns that source-only investigation; no further native measurement is authorised by this entry.
+
 ### 2026-10-26 - Qualify the exact source-token comparison before publication
 
 - **Contract finding:** All five original PowerShell arms use the filtered token. The so-called self controls change process/thread descriptors, not token filtering; they are not a like-for-like unfiltered baseline. Source review establishes no production fix. The coordinator selects one non-accepting held-source-primary comparison under the remediation plan, without claiming a separately selected user API decision.
