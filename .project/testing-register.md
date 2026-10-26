@@ -2,6 +2,46 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Held-source comparison keeps the original restricted gate authoritative
+
+The supplementary source control uses the same parent-held, unfiltered
+primary token with the otherwise identical arm-6 recipe: fixed PowerShell 7
+application and `exit 37` source, null environment/desktop selection,
+system-directory CWD, flags `0x08080004`, three inherited pipe handles,
+suspended verification, private job, single resume, bounded wait and cleanup.
+Its High-role facts are distinct from required filtered-Medium facts.
+Source ownership extends through child cleanup and final source comparison.
+There is no privilege acquisition, explicit source-token adjustment,
+filtering/integrity mutation on this path or fallback.
+
+One supplementary observation follows the original five measurements.
+All five genuine exit-37 assertions and token/parent invariants remain;
+no Windows Fact/Theory is added. Its separate numeric
+`HERMES_RESTRICTED_SOURCE_CONTROL` row does not reuse an original arm ID.
+`state=1` means verified, cleaned observation, not exit-37 acceptance.
+`exit=0` is meaningful only with `exitObserved=1`.
+Typed creation denial 5/1314 is inconclusive only with verified source,
+no child creation and successful cleanup; no privilege fallback follows.
+
+Portable orchestration controls keep original gate failure primary while
+retaining execution, cleanup, final-source and reporting errors. Retained
+exception graphs and genuine repetitions are not rewritten; only later
+input roots already reachable through earlier roots are suppressed.
+Ordinary InnerException and aggregate children are both traversed.
+Reporting cannot bypass original verification or assertions.
+
+Final independent source review approves the complete eight-file scope
+after fresh-author corrections. All four portable/Windows-targeted Release
+builds pass without warnings/errors; **143 focused**, **1,333 complete
+Servicing** and **2,198 Core** cases pass without failures/skips.
+Root build/tests and 541 startup protocol controls pass. The unchanged
+five-assembly merge measures **16,788/19,261 lines (87.1606%)** and
+**16,358/25,875 branches (63.2193%)**, above the previous local level and
+fixed gates, with matching shared Release dependency bytes. Setup source
+contracts, workflow lint, encoding and whitespace checks pass.
+The actual source comparison has not yet run; the unchanged 501-case
+native gate must still be verified on the published source.
+
 ## Portable Setup failures have a closed evidence path
 
 The named diagnostic-binding theory retains every exception/fault/HRESULT/
@@ -39,6 +79,14 @@ failures/skips and no diagnostic output. Root build/tests pass with zero
 warnings/errors and **2,198 Core** cases. Production C# and the five-assembly
 coverage scope are unchanged. This establishes local delivery and privacy,
 not recurrence, root cause or actual hosted delivery on a future failure.
+
+Published evidence revision `e8d96f3`, CI `40249059413`, passes both actual
+supported hosts, including 102 reader/five CI-flow controls, 1,292 Setup,
+133 Installer.Control, 1,190 Servicing, complete selected Core suites and
+61 browser cases each. Windows coverage is 87.2648% / 62.7528%; macOS is
+87.0395% / 62.6790%. The original installer gate still fails; publish is
+skipped. No naturally recurring named Setup failure is observed in this
+qualification, so its original cause remains unproved.
 
 ## Fixed manual Windows 2022 comparison is not promotion
 

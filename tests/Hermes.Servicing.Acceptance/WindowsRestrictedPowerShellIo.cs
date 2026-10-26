@@ -37,7 +37,7 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens
             if (_powerShellSource is not { } source)
                 throw RestrictedOwnerToken.Failure(13);
             _powerShellSourceBytes = checked((int)source.Length);
-            var io = PowerShellProbeStdio.Open();
+            var io = PowerShellProbeStdio.Open(emitDiagnostics: !_sourceControl);
             _powerShellIo = io;
             LaunchPowerShellWithIo(
                 token, application, command, directory, startup, security, io);
@@ -92,7 +92,7 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens
                 supplied, supplied, AcceptancePowerShellProbeIoPolicy.InheritHandles,
                 AcceptancePowerShellProbeIoPolicy.CreationFlagsFor(powerShellConsole),
                 0, directory, (ChildStartupInfo*)startup, &process) == 0)
-                throw NativeFailure();
+                throw PowerShellCreationFailure();
             _process = new(process.Process);
             _thread = new(process.Thread);
             _powerShellCreated = true;
@@ -107,13 +107,16 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens
     {
         private readonly ImmutableArray<PowerShellProbePipe> _pipes;
         private readonly AcceptancePowerShellProbeDrains _drains;
+        private readonly bool _emitDiagnostics;
         private bool _disposed;
         private bool _stdinEof;
 
-        private PowerShellProbeStdio(ImmutableArray<PowerShellProbePipe> pipes)
+        private PowerShellProbeStdio(
+            ImmutableArray<PowerShellProbePipe> pipes, bool emitDiagnostics)
         {
             _pipes = pipes;
             _drains = new(pipes[1], pipes[2]);
+            _emitDiagnostics = emitDiagnostics;
         }
 
         internal nint[] ChildHandles =>
@@ -125,14 +128,14 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens
         internal bool PipesClosed => _pipes.All(pipe => pipe.IsClosed);
         internal bool DrainsClosed => _drains.IsClosed;
 
-        internal static PowerShellProbeStdio Open()
+        internal static PowerShellProbeStdio Open(bool emitDiagnostics)
         {
             var pipes = ImmutableArray.CreateBuilder<PowerShellProbePipe>();
             try
             {
                 foreach (var childReads in new[] { true, false, false })
                     pipes.Add(PowerShellProbePipe.Open(childReads));
-                return new(pipes.ToImmutable());
+                return new(pipes.ToImmutable(), emitDiagnostics);
             }
             catch (Exception original)
             {
@@ -157,6 +160,8 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens
 
         private void EmitDiagnostics()
         {
+            if (!_emitDiagnostics)
+                return;
             var (output, error) = _drains.Facts;
             var closed = _pipes.All(pipe => pipe.IsClosed) ? 1 : 0;
             FormattableString row = $"HERMES_RESTRICTED_POWERSHELL_IO v=1 outBytes={output.Total} outKept={output.Retained} outDropped={output.Discarded} outState={(int)output.State} outError={output.Error} errBytes={error.Total} errKept={error.Retained} errDropped={error.Discarded} errState={(int)error.State} errError={error.Error} pipesClosed={closed} drainsClosed={(_drains.IsClosed ? 1 : 0)}";

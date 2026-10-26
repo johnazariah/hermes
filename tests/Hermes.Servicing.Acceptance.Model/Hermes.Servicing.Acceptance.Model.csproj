@@ -5,6 +5,8 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../Hermes.Servicing.Acceptance/RestrictedSourcePowerShellControl.cs"
+             Link="RestrictedSourcePowerShellControl.cs" />
     <Compile Include="../Hermes.Servicing.Acceptance/CrashEventControl.cs"
              Link="CrashEventControl.cs" />
     <Compile Include="../Hermes.Servicing.Acceptance/CrashEventPresence.cs"

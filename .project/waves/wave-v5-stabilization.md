@@ -100,6 +100,15 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-26 - Qualify the exact source-token comparison before publication
+
+- **Contract finding:** All five original PowerShell arms use the filtered token. The so-called self controls change process/thread descriptors, not token filtering; they are not a like-for-like unfiltered baseline. Source review establishes no production fix. The coordinator selects one non-accepting held-source-primary comparison under the remediation plan, without claiming a separately selected user API decision.
+- **Implemented:** The fixed arm-6 recipe is reused with the existing held source and separate High-role verification. Source ownership covers child cleanup and final source comparison. No new privilege acquisition, token mutation, caller selector or host setting is added. Creation denial is inconclusive only under its strict no-child/verified-source/cleaned conditions. Original five genuine-37 checks and 501-case count remain.
+- **Review:** Final independent review approves the eight-file scope. Fresh authors resolve deferred-error loss, reporting pre-emption and genuine exception-graph rewriting. Reporting cannot skip the original gate; the original failure stays primary and retained graphs preserve existing repetitions and envelopes.
+- **Validation:** Four portable/Windows-targeted builds pass without warnings/errors. All 143 focused, 1,333 Servicing and 2,198 Core cases pass without failures/skips; root gates and 541 startup controls pass. Same-five coverage is 16,788/19,261 lines (87.1606%), 16,358/25,875 branches (63.2193%), above the preceding local level and fixed gates after shared dependency checks.
+- **Prior hosted state:** Evidence rollout `e8d96f3`, CI `40249059413`, passes both application jobs including 1,292 Setup/133 Installer.Control, new reader controls and 61 browser cases each. Original installer acceptance remains red; no portable failure root cause is claimed.
+- **Next:** Publish this reviewed source and read the one ordinary latest-host native gate's supplementary observation before choosing a fix. No source-token comparison has yet executed.
+
 ### 2026-10-26 - Make the separate portable failure observable without changing its verdict
 
 - **Source trace:** The failed Setup case uses an already-exited fake child and manual clock, not native PowerShell. Its real five-second outer guard includes queued cleanup. That is a grounded coupling, not proof of the Windows cause. The unchanged C# source passes the next ordinary PR CI `40245433431` on both application hosts; no fix or causal claim is made.

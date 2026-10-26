@@ -302,6 +302,18 @@ public sealed partial class RestrictedOwnerChildTests(ITestOutputHelper output)
         var detachedSelf = MeasurePowerShellArm(token, api.PowerShellDetachedSelfControlForObservation, 7);
         var noWindowSelf = MeasurePowerShellArm(token, api.PowerShellNoWindowSelfControlForObservation, 8);
         var newConsole = MeasurePowerShellArm(token, api.PowerShellNewConsoleForObservation, 9);
+        var sourceControl = RestrictedSourcePowerShellControl.Observe(api);
+        AcceptanceSourceControlOrchestration.Complete(
+            sourceControl, new SourceControlOutput(output),
+            () => RequireOriginalPowerShellProof(
+                token, proof, comparison, detachedSelf, noWindowSelf, newConsole));
+    }
+
+    private static void RequireOriginalPowerShellProof(
+        RestrictedOwnerToken token, RestrictedOwnerChildResult proof,
+        RestrictedOwnerChildResult comparison, RestrictedOwnerChildResult detachedSelf,
+        RestrictedOwnerChildResult noWindowSelf, RestrictedOwnerChildResult newConsole)
+    {
         _ = token.Verify();
         Assert.Equal(RestrictedOwnerTokenFacts.Required, proof.Facts);
         Assert.Equal(MsiContextRead.Absent, proof.Thread);
@@ -315,6 +327,12 @@ public sealed partial class RestrictedOwnerChildTests(ITestOutputHelper output)
         RequireFullOwnedSelf(noWindowSelf.Access.Process, AcceptanceChildObject.Process);
         RequireFullOwnedSelf(noWindowSelf.Access.Thread, AcceptanceChildObject.Thread);
         RequirePowerShellArm(newConsole);
+    }
+
+    private sealed class SourceControlOutput(ITestOutputHelper output)
+        : IAcceptanceSourceControlOutput
+    {
+        public void WriteLine(string row) => output.WriteLine(row);
     }
 
     private static void RequirePowerShellArm(RestrictedOwnerChildResult proof)

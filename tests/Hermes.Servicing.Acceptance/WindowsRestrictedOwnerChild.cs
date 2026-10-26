@@ -16,7 +16,11 @@ internal sealed class AcceptanceParentSecuritySnapshot(
     private readonly ImmutableArray<byte> _groups = groups;
 
     internal bool SameFinalState(AcceptanceParentSecuritySnapshot other) =>
-        _identity == other._identity && _session == other._session &&
+        _identity == other._identity && SameAuthority(other);
+
+    // Child-primary TokenId may differ; source authority must not differ.
+    internal bool SameAuthority(AcceptanceParentSecuritySnapshot other) =>
+        _session == other._session &&
         _privileges.SequenceEqual(other._privileges) &&
         _groups.SequenceEqual(other._groups);
 }
@@ -116,19 +120,23 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IAcceptanceC
     {
         RequireDisposableJob();
         using var source = OpenCurrentPrimary();
-        var handle = SourceHandle(source);
-        using var statistics = TokenBuffer.Read(handle, StatisticsInformation);
+        return ReadSecuritySnapshot(SourceHandle(source));
+    }
+
+    private static AcceptanceParentSecuritySnapshot ReadSecuritySnapshot(SafeHandle token)
+    {
+        using var statistics = TokenBuffer.Read(token, StatisticsInformation);
         if (statistics.Length != 56)
             throw RestrictedOwnerToken.Failure(13);
         // CreateProcessAsUser can temporarily enable existing privileges.
         // TokenId must match; ModifiedId is deliberately not compared.
         return new(Marshal.ReadInt64(statistics.Pointer),
-            ReadInt(handle, SessionInformation),
-            ReadParentPrivileges(handle), ReadParentGroups(handle));
+            ReadInt(token, SessionInformation),
+            ReadParentPrivileges(token), ReadParentGroups(token));
     }
 
     private static ImmutableArray<(long Identity, uint Attributes)> ReadParentPrivileges(
-        SafeAccessTokenHandle token)
+        SafeHandle token)
     {
         using var data = TokenBuffer.Read(token, 3);
         var count = Marshal.ReadInt32(data.Pointer);
@@ -143,7 +151,7 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IAcceptanceC
             .ToImmutableArray();
     }
 
-    private static ImmutableArray<byte> ReadParentGroups(SafeAccessTokenHandle token)
+    private static ImmutableArray<byte> ReadParentGroups(SafeHandle token)
     {
         using var data = TokenBuffer.Read(token, GroupsInformation);
         return ReadGroups(data).SelectMany(CopyParentGroup).ToImmutableArray();
