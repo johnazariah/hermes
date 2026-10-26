@@ -169,7 +169,13 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IRestrictedO
 
     internal static WindowsRestrictedOwnerTokens Instance { get; } = new();
 
-    private WindowsRestrictedOwnerTokens() { }
+    private readonly AcceptanceTokenDelta? _delta;
+
+    private WindowsRestrictedOwnerTokens(AcceptanceTokenDelta? delta = null) =>
+        _delta = delta;
+
+    internal static WindowsRestrictedOwnerTokens ForTokenDelta(
+        AcceptanceTokenDelta delta) => new(delta);
 
     private static ReadOnlySpan<byte> AdministratorSid =>
         [1, 2, 0, 0, 0, 0, 0, 5, 32, 0, 0, 0, 32, 2, 0, 0];
@@ -219,6 +225,15 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IRestrictedO
         RequireDisposableJob();
         if (flags != (AcceptanceTokenFilter.DisableMaxPrivilege | AcceptanceTokenFilter.LuaToken))
             throw RestrictedOwnerToken.Failure(13);
+        return _delta is { } delta
+            ? delta.Filter(source, held => FilterCore(held, flags),
+                ReadSourceDelta, ReadFilteredDelta)
+            : FilterCore(source, flags);
+    }
+
+    private static IAcceptanceRestrictedToken FilterCore(
+        IAcceptanceSourceToken source, AcceptanceTokenFilter flags)
+    {
         nint raw = 0;
         fixed (byte* administrator = AdministratorSid)
         {
@@ -233,6 +248,16 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IRestrictedO
     public void SetMediumIntegrity(IAcceptanceRestrictedToken token)
     {
         RequireDisposableJob();
+        if (_delta is { } delta)
+        {
+            delta.SetMedium(token, SetMediumCore, ReadFilteredDelta);
+            return;
+        }
+        SetMediumCore(token);
+    }
+
+    private static void SetMediumCore(IAcceptanceRestrictedToken token)
+    {
         var sid = MediumSid;
         var size = checked(sizeof(SidAndAttributes) + sid.Length);
         byte* buffer = stackalloc byte[size];
@@ -242,6 +267,20 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IRestrictedO
         if (SetTokenInformation(FilteredHandle(token), IntegrityInformation,
             (nint)buffer, (uint)size) == 0)
             throw NativeFailure();
+    }
+
+    private static AcceptanceTokenDeltaFacts ReadSourceDelta(
+        IAcceptanceSourceToken source) => ReadDelta(SourceHandle(source));
+
+    private static AcceptanceTokenDeltaFacts ReadFilteredDelta(
+        IAcceptanceRestrictedToken filtered) => ReadDelta(FilteredHandle(filtered));
+
+    private static AcceptanceTokenDeltaFacts ReadDelta(SafeAccessTokenHandle held)
+    {
+        var integrity = ReadIntegrity(held);
+        using var restricted = TokenBuffer.Read(
+            held, (int)AcceptanceSelfTokenInformation.RestrictedSids);
+        return new(integrity, ReadGroups(restricted).Length);
     }
 
     public RestrictedOwnerTokenFacts ReadFacts(
@@ -334,21 +373,9 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IRestrictedO
     }
 
     private static ImmutableArray<SidAndAttributes> ReadGroups(TokenBuffer data)
-    {
-        if (data.Length < sizeof(uint))
-            throw RestrictedOwnerToken.Failure(13);
-        var count = Marshal.ReadInt32(data.Pointer);
-        if (count == 0)
-            return [];
-        // TOKEN_GROUPS aligns its SID_AND_ATTRIBUTES array to pointer alignment.
-        var offset = sizeof(nint);
-        if (count < 0 || data.Length < offset ||
-            count > (data.Length - offset) / sizeof(SidAndAttributes))
-            throw RestrictedOwnerToken.Failure(13);
-        return Enumerable.Range(0, count)
-            .Select(index => ReadGroup(data, offset + index * sizeof(SidAndAttributes)))
-            .ToImmutableArray();
-    }
+        => AcceptanceTokenDeltaBuffer.ReadGroups(
+            data.Pointer, data.Length, sizeof(SidAndAttributes),
+            offset => ReadGroup(data, offset));
 
     private static SidAndAttributes ReadGroup(TokenBuffer data, int offset)
     {
@@ -432,9 +459,7 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IRestrictedO
             var error = Marshal.GetLastPInvokeError();
             var minimum = information == (int)AcceptanceSelfTokenInformation.RestrictedSids
                 ? sizeof(uint) : sizeof(nint);
-            if (result != 0 || error != 122 || length < minimum || length > 65536)
-                throw RestrictedOwnerToken.Failure(result == 0 && error != 122 ? error : 13);
-            return checked((int)length);
+            return AcceptanceTokenDeltaBuffer.RequiredSize(result, error, length, minimum);
         }
 
         internal nint ReadSid(int offset)
@@ -445,16 +470,7 @@ internal sealed unsafe partial class WindowsRestrictedOwnerTokens : IRestrictedO
         }
 
         internal nint RequireSid(nint sid)
-        {
-            var offset = sid.ToInt64() - Pointer.ToInt64();
-            if (offset < 0 || offset > Length - 8)
-                throw RestrictedOwnerToken.Failure(13);
-            var count = Marshal.ReadByte(sid, 1);
-            if (Marshal.ReadByte(sid) != 1 || count > 15 ||
-                offset > (long)Length - 8 - 4 * count)
-                throw RestrictedOwnerToken.Failure(13);
-            return sid;
-        }
+            => AcceptanceTokenDeltaBuffer.RequireSid(Pointer, Length, sid);
 
         protected override bool ReleaseHandle()
         {

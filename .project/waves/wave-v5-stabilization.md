@@ -100,6 +100,14 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-26 - Qualify a numeric-only alternative to the blocked raw-line path
+
+- **Alternative:** The user directs continued autonomous work, not a raw-data exception. Public reports concern different Low-integrity/new-logon-session cases and do not establish our cause. The next safe route observes integrity and effective restricted-SID count at the existing source/filter/Medium stages without another process or policy variant.
+- **Implemented:** Sampling uses actual held subjects synchronously; flags 5, SID/privilege inputs, Medium setting, original verification/disposal, five arms and parent fences remain unchanged. Read failures are explicit/unavailable, not false zero facts. Output follows original work and token disposal, retaining all original and sampling/reporting failures.
+- **Review:** Independent source review approves the four-file scope. A fresh author closes the required culture/numeric-bound test gap without changing runtime. Existing buffer validation, including zero groups, is preserved.
+- **Validation:** All four Release/cross-builds and 51 focused cases pass. Full local gates pass 1,384 Servicing / 2,198 Core with zero failures/skips; 541 startup controls/source contracts and workflow lint pass. Same-five coverage is 16,849/19,323 lines (87.1966%), 16,410/25,929 branches (63.2882%), above the prior exact level with coherent shared dependencies.
+- **Next:** Publish and observe the existing fixture once on the actual latest host. Do not infer native facts or change filtering/integrity based on portable controls. The encrypted/raw-line proposal remains unapproved and unused.
+
 ### 2026-10-26 - Preserve the exact debugger refusal and its privacy boundary
 
 - **Existing evidence only:** Artifact `12621132808` from exact run `40251523225` contains one 2,300-byte `startup-debug.json`. Numeric inspection records first/stage reasons 1/1, stages 1, evaluator 1, echo mask 0 and read fingerprint kind/source/lexical/trim/wording/token = 1/0/128/0/1/0. No new launch or raw debugger inspection occurs.

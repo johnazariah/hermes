@@ -2,6 +2,40 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Existing token construction exposes numeric stage facts only
+
+The original PowerShell fixture now optionally observes the actual held
+source token before filtering, the actual filtered token immediately after
+the existing flags-5 call, and that same token after the existing Medium
+setting. It adds no process, filter call, integrity adjustment, privilege,
+ACL, profile, desktop or caller selector. Non-observed callers retain the
+original path. Original verification, disposal, parent invariants and five
+genuine exit-37 requirements are unchanged.
+
+Each stage reports only integrity RID and effective `TokenRestrictedSids`
+entry count, not the filter's zero restricting-SID input. The existing
+counted-group/SID validation is extracted without weakening it, including
+the four-byte zero-group case. No SID, user/group name, handle, pointer,
+path, token ID, exception text or raw debugger data is exported.
+Failed reads use unavailable facts/-1, not false zero counts. Observations
+and their output cannot pre-empt original operations or token disposal;
+completion retains original and observation/reporting failure graphs.
+
+Independent review approves the four-file source after a fresh test author
+adds explicit `ar-SA`/`fr-FR`, accepted numeric corners and maximum native
+error cases. All 51 focused, 1,384 complete Servicing and 2,198 Core cases
+pass without failures/skips. Four portable/Windows-targeted Release builds,
+root gates, 541 startup controls and unchanged source contracts pass.
+Same-five native coverage measures **16,849/19,323 lines (87.1966%)** and
+**16,410/25,929 branches (63.2882%)**, non-regressing from the preceding
+exact local level after shared dependency checks.
+
+The fixed ASCII row is `HERMES_RESTRICTED_TOKEN_DELTA v=1`, stages 1/2/3.
+Maximum tested framed rows are 105 bytes successful and 104 unavailable,
+within the 160-byte control bound. These are source/local results, not
+actual native stage values or a startup fix. No raw-line capture exception
+is granted or used.
+
 ## Held-source comparison keeps the original restricted gate authoritative
 
 The supplementary source control uses the same parent-held, unfiltered

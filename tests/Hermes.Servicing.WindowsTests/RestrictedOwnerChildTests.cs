@@ -296,7 +296,17 @@ public sealed partial class RestrictedOwnerChildTests(ITestOutputHelper output)
 
     private void RequirePowerShellProof(WindowsRestrictedOwnerTokens api)
     {
-        using var token = RestrictedOwnerToken.Create(api);
+        var delta = new AcceptanceTokenDelta();
+        var original = AcceptanceSourceControlOrchestration.Capture(
+            () => RequirePowerShellProof(api, delta));
+        delta.Complete(original, new SourceControlOutput(output));
+    }
+
+    private void RequirePowerShellProof(
+        WindowsRestrictedOwnerTokens api, AcceptanceTokenDelta delta)
+    {
+        using var token = RestrictedOwnerToken.Create(
+            WindowsRestrictedOwnerTokens.ForTokenDelta(delta));
         var proof = MeasurePowerShellArm(token, api.PowerShellForObservation, 5);
         var comparison = MeasurePowerShellArm(token, api.PowerShellNoWindowForObservation, 6);
         var detachedSelf = MeasurePowerShellArm(token, api.PowerShellDetachedSelfControlForObservation, 7);
