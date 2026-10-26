@@ -112,7 +112,7 @@ public sealed partial class SetupChildTransportTests
         using var child = new Child(
             Bytes(report + "\n"), Bytes(diagnostics),
             exitCode: report == SuccessJson ? 0 : 1603);
-        await FaultAsync(ConsumeAsync(child), SetupChildFault.InvalidDiagnostics);
+        await ObserveDiagnosticFailureAsync(child);
     }
 
     [Theory]

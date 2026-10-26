@@ -100,6 +100,21 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-26 - Make the separate portable failure observable without changing its verdict
+
+- **Source trace:** The failed Setup case uses an already-exited fake child and manual clock, not native PowerShell. Its real five-second outer guard includes queued cleanup. That is a grounded coupling, not proof of the Windows cause. The unchanged C# source passes the next ordinary PR CI `40245433431` on both application hosts; no fix or causal claim is made.
+- **Implemented evidence:** A mandatory C# author supplies a failure-only scalar projection retaining all original assertions, budget, guard and actual operation/drain tasks. Independent source review approves it. A fresh PowerShell author supplies a strict private-TRX reader and original-exit-preserving CI path; direct bounded review finds no material privacy/exit defect. A separate isolated PowerShell step runs its 102 reader/five flow controls in CI.
+- **Exact delivery proof:** Quiet console alone emits no scalar line. A temporary valid row in the exact named theory gives 1,292 passes and one deliberate failure. Real dotnet, the actual extracted CI block and actual reader emit one numeric row, preserve exit 1 and skip the following installer test invocation. The temporary source/data are removed and the assembly rebuilt; the clean block passes 1,292 Setup and 133 Installer.Control cases without failures/skips. Root build/tests pass with zero warnings/errors and 2,198 Core cases.
+- **Limits:** Rows are non-atomic method-family advisory, not per-data-case authority. Raw TRX, output, theory arguments and exception data stay private. No production status, token, timeout, retry, skip or acceptance rule changes. Current source-only held-source control proposal remains unapplied and separately under fresh revision after fault-preservation review findings.
+- **Next:** Publish the reviewed evidence path, qualify it on the actual supported hosts, then complete independent review/local qualification of the single held-source launch comparison before native execution.
+
+### 2026-10-26 - Reproduce the original startup failure on Windows 2022
+
+- **Actual comparison:** Manual CI `40245430048`, job `121325868766`, is bound to `b921e8b`, has the distinct non-promotion check name and runs the actual Windows 2022 image. Build, 541 bounded protocol controls and fixed debugger prerequisites pass.
+- **Unchanged failure:** All 501 native cases execute: 500 pass, one fails, zero skipped. The failing case remains `Actual_restricted_PowerShell_initialises_without_parent_changes`. Detached arms exit 0; hidden/new-console arms exit `0xC0000142`; no arm is accepted as the required 37. Parent/connection invariance and resource closures remain observed. The original post-gate trace is still inconclusive at source point 26/status 5/error 13, and installed lifecycle steps do not run.
+- **Conclusion:** A Windows 2025-only difference is not sufficient to explain the failure. This does not prove a particular common host setting, token policy or loader cause. The ordinary latest gate stays blocking; no expected result or host policy is changed.
+- **Next:** A fresh C# specialist reviews the common token/launch contract and the exact API parameters against the existing evidence before any source fix or additional measurement is chosen. The separate portable Setup failure is being made observable through closed test evidence, not declared fixed.
+
 ### 2026-10-26 - Add a fixed OS comparison without replacing promotion
 
 - **Changed:** A fresh author adds direct manual CI routing to stock public Windows 2022 for the existing installer job. Its diagnostic display name differs from the required Windows-latest promotion name. Ordinary events and reusable callers retain latest; the actual job ID and all eleven acceptance steps remain unchanged. The existing main-push-only publish fence also excludes future manual runs on main.

@@ -2,6 +2,44 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Portable Setup failures have a closed evidence path
+
+The named diagnostic-binding theory retains every exception/fault/HRESULT/
+message assertion, its manual budget and its five-second outer guard.
+Failure-only observation uses the actual transport operation and published
+drain tasks; unpublished states are -1. Fifteen new pure cases cover
+classification, task states, predicate masks, pipe/kill facts and preservation
+of initiating assertion plus projection/output failures. Independent C#
+review approves the scoped producer; it is not a fix for the unproved
+Windows failure.
+
+Quiet VSTest output does not expose the producer's stderr line. A private
+TRX carries it in run-summary stdout. The CI reader admits only the fixed
+15-field numeric grammar, gates it through failed results and exact method
+definitions, bounds file/row sizes, prohibits DTDs and refuses malformed or
+missing evidence explicitly. Global rows are method-family advisory,
+not per-theory-case binding or atomic snapshots. Raw reports, outputs,
+errors and test arguments are never echoed or uploaded.
+
+The actual CI block saves and propagates the original test exit even when
+the reader throws or exits; it does not run following installer tests
+after Setup failure. All 102 reader and five extracted-block controls pass.
+A separate bounded CI step runs them on both supported hosts through an
+isolated PowerShell process. Direct PowerShell/YAML review, actionlint
+and unchanged Setup contract controls pass.
+
+The full delivery path is verified with a temporary, exact-family valid
+data row that deliberately fails the unchanged rejection expectation:
+real dotnet runs 1,292 passing cases plus one controlled failure; the exact
+extracted CI block and actual reader emit one numeric row, retain exit 1
+and do not invoke the following installer test project. The temporary row
+and file are removed, the assembly rebuilt, and the clean actual CI block
+then passes **1,292 Setup / 133 Installer.Control** cases with zero
+failures/skips and no diagnostic output. Root build/tests pass with zero
+warnings/errors and **2,198 Core** cases. Production C# and the five-assembly
+coverage scope are unchanged. This establishes local delivery and privacy,
+not recurrence, root cause or actual hosted delivery on a future failure.
+
 ## Fixed manual Windows 2022 comparison is not promotion
 
 Direct manual dispatch of `ci.yml` selects `windows-2022` only for the
@@ -17,7 +55,21 @@ Direct source review, actionlint and the unchanged Setup contract controls
 pass. Private expression controls pass 72 event/caller routing cases and
 216 publication cases; they are not native admission or acceptance proof.
 Root build passes without warnings/errors and 2,198 Core cases pass.
-No comparison has run yet.
+
+The comparison now genuinely executes at `b921e8b`: manual CI `40245430048`,
+job `121325868766`, reports the distinct diagnostic name and actual
+`windows-2022` image. Build, 541 bounded startup controls and debugger
+prerequisites pass. All 501 Windows servicing cases execute: 500 pass,
+one fails, zero skipped. The failing case is the same
+`Actual_restricted_PowerShell_initialises_without_parent_changes`.
+Detached arms still exit 0; hidden/new-console arms exit `0xC0000142`,
+not the required 37. Parent/connection invariance and drain/handle cleanup
+facts remain recorded.
+
+The unchanged post-gate trace remains inconclusive (status 5, error 13,
+source point 26). Installed lifecycle steps are skipped after gate failure.
+This comparison does not establish a Windows 2025-only cause, a startup
+fix or promotion. No additional event-presence query runs in this route.
 
 ## Current Windows portable transport blocker remains visible
 

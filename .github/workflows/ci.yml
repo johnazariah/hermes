@@ -73,11 +73,29 @@ jobs:
           dotnet build tests/Hermes.Setup.Tests/Hermes.Setup.Tests.csproj --no-restore -c Release -v q
           dotnet build tests/Hermes.Installer.Control.Tests/Hermes.Installer.Control.Tests.csproj --no-restore -c Release -v q
 
+      - name: Test private Setup diagnostic controls
+        shell: pwsh
+        timeout-minutes: 3
+        run: pwsh -NoLogo -NoProfile -NonInteractive -File scripts/Test-SetupTestDiagnostics.ps1
+
       - name: Test portable Setup and installer authority
         shell: pwsh
         run: |
-          dotnet test tests/Hermes.Setup.Tests/Hermes.Setup.Tests.csproj --no-build --no-restore -c Release -v q
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $setupReport = '.artifacts/setup-test-evidence/tests.trx'
+          New-Item -ItemType Directory -Force -Path .artifacts/setup-test-evidence | Out-Null
+          if (Test-Path -LiteralPath $setupReport) { Remove-Item -LiteralPath $setupReport -ErrorAction Stop }
+          $setupTestStartedUtc = [DateTime]::UtcNow
+          dotnet test tests/Hermes.Setup.Tests/Hermes.Setup.Tests.csproj --no-build --no-restore -c Release -v q --logger 'trx;LogFileName=tests.trx' --results-directory .artifacts/setup-test-evidence
+          $setupTestExitCode = $LASTEXITCODE
+          if ($setupTestExitCode -ne 0) {
+            try {
+              ./scripts/Write-SetupTestDiagnostics.ps1 -ReportPath $setupReport -NotBeforeUtc $setupTestStartedUtc
+            } catch {
+              Write-Output 'HERMES_SETUP_DIAGNOSTIC_EVIDENCE v=1 unavailable=7'
+            } finally {
+              exit $setupTestExitCode
+            }
+          }
           dotnet test tests/Hermes.Installer.Control.Tests/Hermes.Installer.Control.Tests.csproj --no-build --no-restore -c Release -v q
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
