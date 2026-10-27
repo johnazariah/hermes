@@ -100,6 +100,20 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-28 - Approve publication and the single encrypted capture run
+
+- **Qualified:** The fixed first-refusal hook, in-memory hybrid encryption, source/run-bound envelope and separate ciphertext-only upload pass all 142 new controls, 542 existing startup controls, unchanged Setup contracts, workflow lint and root build/tests (2,198 Core, zero skips or warnings/errors). Independent review approves the source; genuine capture remains unproved.
+- **Interactive approval:** After qualification, John explicitly selects "Yes—publish and run the single capture". This authorises commit/push to the existing PR branch, one manual public Windows 2022 capture, then local authenticated decryption/inspection of that one line. The PR remains draft/unmerged; no release, wider log, acceptance relaxation or host-policy change follows.
+- **Next:** Publish this exact reviewed revision, bind the actual manual run and ciphertext to its independently computed source context, then decrypt locally only after envelope and GCM verification. Report the resulting diagnosis without publishing the raw line.
+
+### 2026-10-28 - Authorise the bounded encrypted first-refusal capture
+
+- **Explicit decision:** In interactive mode, John selects "Yes—authorise this encrypted one-line capture" for the exact proposed scope: only the first refused debugger line from the disposable synthetic test, at most 1 KB, encrypted before upload; the private decryption key remains on the Mac and outside GitHub. No wider log, personal data, host setting or acceptance change is approved.
+- **Latest numeric result:** At `a8c2382`, CI `40260910592`, actual installer job `121372888147`, all three token-stage observations are available without errors. Source and post-filter integrity are 12288; post-Medium integrity is 8192; effective restricted-SID count is zero at all stages. The held-source control again exits 37; the original suite remains 500/501 with zero skipped. Both application hosts, Tray and compatibility pass. These measurements do not identify the failing permission.
+- **Implementation boundary:** Add a fixed manual-only capture at the existing first-refusal point, encrypt in memory before writing, and expose only a bounded ciphertext artifact. Keep all protocol refusals, token operations, source/job/receipt fences, deadlines and original five exit-37 checks unchanged. Explicit over-limit or encryption failure must not emit plaintext or mask the initiating refusal.
+- **Key handling:** A dedicated RSA-3072 keypair is generated locally. Only its public key may enter the reviewed source; the private file is outside the repository with mode 0600. No private-key bytes are printed or sent to a child agent or GitHub.
+- **Next:** Implement and locally qualify the producer, manual workflow and ciphertext validation, then obtain approval to publish and execute the single capture in interactive mode.
+
 ### 2026-10-26 - Qualify a numeric-only alternative to the blocked raw-line path
 
 - **Alternative:** The user directs continued autonomous work, not a raw-data exception. Public reports concern different Low-integrity/new-logon-session cases and do not establish our cause. The next safe route observes integrity and effective restricted-SID count at the existing source/filter/Medium stages without another process or policy variant.

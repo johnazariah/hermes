@@ -2,6 +2,40 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## First-refusal capture encrypts only one approved bounded line
+
+The owner explicitly approves capture/private inspection of only the first
+refused debugger line from the disposable synthetic test, at most 1,024
+strict UTF-8 bytes. The manual-only route retains existing arm/source
+binding before the hook, consumes one attempt even on failure or oversize,
+and does not truncate or fall back to later lines. Original protocol
+refusal, continuation rules, deadlines and acceptance remain unchanged.
+
+The line is encrypted in memory with AES-256-GCM and a fresh random key/
+nonce; RSA-3072/OAEP-SHA256 wraps that key for the pinned public recipient.
+The private key remains on the Mac, outside the repository, with mode 0600.
+Mutable plaintext/key buffers are cleared; no claim is made to erase the
+existing immutable parser string. The bounded binary envelope authenticates
+canonical version/key/source/revision/run/attempt/job/role context. Local
+decryption must supply independently verified expected context and verify
+GCM before interpreting plaintext.
+
+Only the fixed CreateNew ciphertext path can be published, after source/
+file-pin checks, actual debugger/drain settlement, cleanup checks and
+structural/context validation. The separate artifact retains three days.
+Default traces stay numeric-only; PR/push/reusable contexts cannot enable
+capture. No raw debugger text, wider log or private key enters uploaded
+reports. Capture failures retain the original refusal and emit only closed
+numeric status/count.
+
+All **142 encryption/path/provenance controls**, **542 startup controls**,
+unchanged Setup contracts and workflow lint pass locally. Root build passes
+without warnings/errors; all **2,198 Core** cases pass without failures/
+skips. Independent review approves the source. These are local results,
+not actual capture proof. After review, the owner explicitly approves
+committing/pushing this change, one manual Windows 2022 capture and local
+decryption; no merge or release is approved by that decision.
+
 ## Existing token construction exposes numeric stage facts only
 
 The original PowerShell fixture now optionally observes the actual held
@@ -32,9 +66,20 @@ exact local level after shared dependency checks.
 
 The fixed ASCII row is `HERMES_RESTRICTED_TOKEN_DELTA v=1`, stages 1/2/3.
 Maximum tested framed rows are 105 bytes successful and 104 unavailable,
-within the 160-byte control bound. These are source/local results, not
-actual native stage values or a startup fix. No raw-line capture exception
-is granted or used.
+within the 160-byte control bound.
+
+Actual `a8c2382` CI `40260910592`, installer job `121372888147`, measures
+all stages successfully: source and post-filter integrity 12288;
+post-Medium integrity 8192; effective restricted-SID count zero at every
+stage. The held-source control exits 37 again. Original native gate is
+501 cases, 500 pass, the same failure, zero skipped; both application jobs,
+Tray and compatibility builds pass. This does not isolate a particular
+changed privilege/group permission or prove an integrity-only cause.
+
+On 2026-10-28 the owner explicitly approves a separate encrypted capture
+of only the first refused debugger line, capped at 1 KB, for private local
+inspection. That exception does not change numeric sampling or acceptance
+and has not yet been executed.
 
 ## Held-source comparison keeps the original restricted gate authoritative
 

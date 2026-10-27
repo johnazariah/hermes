@@ -1617,6 +1617,10 @@ function Set-HermesStartupScopedQueryRefusal {
         -or $State.Inventory.Block.Stages -ne 1 -or $State.Inventory.Block.Flags -ne -1) { return }
     if ((Get-HermesStartupObservation $State 'SdkCommandErrors' 15) -ne 0 `
         -or -not (Test-HermesStartupScopedArmFrame $State)) { return }
+    if ($State.ContainsKey('FirstRefusal') -and $null -ne $State.FirstRefusal) {
+        try { Invoke-HermesFirstRefusalCapture $State.FirstRefusal $Line }
+        catch { $State.FirstRefusal.Status = 7; $State.FirstRefusal.Count = 1 }
+    }
     # Fixed-source comparisons describe this refusal only. Neither a family
     # label nor an exact displayed source supplies query or flag authority.
     $query = '.catch { .if (@@c++(sizeof(@$peb->NtGlobalFlag)) == 4) { .printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(@$peb->NtGlobalFlag); }; .echo HERMES_ARM_STAGE v=1 stage=2; }'

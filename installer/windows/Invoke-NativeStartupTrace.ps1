@@ -726,6 +726,15 @@ try {
         $state[$source[0] + 'Sha256'] = Get-TraceHash $pin
     }
 
+    # FIRST-REFUSAL-BEGIN: fixed direct manual route only; all other traces stay off.
+    if ($env:GITHUB_EVENT_NAME -ceq 'workflow_dispatch') {
+        $state.FirstRefusal = @{ Status = 4; Count = 0 }
+        try {
+            Import-Module (Join-Path $PSScriptRoot 'First-Refusal.psm1') -Force
+            $state.FirstRefusal = New-HermesFirstRefusalCapture
+        } catch { $state.FirstRefusal.Status = 4 }
+    }
+    # FIRST-REFUSAL-END
     Set-HermesStartupTracePoint $state 24 # Fixed command and symbol setup.
     $commandPath = Publish-TraceCommands $extension
     $symbols = Join-Path $root 'symbols'
@@ -828,7 +837,21 @@ try {
     }
 }
 
+# FIRST-REFUSAL-BEGIN: settlement never replaces the original refusal or cleanup.
+if ($state.ContainsKey('FirstRefusal')) {
+    try {
+        Complete-HermesFirstRefusalCapture $state.FirstRefusal (
+            $debuggerEnded -and $drainsEnded -and $state.CleanupFault -eq 0)
+    } catch { $state.FirstRefusal.Status = 8 }
+}
+# FIRST-REFUSAL-END
 $report = New-HermesStartupReport $state $debuggerEnded $drainsEnded
+# FIRST-REFUSAL-BEGIN: closed numeric disposition only, never raw debugger output.
+if ($state.ContainsKey('FirstRefusal')) {
+    $report.firstRefusalStatus = $state.FirstRefusal.Status
+    $report.firstRefusalCount = $state.FirstRefusal.Count
+}
+# FIRST-REFUSAL-END
 try {
     if ($reportPath -ceq '') { throw 'Report destination unavailable.' }
     $json = $report | ConvertTo-Json -Depth 4 -Compress

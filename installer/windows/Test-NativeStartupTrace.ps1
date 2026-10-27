@@ -807,7 +807,15 @@ $evaluatorSourceInsertion = @(
 ) -join "`n"
 $evaluatorMasm = 'Current expression evaluator: MASM - Microsoft Assembler expressions'
 $evaluatorCpp = 'Current expression evaluator: C++ - C++ source expressions'
-$cases = 1..541 # All 538 prior intents retained, plus final MASM-bound refusal fingerprints.
+function Remove-ControlFirstRefusalDelta {
+    param([string]$Driver)
+    # Preserve the earlier whole-driver proofs by removing only the three
+    # separately qualified additive capture blocks, not arbitrary statements.
+    $pattern = '(?m)^([ ]*)# FIRST-REFUSAL-BEGIN:[^\n]*\n[\s\S]*?^\1# FIRST-REFUSAL-END\n'
+    Assert-Control ([regex]::Matches($Driver, $pattern).Count -eq 3)
+    return [regex]::Replace($Driver, $pattern, '')
+}
+$cases = 1..542 # All prior intents retained, plus the additive first-refusal hook.
 $passed = 0
 foreach ($case in $cases) {
     $state = $null
@@ -8265,9 +8273,11 @@ foreach ($case in $cases) {
                 }, $true)
                 $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
                     [Text.Encoding]::UTF8.GetBytes($predicate.Extent.Text))).ToLowerInvariant()
+                $driverHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+                    [Text.Encoding]::UTF8.GetBytes((Remove-ControlFirstRefusalDelta (
+                        [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'Invoke-NativeStartupTrace.ps1')))))))
                 Assert-Control ($hash -ceq 'fa7409059885a5a52cf6d59f62ea71d2e81f280db26e5f094271857b37f31a92' `
-                    -and (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'Invoke-NativeStartupTrace.ps1') -Algorithm SHA256).Hash `
-                        -ceq '0EAB27CDA608598593B598672E5AE90067AFC2745F8633EC138A00C14148687D')
+                    -and $driverHash -ceq '0EAB27CDA608598593B598672E5AE90067AFC2745F8633EC138A00C14148687D')
             }
             509 {
                 & {
@@ -9211,7 +9221,7 @@ foreach ($case in $cases) {
                         -and [regex]::Matches($arm, [regex]::Escape('@@c++(')).Count -eq 2 `
                         -and [regex]::Matches($arm, 'sizeof\(@\$peb->NtGlobalFlag\)').Count -eq 1 `
                         -and [regex]::Matches($arm, 'HERMES_ARM_STAGE v=1 stage=[12]').Count -eq 2)
-                    $driver = [IO.File]::ReadAllText($driverAst.Extent.File).Replace($evaluatorSourceInsertion, '')
+                    $driver = (Remove-ControlFirstRefusalDelta ([IO.File]::ReadAllText($driverAst.Extent.File))).Replace($evaluatorSourceInsertion, '')
                     # Factor out only the separate evaluator-bootstrap delta
                     # before retaining the original one-character driver proof.
                     $driver = $driver.Replace("@('_NT_EXPR_EVAL', '_NT_SYMBOL_PATH',", "@('_NT_SYMBOL_PATH',").
@@ -9323,7 +9333,7 @@ foreach ($case in $cases) {
             }
             531 {
                 & {
-                    $driver = [IO.File]::ReadAllText($driverAst.Extent.File).Replace($evaluatorSourceInsertion, '')
+                    $driver = (Remove-ControlFirstRefusalDelta ([IO.File]::ReadAllText($driverAst.Extent.File))).Replace($evaluatorSourceInsertion, '')
                     $prior = $driver
                     foreach ($edit in @(
                         @("@('_NT_EXPR_EVAL', '_NT_SYMBOL_PATH',", "@('_NT_SYMBOL_PATH',"),
@@ -9428,7 +9438,7 @@ foreach ($case in $cases) {
             }
             534 {
                 & {
-                    $driver = [IO.File]::ReadAllText($driverAst.Extent.File)
+                    $driver = Remove-ControlFirstRefusalDelta ([IO.File]::ReadAllText($driverAst.Extent.File))
                     Assert-Control ([regex]::Matches($driver, [regex]::Escape($evaluatorSourceInsertion)).Count -eq 1)
                     $priorDriver = $driver.Replace($evaluatorSourceInsertion, '')
                     $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
@@ -9956,6 +9966,8 @@ foreach ($case in $cases) {
                         -and $report.observations.subjects -eq 16 -and $report.observations.inputTasks -eq 50 `
                         -and $report.completed -eq 0 -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0 `
                         -and $json -notmatch 'Current expression|private|secret|S-1-|not enough arguments|extra character|\.printf')
+                    $report.firstRefusalStatus = 8; $report.firstRefusalCount = 1
+                    Assert-Control ([Text.Encoding]::UTF8.GetByteCount(($report | ConvertTo-Json -Depth 4 -Compress) + "`n") -le 4096)
                     foreach ($bad in @(-1, 256, '255', $true, $null)) {
                         $state.ScopedQueryFault.Wording = $bad
                         Assert-Control ((New-HermesStartupReport $state $false $false).observations.scopedReadFirstWording -eq 0)
@@ -9967,6 +9979,106 @@ foreach ($case in $cases) {
                 } finally {
                     Close-HermesStartupScopedInput $state $writer
                     $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                }
+            }
+            542 {
+                foreach ($outcome in @('DefaultOff', 'First', 'CaptureFault', 'Encrypted', 'Unbound', 'AlreadyRefused')) {
+                    $state = New-ControlScopedCreated
+                    $physical = [StartupControlWriteStream]::new(0)
+                    $writer = [IO.StreamWriter]::new($physical)
+                    $debugger = [pscustomobject]@{ HasExited = $false; StandardInput = $writer }
+                    $module = Get-Module Native-StartupTrace
+                    try {
+                        Invoke-ControlScopedPublisher
+                        Add-HermesStartupText $state $state.Out (
+                            "HERMES_CDB v=4 kind=7 pid=22`nLast event: 16.1: Create process 1:16`nHERMES_ARM_STAGE v=1 stage=1`n") $true
+                        Add-HermesStartupLine $state $evaluatorMasm
+                        if ($outcome -cne 'DefaultOff') { $state.FirstRefusal = @{ Status = 1; Count = 0; Seen = '' } }
+                        & $module {
+                            function script:Invoke-HermesFirstRefusalCapture {
+                                param($Capture, $Line)
+                                $Capture.Count++
+                                $Capture.Seen = $Line
+                                if ($Capture.ContainsKey('Fail')) { throw 'SYNTHETIC private failure' }
+                                $Capture.Status = 2
+                            }
+                        }
+                        if ($outcome -ceq 'Encrypted') {
+                            Import-Module (Join-Path $PSScriptRoot 'First-Refusal.psm1') -Force
+                            $encryptionModule = Get-Module First-Refusal
+                            $state.FirstRefusal.Context = & $encryptionModule {
+                                $script:hookSource = (Get-Command Assert-FirstRefusalSource).ScriptBlock
+                                $script:hookKey = (Get-Command Get-FirstRefusalPublicKey).ScriptBlock
+                                $script:hookRsa = [Security.Cryptography.RSA]::Create(3072)
+                                Set-Item Function:script:Assert-FirstRefusalSource { param($Capture) }
+                                Set-Item Function:script:Get-FirstRefusalPublicKey {
+                                    $public = [Security.Cryptography.RSA]::Create()
+                                    $read = 0
+                                    $public.ImportSubjectPublicKeyInfo($script:hookRsa.ExportSubjectPublicKeyInfo(), [ref]$read)
+                                    return $public
+                                }
+                                return [ordered]@{
+                                    key = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+                                        $script:hookRsa.ExportSubjectPublicKeyInfo())).ToLowerInvariant()
+                                    source = 'b' * 64; revision = 'c' * 40; run = '123'; attempt = '1'
+                                }
+                            }
+                            $state.FirstRefusal.Bytes = $null
+                            & $module { Remove-Item Function:Invoke-HermesFirstRefusalCapture }
+                        }
+                        if ($outcome -ceq 'CaptureFault') { $state.FirstRefusal.Fail = $true }
+                        if ($outcome -ceq 'Unbound') { $state.Inventory.Block.EventPid = [uint32]33 }
+                        if ($outcome -ceq 'AlreadyRefused') { Set-HermesStartupProtocolFault $state 1 }
+                        $line = " `tSYNTHETIC unknown .printf HERMES_ARM_STAGE @@c++(@`$peb->NtGlobalFlag) error `t "
+                        Add-HermesStartupLine $state $line
+                        Add-HermesStartupLine $state 'SYNTHETIC later .printf HERMES_ARM_STAGE'
+                        Invoke-ControlScopedPublisher
+                        Assert-Control ($state.Protocol -eq 1 -and -not $state.Acked -and -not $state.Continued `
+                            -and $physical.Writes -eq 1 -and $state.InputTasks.Count -eq 1)
+                        if ($outcome -cne 'DefaultOff') {
+                            $captured = $outcome -cin @('First', 'CaptureFault', 'Encrypted')
+                            Assert-Control ($state.FirstRefusal.Count -eq [int]$captured `
+                                -and $state.FirstRefusal.Seen -ceq $(if ($captured -and $outcome -cne 'Encrypted') { $line } else { '' }))
+                            if ($outcome -ceq 'Encrypted') {
+                                $same = & $encryptionModule {
+                                    param($Bytes, $Context, $Expected)
+                                    $parts = Read-HermesFirstRefusalEnvelope $Bytes $Context
+                                    $key = $script:hookRsa.Decrypt($parts.WrappedKey, [Security.Cryptography.RSAEncryptionPadding]::OaepSHA256)
+                                    $plain = [byte[]]::new($parts.Ciphertext.Length)
+                                    $aes = [Security.Cryptography.AesGcm]::new($key, 16)
+                                    try {
+                                        $aes.Decrypt($parts.Nonce, $parts.Ciphertext, $parts.Tag, $plain, $parts.Aad)
+                                        return [Text.UTF8Encoding]::new($false, $true).GetString($plain) -ceq $Expected
+                                    } finally { [Array]::Clear($key); [Array]::Clear($plain); $aes.Dispose() }
+                                } $state.FirstRefusal.Bytes $state.FirstRefusal.Context $line
+                                Assert-Control $same
+                            }
+                            if ($captured) {
+                                Assert-Control ($state.ScopedQueryFault.Kind -eq 1 -and $state.ScopedStageFault.Reason -eq 1 `
+                                    -and $state.ScopedFault.Reason -eq 1 `
+                                    -and $state.FirstRefusal.Status -eq $(if ($outcome -ceq 'CaptureFault') { 7 } else { 2 }))
+                            }
+                        }
+                        Close-HermesStartupScopedInput $state $writer
+                        Assert-Control $state.InputClosed
+                        $report = New-HermesStartupReport $state $false $false
+                        Assert-Control ($report.completed -eq 0 -and $report.nativeAcceptance -eq 0 `
+                            -and ($report | ConvertTo-Json -Depth 4 -Compress) -notmatch 'SYNTHETIC|private|\.printf')
+                    } finally {
+                        if ($outcome -cne 'Encrypted') {
+                            & $module { Remove-Item Function:Invoke-HermesFirstRefusalCapture }
+                        }
+                        if ($outcome -ceq 'Encrypted') {
+                            & $encryptionModule {
+                                Set-Item Function:script:Assert-FirstRefusalSource $script:hookSource
+                                Set-Item Function:script:Get-FirstRefusalPublicKey $script:hookKey
+                                $script:hookRsa.Dispose()
+                                Remove-Variable hookSource, hookKey, hookRsa -Scope Script
+                            }
+                        }
+                        Close-HermesStartupScopedInput $state $writer
+                        $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                    }
                 }
             }
             { $_ -in 415..420 } {

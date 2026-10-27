@@ -288,7 +288,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Test bounded native-startup diagnostic protocol without native execution
         shell: pwsh
-        run: ./installer/windows/Test-NativeStartupTrace.ps1
+        run: |
+          ./installer/windows/Test-FirstRefusal.ps1
+          ./installer/windows/Test-NativeStartupTrace.ps1
       - name: Execute the complete Windows servicing test project
         id: native-gate
         shell: pwsh
@@ -347,6 +349,28 @@ jobs:
         timeout-minutes: 5
         shell: pwsh
         run: ./installer/windows/Invoke-NativeStartupTrace.ps1
+      - name: Validate the fixed encrypted first-refusal artifact (direct manual CI only)
+        id: first-refusal
+        if: always() && github.event_name == 'workflow_dispatch' && github.repository == 'johnazariah/hermes' && github.workflow_ref == format('{0}/.github/workflows/ci.yml@{1}', github.repository, github.ref) && steps.native-gate.outcome == 'failure' && steps.native-debugger.outputs.available == '1'
+        shell: pwsh
+        run: |
+          try {
+            Import-Module ./installer/windows/First-Refusal.psm1 -Force
+            Assert-HermesFirstRefusalArtifact
+            [IO.File]::AppendAllText($env:GITHUB_OUTPUT, "validated=1`n")
+            Write-Output 'HERMES_FIRST_REFUSAL v=1 validated=1'
+          } catch {
+            Write-Output 'HERMES_FIRST_REFUSAL v=1 validated=0'
+            exit 1
+          }
+      - name: Preserve only encrypted first-refusal ciphertext
+        if: always() && github.event_name == 'workflow_dispatch' && github.repository == 'johnazariah/hermes' && github.workflow_ref == format('{0}/.github/workflows/ci.yml@{1}', github.repository, github.ref) && steps.first-refusal.outputs.validated == '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: startup-first-refusal-encrypted
+          path: .artifacts/installer-evidence/startup-first-refusal.enc
+          if-no-files-found: error
+          retention-days: 3
       - name: Coordinator install, repair, launch, upgrade, rollback and uninstall without SDK access
         shell: pwsh
         run: |
