@@ -100,6 +100,21 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-28 - Qualify the explicit target-type query
+
+- **Changed:** A fresh PowerShell author qualifies the PEB field through `ntdll!_PEB` in both the exact width guard and typed read. Generated source, fixed echo/read comparisons and lexical fingerprints remain consistent. No offset fallback, ignored error, SDK-operation change or acceptance substitution is introduced.
+- **Review and controls:** Direct bounded source review verifies the precise driver/module delta and coupled negative controls. All 545 startup cases pass, retaining the previous 542 intents; missing types/member errors, old unqualified sources and stages without an actual typed result remain refusals. The 142 encryption controls, unchanged Setup contracts, workflow lint and root build/tests (2,198 Core) also pass.
+- **Limits:** The explicit type may still be unavailable at the owned CREATE_PROCESS stop. Portable controls do not establish native resolution or loader cause. The proposed verification is one ordinary PR CI run, not manual dispatch, so it will not capture another line.
+- **Next:** Obtain interactive publication approval for this qualified query revision and read the actual guarded typed-query result before choosing any further change.
+
+### 2026-10-28 - Authenticate the one-line result and approve the typed-query repair
+
+- **Executed:** Reviewed capture revision `398356d`, genuine manual run `40590286308`, actual Windows 2022 job `122492452084`, passes the new controls and ciphertext validator/upload. Original native suite remains 500/501 with zero skipped; the trace still refuses at point 26. Artifact `12774302423` contains only the fixed ciphertext file, 909 bytes, SHA-256 `a8c159e0b0814428ff3a8ef4966b0dde63828a885dbb3c252f430fde3b06d598`.
+- **Private inspection:** Local decryption verifies the independently computed reviewed-source digest, revision/run/attempt/recipient identity and GCM authentication before interpreting one strict UTF-8 line. No plaintext file, private-key upload or public raw-line quotation is made.
+- **Grounded diagnosis:** The returned line is a genuine C++ type-member-resolution error at the `NtGlobalFlag` access used by the width/read query. It is not a legitimate echo; the old refusal is correct. This explains the diagnostic blockage, not the original PowerShell initialization failure.
+- **Interactive next approval:** John explicitly selects "Yes—repair and verify the debugger query". The scope retains target identity, typed DWORD/width/value proof, all protocol/continuation rules and original installer checks; it excludes hard-coded offsets, ignored errors, token/host-policy changes and any second encrypted capture.
+- **Next:** A fresh PowerShell author owns a documented explicit typed-query correction and all coupled source/reader controls. Independent review and local qualification precede its one ordinary-CI verification, with encrypted capture disabled in that non-manual context. No runtime fix is yet claimed.
+
 ### 2026-10-28 - Approve publication and the single encrypted capture run
 
 - **Qualified:** The fixed first-refusal hook, in-memory hybrid encryption, source/run-bound envelope and separate ciphertext-only upload pass all 142 new controls, 542 existing startup controls, unchanged Setup contracts, workflow lint and root build/tests (2,198 Core, zero skips or warnings/errors). Independent review approves the source; genuine capture remains unproved.

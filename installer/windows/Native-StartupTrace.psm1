@@ -1623,9 +1623,9 @@ function Set-HermesStartupScopedQueryRefusal {
     }
     # Fixed-source comparisons describe this refusal only. Neither a family
     # label nor an exact displayed source supplies query or flag authority.
-    $query = '.catch { .if (@@c++(sizeof(@$peb->NtGlobalFlag)) == 4) { .printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(@$peb->NtGlobalFlag); }; .echo HERMES_ARM_STAGE v=1 stage=2; }'
+    $query = '.catch { .if (@@c++(sizeof(((ntdll!_PEB*)@$peb)->NtGlobalFlag)) == 4) { .printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(((ntdll!_PEB*)@$peb)->NtGlobalFlag); }; .echo HERMES_ARM_STAGE v=1 stage=2; }'
     # The exact read region includes this fixed program's statement terminator.
-    $read = '.printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(@$peb->NtGlobalFlag);'
+    $read = '.printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(((ntdll!_PEB*)@$peb)->NtGlobalFlag);'
     $display = $Line -creplace '\A[0-9]{1,3}:[0-9a-f]{3}> ', ''
     # HorizontalTrim removes edge ASCII spaces/tabs only, after prompt removal.
     $horizontalTrim = $display.Trim([char[]]@(' ', [char]9))
@@ -1663,7 +1663,7 @@ function Set-HermesStartupScopedQueryRefusal {
         }
     }
     foreach ($token in @(
-        @('sizeof(@$peb->NtGlobalFlag)', 64), @('@@c++(@$peb->NtGlobalFlag)', 128)
+        @('sizeof(((ntdll!_PEB*)@$peb)->NtGlobalFlag)', 64), @('@@c++(((ntdll!_PEB*)@$peb)->NtGlobalFlag)', 128)
     )) {
         if ($display.Contains($token[0], [StringComparison]::Ordinal)) { $lexical = $lexical -bor $token[1] }
     }
@@ -2485,7 +2485,7 @@ function New-HermesStartupReport {
         # Lexical display bits only, never causes: ordinal-ignore-case wording
         # 1 bad register; 2 type information; 4 memory access; 8 syntax error;
         # 16 numeric expression/resolve; 32 symbol. Exact-case source fragments:
-        # 64 sizeof(@$peb->NtGlobalFlag); 128 @@c++(@$peb->NtGlobalFlag).
+        # 64 sizeof(((ntdll!_PEB*)@$peb)->NtGlobalFlag); 128 @@c++(((ntdll!_PEB*)@$peb)->NtGlobalFlag).
         # 256 leading caret token after HorizontalTrim; 512 edge ASCII whitespace.
         $selected.scopedReadFirstLexical = Get-HermesStartupInventoryNumber $State.ScopedQueryFault['Lexical'] 1023
         # Existing closed diagnostic family after HorizontalTrim only: 0 none;

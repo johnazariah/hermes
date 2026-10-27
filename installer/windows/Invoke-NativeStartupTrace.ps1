@@ -248,7 +248,10 @@ function New-ScopedCreateCommands {
         # Pin general command parsing after the SDK call; explicit @@c++ stays.
         # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/evaluating-expressions
         '.expr /s masm',
-        '.catch { .if (@@c++(sizeof(@$peb->NtGlobalFlag)) == 4) { .printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(@$peb->NtGlobalFlag); }; .echo HERMES_ARM_STAGE v=1 stage=2; }',
+        # Qualify the target module's type for both the width check and read.
+        # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/c---numbers-and-operators
+        # Missing target symbols or fields remain unavailable, never an offset fallback.
+        '.catch { .if (@@c++(sizeof(((ntdll!_PEB*)@$peb)->NtGlobalFlag)) == 4) { .printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(((ntdll!_PEB*)@$peb)->NtGlobalFlag); }; .echo HERMES_ARM_STAGE v=1 stage=2; }',
         '.printf "HERMES_CDB v=4 kind=8 pid=%u\n", @$tpid'
     ) -join "`r`n") + "`r`n"
     return $sources

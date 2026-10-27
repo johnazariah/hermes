@@ -2,6 +2,31 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Typed flag verification names the target module explicitly
+
+The scoped arm query now uses `((ntdll!_PEB*)@$peb)->NtGlobalFlag` for
+both its `sizeof(...) == 4` guard and value read. This removes reliance
+on the debugger's implicit PEB type after the authenticated one-line
+capture established a genuine member-resolution failure. Missing target
+types, fields or memory remain unavailable/refused, never a hard-coded
+offset, raw-memory fallback or accepted zero.
+
+Generated command text, pinned-source echo/read comparisons and numeric
+fingerprints are updated together. The SDK operation, target identity,
+held event/source receipts, exact result grammar, stage completion and
+continuation gates remain unchanged. Whole-source inverse controls pin
+the precise query-only delta. Old unqualified sources and synthetic
+missing-member/symbol errors remain refused; completed stages without
+a typed value cannot release the target.
+
+Direct source review and local execution pass **545 startup controls**
+(all 542 prior intents plus three new controls), **142 encryption controls**,
+unchanged Setup contracts, workflow lint and root build/tests (**2,198 Core**,
+zero failures/skips or warnings/errors). No C# or coverage scope changes.
+Target-type availability at CREATE_PROCESS is not established by portable
+tests; one actual ordinary-CI verification is still required. That context
+keeps encrypted capture off and does not authorise a second capture.
+
 ## First-refusal capture encrypts only one approved bounded line
 
 The owner explicitly approves capture/private inspection of only the first
@@ -35,6 +60,16 @@ skips. Independent review approves the source. These are local results,
 not actual capture proof. After review, the owner explicitly approves
 committing/pushing this change, one manual Windows 2022 capture and local
 decryption; no merge or release is approved by that decision.
+
+Genuine manual run `40590286308`, job `122492452084`, at `398356d`
+passes controls, source-bound ciphertext validation and upload. Artifact
+`12774302423` contains one fixed 909-byte encrypted envelope. Independently
+bound context and local GCM authentication pass before inspection.
+The first refused line is a real typed-member-resolution failure at
+`NtGlobalFlag`, not an echo; raw text and the private key are not published.
+The original 501-case gate remains 500 passed, one failure, zero skipped.
+The capture scope is complete; any next verification uses ordinary CI and
+must not trigger another encrypted capture.
 
 ## Existing token construction exposes numeric stage facts only
 

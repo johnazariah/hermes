@@ -774,7 +774,7 @@ function Get-ControlScopedQuerySources {
     $end = $query.IndexOf(' }; .echo ', [StringComparison]::Ordinal)
     Assert-Control ($start -gt 0 -and $end -gt $start)
     $read = $query.Substring($start, $end - $start)
-    Assert-Control ($read -ceq '.printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(@$peb->NtGlobalFlag);')
+    Assert-Control ($read -ceq '.printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(((ntdll!_PEB*)@$peb)->NtGlobalFlag);')
     return @{ Whole = $query; Read = $read }
 }
 
@@ -807,15 +807,28 @@ $evaluatorSourceInsertion = @(
 ) -join "`n"
 $evaluatorMasm = 'Current expression evaluator: MASM - Microsoft Assembler expressions'
 $evaluatorCpp = 'Current expression evaluator: C++ - C++ source expressions'
-function Remove-ControlFirstRefusalDelta {
+$typedQuerySourceInsertion = @(
+    "        # Qualify the target module's type for both the width check and read.",
+    '        # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/c---numbers-and-operators',
+    '        # Missing target symbols or fields remain unavailable, never an offset fallback.', ''
+) -join "`n"
+function Remove-ControlTypedQueryDelta {
+    param([string]$Driver)
+    Assert-Control ([regex]::Matches($Driver, [regex]::Escape($typedQuerySourceInsertion)).Count -eq 1 `
+        -and [regex]::Matches($Driver, [regex]::Escape('((ntdll!_PEB*)@$peb)->NtGlobalFlag')).Count -eq 2 `
+        -and -not $Driver.Contains('@$peb->NtGlobalFlag', [StringComparison]::Ordinal))
+    return $Driver.Replace($typedQuerySourceInsertion, '').
+        Replace('((ntdll!_PEB*)@$peb)->NtGlobalFlag', '@$peb->NtGlobalFlag')
+}
+function Remove-ControlDriverDeltas {
     param([string]$Driver)
     # Preserve the earlier whole-driver proofs by removing only the three
-    # separately qualified additive capture blocks, not arbitrary statements.
+    # capture blocks and the separately pinned typed-query change.
     $pattern = '(?m)^([ ]*)# FIRST-REFUSAL-BEGIN:[^\n]*\n[\s\S]*?^\1# FIRST-REFUSAL-END\n'
     Assert-Control ([regex]::Matches($Driver, $pattern).Count -eq 3)
-    return [regex]::Replace($Driver, $pattern, '')
+    return Remove-ControlTypedQueryDelta ([regex]::Replace($Driver, $pattern, ''))
 }
-$cases = 1..542 # All prior intents retained, plus the additive first-refusal hook.
+$cases = 1..545 # All 542 prior intents retained; three typed-query repair controls.
 $passed = 0
 foreach ($case in $cases) {
     $state = $null
@@ -3822,11 +3835,11 @@ foreach ($case in $cases) {
                     -and $lines[4] -cnotmatch '"' `
                     -and $lines[4] -cnotmatch '\.printf|\.if|peb' `
                     -and $lines[5] -ceq '.expr /s masm' `
-                    -and $lines[6] -ceq ('.catch { .if (@@c++(sizeof(@$peb->NtGlobalFlag)) == 4) { ' +
-                        '.printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(@$peb->NtGlobalFlag); }; ' +
+                    -and $lines[6] -ceq ('.catch { .if (@@c++(sizeof(((ntdll!_PEB*)@$peb)->NtGlobalFlag)) == 4) { ' +
+                        '.printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(((ntdll!_PEB*)@$peb)->NtGlobalFlag); }; ' +
                         '.echo HERMES_ARM_STAGE v=1 stage=2; }') `
-                    -and [regex]::Matches($lines[6], '@\$peb->NtGlobalFlag').Count -eq 2 `
-                    -and $lines[6] -notmatch 'ntdll|_PEB|\*|(?<!@)\$peb|0x|(?i:BeingDebugged|Environment)' `
+                    -and [regex]::Matches($lines[6], [regex]::Escape('((ntdll!_PEB*)@$peb)->NtGlobalFlag')).Count -eq 2 `
+                    -and $lines[6] -notmatch '@\$peb->|(?<!@)\$peb|0x|(?i:BeingDebugged|Environment)' `
                     -and @($lines | Where-Object { $_ -cmatch '\.catch' }).Count -eq 2 `
                     -and @($lines[4].ToCharArray() | Where-Object { $_ -eq '{' }).Count -eq 1 `
                     -and @($lines[4].ToCharArray() | Where-Object { $_ -eq '}' }).Count -eq 1 `
@@ -7455,7 +7468,7 @@ foreach ($case in $cases) {
                         @('startup-ibp.cdb', 'c2c6509cc08fab26e327f2aea8abdd950662d2c17534440d6dcca0ab3c374fc7'),
                         @('startup-epr.cdb', 'b99a7cbc74fd6ddd7a03bafa9f021333f62be4455e3e643036a4c8b88601d10f'),
                         @('startup.cdb', '84aa3a9b7176d5b70468db52aa4d0da45c6b7f3cc338a8223a8963457c6c1b23'),
-                        @('startup-arm.cdb', 'd5e9001ae7924fea383a2aa3d112ae18d1daa65959243de140a38704b014e55d')
+                        @('startup-arm.cdb', 'fd381a77e02a1b56e323ba37705f8cf5aba1ad77c4373f48e73c26203957669e')
                     )) {
                         $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
                             [Text.Encoding]::ASCII.GetBytes($sources[$item[0]]))).ToLowerInvariant()
@@ -8274,7 +8287,7 @@ foreach ($case in $cases) {
                 $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
                     [Text.Encoding]::UTF8.GetBytes($predicate.Extent.Text))).ToLowerInvariant()
                 $driverHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
-                    [Text.Encoding]::UTF8.GetBytes((Remove-ControlFirstRefusalDelta (
+                    [Text.Encoding]::UTF8.GetBytes((Remove-ControlDriverDeltas (
                         [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'Invoke-NativeStartupTrace.ps1')))))))
                 Assert-Control ($hash -ceq 'fa7409059885a5a52cf6d59f62ea71d2e81f280db26e5f094271857b37f31a92' `
                     -and $driverHash -ceq '0EAB27CDA608598593B598672E5AE90067AFC2745F8633EC138A00C14148687D')
@@ -8302,7 +8315,7 @@ foreach ($case in $cases) {
                         @('startup-ibp.cdb', 'c2c6509cc08fab26e327f2aea8abdd950662d2c17534440d6dcca0ab3c374fc7'),
                         @('startup-epr.cdb', 'b99a7cbc74fd6ddd7a03bafa9f021333f62be4455e3e643036a4c8b88601d10f'),
                         @('startup.cdb', '84aa3a9b7176d5b70468db52aa4d0da45c6b7f3cc338a8223a8963457c6c1b23'),
-                        @('startup-arm.cdb', '86a8929dd22a6e61a3f02ad9db39dbd01245d3b05537a9a225283e385b97d96b')
+                        @('startup-arm.cdb', '90f897b61fd8b81aeac2a8c81a617455554c2c354fa7965d8ec52f2e64a27600')
                     )) {
                         $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
                             [Text.Encoding]::ASCII.GetBytes($sources[$item[0]]))).ToLowerInvariant()
@@ -8312,10 +8325,11 @@ foreach ($case in $cases) {
                         [Text.Encoding]::ASCII.GetBytes($lines[6]))).ToLowerInvariant()
                     $previousStatement = '.catch { !"' + $module.Replace('\', '\\') +
                         '".gflag +sls; .echo HERMES_ARM_STAGE v=1 stage=1; }'
-                    $previous = $arm.Replace($statement, $previousStatement).Replace(".expr /s masm`r`n", '')
+                    $previous = $arm.Replace($statement, $previousStatement).Replace(".expr /s masm`r`n", '').
+                        Replace('((ntdll!_PEB*)@$peb)->NtGlobalFlag', '@$peb->NtGlobalFlag')
                     $previousHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
                         [Text.Encoding]::ASCII.GetBytes($previous))).ToLowerInvariant()
-                    Assert-Control ($queryHash -ceq '64c052dbbc805338521bc9dc8d60ffaa1b57f2c73fa5fe846df560dbd69d77a8' `
+                    Assert-Control ($queryHash -ceq '2d47634b23400779b5c08c6048c2d0e086d6b11ff37e85494a81aa4211de1da6' `
                         -and $previousHash -ceq 'd149256f963417243ed2f527df5a2657e9d945a099ca487eaff627ea8082a204')
                 }
             }
@@ -9084,13 +9098,17 @@ foreach ($case in $cases) {
             526 {
                 $sources = Get-ControlScopedQuerySources $extension
                 $entries = @(
-                    @{ Text = ('.printf private sizeof(@$peb->NtGlobalFlag)'); Mask = 64 },
-                    @{ Text = ('.printf private @@c++(@$peb->NtGlobalFlag)'); Mask = 128 },
-                    @{ Text = ('.printf private sizeof(@$peb->NtGlobalFlag) @@c++(@$peb->NtGlobalFlag)'); Mask = 192 },
+                    @{ Text = ('.printf private sizeof(((ntdll!_PEB*)@$peb)->NtGlobalFlag)'); Mask = 64 },
+                    @{ Text = ('.printf private @@c++(((ntdll!_PEB*)@$peb)->NtGlobalFlag)'); Mask = 128 },
+                    @{ Text = ('.printf private sizeof(((ntdll!_PEB*)@$peb)->NtGlobalFlag) @@c++(((ntdll!_PEB*)@$peb)->NtGlobalFlag)'); Mask = 192 },
+                    @{ Text = ('.printf private SIZEOF(((NTDLL!_PEB*)@$PEB)->NTGLOBALFLAG) @@C++(((NTDLL!_PEB*)@$PEB)->NTGLOBALFLAG)'); Mask = 0 },
+                    @{ Text = ('.printf private sizeof(@$peb->NtGlobalFlag)'); Mask = 0 },
+                    @{ Text = ('.printf private @@c++(@$peb->NtGlobalFlag)'); Mask = 0 },
+                    @{ Text = ('.printf private sizeof(@$peb->NtGlobalFlag) @@c++(@$peb->NtGlobalFlag)'); Mask = 0 },
                     @{ Text = ('.printf private SIZEOF(@$PEB->NTGLOBALFLAG) @@C++(@$PEB->NTGLOBALFLAG)'); Mask = 0 },
                     @{ Text = ("prefix Type information missing error at '" + $sources.Read + "'"); Mask = 130 },
                     @{ Text = (" `t^ Bad register TYPE INFORMATION memory access syntax error numeric expression ReSoLvE SyMbOl .printf " +
-                        'sizeof(@$peb->NtGlobalFlag) @@c++(@$peb->NtGlobalFlag)' + "`t"); Mask = 1023 }
+                        'sizeof(((ntdll!_PEB*)@$peb)->NtGlobalFlag) @@c++(((ntdll!_PEB*)@$peb)->NtGlobalFlag)' + "`t"); Mask = 1023 }
                 )
                 foreach ($word in @(
                     @{ Text = 'Bad register'; Bit = 1 }, @{ Text = 'type information'; Bit = 2 },
@@ -9205,7 +9223,8 @@ foreach ($case in $cases) {
                     $sdk = 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\winxp\exts.dll'
                     # Factor out the separate interpreter command, retaining
                     # the original one-character arm-program proof.
-                    $arm = (New-ScopedCreateCommands $sdk)['startup-arm.cdb'].Replace(".expr /s masm`r`n", '')
+                    $arm = (New-ScopedCreateCommands $sdk)['startup-arm.cdb'].Replace(".expr /s masm`r`n", '').
+                        Replace('((ntdll!_PEB*)@$peb)->NtGlobalFlag', '@$peb->NtGlobalFlag')
                     $expression = '@@c++(@$peb->NtGlobalFlag)'
                     $needle = $expression + '; }; .echo'
                     $position = $arm.IndexOf($needle, [StringComparison]::Ordinal)
@@ -9221,7 +9240,7 @@ foreach ($case in $cases) {
                         -and [regex]::Matches($arm, [regex]::Escape('@@c++(')).Count -eq 2 `
                         -and [regex]::Matches($arm, 'sizeof\(@\$peb->NtGlobalFlag\)').Count -eq 1 `
                         -and [regex]::Matches($arm, 'HERMES_ARM_STAGE v=1 stage=[12]').Count -eq 2)
-                    $driver = (Remove-ControlFirstRefusalDelta ([IO.File]::ReadAllText($driverAst.Extent.File))).Replace($evaluatorSourceInsertion, '')
+                    $driver = (Remove-ControlDriverDeltas ([IO.File]::ReadAllText($driverAst.Extent.File))).Replace($evaluatorSourceInsertion, '')
                     # Factor out only the separate evaluator-bootstrap delta
                     # before retaining the original one-character driver proof.
                     $driver = $driver.Replace("@('_NT_EXPR_EVAL', '_NT_SYMBOL_PATH',", "@('_NT_SYMBOL_PATH',").
@@ -9235,12 +9254,19 @@ foreach ($case in $cases) {
                 }
             }
             529 {
-                $expression = '@@c++(@$peb->NtGlobalFlag)'
+                $expression = '@@c++(((ntdll!_PEB*)@$peb)->NtGlobalFlag)'
                 foreach ($replacement in @(
                     @(($expression + '; }; .echo'), ($expression + ' }; .echo')),
                     @(($expression + '; }; .echo'), ($expression + ';; }; .echo')),
                     @(($expression + '; }; .echo'), ($expression + ', }; .echo')),
-                    @('sizeof(@$peb->NtGlobalFlag)) == 4', 'sizeof(@$peb->NtGlobalFlag)) == 8')
+                    @('sizeof(((ntdll!_PEB*)@$peb)->NtGlobalFlag)) == 4', 'sizeof(((ntdll!_PEB*)@$peb)->NtGlobalFlag)) == 8'),
+                    @('ntdll!_PEB', 'kernel32!_PEB'),
+                    @('ntdll!_PEB', '_PEB'),
+                    @('ntdll!_PEB', 'ntdll!PEB'),
+                    @('@$peb', '@$teb'),
+                    @($expression, '@@c++(@$peb->NtGlobalFlag)'),
+                    @('sizeof(((ntdll!_PEB*)@$peb)->NtGlobalFlag)', 'sizeof(unsigned long)'),
+                    @($expression, '@@masm(dwo(@$peb))')
                 )) {
                     $state = New-ControlScopedCreated
                     $physical = [StartupControlWriteStream]::new(0)
@@ -9333,7 +9359,7 @@ foreach ($case in $cases) {
             }
             531 {
                 & {
-                    $driver = (Remove-ControlFirstRefusalDelta ([IO.File]::ReadAllText($driverAst.Extent.File))).Replace($evaluatorSourceInsertion, '')
+                    $driver = (Remove-ControlDriverDeltas ([IO.File]::ReadAllText($driverAst.Extent.File))).Replace($evaluatorSourceInsertion, '')
                     $prior = $driver
                     foreach ($edit in @(
                         @("@('_NT_EXPR_EVAL', '_NT_SYMBOL_PATH',", "@('_NT_SYMBOL_PATH',"),
@@ -9438,7 +9464,7 @@ foreach ($case in $cases) {
             }
             534 {
                 & {
-                    $driver = Remove-ControlFirstRefusalDelta ([IO.File]::ReadAllText($driverAst.Extent.File))
+                    $driver = Remove-ControlDriverDeltas ([IO.File]::ReadAllText($driverAst.Extent.File))
                     Assert-Control ([regex]::Matches($driver, [regex]::Escape($evaluatorSourceInsertion)).Count -eq 1)
                     $priorDriver = $driver.Replace($evaluatorSourceInsertion, '')
                     $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
@@ -9449,7 +9475,8 @@ foreach ($case in $cases) {
                     function Assert-TraceCommandPath { param([string]$Path) return $Path }
                     function Join-Path { param([string]$Path, [string]$ChildPath) return $Path + '\' + $ChildPath }
                     $root = 'C:\owned\command-root'
-                    $arm = (New-ScopedCreateCommands 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\winxp\exts.dll')['startup-arm.cdb']
+                    $arm = (New-ScopedCreateCommands 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\winxp\exts.dll')['startup-arm.cdb'].
+                        Replace('((ntdll!_PEB*)@$peb)->NtGlobalFlag', '@$peb->NtGlobalFlag')
                     $fixed = ".expr /s masm`r`n"
                     Assert-Control ([regex]::Matches($arm, [regex]::Escape($fixed)).Count -eq 1)
                     $prior = $arm.Replace($fixed, '')
@@ -9511,7 +9538,7 @@ foreach ($case in $cases) {
                                 -and -not (Test-HermesStartupScopedAction $state Target) -and -not $state.Acked `
                                 -and $physical.Writes -eq 1 -and $state.InputTasks.Count -eq 1)
                             if ($outcome -ceq 'QueryFault') {
-                                Add-HermesStartupLine $state 'unclassified .printf @@c++(@$peb->NtGlobalFlag); .echo HERMES_ARM_STAGE v=1 stage=2;'
+                                Add-HermesStartupLine $state 'unclassified .printf @@c++(((ntdll!_PEB*)@$peb)->NtGlobalFlag); .echo HERMES_ARM_STAGE v=1 stage=2;'
                             } elseif ($outcome -ceq 'Full') {
                                 Add-HermesStartupLine $state 'HERMES_NTGLOBALFLAG v=1 pid=22 value=00000002'
                             }
@@ -9755,7 +9782,7 @@ foreach ($case in $cases) {
                                 }
                                 $expectedEvaluator = switch ($proof) { Cpp { 2 }; Masm { 1 }; default { 0 } }
                                 Assert-Control ($state.ScopedEvaluator -eq $expectedEvaluator -and $state.ScopedQueryFault.Kind -eq 0)
-                                $line = 'private ' + $text + ' .printf @@c++(@$peb->NtGlobalFlag)'
+                                $line = 'private ' + $text + ' .printf @@c++(((ntdll!_PEB*)@$peb)->NtGlobalFlag)'
                                 Add-HermesStartupText $state $state.Out ($line + "`n") $true
                                 $report = New-HermesStartupReport $state $false $false
                                 Add-HermesStartupText $state $state.Out (Get-ControlScopedReadback) $true
@@ -9815,7 +9842,7 @@ foreach ($case in $cases) {
                             Add-HermesStartupLine $state (Get-ControlScopedQuerySources $extension).Whole
                             Assert-Control ($state.ScopedQueryFault.Kind -eq 0 -and $state.ScopedQueryFault.Wording -eq 0 `
                                 -and $state.ScopedQueryFault.Token -eq 0 -and $state.Protocol -eq 0)
-                            $line = $edge.Before + $entry.Prefix + 'private C:\secret S-1-5-21 .printf @@c++(@$peb->NtGlobalFlag)' + $edge.After
+                            $line = $edge.Before + $entry.Prefix + 'private C:\secret S-1-5-21 .printf @@c++(((ntdll!_PEB*)@$peb)->NtGlobalFlag)' + $edge.After
                             $expectedLexical = $edge.Lexical -bor $(if ($entry.Prefix -ceq '^ ') { 256 } else { 0 })
                             Assert-Control (-not $state.ScopedEchoes.Contains($line))
                             Add-HermesStartupLine $state $line
@@ -10078,6 +10105,134 @@ foreach ($case in $cases) {
                         }
                         Close-HermesStartupScopedInput $state $writer
                         $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                    }
+                }
+            }
+            543 {
+                # Whole-source inverses pin the complete pre-repair programs,
+                # including the unchanged first-refusal hook and action gates.
+                $driver = [IO.File]::ReadAllText($driverAst.Extent.File)
+                $priorDriver = Remove-ControlTypedQueryDelta $driver
+                $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+                    [Text.Encoding]::UTF8.GetBytes($priorDriver))).ToLowerInvariant()
+                Assert-Control ($hash -ceq 'cf287ed82be603defab86b20db9e940de74a51b77bd8cbd1e8ab078702bb470d')
+                $moduleSource = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'Native-StartupTrace.psm1'))
+                $field = '((ntdll!_PEB*)@$peb)->NtGlobalFlag'
+                Assert-Control ([regex]::Matches($moduleSource, [regex]::Escape($field)).Count -eq 7 `
+                    -and -not $moduleSource.Contains('@$peb->NtGlobalFlag', [StringComparison]::Ordinal))
+                $priorModule = $moduleSource.Replace($field, '@$peb->NtGlobalFlag')
+                $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+                    [Text.Encoding]::UTF8.GetBytes($priorModule))).ToLowerInvariant()
+                Assert-Control ($hash -ceq 'd64ba0a47075f3f5342069506188d245f6b97f95115298f01342772d295afe56')
+                $sources = Get-ControlScopedQuerySources $extension
+                $guard = '@@c++(sizeof(' + $field + ')) == 4'
+                $value = '@@c++(' + $field + ')'
+                Assert-Control ($sources.Whole.Contains($guard, [StringComparison]::Ordinal) `
+                    -and $sources.Read.Contains($value, [StringComparison]::Ordinal) `
+                    -and [regex]::Matches($sources.Whole, [regex]::Escape($field)).Count -eq 2 `
+                    -and $sources.Whole -ceq ('.catch { .if (' + $guard + ') { ' + $sources.Read +
+                        ' }; .echo HERMES_ARM_STAGE v=1 stage=2; }'))
+                $oldQuery = $sources.Whole.Replace($field, '@$peb->NtGlobalFlag')
+                $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+                    [Text.Encoding]::ASCII.GetBytes($oldQuery))).ToLowerInvariant()
+                Assert-Control ($hash -ceq '64c052dbbc805338521bc9dc8d60ffaa1b57f2c73fa5fe846df560dbd69d77a8')
+            }
+            544 {
+                $sources = Get-ControlScopedQuerySources $extension
+                $oldQuery = '.catch { .if (@@c++(sizeof(@$peb->NtGlobalFlag)) == 4) { .printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(@$peb->NtGlobalFlag); }; .echo HERMES_ARM_STAGE v=1 stage=2; }'
+                $oldRead = '.printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(@$peb->NtGlobalFlag);'
+                $entries = @(
+                    @{ Text = $oldQuery; Kind = 1; Reason = 1 },
+                    @{ Text = $oldRead; Kind = 1; Reason = 1 },
+                    @{ Text = 'unclassified .printf @@c++(@$peb->NtGlobalFlag); .echo HERMES_ARM_STAGE v=1 stage=2;'; Kind = 1; Reason = 1 },
+                    @{ Text = "Type information missing error at '$oldQuery'"; Kind = 2; Reason = 1 },
+                    @{ Text = "Syntax error at '$oldRead'"; Kind = 4; Reason = 14 },
+                    # Synthetic member-resolution failures, not the private line.
+                    @{ Text = "Type does not have requested member at 'NtGlobalFlag' in '$oldQuery'"; Kind = 1; Reason = 1 },
+                    @{ Text = "Type does not have requested member at 'NtGlobalFlag' in '$($sources.Whole)'"; Kind = 1; Reason = 1 },
+                    @{ Text = ("Type does not have requested member at 'NtGlobalFlag)) == 4) { " +
+                        $sources.Read + " }; .echo HERMES_ARM_STAGE v=1 stage=2; }'"); Kind = 1; Reason = 1 },
+                    @{ Text = "Type does not have requested member at '$($sources.Read)'"; Kind = 1; Reason = 1 },
+                    @{ Text = ('unclassified ' + $sources.Whole); Kind = 1; Reason = 1 },
+                    @{ Text = "Syntax error at '$($sources.Read)' suffix"; Kind = 1; Reason = 1 },
+                    @{ Text = $sources.Whole.Replace('ntdll!_PEB', '_PEB'); Kind = 1; Reason = 1 },
+                    @{ Text = $sources.Whole.Replace('ntdll!_PEB', 'kernel32!_PEB'); Kind = 1; Reason = 1 },
+                    @{ Text = $sources.Whole.Replace('ntdll!_PEB', 'NTDLL!_PEB'); Kind = 1; Reason = 1 },
+                    @{ Text = $sources.Whole.Replace('@$peb', '@$teb'); Kind = 1; Reason = 1 }
+                )
+                foreach ($entry in $entries) {
+                    foreach ($prompt in @('', '1:000> ')) {
+                        $state = New-ControlScopedCreated
+                        $physical = [StartupControlWriteStream]::new(0)
+                        $writer = [IO.StreamWriter]::new($physical)
+                        $debugger = [pscustomobject]@{ HasExited = $false; StandardInput = $writer }
+                        try {
+                            Invoke-ControlScopedPublisher
+                            Add-HermesStartupText $state $state.Out (
+                                "HERMES_CDB v=4 kind=7 pid=22`nLast event: 16.1: Create process 1:16`nHERMES_ARM_STAGE v=1 stage=1`n") $true
+                            Add-HermesStartupLine $state $evaluatorMasm
+                            Add-HermesStartupLine $state $sources.Whole
+                            Assert-Control ($state.Protocol -eq 0 -and $state.ScopedStages -eq 1 `
+                                -and $state.Inventory.Block.Flags -eq -1 -and -not $state.ContainsKey('FirstRefusal'))
+                            Add-HermesStartupLine $state ($prompt + $entry.Text)
+                            $first = $state.ScopedQueryFault | ConvertTo-Json -Compress
+                            Add-HermesStartupText $state $state.Out (Get-ControlScopedReadback) $true
+                            Invoke-ControlScopedPublisher
+                            $report = New-HermesStartupReport $state $false $false
+                            Assert-Control ($state.Protocol -eq 1 -and $state.ScopedFault.Reason -eq $entry.Reason `
+                                -and $state.ScopedQueryFault.Kind -eq $entry.Kind -and $state.ScopedQueryFault.Source -eq 0 `
+                                -and ($state.ScopedQueryFault | ConvertTo-Json -Compress) -ceq $first `
+                                -and $state.ScopedStages -eq 1 -and $state.Inventory.Block.Flags -eq -1 `
+                                -and $state.InputTasks.Count -eq 1 -and $physical.Writes -eq 1 `
+                                -and -not $state.Acked -and -not $state.Continued -and -not $state.Held.Released `
+                                -and $report.armingVerified -eq 0 -and $report.nativeAcceptance -eq 0 `
+                                -and $report.originalGatePassed -eq 0 -and $report.completed -eq 0 `
+                                -and ($report | ConvertTo-Json -Depth 4 -Compress) -notmatch 'NtGlobalFlag|ntdll|_PEB|requested member|\.printf|\.catch')
+                        } finally {
+                            Close-HermesStartupScopedInput $state $writer
+                            $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                        }
+                    }
+                }
+            }
+            545 {
+                # CDB may lack the target's symbols at CREATE_PROCESS. Model a
+                # caught error with no typed result; this is not native proof.
+                foreach ($diagnostic in @(
+                    'Type ntdll!_PEB not found',
+                    'Type does not have requested member at NtGlobalFlag',
+                    "Type information missing error at '@@c++(sizeof(((ntdll!_PEB*)@`$peb)->NtGlobalFlag))'",
+                    "Memory access error at '@@c++(((ntdll!_PEB*)@`$peb)->NtGlobalFlag)'",
+                    '*** ERROR: Symbols could not be loaded for ntdll.dll'
+                )) {
+                    foreach ($returned in @($false, $true)) {
+                        $state = New-ControlScopedCreated
+                        $physical = [StartupControlWriteStream]::new(0)
+                        $writer = [IO.StreamWriter]::new($physical)
+                        $debugger = [pscustomobject]@{ HasExited = $false; StandardInput = $writer }
+                        try {
+                            Invoke-ControlScopedPublisher
+                            Add-HermesStartupText $state $state.Out (
+                                "HERMES_CDB v=4 kind=7 pid=22`nLast event: 16.1: Create process 1:16`nHERMES_ARM_STAGE v=1 stage=1`n") $true
+                            Add-HermesStartupLine $state $evaluatorMasm
+                            Add-HermesStartupLine $state $diagnostic
+                            if ($returned) { Add-HermesStartupLine $state 'HERMES_ARM_STAGE v=1 stage=2' }
+                            Add-HermesStartupText $state $state.Out "HERMES_CDB v=4 kind=8 pid=22`n1:000> " $true
+                            Invoke-ControlScopedPublisher
+                            $report = New-HermesStartupReport $state $false $false
+                            Assert-Control ($null -ne $state.Arm -and $state.Arm.Flags -eq -1 -and $state.Unknown -eq 1 `
+                                -and $state.ScopedStages -eq (1 + 2 * [int]$returned) `
+                                -and (Get-HermesStartupTypedFlags $state) -eq -1 `
+                                -and -not (Test-HermesStartupScopedAction $state Target) `
+                                -and $physical.Writes -eq 1 -and $state.InputTasks.Count -eq 1 `
+                                -and -not $state.Acked -and -not $state.Continued -and -not $state.Held.Released `
+                                -and $report.armingVerified -eq 0 -and $report.completed -eq 0 `
+                                -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0 `
+                                -and ($report | ConvertTo-Json -Depth 4 -Compress) -notmatch 'NtGlobalFlag|ntdll|_PEB|requested member|\.printf')
+                        } finally {
+                            Close-HermesStartupScopedInput $state $writer
+                            $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                        }
                     }
                 }
             }
