@@ -100,6 +100,19 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-28 - Qualify the fixed deferred system-module refresh
+
+- **Changed:** A fresh author adds only `.reload /s /w ntdll.dll` after the owned event selection and before the unchanged SDK operation. The primary contract supports adding a missing system-module debugger entry in user mode. No `/f`, mismatch/cache override, wildcard, offset, target execution, stop or symbol-path change is used.
+- **Preserved authority:** Exact pinned-source echo membership admits only that line; errors and variants remain refusals. Completion is not proof of flags. Existing typed DWORD/value/bit-2, stages, current/event target and all original source/receipt/parent/501-case gates remain unchanged.
+- **Validation:** Direct production/test-diff review and parent execution pass 578 startup / 288 cipher controls, unchanged Setup contracts, workflow lint and root gates (2,198 Core, zero skips or warnings/errors). Whole-source inverses restore `581ec76`; generated program changes by one 25-byte line.
+- **Next:** Publish under autonomous approval and inspect the actual module/type/flag result in ordinary CI. No further capture or native-success claim is made from local controls.
+
+### 2026-10-28 - Establish the missing debugger module-list prerequisite
+
+- **Actual context:** Ordinary `581ec76` CI `40650314272`, installer `122688610940`, yields a valid first-fault snapshot: part 2, row 6, seen bits 7 (event/header/timestamp accepted), complete header-bearing filtered list with no `ntdll` entry, and no type/member result. The full readiness values stay unknown; this does not prove a physically unmapped DLL.
+- **Unchanged state:** Original resolver-family refusal and native 500/501 remain; both application jobs, Tray and compatibility pass. Artifact `12799905655` contains only the bounded 2,617-byte numeric report. No third capture or additional debugger query was required to locate the prerequisite.
+- **Primary contract and next decision:** Microsoft `.reload` documentation explicitly requires `/s` when adding a system module absent from a user target's module list, and says symbol data remains deferred without `/f`. A fresh author qualifies the fixed literal `.reload /s /w ntdll.dll` at the same owned stop, with no `/f`, `/i`, `/o`, wildcard, offset, target execution or query-proof relaxation. Correct typed value and all original arming/acceptance gates remain required.
+
 ### 2026-10-28 - Qualify the numeric first-failure snapshot
 
 - **Changed:** Only already-parsed readiness state is snapshotted at the first bound refusal. No new debugger command, query, stop, raw line or capture is added; successful readiness/flag facts and original verdicts are unchanged.

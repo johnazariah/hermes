@@ -239,6 +239,15 @@ function New-ScopedCreateCommands {
     $sources['startup-arm.cdb'] = (@(
         '.printf "HERMES_CDB v=4 kind=7 pid=%u\n", @$tpid',
         '.lastevent',
+        # MODULE-REGISTRATION-BEGIN
+        # Register only fixed system-module debugger metadata in this held target.
+        # /s permits system modules absent from the user-mode module list; /w is literal.
+        # No /f or /i: symbols stay deferred and mismatched PDBs stay refused.
+        # This neither loads DLL code into the target nor proves its physical mapping.
+        # Keep errors outside .catch; only the original typed read can prove flag 2.
+        # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/-reload--reload-module-
+        '.reload /s /w ntdll.dll',
+        # MODULE-REGISTRATION-END
         ('.load "' + $Extension.Replace('\', '\\') + '"'),
         '.chain',
         # A command error skips the rest of its .catch block, including its
@@ -351,7 +360,8 @@ function Publish-TraceCommands {
         foreach ($text in $sources.Values) {
             foreach ($line in ($text -split '\r?\n')) {
                 if ($line.Contains('.printf', [StringComparison]::Ordinal) `
-                    -or $line.Contains('HERMES_ARM_STAGE', [StringComparison]::Ordinal)) {
+                    -or $line.Contains('HERMES_ARM_STAGE', [StringComparison]::Ordinal) `
+                    -or $line -ceq '.reload /s /w ntdll.dll') {
                     $null = $state.ScopedEchoes.Add($line)
                 }
             }

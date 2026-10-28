@@ -2063,7 +2063,8 @@ function Add-HermesStartupScopedLine {
         }
         return
     }
-    if ($Line.Contains('.printf', [StringComparison]::Ordinal)) {
+    if ($Line.Contains('.printf', [StringComparison]::Ordinal) `
+        -or $Line.Contains('.reload', [StringComparison]::OrdinalIgnoreCase)) {
         $echo = $Line -creplace '\A[0-9]{1,3}:[0-9a-f]{3}> ', ''
         if (-not $State.ScopedEchoes.Contains($echo)) {
             # A closed display shape, not a diagnosis or a new SDK-success

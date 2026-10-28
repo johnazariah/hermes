@@ -2,6 +2,28 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Fixed system-module metadata refresh preserves the typed gate
+
+The arm program adds only `.reload /s /w ntdll.dll` after its held-target
+event selection and before the existing SDK operation. Microsoft documents
+`/s` for a system module absent from the user target's debugger list and
+deferred symbol loading without `/f`; `/w` treats the name literally.
+No wildcard, forced loading, mismatch/cache override, target DLL execution,
+process switch, offset or symbol-path change is introduced.
+
+The fixed source echo is admitted only by exact pinned-source membership.
+Variants, error text and foreign module/path forms remain refusals.
+Registration completion grants no flag or continuation authority.
+Original typed width/value, SDK stages, current/event process, owned
+receipts, target stop, parent and all five genuine-37 requirements remain.
+
+Direct source review and parent runs pass **578 startup**, **288 cipher/
+origin** controls, unchanged Setup contracts, workflow lint and root
+build/tests (**2,198 Core**, zero failures/skips or warnings/errors).
+Exact source inverses restore `581ec76`; the generated arm delta is one
+25-byte line. No C# or coverage scope changes. Actual metadata availability
+and typed arming still require ordinary-CI verification, with capture off.
+
 ## First readiness failure retains bounded numeric context
 
 The first readiness refusal now snapshots only already-parsed, source/
@@ -23,8 +45,22 @@ unchanged Setup contracts, workflow lint and root build/tests (**2,198
 Core**, zero failures/skips or warnings/errors). Tests verify first-fault
 immutability, wrong bindings, no raw-marker persistence, explicit sampling
 faults and identical original verdicts with/without observation. Saturated
-report size is 2,720 bytes within the fixed 4,096-byte cap. Actual native
-first-failure context remains to be measured with capture off.
+report size is 2,720 bytes within the fixed 4,096-byte cap.
+
+Actual ordinary CI `40650314272`, job `122688610940`, at `581ec76`
+produces available context with no sampling error: first failure is part
+2, row 6; seen bits 7 prove the matching event, timestamp and module header
+were accepted. The header-bearing filtered module list completed with
+module classification 2 (no matching entry in that debugger list), symbol
+state unknown and no type/member result. This is not proof that `ntdll`
+is unmapped in Windows. Complete readiness remains unavailable and the
+original resolver-family refusal persists. Both application hosts, Tray
+and compatibility pass; installer remains 500/501 and publish is skipped.
+
+Microsoft documents `/s` for system modules absent from the user target's
+module list. A fixed literal `.reload /s /w ntdll.dll` metadata-registration
+step is being qualified without `/f`, mismatch/cache overrides, target
+execution or changes to the original typed value/arming requirements.
 
 ## Readiness accepts only the proved benign timestamp display
 
