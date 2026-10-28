@@ -1,0 +1,83 @@
+name: Synthetic startup event correlation control
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - installer/windows/**
+      - tests/Hermes.Servicing.Acceptance/**
+      - tests/Hermes.Servicing.Acceptance.Model/**
+      - tests/Hermes.Servicing.ProcessProbe/**
+      - tests/Hermes.Servicing.Tests/CrashEvent*
+      - tests/Hermes.Servicing.Tests/StepJob*
+      - src/Hermes.Servicing/**
+      - src/Hermes.Tray/InstalledProofContract.cs
+      - src/Hermes.Tray/OwnerFixture.cs
+      - Directory.*
+      - global.json
+      - NuGet.Config
+      - .config/**
+      - .github/workflows/startup-crash-event-control.yml
+      - .github/workflows/startup-crash-control.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  installer:
+    if: github.repository == 'johnazariah/hermes' && github.server_url == 'https://github.com' && github.event.repository.private == false
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - name: Portable controls (not native filtering or deadline proof)
+        shell: pwsh
+        timeout-minutes: 3
+        run: |
+          ./installer/windows/Test-CrashControl.ps1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          ./installer/windows/Test-StartupEventSchema.ps1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          ./installer/windows/Test-CrashEventControl.ps1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Fresh current-source private publication
+        shell: pwsh
+        timeout-minutes: 20
+        run: ./installer/windows/Publish-CrashControl.ps1
+      - name: Fixed metadata-only publication in this actual installer job
+        shell: pwsh
+        timeout-minutes: 2
+        run: |
+          $ErrorActionPreference = 'Stop'
+          trap { [Console]::Out.WriteLine('HERMES_CRASH_EVENT_SCHEMA_STEP v=1 status=1'); exit 1 }
+          Import-Module ./installer/windows/Crash-Event-Control.psm1 -Force -DisableNameChecking
+          Invoke-HermesCrashEventSchemaPublication
+      - name: Fixed synthetic correlation under worker deadline and private kernel job
+        id: control
+        shell: pwsh
+        # Armed by the worker BEFORE wrapper entry, BeginCurrentStep or Start.
+        # No cooperative token/stopwatch claims to interrupt synchronous calls.
+        timeout-minutes: 2
+        run: |
+          if ($env:GITHUB_EVENT_NAME -ceq 'workflow_dispatch') {
+            ./installer/windows/Invoke-CrashEventControl.ps1 -OwnedPresence
+          } else {
+            ./installer/windows/Invoke-CrashEventControl.ps1
+          }
+      - name: Validated bounded facts only (not original or native acceptance)
+        if: success() && steps.control.outcome == 'success' && steps.control.outputs.published == '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: startup-crash-event-control
+          path: |
+            .artifacts/installer-evidence/event-correlation.json
+            .artifacts/installer-evidence/startup-crash-control.json
+            .artifacts/installer-evidence/startup-event-schema.json
+          if-no-files-found: error
+          retention-days: 3

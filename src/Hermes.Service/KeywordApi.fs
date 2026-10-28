@@ -5,6 +5,7 @@ open System.Text.Json
 open Microsoft.AspNetCore.Http
 open Microsoft.Extensions.Primitives
 open Hermes.Core
+open Hermes.Core.LocalAccess
 
 /// Read-only keyword transport adapters; no providers or archive reads.
 [<RequireQualifiedAccess>]
@@ -16,38 +17,16 @@ module internal KeywordApi =
     let private optional (value: string) =
         if String.IsNullOrWhiteSpace value then None else Some value
 
-    let private limit (context: HttpContext) =
-        let values = context.Request.Query["limit"]
-        if not (context.Request.Query.ContainsKey("limit")) then Ok 50
-        elif values.Count <> 1 then Error "limit must occur at most once"
-        else
-            match Int32.TryParse(values.ToString()) with
-            | true, count when count > 0 -> Ok count
-            | _ -> Error "limit must be a positive 32-bit integer"
-
-    let private filter (context: HttpContext) count =
-        { Search.defaultFilter (context.Request.Query["q"].ToString()) with
-            Category = context.Request.Query["category"].ToString() |> optional
-            Sender = context.Request.Query["sender"].ToString() |> optional
-            DateFrom = context.Request.Query["dateFrom"].ToString() |> optional
-            DateTo = context.Request.Query["dateTo"].ToString() |> optional
-            Account = context.Request.Query["account"].ToString() |> optional
-            SourceType = context.Request.Query["sourceType"].ToString() |> optional
-            Limit = count }
-
-    let private requested (context: HttpContext) =
-        let values = context.Request.Query["mode"]
-        let selected =
-            if values.Count > 1 then Error "mode must occur at most once"
-            else SearchContract.parseMode (
-                if context.Request.Query.ContainsKey("mode") then Some(values.ToString()) else None)
-        selected
-        |> Result.bind (fun mode ->
-            limit context |> Result.map (fun count ->
-                let request: SearchContract.Request =
-                    { Mode = mode; Filter = filter context count }
-                request))
-        |> Result.mapError SearchContract.InvalidRequest
+    let private requested
+        (context: HttpContext) : Result<SearchContract.Request, HttpAccessFailure> =
+        HttpAccessPolicy.preparsed context
+        |> Result.bind (fun prepared ->
+            match prepared.Request, prepared.Policy with
+            | InteractiveRequest.Search request, ModelWorkPolicy.ArchiveOnly
+                when request.Mode = SearchContract.Keyword -> Ok request
+            | InteractiveRequest.Search request, ModelWorkPolicy.InvokeModel ModelOperation.Search
+                when request.Mode <> SearchContract.Keyword -> Ok request
+            | _ -> Error(HttpAccessFailure.Domain AccessError.AccessUnavailable))
 
     let private reject failure =
         Results.Json(SearchWire.failureDto failure, statusCode = SearchContract.httpStatus failure)
@@ -71,9 +50,17 @@ module internal KeywordApi =
                 |> Result.defaultWith reject
         }
 
-    let searchWithEncoder db encoder context =
+    let private rejectPreparation (_: HttpAccessFailure) : System.Threading.Tasks.Task<IResult> =
+        Results.Json(
+            {| error = "access_unavailable"; message = "Prepared search request is unavailable." |},
+            statusCode = StatusCodes.Status503ServiceUnavailable)
+        |> System.Threading.Tasks.Task.FromResult
+
+    let searchWithEncoder
+        (db: Algebra.Database) (encoder: Algebra.EmbeddingClient option)
+        (context: HttpContext) : System.Threading.Tasks.Task<IResult> =
         requested context |> Result.map (execute db encoder context)
-        |> Result.defaultWith (reject >> System.Threading.Tasks.Task.FromResult)
+        |> Result.defaultWith rejectPreparation
 
     let search db context = searchWithEncoder db None context
 

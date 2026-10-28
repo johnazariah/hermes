@@ -26,9 +26,9 @@ internal sealed class TrayApplicationContext : ApplicationContext, IServiceObser
         _options = options;
         _log = new JsonServiceLog(options);
         _external = new GuardedExternalOpener(options, new ShellExternalLauncher(), _log, this);
-        _window = new(options, _external);
         _service = new(options, new NativeProcessLauncher(_log), _health,
             new ServiceClock(), _log, this, LifecyclePolicy.Default);
+        _window = new(options, _external, _service, _log);
         _notify = new NotifyIcon
         {
             Icon = _unhealthy, Text = "Hermes — Starting", Visible = true,
@@ -138,7 +138,10 @@ internal sealed class TrayApplicationContext : ApplicationContext, IServiceObser
     {
         Application.Idle -= Start;
         _lifetime.Cancel();
-        try { await Task.WhenAll(_worker, _open); }
+        try
+        {
+            await Task.WhenAll(_worker, _open, _window.StopAccessAsync(CancellationToken.None));
+        }
         catch (Exception error)
         {
             Environment.ExitCode = 1;

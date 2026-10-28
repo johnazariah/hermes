@@ -6,6 +6,8 @@ import { useTheme } from "../../hooks/theme-context";
 import { CommandPalette } from "../CommandPalette";
 import type { IndexStats } from "../../types/hermes";
 import { request } from "../../api/http";
+import { useAccess } from "../../hooks/useAccess";
+import { AccessPanel } from "../AccessPanel";
 
 interface NavItemProps {
     to: string;
@@ -39,6 +41,7 @@ function NavItem({ to, icon, label, badge }: NavItemProps) {
 }
 
 export function AppShell() {
+    const access = useAccess();
     const { theme, toggleTheme } = useTheme();
     const navigate = useNavigate();
 
@@ -60,6 +63,7 @@ export function AppShell() {
     // First-run redirect: if no accounts and no preferences, send to onboarding
     const { data: accounts, error: accountsError } = useQuery<{ account: string }[]>({
         queryKey: ["sync-accounts-onboard"],
+        enabled: access.can('config.read'),
         queryFn: async () => {
             const res = await request("/api/sync/accounts");
             return res.json();
@@ -69,6 +73,7 @@ export function AppShell() {
 
     const { data: preferences, error: preferencesError } = useQuery<string>({
         queryKey: ["preferences-onboard"],
+        enabled: access.can('config.read'),
         queryFn: async () => {
             const res = await request("/api/preferences");
             return res.text();
@@ -77,7 +82,7 @@ export function AppShell() {
     });
 
     useEffect(() => {
-        if (accounts === undefined || preferences === undefined) return;
+        if (!access.can('config.read') || accountsError || preferencesError || accounts === undefined || preferences === undefined) return;
         const alreadyOnboarded = localStorage.getItem("hermes-onboarded");
         if (alreadyOnboarded) return;
 
@@ -88,7 +93,7 @@ export function AppShell() {
         } else {
             localStorage.setItem("hermes-onboarded", "true");
         }
-    }, [accounts, preferences, navigate]);
+    }, [accounts, preferences, navigate, access, accountsError, preferencesError]);
 
     const pendingSuggestions = suggestions?.length ?? 0;
     const total = stats?.documentCount ?? 0;
@@ -168,6 +173,7 @@ export function AppShell() {
             {/* Main content */}
             <main className="ml-56 flex-1 min-h-screen">
                 <div className="max-w-[1400px] mx-auto px-6 py-6">
+                    <AccessPanel />
                     {(statsError || suggestionsError || accountsError || preferencesError) &&
                       <p role="alert">Service data unavailable: {(statsError || suggestionsError || accountsError || preferencesError)?.message}</p>}
                     <Outlet />

@@ -1,10 +1,70 @@
-<Project Sdk="WixToolset.Sdk/6.0.0">
+<Project>
+  <Import Project="Sdk.props" Sdk="WixToolset.Sdk" Version="6.0.0" />
 
   <PropertyGroup>
     <InstallerPlatform>x64</InstallerPlatform>
     <OutputType>Package</OutputType>
-    <SuppressValidation>true</SuppressValidation>
-    <DefineConstants>PublishDir=$(MSBuildThisFileDirectory)publish\</DefineConstants>
+    <HermesPackageVersion Condition="'$(HermesPackageVersion)' == ''">0.1.0</HermesPackageVersion>
+    <HermesPayloadDir Condition="'$(HermesPayloadDir)' == ''">$(MSBuildThisFileDirectory)publish</HermesPayloadDir>
+    <HermesGeneratedDir Condition="'$(HermesGeneratedDir)' == ''">$(MSBuildThisFileDirectory)obj/generated</HermesGeneratedDir>
+    <HermesIdentityPath>$(HermesGeneratedDir)/build-identity.json</HermesIdentityPath>
+    <HermesManifestPath>$(HermesGeneratedDir)/payload-inventory.json</HermesManifestPath>
+    <HermesGuardPath Condition="'$(HermesGuardPath)' == ''">$(MSBuildThisFileDirectory)Hermes.Installer.Guard/bin/Release/net9.0-windows/win-x64/publish/Hermes.Installer.Guard.dll</HermesGuardPath>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <!-- WiX 6 otherwise hardlinks the validated intermediate MSI into OutDir. -->
+    <CreateHardLinksForCopyFilesToOutputDirectoryIfPossible>false</CreateHardLinksForCopyFilesToOutputDirectoryIfPossible>
+    <CreateSymbolicLinksForCopyFilesToOutputDirectoryIfPossible>false</CreateSymbolicLinksForCopyFilesToOutputDirectoryIfPossible>
+    <DefineConstants>$(DefineConstants);PublishDir=$(HermesPayloadDir);HermesPackageVersion=$(HermesPackageVersion);HermesProductCode=$(HermesProductCode);HermesPackageCode=$(HermesPackageCode);HermesManifestPath=$(HermesManifestPath);HermesGuardPath=$(HermesGuardPath)</DefineConstants>
   </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Package.wxs" />
+    <Compile Include="$(HermesGeneratedDir)/Payload.wxs" />
+  </ItemGroup>
+
+  <Target Name="ValidateHermesCopyPolicy" BeforeTargets="PrepareForBuild;CoreCompile;CopyFilesToOutputDirectory">
+    <Error Condition="'$(CreateHardLinksForCopyFilesToOutputDirectoryIfPossible)' != 'false' Or '$(CreateSymbolicLinksForCopyFilesToOutputDirectoryIfPossible)' != 'false'"
+           Text="Published MSI outputs must be independent regular files, never hardlinks or symbolic links." />
+  </Target>
+
+  <Target Name="ValidateHermesPayload" BeforeTargets="PrepareForBuild;CoreCompile">
+    <Error Condition="'$(OS)' != 'Windows_NT'" Text="The Windows installer must be built and validated on Windows." />
+    <Error Condition="'$(SuppressValidation)' == 'true' Or '$(SuppressIces)' != '' Or '$(Ices)' != ''"
+           Text="Hermes packaging requires the complete normal Windows Installer validation set without ICE suppression." />
+    <Error Condition="'$(SuppressAllWarnings)' == 'true' Or '$(SuppressSpecificWarnings)' != '' Or '$(TreatWarningsAsErrors)' != 'true' Or '$(ValidationAdditionalOptions)' != '' Or '$(AdditionalCub)' != ''"
+           Text="Compiler warnings must remain errors; native validation uses only its complete default ICE set and exact checked warning policy." />
+    <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(HermesPackageVersion)', '^[0-9]+\.[0-9]+\.[0-9]+$'))"
+           Text="HermesPackageVersion must be a three-part numeric MSI version." />
+    <Error Condition="'$(HermesInventoryDir)' == ''"
+           Text="Supply HermesInventoryDir containing SDK-resolved service.publish.txt and tray.publish.txt outside the payload." />
+    <Error Condition="'$(HermesServicingBuildPath)' == '' Or !Exists('$(HermesServicingBuildPath)')"
+           Text="Supply the independently prepared native-guard/compiled-Setup build record; MSI-derived guard trust is not accepted." />
+    <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(HermesExpectedGuardSha256)', '\A[0-9a-f]{64}\z'))"
+           Text="Supply the canonical independently built native guard SHA-256 fingerprint." />
+    <Error Condition="!Exists('$(HermesGuardPath)')" Text="Publish the actual x64 NativeAOT Hermes.Installer.Guard.dll on the dedicated hosted Windows runner before packaging." />
+    <Exec Command="pwsh -NoProfile -File &quot;$(MSBuildThisFileDirectory)Write-BuildIdentity.ps1&quot; -ProductCode &quot;$(HermesProductCode)&quot; -PackageCode &quot;$(HermesPackageCode)&quot; -Version &quot;$(HermesPackageVersion)&quot; -OutputPath &quot;$(HermesIdentityPath)&quot;" />
+    <Exec Command="node &quot;$(MSBuildThisFileDirectory)payload.mjs&quot; generate &quot;$(HermesPayloadDir)&quot; &quot;$(HermesInventoryDir)&quot; &quot;$(HermesGeneratedDir)&quot; &quot;$(HermesIdentityPath)&quot;" />
+    <Exec Command="pwsh -NoProfile -File &quot;$(MSBuildThisFileDirectory)Validate-PackageConstruction.ps1&quot; -ServicingBuildPath &quot;$(HermesServicingBuildPath)&quot; -GuardPath &quot;$(HermesGuardPath)&quot; -ExpectedGuardSha256 &quot;$(HermesExpectedGuardSha256)&quot; -ManifestPath &quot;$(HermesManifestPath)&quot; -PayloadDirectory &quot;$(HermesPayloadDir)&quot;" />
+  </Target>
+
+  <!-- WiX 6 generates summary PID_REVNUMBER; set the selected build GUID before
+       its normal ICE validation, never after validation or after signing. -->
+  <Target Name="FinalizeHermesPackageCode" BeforeTargets="WindowsInstallerValidation" DependsOnTargets="CoreCompile">
+    <Exec StandardOutputImportance="High" StandardErrorImportance="High"
+          Command="pwsh -NoProfile -File &quot;$(MSBuildThisFileDirectory)Finalize-PackageIdentity.ps1&quot; -PackagePath &quot;$(IntermediateOutputPath)%(CultureGroup.OutputFolder)$(TargetFileName)&quot; -ManifestPath &quot;$(HermesManifestPath)&quot; -IdentityPath &quot;$(HermesIdentityPath)&quot;" />
+  </Target>
+
+  <Import Project="Sdk.targets" Sdk="WixToolset.Sdk" Version="6.0.0" />
+
+  <!-- Use the pinned SDK's complete normal validator, with no ICE or diagnostic
+       suppression. WixBinDir is only a candidate: the wrapper authenticates its
+       complete validator closure against the independently pinned SDK archive.
+       Compiler warnings still fail normally. -->
+  <Target Name="WindowsInstallerValidation" DependsOnTargets="CoreCompile">
+    <Exec StandardOutputImportance="High" StandardErrorImportance="High"
+          Command="pwsh -NoProfile -File &quot;$(MSBuildThisFileDirectory)Test-PackageIceInputs.ps1&quot; -PackagePath &quot;$(IntermediateOutputPath)%(CultureGroup.OutputFolder)$(TargetFileName)&quot; -ManifestPath &quot;$(HermesManifestPath)&quot; -WixPath &quot;$(WixBinDir)wix.dll&quot; -WixpdbPath &quot;$(IntermediateOutputPath)%(CultureGroup.OutputFolder)$(TargetPdbFileName)&quot; -IntermediateDirectory &quot;$(IntermediateOutputPath)%(CultureGroup.OutputFolder).&quot;" />
+    <Exec StandardOutputImportance="High" StandardErrorImportance="High"
+          IgnoreStandardErrorWarningFormat="true"
+          Command="pwsh -NoProfile -File &quot;$(MSBuildThisFileDirectory)Validate-PackageIce.ps1&quot; -PackagePath &quot;$(IntermediateOutputPath)%(CultureGroup.OutputFolder)$(TargetFileName)&quot; -ManifestPath &quot;$(HermesManifestPath)&quot; -WixPath &quot;$(WixBinDir)wix.dll&quot; -WixpdbPath &quot;$(IntermediateOutputPath)%(CultureGroup.OutputFolder)$(TargetPdbFileName)&quot; -IntermediateDirectory &quot;$(IntermediateOutputPath)%(CultureGroup.OutputFolder).&quot;" />
+  </Target>
 
 </Project>

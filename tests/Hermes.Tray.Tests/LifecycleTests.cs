@@ -243,10 +243,14 @@ internal sealed class FakeLauncher : IProcessLauncher
     }
 }
 
-internal sealed class FakeProcess(int id, bool shutdownWorks) : IOwnedProcess
+internal sealed class FakeProcess(int id, bool shutdownWorks)
+    : IOwnedProcess, Hermes.Tray.Access.IAccessProcessHandle
 {
     private readonly TaskCompletionSource _exit = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public int Id { get; } = id;
+    public Hermes.Tray.Access.OwnerProcessIdentity Identity { get; } =
+        new(id, AccessFixture.Now.AddMinutes(-1));
+    public bool IsAlive => !HasExited && !Disposed;
     public bool HasExited => _exit.Task.IsCompleted;
     public int? ExitCode { get; private set; }
     public int ShutdownRequests { get; private set; }

@@ -148,10 +148,20 @@ internal sealed class HttpHealthProbe : IHealthProbe, IHealthDiagnostics, IDispo
         int? StatusCode = null, string? Failure = null);
 }
 
-internal sealed class NativeProcessLauncher(IServiceLog log) : IProcessLauncher
+internal sealed class NativeProcessLauncher(
+    IServiceLog log,
+    Func<ProcessStartInfo, IServiceLog, IOwnedProcess>? start = null) : IProcessLauncher
 {
-    public IOwnedProcess Start(TrayOptions options) =>
-        NativeOwnedProcess.Start(CreateStartInfo(options), log);
+    private readonly Func<ProcessStartInfo, IServiceLog, IOwnedProcess> _start =
+        start ?? NativeOwnedProcess.Start;
+
+    public IOwnedProcess Start(TrayOptions options)
+    {
+        var startup = options.Startup
+            ?? throw new InvalidOperationException("Service launch requires startup admission.");
+        var selected = options.ForStartup(startup);
+        return _start(CreateStartInfo(selected), log);
+    }
 
     internal static ProcessStartInfo CreateStartInfo(TrayOptions options)
     {
@@ -184,9 +194,10 @@ internal sealed class NativeProcessLauncher(IServiceLog log) : IProcessLauncher
     }
 }
 
-internal sealed class NativeOwnedProcess : IOwnedProcess
+internal sealed class NativeOwnedProcess : IOwnedProcess, Hermes.Tray.Access.IAccessProcessHandle
 {
     private readonly Process _process;
+    private readonly Hermes.Tray.Access.LaunchedAccessProcess _accessProcess;
     private readonly IServiceLog _log;
     private readonly CancellationTokenSource _drainCancellation = new();
     private readonly Task _stdout;
@@ -196,11 +207,15 @@ internal sealed class NativeOwnedProcess : IOwnedProcess
     private NativeOwnedProcess(Process process, IServiceLog log)
     {
         (_process, _log) = (process, log);
+        _accessProcess = new(process);
         _stdout = DrainAsync(process.StandardOutput, OutputStream.StandardOutput, _drainCancellation.Token);
         _stderr = DrainAsync(process.StandardError, OutputStream.StandardError, _drainCancellation.Token);
     }
 
     public int Id => _process.Id;
+    Hermes.Tray.Access.OwnerProcessIdentity Hermes.Tray.Access.IAccessProcessHandle.Identity =>
+        _accessProcess.Identity;
+    bool Hermes.Tray.Access.IAccessProcessHandle.IsAlive => _accessProcess.IsAlive;
     public bool HasExited => _process.HasExited;
     public int? ExitCode => HasExited ? _process.ExitCode : null;
 

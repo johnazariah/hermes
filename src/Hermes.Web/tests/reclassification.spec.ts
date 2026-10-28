@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { unlock } from "./owner";
 
 const BASE = process.env.HERMES_WEB_BASE_URL ?? "http://localhost:21742";
 
@@ -63,6 +64,10 @@ async function mockDocumentsApi(
     await page.route("**/api/**", async (route) => {
         const request = route.request();
         const url = new URL(request.url());
+        if (url.pathname.startsWith('/api/access')) {
+            await route.continue();
+            return;
+        }
         if (!url.pathname.startsWith("/api/")) {
             await route.continue();
             return;
@@ -188,6 +193,7 @@ test.describe("document reclassification", () => {
             },
         });
         await page.goto(`${BASE}/documents`);
+        await unlock(page);
         await selectDocuments(page, [1]);
         const readsBeforeMutation = state.documentReads;
 
@@ -230,6 +236,7 @@ test.describe("document reclassification", () => {
             },
         });
         await page.goto(`${BASE}/documents`);
+        await unlock(page);
         await selectDocuments(page, [1]);
         const readsBeforeMutation = state.documentReads;
 
@@ -299,6 +306,7 @@ test.describe("document reclassification", () => {
             },
         });
         await page.goto(`${BASE}/documents`);
+        await unlock(page);
         await selectDocuments(page, [1, 2, 3]);
 
         await page.getByLabel("Category:").fill("receipts");
@@ -323,6 +331,7 @@ test.describe("document reclassification", () => {
             },
         });
         await page.goto(`${BASE}/documents`);
+        await unlock(page);
         await selectDocuments(page, [1]);
 
         await page.getByLabel("Category:").fill("receipts");
@@ -345,6 +354,7 @@ test.describe("document reclassification", () => {
             successError: "Archive database is read-only",
         });
         await page.goto(`${BASE}/documents`);
+        await unlock(page);
         await selectDocuments(page, [1]);
 
         await page.getByLabel("Category:").fill("receipts");
@@ -387,6 +397,7 @@ test.describe("document reclassification", () => {
             },
         });
         await page.goto(`${BASE}/documents`);
+        await unlock(page);
         await expect(
             page.getByRole("button", { name: "Reclassify" }),
         ).toHaveCount(0);
@@ -438,6 +449,7 @@ test.describe("document reclassification", () => {
             },
         });
         await page.goto(`${BASE}/documents`);
+        await unlock(page);
         await selectDocuments(page, [1]);
 
         await page.getByLabel("Category:").fill("receipts");
@@ -498,6 +510,7 @@ test.describe("document reclassification", () => {
             },
         });
         await page.goto(`${BASE}/documents?tag=receipts`);
+        await unlock(page);
         await page.getByRole("button", { name: /^invoices/ }).click();
         await expect(page).toHaveURL(`${BASE}/documents?tag=invoices`);
         await selectDocuments(page, [1]);
@@ -561,6 +574,7 @@ test.describe("document reclassification", () => {
             },
         });
         await page.goto(`${BASE}/documents?tag=receipts`);
+        await unlock(page);
         await page.getByRole("button", { name: /^invoices/ }).click();
         await expect(page).toHaveURL(`${BASE}/documents?tag=invoices`);
         await selectDocuments(page, [1]);

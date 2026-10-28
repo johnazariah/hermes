@@ -46,8 +46,15 @@ module ServiceEntry =
             execution |> ReindexOutput.serialize |> writeJson
             execution.ExitCode
 
-    let run arguments startService =
+    /// Both factories remain lazy: owner selection precedes ordinary context construction.
+    let runEarlyWith settings createOwner write ordinary arguments cancellation =
+        OwnerUiCommand.runWith settings createOwner write ordinary arguments cancellation
+
+    let private runOrdinary arguments startService =
         runWith
             (localContext Interpreters.realFileSystem Interpreters.systemEnvironment)
             (fun message -> Console.Out.WriteLine(message))
             startService arguments
+
+    let run arguments startService =
+        OwnerUiCommand.run arguments (fun selected -> runOrdinary selected startService)

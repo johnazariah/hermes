@@ -12,6 +12,20 @@
     <NoWarn>MSB3277</NoWarn>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../Hermes.Servicing/Hermes.Servicing.csproj" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3912.50" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- These sources execute inside the installed Tray assembly, not a test host. -->
+    <Compile Include="../../tests/Hermes.Tray.Smoke/SmokeContext.cs" Link="Diagnostics/SmokeContext.cs" />
+    <Compile Include="../../tests/Hermes.Tray.Smoke/SmokeOwnershipOracle.cs" Link="Diagnostics/SmokeOwnershipOracle.cs" />
+    <Compile Include="../../tests/Hermes.Tray.Smoke/SmokeSettings.cs" Link="Diagnostics/SmokeSettings.cs" />
+    <Compile Include="../../tests/Hermes.Tray.Smoke/ReactProof.cs" Link="Diagnostics/ReactProof.cs" />
+    <Compile Include="../../tests/Hermes.Tray.Smoke/NativeAuthenticationProof.cs"
+             Link="Diagnostics/NativeAuthenticationProof.cs" />
+  </ItemGroup>
+  <PropertyGroup>
+    <!-- Diagnostic source identity requires the actual installed managed DLL. -->
+    <PublishSingleFile>false</PublishSingleFile>
+  </PropertyGroup>
 </Project>

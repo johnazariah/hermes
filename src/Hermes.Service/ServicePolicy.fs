@@ -18,6 +18,10 @@ module ServicePolicy =
             | true, parsed when parsed > 0 && parsed <= 65535 -> Ok parsed
             | _ -> Error "HERMES_PORT must be between 1 and 65535"
 
+    /// The service and early owner commands select the same environment port.
+    let selectPort (value: string | null) : Result<int, string> =
+        value |> Option.ofObj |> port
+
     let private enabled = function
         | None | Some "" | Some "false" -> Ok false
         | Some "true" -> Ok true
@@ -26,7 +30,7 @@ module ServicePolicy =
     /// Environment access is injected; no config files or token values are logged.
     let load (get: string -> string | null) =
         let setting name = get name |> Option.ofObj
-        port (setting "HERMES_PORT")
+        selectPort (get "HERMES_PORT")
         |> Result.bind (fun selectedPort ->
             enabled (setting "HERMES_MCP_MUTATIONS")
             |> Result.bind (fun mutations ->

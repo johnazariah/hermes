@@ -2,12 +2,15 @@ import { useEffect, useRef, useState } from "react";
 import { Command } from "cmdk";
 import { useNavigate } from "react-router-dom";
 import { triggerSync } from "../api/hermes";
+import { useAccess } from "../hooks/useAccess";
+import { UnlockReason } from "./AccessPanel";
 
 type SyncFeedback =
     | { status: "idle" }
     | { status: "pending" | "accepted" | "failed"; message: string };
 
 export function CommandPalette() {
+    const access = useAccess();
     const [open, setOpen] = useState(false);
     const [sync, setSync] = useState<SyncFeedback>({ status: "idle" });
     const syncPending = useRef(false);
@@ -30,7 +33,7 @@ export function CommandPalette() {
     };
 
     const handleSync = async () => {
-        if (syncPending.current) return;
+        if (syncPending.current || !access.can('mutate')) return;
         syncPending.current = true;
         setSync({ status: "pending", message: "Queuing email sync…" });
         try {
@@ -110,16 +113,17 @@ export function CommandPalette() {
                             heading="Actions"
                             className="text-xs text-neutral-500 px-2 py-1.5 font-medium"
                         >
+                            {!access.can('mutate') && <UnlockReason />}
                             <Command.Item
                                 onSelect={handleSync}
-                                disabled={sync.status === "pending"}
+                                disabled={!access.can('mutate') || sync.status === "pending"}
                                 aria-busy={sync.status === "pending"}
                                 className="px-3 py-2 text-sm rounded-lg cursor-pointer text-neutral-200 dark:text-neutral-200 text-neutral-800 data-[selected=true]:bg-neutral-800 dark:data-[selected=true]:bg-neutral-800 data-[selected=true]:bg-neutral-100"
                             >
                                 📨 Sync email now
                             </Command.Item>
                             <Command.Item
-                                onSelect={() => go("/")}
+                                onSelect={() => go("/pipeline")}
                                 className="px-3 py-2 text-sm rounded-lg cursor-pointer text-neutral-200 dark:text-neutral-200 text-neutral-800 data-[selected=true]:bg-neutral-800 dark:data-[selected=true]:bg-neutral-800 data-[selected=true]:bg-neutral-100"
                             >
                                 📊 Show pipeline status

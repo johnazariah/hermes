@@ -1,15 +1,27 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readChat, type ChatEvent } from '../../src/api/chat.ts';
+import { readChat, sourceTitle, type ChatEvent } from '../../src/api/chat.ts';
 
 const source = {
-  documentId: 7, resultType: 'document', savedPath: 'synthetic/payslip.pdf',
+  documentId: 7, resultType: 'document' as const, savedPath: 'synthetic/payslip.pdf',
   originalName: 'Synthetic payslip', subject: null, category: 'payslips',
   sender: null, snippet: null, extractedAmount: 42,
   emailDate: null, extractedVendor: 'Synthetic Employer', relevanceScore: -1,
 };
 const results = `event: results\ndata: ${JSON.stringify({ results: [source] })}\n\n`;
 const done = 'event: done\ndata: {}\n\n';
+
+test('source titles skip empty names without changing email/document identity or provenance', () => {
+  const email = { ...source, resultType: 'email' as const, savedPath: '', originalName: '',
+    subject: 'Synthetic email subject' };
+  const before = { ...email };
+  assert.equal(sourceTitle(email), 'Synthetic email subject');
+  assert.equal(sourceTitle({ ...email, originalName: '   ' }), 'Synthetic email subject');
+  assert.equal(sourceTitle({ ...email, subject: ' ' }), 'Email 7');
+  assert.equal(sourceTitle({ ...source, originalName: null, subject: null }), 'Document 7');
+  assert.equal(sourceTitle({ ...email, savedPath: 'synthetic/email.txt', originalName: 'actual-file.txt' }), 'actual-file.txt');
+  assert.deepEqual(email, before);
+});
 
 function stream(chunks: Uint8Array[]): ReadableStream<Uint8Array> {
   return new ReadableStream({

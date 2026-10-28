@@ -9,8 +9,8 @@
     <NoWarn>MSB3277</NoWarn>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="../Hermes.Tray.Smoke/SmokeOwnershipOracle.cs" Link="Smoke/SmokeOwnershipOracle.cs" />
     <ProjectReference Include="../../src/Hermes.Tray/Hermes.Tray.csproj" />
+    <Compile Include="../Hermes.Tray.Smoke/SmokeEntry.cs" Link="SmokeEntry/SmokeEntry.cs" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">

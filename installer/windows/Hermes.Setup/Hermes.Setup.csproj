@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>false</PublishSingleFile>
+    <PublishTrimmed>false</PublishTrimmed>
+    <IsPackable>false</IsPackable>
+    <IsPublishable>true</IsPublishable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../src/Hermes.Servicing/Hermes.Servicing.csproj" />
+    <ProjectReference Include="../Hermes.Installer.Control/Hermes.Installer.Control.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(HermesApprovedGuardSha256)' != ''">
+    <AssemblyMetadata Include="HermesApprovedGuardSha256"
+                      Value="$(HermesApprovedGuardSha256)" />
+  </ItemGroup>
+  <Target Name="RequireApprovedHermesGuard"
+          BeforeTargets="PrepareForPublish;Publish">
+    <Error Condition="'$(HermesApprovedGuardSha256)' == ''"
+           Text="Setup publication requires independently verified native guard build/release SHA-256 inputs in HermesApprovedGuardSha256." />
+    <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(HermesApprovedGuardSha256)', '\A[0-9a-f]{64}(;[0-9a-f]{64})*\z'))"
+           Text="HermesApprovedGuardSha256 must contain semicolon-separated canonical lowercase SHA-256 values." />
+  </Target>
+</Project>

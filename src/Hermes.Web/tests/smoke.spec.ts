@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { unlock } from './owner';
 
 const browserErrors = new WeakMap<Page, string[]>();
 test.beforeEach(async ({ page }) => {
@@ -62,6 +63,8 @@ test('real pipeline stage controls display real Service counts and document rows
 
 test('chat consumes actual Service results optional answer and done', async ({ page }) => {
   await page.goto('/chat');
+  await unlock(page);
+  await page.getByRole('checkbox', { name: 'Enable AI answer' }).check();
   await page.getByPlaceholder('Ask about your documents...').fill('quartz');
   const request = page.waitForRequest(value => value.url().endsWith('/api/chat') && value.method() === 'POST');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
@@ -75,12 +78,16 @@ test('chat consumes actual Service results optional answer and done', async ({ p
 
 test('preferences persist through the real settings API', async ({ page, request }) => {
   await page.goto('/settings');
+  await unlock(page);
   const preferences = page.locator('textarea').first();
   await expect(preferences).toHaveValue('Synthetic browser smoke preferences');
   await preferences.fill('Synthetic browser smoke preferences updated');
   await page.getByRole('button', { name: 'Save', exact: true }).first().click();
   await expect(page.getByRole('status')).toHaveText('Preferences saved.');
-  expect(await (await request.get('/api/preferences')).text()).toBe('Synthetic browser smoke preferences updated');
+  expect((await request.get('/api/preferences')).status()).toBe(401);
+  await page.reload();
+  await unlock(page);
+  await expect(page.locator('textarea').first()).toHaveValue('Synthetic browser smoke preferences updated');
 });
 
 test('theme toggling changes the mounted app and survives reload', async ({ page }) => {

@@ -7,23 +7,35 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Hermes.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Include="Lifetime.fs" />
     <Compile Include="LocalBoundary.fs" />
+    <Compile Include="HttpAccessPolicy.fs" />
+    <Compile Include="HttpRequestLifetime.fs" />
+    <Compile Include="LocalAccessHttp.fs" />
+    <Compile Include="OwnerAccessAdapter.fs" />
     <Compile Include="ServicePolicy.fs" />
     <Compile Include="CanonicalUi.fs" />
+    <Compile Include="ServiceAccessHost.fs" />
     <Compile Include="PersistedApi.fs" />
     <Compile Include="KeywordApi.fs" />
     <Compile Include="ReindexCommand.fs" />
     <Compile Include="ReindexOutput.fs" />
     <Compile Include="ReindexOperator.fs" />
+    <Compile Include="OwnerUiCommand.fs" />
     <Compile Include="ServiceEntry.fs" />
     <Compile Include="ApiServer.fs" />
     <Compile Include="SleepGuard.fs" />
+    <Compile Include="StartupAdmission.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Hermes.Core\Hermes.Core.fsproj" />
+    <ProjectReference Include="..\Hermes.Servicing\Hermes.Servicing.csproj" />
   </ItemGroup>
 
   <ItemGroup>

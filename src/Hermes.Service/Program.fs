@@ -12,40 +12,141 @@ open Microsoft.AspNetCore.Http
 open Hermes.Core
 open Serilog.Events
 
-type private RunningService =
-    { App: WebApplication
+type private ServiceComponents =
+    { Db: Algebra.Database
+      ReflowDb: Algebra.Database
+      Fs: Algebra.FileSystem
       Logger: Algebra.Logger
-      Cancellation: CancellationTokenSource
-      Producers: ProducerLoop.Handle
-      Workers: Task list
-      Db: Algebra.Database
-      ReflowDb: Algebra.Database }
+      Clock: Algebra.Clock
+      Config: Domain.HermesConfig
+      ConfigDirectory: string
+      Dag: PipelineV5.Dag
+      Gpu: PipelineV5.GpuScheduler
+      Embedder: Algebra.EmbeddingClient option
+      ChatProvider: Algebra.ChatProvider option
+      DeepDependencies: McpTools.DeepExtractionDeps option
+      Control: OwnedControl.Input option
+      CreateEmailProvider: Domain.AccountConfig -> Task<Algebra.EmailProvider> }
 
-let private releaseService service =
-    service.Producers.Stop ()
-    service.Cancellation.Cancel()
-    match Lifetime.shutdown service.Logger (TimeSpan.FromSeconds 60.0) service.Workers with
-    | Lifetime.Quiesced ->
-        service.ReflowDb.dispose ()
-        service.Db.dispose ()
-        0
-    | Lifetime.Abandoned _ -> Lifetime.AbandonedExitCode
+type internal DatabaseScope(path: string) =
+    let abandoned =
+        TaskCompletionSource<unit>(
+            TaskCreationOptions.RunContinuationsAsynchronously)
+    let database = Database.fromPath path
+    let reflow =
+        try Database.fromPath path
+        with _ ->
+            database.dispose ()
+            reraise ()
 
-let private serve service address =
-    let stopping = service.App.Lifetime.ApplicationStopping
-    let outcome =
-        try
-            service.App.Run(address: string)
-            Ok ()
-        with
-        | :? OperationCanceledException when stopping.IsCancellationRequested -> Ok ()
-        | error -> Error error
-    let exitCode = releaseService service
-    outcome
-    |> Result.map (fun () -> exitCode)
-    |> Result.defaultWith (fun error ->
-        service.Logger.error $"HTTP host failed: {error}"
-        if exitCode = Lifetime.AbandonedExitCode then exitCode else 1)
+    member _.Database: Algebra.Database = database
+    member _.Reflow: Algebra.Database = reflow
+    member _.Abandon() : unit = abandoned.TrySetResult(()) |> ignore
+
+    member owner.Complete(outcome: AccessHostResult) : int =
+        match outcome.Disposition with
+        | Lifetime.Quiesced -> ()
+        | Lifetime.Abandoned _ -> owner.Abandon()
+        outcome.ExitCode
+
+    interface IDisposable with
+        member _.Dispose() =
+            if not abandoned.Task.IsCompleted then
+                try reflow.dispose ()
+                finally database.dispose ()
+
+let private createProducers
+    (components: ServiceComponents)
+    (access: HostContext)
+    : ProducerLoop.Handle =
+    let context: ProducerCycle.Context =
+        { Fs = components.Fs; Db = components.Db
+          Logger = components.Logger; Clock = components.Clock
+          Config = components.Config
+          CreateEmailProvider = components.CreateEmailProvider }
+    ProducerLoop.create
+        { InitialDelay = TimeSpan.FromSeconds 5.0
+          Interval = TimeSpan.FromMinutes(float components.Config.SyncIntervalMinutes)
+          Logger = components.Logger
+          Cycle = ProducerCycle.run context }
+        access.Cancellation
+
+let private mapDag (components: ServiceComponents) (app: WebApplication) : unit =
+    app.MapGet("/api/pipeline/dag", Func<Task<IResult>>(fun () ->
+        task {
+            let! mermaid = PipelineV5.toMermaid components.Dag components.Db
+            return Results.Text(mermaid, "text/plain")
+        }))
+    |> HttpAccessPolicy.classify HttpAccessClassification.AnonymousArchiveRead
+    |> ignore
+
+let private mapApplication
+    (components: ServiceComponents)
+    (ui: CanonicalUi.Bundle)
+    (policy: ServicePolicy.Settings)
+    (producers: ProducerLoop.Handle)
+    (app: WebApplication)
+    : unit =
+    CanonicalUi.attach app ui
+    ApiServer.mapRoutesWithCapabilities producers.Manual components.Embedder
+        app components.Db components.ReflowDb components.Fs components.Logger
+        components.Clock components.Dag components.ChatProvider
+        components.Config.ArchiveDir components.ConfigDirectory
+    mapDag components app
+    ApiServer.mapMcpRouteWithPolicy components.Embedder policy.Mcp
+        app components.Db components.ReflowDb components.Fs components.Logger
+        components.Clock components.Dag components.Config.ArchiveDir
+        components.DeepDependencies
+
+let private workers
+    (components: ServiceComponents)
+    (app: WebApplication)
+    (producers: ProducerLoop.Handle)
+    : AccessHostWorker list =
+    let pipeline: AccessHostWorker =
+        { Name = "pipeline-v5"
+          Start = fun token ->
+              PipelineV5.run components.Dag components.Db components.Logger
+                  components.Gpu 200 (TimeSpan.FromMinutes 5.0)
+                  (TimeSpan.FromSeconds 10.0) token :> Task }
+    let producer: AccessHostWorker =
+        { Name = "producers"; Start = fun _ -> producers.Run () }
+    let control =
+        components.Control
+        |> Option.map (fun input ->
+            { Name = "owned-stdin"
+              Start = fun token ->
+                  OwnedControl.run components.Logger input
+                      app.Lifetime.StopApplication token })
+        |> Option.toList
+    pipeline :: producer :: control
+
+let private hostOptions
+    (components: ServiceComponents)
+    (policy: ServicePolicy.Settings)
+    : AccessHostOptions =
+    { ConfigDirectory = components.ConfigDirectory
+      Port = policy.Port
+      ExtraOrigins = policy.ExtraOrigins
+      Models =
+        { IsAvailable = function
+            | ModelOperation.Chat -> Option.isSome components.ChatProvider
+            | ModelOperation.Search -> Option.isSome components.Embedder } }
+
+let private serve
+    (components: ServiceComponents)
+    (ui: CanonicalUi.Bundle)
+    (policy: ServicePolicy.Settings)
+    : AccessHostResult =
+    let configure (app: WebApplication) (access: HostContext) : AccessHostWorkload =
+        let producers = createProducers components access
+        // The host token owns this registration, including mapping-failure cleanup.
+        access.Cancellation.Register(Action(producers.Stop)) |> ignore
+        mapApplication components ui policy producers app
+        { Workers = workers components app producers
+          StopQueues = producers.Stop }
+    ServiceAccessHost.run (hostOptions components policy)
+        components.Logger configure
 
 let private runService owned args =
     let servicePolicy =
@@ -87,13 +188,14 @@ let private runService owned args =
 
     let logger = Logging.configure configDir LogEventLevel.Information
     let dbPath = Path.Combine(archiveDir, "db.sqlite")
-    let db = Database.fromPath dbPath
+    use databases = new DatabaseScope(dbPath)
+    let db = databases.Database
     db.initSchema ()
     |> Async.AwaitTask
     |> Async.RunSynchronously
     |> Lifetime.requireSchema
     Embeddings.initSchema db |> Async.AwaitTask |> Async.RunSynchronously
-    let reflowDb = Database.fromPath dbPath
+    let reflowDb = databases.Reflow
 
     // Seed sync_state for --initial-sync-days (only if account has no existing state)
     match initialSyncDays with
@@ -247,72 +349,26 @@ let private runService owned args =
         logger.warn
             $"Recovered {recovered} stale pipeline stage attempt lease(s)"
 
-    // Build HTTP API
-    let builder = WebApplication.CreateBuilder()
-    let app = builder.Build()
-
-    LocalBoundary.attach app servicePolicy.ExtraOrigins
-    CanonicalUi.attach app ui
-
-    use cts = new CancellationTokenSource()
-    let producerContext : ProducerCycle.Context =
-        { Fs = fs; Db = db; Logger = logger; Clock = clock; Config = config
+    let components: ServiceComponents =
+        { Db = db
+          ReflowDb = reflowDb
+          Fs = fs
+          Logger = logger
+          Clock = clock
+          Config = config
+          ConfigDirectory = configDir
+          Dag = dag
+          Gpu = gpu
+          Embedder = embedder
+          ChatProvider = chatProvider
+          DeepDependencies = deepDeps
+          Control = control
           CreateEmailProvider = createEmailProvider configDir }
-    let producers =
-        ProducerLoop.create
-            { InitialDelay = TimeSpan.FromSeconds 5.0
-              Interval = TimeSpan.FromMinutes(float config.SyncIntervalMinutes)
-              Logger = logger
-              Cycle = ProducerCycle.run producerContext }
-            cts.Token
-    use stopping =
-        app.Lifetime.ApplicationStopping.Register(fun () ->
-            producers.Stop ()
-            cts.Cancel())
 
-    // Map API routes
-    ApiServer.mapRoutesWithCapabilities producers.Manual embedder
-        app db reflowDb fs logger clock dag chatProvider archiveDir configDir
-
-    // Health endpoint for tray app / orchestrator polling
-    app.MapGet("/health", Func<IResult>(fun () ->
-        Results.Json(
-            {| status = "healthy"; service = "hermes"
-               processId = System.Environment.ProcessId |}))) |> ignore
-
-    // Pipeline DAG visualization (Mermaid)
-    app.MapGet("/api/pipeline/dag", Func<Task<IResult>>(fun () ->
-        task {
-            let! mermaid = PipelineV5.toMermaid dag db
-            return Results.Text(mermaid, "text/plain")
-        })) |> ignore
-
-    // MCP endpoint — Streamable HTTP (JSON-RPC over POST)
-    ApiServer.mapMcpRouteWithPolicy embedder servicePolicy.Mcp
-        app db reflowDb fs logger clock dag archiveDir deepDeps
-
-    let pipelineTask =
-        Task.Run(fun () ->
-            PipelineV5.run dag db logger gpu 200
-                (TimeSpan.FromMinutes 5.0) (TimeSpan.FromSeconds 10.0) cts.Token
-            :> Task)
-        |> Lifetime.observeBackground logger "pipeline-v5" cts.Token
-    let producersTask =
-        Task.Run(fun () -> producers.Run ())
-        |> Lifetime.observeBackground logger "producers" cts.Token
-    let controlTask =
-        control
-        |> Option.map (fun input ->
-            OwnedControl.run logger input app.Lifetime.StopApplication cts.Token
-            |> Lifetime.observeBackground logger "owned-stdin" cts.Token)
-        |> Option.defaultValue Task.CompletedTask
-    let port = servicePolicy.Port
-    logger.info $"Hermes service starting on http://127.0.0.1:{port}"
-    serve
-        { App = app; Logger = logger; Cancellation = cts; Producers = producers
-          Workers = [ pipelineTask; producersTask; controlTask ]
-          Db = db; ReflowDb = reflowDb }
-        $"http://127.0.0.1:{port}"
+    logger.info
+        $"Hermes service starting on http://127.0.0.1:{servicePolicy.Port}"
+    let outcome = serve components ui servicePolicy
+    databases.Complete(outcome)
 
 let private validateInvocation (invocation: OwnedControl.Invocation) =
     match ReindexCommand.route invocation.Arguments with
@@ -321,8 +377,7 @@ let private validateInvocation (invocation: OwnedControl.Invocation) =
         Error "--control-stdin is valid only for an owned service child"
     | _ -> Ok invocation
 
-[<EntryPoint>]
-let main args =
+let private runApplication args =
     OwnedControl.parse args
     |> Result.bind validateInvocation
     |> Result.map (fun invocation ->
@@ -330,3 +385,9 @@ let main args =
     |> Result.defaultWith (fun error ->
         Console.Error.WriteLine(error: string)
         2)
+
+[<EntryPoint>]
+let main args =
+    StartupAdmission.run
+        (fun () -> fun arguments -> OwnerUiCommand.run arguments runApplication)
+        args

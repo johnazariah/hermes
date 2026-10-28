@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { chat, type ChatSource } from '../../api/chat';
+import { chat, sourceTitle, type ChatSource } from '../../api/chat';
+import { useAccess } from '../../hooks/useAccess';
+import { UnlockReason } from '../AccessPanel';
 
 interface ChatMessage {
   role: 'user' | 'hermes';
@@ -9,7 +11,7 @@ interface ChatMessage {
   error?: boolean;
 }
 
-function SourceCard({ source, onSelectDocument }: {
+export function SourceCard({ source, onSelectDocument }: {
   source: ChatSource;
   onSelectDocument: (id: number) => void;
 }) {
@@ -18,7 +20,7 @@ function SourceCard({ source, onSelectDocument }: {
     <span className="text-neutral-500 text-xs">{source.category}</span>
     <span className="flex-1 min-w-0">
       <span className="block truncate">
-        {source.originalName ?? source.subject ?? `${source.resultType === 'email' ? 'Email' : 'Document'} ${source.documentId}`}
+        {sourceTitle(source)}
       </span>
       {!documentBacked && <span className="block text-xs text-neutral-500">
         {source.resultType === 'email' ? 'Email metadata only — no archived document' : 'Document file unavailable'}
@@ -38,6 +40,8 @@ function SourceCard({ source, onSelectDocument }: {
 }
 
 export function ChatPane({ onSelectDocument }: { onSelectDocument: (id: number) => void }) {
+  const access = useAccess();
+  const [aiEnabled, setAiEnabled] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -62,14 +66,14 @@ export function ChatPane({ onSelectDocument }: { onSelectDocument: (id: number) 
 
     try {
       await chat(query, event => {
-        if (event.type === 'done') return;
+        if (controller.signal.aborted || event.type === 'done') return;
         setMessages(previous => previous.map((message, index) => {
           if (index !== previous.length - 1) return message;
           return event.type === 'results'
             ? { ...message, text: `Found ${event.results.length} source(s)`, results: event.results }
             : { ...message, aiAnswer: event.answer };
         }));
-      }, controller.signal);
+      }, controller.signal, aiEnabled);
     } catch (error) {
       if (!controller.signal.aborted) {
         setMessages(previous => previous.map((message, index) =>
@@ -82,7 +86,7 @@ export function ChatPane({ onSelectDocument }: { onSelectDocument: (id: number) 
       requestRef.current = null;
       if (!controller.signal.aborted) setLoading(false);
     }
-  }, [input, loading]);
+  }, [input, loading, aiEnabled]);
 
   return (
     <div className="flex flex-col h-full">
@@ -144,6 +148,12 @@ export function ChatPane({ onSelectDocument }: { onSelectDocument: (id: number) 
 
       {/* Input */}
       <div className="border-t border-neutral-800 pt-3">
+        <label className="block text-sm mb-2">
+          <input type="checkbox" checked={aiEnabled} disabled={loading || !access.can('model.invoke')}
+            onChange={event => setAiEnabled(event.target.checked)} /> Enable AI answer
+        </label>
+        {!access.can('model.invoke') && <UnlockReason capability="model.invoke" />}
+        {!aiEnabled && <p className="text-xs mb-2">Search-only mode: no model calls.</p>}
         <div className="flex gap-2">
           <input
             type="text"

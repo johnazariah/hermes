@@ -180,7 +180,7 @@ module CanonicalUi =
             Results.File(asset.FullPath, contentType = asset.ContentType).ExecuteAsync(context)
         else Results.NotFound().ExecuteAsync(context)
 
-    let private dispatch bundle (context: HttpContext) (next: RequestDelegate) =
+    let private dispatch (bundle: Bundle) (context: HttpContext) : Task =
         let asset =
             if HttpMethods.IsGet(context.Request.Method) || HttpMethods.IsHead(context.Request.Method) then
                 context.Request.Path.Value
@@ -189,8 +189,15 @@ module CanonicalUi =
             else None
         asset
         |> Option.map (fun value -> serve value context)
-        |> Option.defaultWith (fun () -> next.Invoke(context))
+        |> Option.defaultWith (fun () -> Results.NotFound().ExecuteAsync(context))
 
-    /// Attach only after LocalBoundary, before mapping the existing API endpoints.
-    let attach (app: WebApplication) bundle =
-        app.Use(Func<HttpContext, RequestDelegate, Task>(dispatch bundle)) |> ignore
+    /// Register only the validated inventory, using the same dispatch in every host.
+    /// Exact-path dispatch also rejects routing's case/trailing-separator aliases.
+    let attach (app: WebApplication) (bundle: Bundle) : unit =
+        bundle.Files
+        |> Map.iter (fun path _ ->
+            app.MapMethods(
+                path, [| HttpMethods.Get; HttpMethods.Head |],
+                RequestDelegate(dispatch bundle))
+            |> HttpAccessPolicy.classify HttpAccessClassification.AnonymousArchiveRead
+            |> ignore)

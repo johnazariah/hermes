@@ -9,12 +9,112 @@ open Microsoft.AspNetCore.Builder
 open Microsoft.AspNetCore.Http
 open Microsoft.AspNetCore.Routing
 open Hermes.Core
+open Hermes.Core.LocalAccess
 
 /// HTTP API routes for the React frontend. Binds to localhost:21741.
 [<RequireQualifiedAccess>]
 module ApiServer =
 
     let private json v = Results.Json(v, JsonSerializerOptions(PropertyNamingPolicy = JsonNamingPolicy.CamelCase))
+
+    let private archiveRead (builder: RouteHandlerBuilder) : unit =
+        builder
+        |> HttpAccessPolicy.classify HttpAccessClassification.AnonymousArchiveRead
+        |> ignore
+
+    let private require (capability: Capability) (builder: RouteHandlerBuilder) : unit =
+        builder
+        |> HttpAccessPolicy.classify (
+            HttpAccessClassification.RequiredCaps(Set.singleton capability))
+        |> ignore
+
+    let private interactive (kind: InteractiveKind) (builder: RouteHandlerBuilder) : unit =
+        builder
+        |> HttpAccessPolicy.classify (HttpAccessClassification.ParsedChatOrSearch kind)
+        |> ignore
+
+    let private unavailableInteractive
+        (context: HttpContext) (failure: HttpAccessFailure) : Task =
+        let code =
+            match failure with
+            | HttpAccessFailure.ModelUnavailable -> "model_unavailable"
+            | _ -> "access_unavailable"
+        context.Response.Headers["Cache-Control"] <- "no-store"
+        Results.Json(
+            {| error = code; message = "Interactive request is unavailable." |},
+            statusCode = StatusCodes.Status503ServiceUnavailable).ExecuteAsync(context)
+
+    let private preparedChat (context: HttpContext) : Result<HttpChatRequest, HttpAccessFailure> =
+        HttpAccessPolicy.preparsed context
+        |> Result.bind (fun prepared ->
+            match prepared.Request, prepared.Policy with
+            | InteractiveRequest.Chat request, ModelWorkPolicy.ArchiveOnly
+                when not request.AiEnabled -> Ok request
+            | InteractiveRequest.Chat request, ModelWorkPolicy.InvokeModel ModelOperation.Chat
+                when request.AiEnabled -> Ok request
+            | _ -> Error(HttpAccessFailure.Domain AccessError.AccessUnavailable))
+
+    let private archiveChat
+        (db: Algebra.Database) (request: HttpChatRequest)
+        : Task<Result<Chat.ChatResponse, HttpAccessFailure>> =
+        task {
+            let filter = { Search.defaultFilter request.Query with Limit = 20 }
+            let! results = Search.executeUnified db filter
+            let response: Chat.ChatResponse =
+                { Query = request.Query; Results = results; AiSummary = None }
+            return Ok response
+        }
+
+    let private chatResponse
+        (db: Algebra.Database) (provider: Algebra.ChatProvider option)
+        (request: HttpChatRequest) : Task<Result<Chat.ChatResponse, HttpAccessFailure>> =
+        if not request.AiEnabled then archiveChat db request
+        else
+            provider
+            |> Option.map (fun chat ->
+                task {
+                    let! response = Chat.query db chat true request.Query
+                    return Ok response
+                })
+            |> Option.defaultWith (fun () ->
+                Task.FromResult(Error HttpAccessFailure.ModelUnavailable))
+
+    let private writeChatEvent
+        (context: HttpContext) (name: string) (value: 'Value) : Task =
+        task {
+            let options = JsonSerializerOptions(PropertyNamingPolicy = JsonNamingPolicy.CamelCase)
+            let data = JsonSerializer.Serialize(value, options)
+            do! context.Response.WriteAsync(
+                $"event: {name}\ndata: {data}\n\n", context.RequestAborted)
+            do! context.Response.Body.FlushAsync(context.RequestAborted)
+        }
+
+    let private writeChatAnswer (context: HttpContext) (answer: string option) : Task =
+        answer
+        |> Option.map (fun value -> writeChatEvent context "answer" {| answer = value |})
+        |> Option.defaultValue Task.CompletedTask
+
+    let private streamChat (context: HttpContext) (response: Chat.ChatResponse) : Task =
+        task {
+            context.Response.ContentType <- "text/event-stream"
+            context.Response.Headers["Cache-Control"] <- "no-store"
+            do! writeChatEvent context "results" {| results = response.Results |}
+            do! writeChatAnswer context response.AiSummary
+            do! writeChatEvent context "done" {| |}
+        }
+
+    let private chatRequest
+        (db: Algebra.Database) (provider: Algebra.ChatProvider option)
+        (context: HttpContext) : Task =
+        task {
+            let! response =
+                preparedChat context
+                |> Result.map (chatResponse db provider)
+                |> Result.defaultWith (Error >> Task.FromResult)
+            do! response
+                |> Result.map (streamChat context)
+                |> Result.defaultWith (unavailableInteractive context)
+        }
 
     let private manualSyncResponse (manual: ManualSync.Capability) =
         match manual.Request () with
@@ -384,18 +484,18 @@ module ApiServer =
                         let r = Prelude.RowReader(row)
                         {| category = r.String "category" ""; count = r.Int64 "doc_count" 0L |})
                 return json results
-            })) |> ignore
+            })) |> archiveRead
 
         // ── Documents ───────────────────────────────────────────────
         app.MapGet("/api/search", Func<HttpContext, Task<IResult>>(fun ctx ->
-            KeywordApi.searchWithEncoder db queryEncoder ctx)) |> ignore
+            KeywordApi.searchWithEncoder db queryEncoder ctx)) |> interactive InteractiveKind.Search
 
         app.MapGet("/api/documents/{id:long}/comprehension",
             Func<int64, Task<IResult>>(fun id ->
-                PersistedApi.get db fs archiveDir id)) |> ignore
+                PersistedApi.get db fs archiveDir id)) |> archiveRead
 
         app.MapGet("/api/documents", Func<HttpContext, Task<IResult>>(fun ctx ->
-            documentPage ctx |> validated (listDocuments db ctx))) |> ignore
+            documentPage ctx |> validated (listDocuments db ctx))) |> archiveRead
 
         app.MapGet("/api/documents/{id:long}", Func<int64, Task<IResult>>(fun id ->
             task {
@@ -403,7 +503,7 @@ module ApiServer =
                 match detail with
                 | Some d -> return json d
                 | None -> return Results.NotFound()
-            })) |> ignore
+            })) |> archiveRead
 
         app.MapGet("/api/documents/{id:long}/content", Func<int64, Task<IResult>>(fun id ->
             task {
@@ -411,7 +511,7 @@ module ApiServer =
                 match content with
                 | Ok c -> return json {| markdown = c |}
                 | Error e -> return Results.NotFound({| error = e |})
-            })) |> ignore
+            })) |> archiveRead
 
         // ── Document file (serve original PDF/image) ───────────────
         app.MapGet("/api/documents/{id:long}/file", Func<int64, Task<IResult>>(fun id ->
@@ -439,7 +539,7 @@ module ApiServer =
                     else
                         return Results.NotFound({| error = "File not found on disk" |})
                 | None -> return Results.NotFound()
-            })) |> ignore
+            })) |> archiveRead
 
         // ── Stats ───────────────────────────────────────────────────
         app.MapGet("/api/stats", Func<Task<IResult>>(fun () ->
@@ -447,7 +547,7 @@ module ApiServer =
                 let dbPath = Path.Combine(archiveDir, "db.sqlite")
                 let! stats = Stats.getIndexStats db fs dbPath
                 return json stats
-            })) |> ignore
+            })) |> archiveRead
 
         // ── Pipeline dashboard ──────────────────────────────────────
         app.MapGet("/api/pipeline", Func<Task<IResult>>(fun () ->
@@ -469,7 +569,7 @@ module ApiServer =
                                            failed = getLifecycle "failed"
                                            stagesPending = getStageOutcome "pending"
                                            stagesFailed = getStageOutcome "failed" |} |}
-            })) |> ignore
+            })) |> archiveRead
 
         // ── Reminders ───────────────────────────────────────────────
         app.MapGet("/api/reminders", Func<Task<IResult>>(fun () ->
@@ -481,55 +581,16 @@ module ApiServer =
                            amount = r.Amount; dueDate = r.DueDate; category = r.Category
                            status = r.Status.ToString(); fileName = fileName |})
                 return json mapped
-            })) |> ignore
+            })) |> archiveRead
 
         // ── Sync trigger ────────────────────────────────────────────
         app.MapPost("/api/sync", Func<IResult>(fun () ->
             manualSyncResponse manualSync
-            )) |> ignore
+            )) |> require Capability.Mutate
 
         // ── Chat ────────────────────────────────────────────────────
         app.MapPost("/api/chat", Func<HttpContext, Task>(fun ctx ->
-            task {
-                use sr = new StreamReader(ctx.Request.Body)
-                let! bodyText = sr.ReadToEndAsync()
-                let query, useAi =
-                    try
-                        let doc = JsonDocument.Parse(bodyText)
-                        let q = doc.RootElement.GetProperty("query").GetString() |> Option.ofObj |> Option.defaultValue ""
-                        let ai = try doc.RootElement.GetProperty("aiEnabled").GetBoolean() with _ -> false
-                        (q, ai)
-                    with _ -> ("", false)
-
-                ctx.Response.ContentType <- "text/event-stream"
-                ctx.Response.Headers.Append("Cache-Control", "no-cache")
-                let opts = JsonSerializerOptions(PropertyNamingPolicy = JsonNamingPolicy.CamelCase)
-
-                match chatProvider with
-                | Some chat ->
-                    let! response = Chat.query db chat useAi query
-                    // Send search results immediately
-                    let resultsData = JsonSerializer.Serialize({| results = response.Results |}, opts)
-                    do! ctx.Response.WriteAsync($"event: results\ndata: {resultsData}\n\n")
-                    do! ctx.Response.Body.FlushAsync()
-                    // Send AI summary if available
-                    match response.AiSummary with
-                    | Some summary ->
-                        let answerData = JsonSerializer.Serialize({| answer = summary |}, opts)
-                        do! ctx.Response.WriteAsync($"event: answer\ndata: {answerData}\n\n")
-                        do! ctx.Response.Body.FlushAsync()
-                    | None -> ()
-                | None ->
-                    // No chat provider — just do keyword search
-                    let filter = Search.defaultFilter query
-                    let! results = Search.executeUnified db filter
-                    let resultsData = JsonSerializer.Serialize({| results = results |}, opts)
-                    do! ctx.Response.WriteAsync($"event: results\ndata: {resultsData}\n\n")
-                    do! ctx.Response.Body.FlushAsync()
-
-                do! ctx.Response.WriteAsync("event: done\ndata: {}\n\n")
-                do! ctx.Response.Body.FlushAsync()
-            })) |> ignore
+            chatRequest db chatProvider ctx)) |> interactive InteractiveKind.Chat
 
         // ── Settings ────────────────────────────────────────────────
         app.MapGet("/api/settings", Func<Task<IResult>>(fun () ->
@@ -540,7 +601,7 @@ module ApiServer =
                     return Results.Text(yaml, "text/yaml")
                 else
                     return Results.NotFound()
-            })) |> ignore
+            })) |> require Capability.ConfigRead
 
         app.MapPut("/api/settings", Func<HttpContext, Task<IResult>>(fun ctx ->
             task {
@@ -549,7 +610,7 @@ module ApiServer =
                 let configPath = Path.Combine(configDir, "config.yaml")
                 do! File.WriteAllTextAsync(configPath, yaml)
                 return json {| saved = true |}
-            })) |> ignore
+            })) |> require Capability.Mutate
 
         // ── Dead letters ────────────────────────────────────────────
         app.MapGet("/api/dead-letters", Func<Task<IResult>>(fun () ->
@@ -565,13 +626,13 @@ module ApiServer =
                            stage = r.String "stage" ""; error = r.String "error" ""
                            originalName = r.String "original_name" ""; failedAt = r.String "failed_at" "" |})
                 return json letters
-            })) |> ignore
+            })) |> archiveRead
 
         app.MapPost("/api/dead-letters/dismiss", Func<Task<IResult>>(fun () ->
             task {
                 let! _ = db.execNonQuery "UPDATE dead_letters SET dismissed = 1 WHERE dismissed = 0" []
                 return json {| dismissed = true |}
-            })) |> ignore
+            })) |> require Capability.Mutate
 
         // ── Activity log ────────────────────────────────────────────
         app.MapGet("/api/activity", Func<HttpContext, Task<IResult>>(fun ctx ->
@@ -582,7 +643,7 @@ module ApiServer =
                             "SELECT id, timestamp, level, category, message, document_id FROM activity_log ORDER BY id DESC LIMIT @lim"
                             [ "@lim", Database.boxVal (int64 limit) ]
                     return rows |> List.map activityEntry |> json
-                }))) |> ignore
+                }))) |> archiveRead
 
         // ── Reclassify document metadata ───────────────────────────
         let reclassifyHandler =
@@ -590,17 +651,17 @@ module ApiServer =
                 task {
                     return! reclassifyRequest db fs archiveDir id ctx
                 })
-        app.MapPut("/api/documents/{id:long}/category", reclassifyHandler) |> ignore
+        app.MapPut("/api/documents/{id:long}/category", reclassifyHandler) |> require Capability.Mutate
         app.MapPost("/api/documents/{id:long}/move",
             Func<int64, HttpContext, Task<IResult>>(fun id ctx ->
                 ctx.Response.Headers["Deprecation"] <- "true"
                 ctx.Response.Headers["Warning"] <-
                     "299 Hermes \"Deprecated move endpoint performs metadata-only reclassification; inspect reclassified and changed, not moved\""
-                reclassifyRequest db fs archiveDir id ctx)) |> ignore
+                reclassifyRequest db fs archiveDir id ctx)) |> require Capability.Mutate
 
         // ── Correct document fields ──────────────────────────────────
         app.MapPost("/api/documents/{id:long}/correct", Func<int64, HttpContext, Task<IResult>>(fun id ctx ->
-            correctRequest db logger id ctx)) |> ignore
+            correctRequest db logger id ctx)) |> require Capability.Mutate
 
         // ── Reflow operations ────────────────────────────────────────
         app.MapPost("/api/documents/{id:long}/reflow", Func<int64, HttpContext, Task<IResult>>(fun id ctx ->
@@ -615,7 +676,7 @@ module ApiServer =
                     match result with
                     | Ok r -> return json (requestResultDto r)
                     | Error e -> return Results.BadRequest({| error = e |})
-            })) |> ignore
+            })) |> require Capability.Mutate
 
         app.MapGet("/api/reflow/{id:long}", Func<int64, Task<IResult>>(fun id ->
             task {
@@ -624,16 +685,16 @@ module ApiServer =
                 | Ok status -> return json (operationStatusDto status)
                 | Error e when e.Contains "not found" -> return Results.NotFound({| error = e |})
                 | Error e -> return Results.BadRequest({| error = e |})
-            })) |> ignore
+            })) |> archiveRead
 
         app.MapPost("/api/documents/{id:long}/recomprehend", Func<int64, Task<IResult>>(fun id ->
-            applyLegacyReflow reflowDb logger dag id Reflow.OperationKind.Recomprehend)) |> ignore
+            applyLegacyReflow reflowDb logger dag id Reflow.OperationKind.Recomprehend)) |> require Capability.Mutate
 
         app.MapPost("/api/documents/{id:long}/reextract", Func<int64, Task<IResult>>(fun id ->
-            applyLegacyReflow reflowDb logger dag id Reflow.OperationKind.Reextract)) |> ignore
+            applyLegacyReflow reflowDb logger dag id Reflow.OperationKind.Reextract)) |> require Capability.Mutate
 
         app.MapPost("/api/documents/{id:long}/reembed", Func<int64, Task<IResult>>(fun id ->
-            applyLegacyReflow reflowDb logger dag id Reflow.OperationKind.Reembed)) |> ignore
+            applyLegacyReflow reflowDb logger dag id Reflow.OperationKind.Reembed)) |> require Capability.Mutate
 
         // ── List corrections (for prompt tuning) ─────────────────────
         app.MapGet("/api/corrections", Func<HttpContext, Task<IResult>>(fun ctx ->
@@ -641,7 +702,7 @@ module ApiServer =
                 task {
                     let! corrections = DocumentManagement.listCorrections db limit
                     return json corrections
-                }))) |> ignore
+                }))) |> archiveRead
 
         // ── Star/unstar ─────────────────────────────────────────────
         app.MapPost("/api/documents/{id:long}/star", Func<int64, Task<IResult>>(fun id ->
@@ -654,7 +715,7 @@ module ApiServer =
                     rows |> List.tryHead
                     |> Option.map (fun row -> json {| starred = (Prelude.RowReader row).Int64 "starred" 0L = 1L |})
                     |> Option.defaultWith (fun () -> missingResource ApiResource.Document id)
-            })) |> ignore
+            })) |> require Capability.Mutate
 
         // ── Tags CRUD ───────────────────────────────────────────────
         app.MapGet("/api/documents/{id:long}/tags", Func<int64, Task<IResult>>(fun id ->
@@ -666,7 +727,7 @@ module ApiServer =
                         let rd = Prelude.RowReader(r)
                         {| tag = rd.String "tag" ""; source = rd.String "source" ""; confidence = rd.OptFloat "confidence" |})
                 return json tags
-            }))) |> ignore
+            }))) |> archiveRead
 
         app.MapPost("/api/documents/{id:long}/tags", Func<int64, HttpContext, Task<IResult>>(fun id ctx ->
             withDocumentResource db id (fun () ->
@@ -682,14 +743,14 @@ module ApiServer =
                     let! _ = db.execNonQuery "INSERT OR IGNORE INTO tags (document_id, tag, source) VALUES (@id, @tag, 'user')" [ ("@id", Database.boxVal id); ("@tag", Database.boxVal tag) ]
                     ()
                 return json {| added = tags |}
-            }))) |> ignore
+            }))) |> require Capability.Mutate
 
         app.MapDelete("/api/documents/{id:long}/tags/{tag}", Func<int64, string, Task<IResult>>(fun id tag ->
             withDocumentResource db id (fun () ->
             task {
                 let! _ = db.execNonQuery "DELETE FROM tags WHERE document_id = @id AND tag = @tag" [ ("@id", Database.boxVal id); ("@tag", Database.boxVal tag) ]
                 return json {| removed = tag |}
-            }))) |> ignore
+            }))) |> require Capability.Mutate
 
         // ── Tag search ──────────────────────────────────────────────
         app.MapGet("/api/tags", Func<HttpContext, Task<IResult>>(fun ctx ->
@@ -717,7 +778,7 @@ module ApiServer =
                             let rd = Prelude.RowReader(r)
                             {| tag = rd.String "tag" ""; count = rd.Int64 "cnt" 0L |})
                     return json tags
-            })) |> ignore
+            })) |> archiveRead
 
         // ── Batch operations ────────────────────────────────────────
         app.MapPost("/api/documents/batch", Func<HttpContext, Task<IResult>>(fun ctx ->
@@ -753,7 +814,7 @@ module ApiServer =
                         return json {| action = "star"; count = docIds.Length |}
                     | _ -> return json {| error = "unknown action" |}
                 with ex -> return json {| error = ex.Message |}
-            })) |> ignore
+            })) |> require Capability.Mutate
 
         // ── Sync date config ────────────────────────────────────────
         app.MapGet("/api/sync/accounts", Func<Task<IResult>>(fun () ->
@@ -787,7 +848,7 @@ module ApiServer =
                         | None ->
                             {| account = label; lastSyncAt = (None : string option); messageCount = 0L |})
                 return json accounts
-            })) |> ignore
+            })) |> require Capability.ConfigRead
 
         app.MapPost("/api/sync/reset", Func<HttpContext, Task<IResult>>(fun ctx ->
             task {
@@ -812,7 +873,7 @@ module ApiServer =
                                         [ ("@acc", Database.boxVal account); ("@ts", Database.boxVal fromDate) ]
                             return json {| reset = true; account = account; from = fromDate |}
                 with ex -> return json {| error = ex.Message |}
-            })) |> ignore
+            })) |> require Capability.Mutate
 
         // ── Preferences ─────────────────────────────────────────────
         app.MapGet("/api/preferences", Func<Task<IResult>>(fun () ->
@@ -830,7 +891,7 @@ module ApiServer =
                         | Ok cfg -> cfg.Preferences
                         | Error _ -> ""
                     return Results.Text(prefs, "text/plain")
-            })) |> ignore
+            })) |> require Capability.ConfigRead
 
         app.MapPut("/api/preferences", Func<HttpContext, Task<IResult>>(fun ctx ->
             task {
@@ -839,7 +900,7 @@ module ApiServer =
                 let prefsPath = Path.Combine(configDir, "preferences.txt")
                 do! fs.writeAllText prefsPath prefsText
                 return json {| saved = true |}
-            })) |> ignore
+            })) |> require Capability.Mutate
 
         // ── Learned patterns ────────────────────────────────────────
         app.MapGet("/api/learned-patterns", Func<Task<IResult>>(fun () ->
@@ -860,7 +921,7 @@ module ApiServer =
                            avgConfidence = r.Float "avg_confidence" 0.0
                            lastSeen = r.OptString "last_seen" |})
                 return json results
-            })) |> ignore
+            })) |> archiveRead
 
         // ── Suggestions ─────────────────────────────────────────────
         app.MapGet("/api/suggestions", Func<HttpContext, Task<IResult>>(fun ctx ->
@@ -892,7 +953,7 @@ module ApiServer =
                            sender = r.OptString "sender"
                            subject = r.OptString "subject" |})
                 return json results
-            })) |> ignore
+            })) |> archiveRead
 
         app.MapPost("/api/suggestions/{id:long}/approve", Func<int64, Task<IResult>>(fun id ->
             withSuggestionResource db id (fun () ->
@@ -901,7 +962,7 @@ module ApiServer =
                 match result with
                 | Ok () -> return json {| approved = true; id = id |}
                 | Error e -> return json {| error = e |}
-            }))) |> ignore
+            }))) |> require Capability.Mutate
 
         app.MapPost("/api/suggestions/{id:long}/reject", Func<int64, Task<IResult>>(fun id ->
             withSuggestionResource db id (fun () ->
@@ -910,7 +971,7 @@ module ApiServer =
                 match result with
                 | Ok () -> return json {| rejected = true; id = id |}
                 | Error e -> return json {| error = e |}
-            }))) |> ignore
+            }))) |> require Capability.Mutate
 
     /// Existing hosts do not silently acquire a pretend producer capability.
     let mapRoutesWithSearch queryEncoder app db reflowDb fs logger clock dag chatProvider archiveDir configDir =
@@ -953,7 +1014,9 @@ module ApiServer =
                     McpServer.processMessageWithCapabilitiesAndReflowDb capabilities
                         db reflowDb fs logger clock dag archiveDir deepDeps body
                 return Results.Text(response, "application/json")
-            })) |> ignore
+            }))
+        |> HttpAccessPolicy.classify HttpAccessClassification.McpIndependent
+        |> ignore
 
     let mapMcpRoute app db reflowDb fs logger clock dag archiveDir deepDeps =
         mapMcpRouteWithPolicy None McpAccess.readOnly

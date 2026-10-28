@@ -2,21 +2,67 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
 
   <?define ProductName = "Hermes" ?>
-  <?define ProductVersion = "0.1.0" ?>
+  <?define ProductVersion = "$(var.HermesPackageVersion)" ?>
   <?define ProductManufacturer = "John Azariah" ?>
   <?define UpgradeCode = "7A2E1F3D-4B5C-6D7E-8F9A-0B1C2D3E4F5A" ?>
 
   <Package Name="$(ProductName)"
+           ProductCode="$(var.HermesProductCode)"
            Version="$(ProductVersion)"
+           Language="1033"
            Manufacturer="$(ProductManufacturer)"
            UpgradeCode="$(UpgradeCode)"
            InstallerVersion="500"
            Compressed="yes"
-           Scope="perUser">
+           Scope="perUser"
+           ShortNames="no"
+           UpgradeStrategy="none">
 
-    <MajorUpgrade DowngradeErrorMessage="A newer version of $(ProductName) is already installed." />
+    <!-- Standard MSI removal stays inside its transaction, after the checked fence. -->
+    <Upgrade Id="$(UpgradeCode)">
+      <UpgradeVersion Minimum="0.0.0" IncludeMinimum="yes" OnlyDetect="no"
+                      MigrateFeatures="no" Property="HERMES_RELATED_PRODUCTS" />
+      <UpgradeVersion Minimum="$(ProductVersion)" IncludeMinimum="no"
+                      OnlyDetect="yes" Property="HERMES_NEWER_PRODUCT" />
+    </Upgrade>
+    <Property Id="HERMES_SERVICING_RUN" Secure="yes" />
+    <Property Id="HERMES_SERVICING_ABI" Secure="yes" />
+    <Property Id="HERMES_ALLOW_ROLLBACK" Secure="yes" />
+    <Launch Condition="NOT HERMES_NEWER_PRODUCT OR HERMES_ALLOW_ROLLBACK = 1"
+            Message="A newer Hermes version is installed. Explicit rollback requires HERMES_ALLOW_ROLLBACK=1." />
+    <!-- Restart Manager must never shut down the user's application. The guard is authoritative. -->
+    <Property Id="MSIRESTARTMANAGERCONTROL" Value="Disable" />
+    <Property Id="REBOOT" Value="ReallySuppress" />
+    <Property Id="INSTALLFOLDER" Secure="yes">
+      <RegistrySearch Id="ExistingInstallDirectory" Root="HKCU" Key="Software\Hermes\Installer"
+                      Name="InstallDirectory" Type="raw" />
+    </Property>
 
     <MediaTemplate EmbedCab="yes" />
+    <Binary Id="HermesPayloadManifest" SourceFile="$(var.HermesManifestPath)" />
+    <Binary Id="HermesServicingGuard" SourceFile="$(var.HermesGuardPath)" />
+    <CustomAction Id="HermesPreflight" BinaryRef="HermesServicingGuard"
+                  DllEntry="HermesPreflight" Execute="immediate" Impersonate="yes" Return="check" />
+    <CustomAction Id="HermesTransactionFence" BinaryRef="HermesServicingGuard"
+                  DllEntry="HermesTransactionFence" Execute="immediate" Impersonate="yes" Return="check" />
+    <!-- Advertising permits built-in actions only (ICE72); type 19 always fails. -->
+    <CustomAction Id="HermesRejectAdvertisement"
+                  Error="Hermes advertisement is unsupported; use Hermes.Setup." />
+    <InstallExecuteSequence>
+      <FindRelatedProducts Sequence="25" />
+      <Custom Action="HermesPreflight" Sequence="1399" />
+      <InstallValidate Sequence="1400" />
+      <InstallInitialize Sequence="1500" />
+      <Custom Action="HermesTransactionFence" Sequence="1501" />
+      <RemoveExistingProducts Sequence="1502" Condition="HERMES_RELATED_PRODUCTS" />
+      <InstallFinalize Sequence="6600" />
+    </InstallExecuteSequence>
+    <AdminExecuteSequence>
+      <Custom Action="HermesPreflight" Sequence="1399" />
+    </AdminExecuteSequence>
+    <AdvertiseExecuteSequence>
+      <Custom Action="HermesRejectAdvertisement" Sequence="1399" />
+    </AdvertiseExecuteSequence>
 
     <!-- Install location -->
     <StandardDirectory Id="LocalAppDataFolder">
@@ -30,49 +76,35 @@
       <Directory Id="HermesMenuFolder" Name="Hermes" />
     </StandardDirectory>
 
-    <!-- Main component: all published files -->
-    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
-      <Files Include="$(var.PublishDir)\**" />
-    </ComponentGroup>
-
     <!-- Shortcut -->
     <Component Id="StartMenuShortcut" Directory="HermesMenuFolder" Guid="8B3E2F4D-5C6A-7D8E-9F0A-1B2C3D4E5F6B">
       <Shortcut Id="HermesShortcut"
                 Name="Hermes"
                 Description="Hermes Document Intelligence"
-                Target="[INSTALLFOLDER]Hermes.App.exe"
+                Target="[INSTALLFOLDER]tray\Hermes.Tray.exe"
                 WorkingDirectory="INSTALLFOLDER" />
-      <RegistryValue Root="HKCU" Key="Software\Hermes" Name="Installed" Type="integer" Value="1" KeyPath="yes" />
+      <RegistryValue Root="HKCU" Key="Software\Hermes\Installer" Name="Version" Type="string" Value="$(ProductVersion)" KeyPath="yes" />
+      <RegistryValue Root="HKCU" Key="Software\Hermes\Installer" Name="InstallDirectory" Type="string" Value="[INSTALLFOLDER]" />
+      <RegistryValue Root="HKCU" Key="Software\Hermes\Installer" Name="ProductCode" Type="string" Value="[ProductCode]" />
       <RemoveFolder Id="RemoveMenuFolder" Directory="HermesMenuFolder" On="uninstall" />
     </Component>
 
     <!-- Auto-start via registry Run key -->
     <Component Id="AutoStart" Directory="INSTALLFOLDER" Guid="9C4F3A5E-6D7B-8E9F-0A1B-2C3D4E5F6A7B">
+      <RemoveFolder Id="RemoveApplicationFolder" Directory="INSTALLFOLDER" On="uninstall" />
+      <RemoveFolder Id="RemoveCompanyFolder" Directory="HERMES_COMPANY" On="uninstall" />
       <RegistryValue Root="HKCU"
                      Key="Software\Microsoft\Windows\CurrentVersion\Run"
                      Name="Hermes"
                      Type="string"
-                     Value="&quot;[INSTALLFOLDER]Hermes.App.exe&quot;"
+                     Value="&quot;[INSTALLFOLDER]tray\Hermes.Tray.exe&quot;"
                      KeyPath="yes" />
-    </Component>
-
-    <!-- Add to user PATH -->
-    <Component Id="PathEntry" Directory="INSTALLFOLDER" Guid="AD5E2B1C-7F8D-4A3E-9C6B-0D1E2F3A4B5C">
-      <Environment Id="HermesPath"
-                   Name="PATH"
-                   Value="[INSTALLFOLDER]"
-                   Permanent="no"
-                   Part="last"
-                   Action="set"
-                   System="no" />
-      <RegistryValue Root="HKCU" Key="Software\Hermes" Name="PathAdded" Type="integer" Value="1" KeyPath="yes" />
     </Component>
 
     <Feature Id="ProductFeature" Title="Hermes" Level="1">
       <ComponentGroupRef Id="ProductComponents" />
       <ComponentRef Id="StartMenuShortcut" />
       <ComponentRef Id="AutoStart" />
-      <ComponentRef Id="PathEntry" />
     </Feature>
 
   </Package>

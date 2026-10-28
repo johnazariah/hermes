@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { unlock } from './owner';
 
 const browserErrors = new WeakMap<Page, string[]>();
 test.beforeEach(({ page }) => {
@@ -10,6 +11,7 @@ test.afterEach(({ page }) => { expect(browserErrors.get(page) ?? []).toEqual([])
 
 async function openSync(page: Page) {
   await page.goto('/');
+  await unlock(page);
   await page.keyboard.press('Control+k');
   const input = page.getByPlaceholder('Type a command or search…');
   await input.fill('Sync email now');

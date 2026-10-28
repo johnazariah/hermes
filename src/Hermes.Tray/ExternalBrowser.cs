@@ -58,8 +58,12 @@ internal sealed class GuardedExternalOpener(
 internal sealed class BrowserNavigation(TrayOptions options, IExternalOpener external)
 {
     public bool IsCanonical(Uri uri) =>
-        uri.Scheme == Uri.UriSchemeHttp && uri.Host == "127.0.0.1" &&
+        uri.IsAbsoluteUri && uri.Scheme == Uri.UriSchemeHttp && uri.Host == "127.0.0.1" &&
         uri.Port == options.Port && string.IsNullOrEmpty(uri.UserInfo);
+
+    public bool IsCanonicalDocument(Uri uri) =>
+        IsCanonical(uri) && uri.AbsolutePath is
+            "/" or "/documents" or "/search" or "/settings" or "/chat" or "/pipeline" or "/onboarding";
 
     public void NavigationStarting(string address, Action cancel)
     {

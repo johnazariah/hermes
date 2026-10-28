@@ -963,22 +963,27 @@ module McpTools =
                         $"Document {documentId} has no comprehension (run Pass 1 first)"
         }
 
+    let private writeDeepArtifact
+        (db: Algebra.Database) (fs: Algebra.FileSystem)
+        (paths: DeepArtifactPaths) (merged: string)
+        : Task<Result<unit, string>> =
+        let path = Path.Combine(paths.Folder, "thread.comprehension.json")
+        SourceFiles.tryWriteMetadata db fs path (System.Text.Encoding.UTF8.GetBytes(merged))
+        |> Prelude.TaskResult.mapError SourceFileAccess.describeUnclaimedConflict
+
     let private publishDeepResult
         db fs
         (target: DeepTarget)
         (revision: ArtifactRevision.Token)
         deep =
-        Generation.republishArtifact
+        Generation.republishArtifactResult
             db target.Generation target.Artifacts.Fence revision
             (deepArtifactsCurrentIn target.Generation)
             (fun () ->
                 prepareDeepMerge
                     target.Generation.DocumentId
                     fs target.Artifacts deep)
-            (fun merged ->
-                ArchiveWriter.writeComprehension
-                    (SourceFiles.metadataFileSystem db fs)
-                    target.Artifacts.Folder merged)
+            (writeDeepArtifact db fs target.Artifacts)
 
     let private deepResultJson
         (status: string)

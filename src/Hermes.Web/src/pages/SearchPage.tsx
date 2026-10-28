@@ -1,15 +1,19 @@
 import { useState, useEffect, useCallback } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
     fetchTags,
     searchDocuments,
     addDocumentTag,
     batchDocuments,
+    searchWithModel,
 } from "../api/hermes";
 import type { TagCount, DocumentSummary } from "../types/hermes";
 import { DocumentRow } from "../components/documents/DocumentRow";
 import { BatchBar } from "../components/documents/BatchBar";
+import { useAccess } from "../hooks/useAccess";
+import { UnlockReason } from "../components/AccessPanel";
+import { SourceCard } from "../components/chat/ChatPane";
 
 const DATE_RANGES = [
     { label: "Any time", value: "" },
@@ -20,6 +24,9 @@ const DATE_RANGES = [
 ] as const;
 
 export function SearchPage() {
+    const access = useAccess();
+    const navigate = useNavigate();
+    const [mode, setMode] = useState<'keyword' | 'semantic' | 'hybrid'>('keyword');
     const [searchParams, setSearchParams] = useSearchParams();
     const queryFromUrl = searchParams.get("q") ?? "";
     const tagFromUrl = searchParams.get("tag") ?? "";
@@ -61,7 +68,12 @@ export function SearchPage() {
                 category: selectedTag || undefined,
                 limit: 50,
             }),
-        enabled: hasFilters,
+        enabled: hasFilters && mode === 'keyword',
+    });
+    const modelResults = useQuery({
+        queryKey: ['model-search', debouncedQuery, selectedTag, mode],
+        queryFn: () => searchWithModel(debouncedQuery, selectedTag, mode as 'semantic' | 'hybrid'),
+        enabled: hasFilters && mode !== 'keyword' && access.can('model.invoke'),
     });
 
     const toggleDoc = useCallback((id: number) => {
@@ -77,13 +89,8 @@ export function SearchPage() {
         async (tag: string) => {
             const ids = Array.from(selectedIds);
             if (ids.length === 0) return;
-            try {
-                await batchDocuments(ids, "tag", tag);
-            } catch {
-                for (const id of ids) {
-                    await addDocumentTag(id, tag);
-                }
-            }
+            if (ids.length === 1) await addDocumentTag(ids[0], tag);
+            else await batchDocuments(ids, "tag", tag);
             setSelectedIds(new Set());
             queryClient.invalidateQueries({ queryKey: ["tags"] });
             queryClient.invalidateQueries({ queryKey: ["search"] });
@@ -134,6 +141,15 @@ export function SearchPage() {
 
             {/* Facet filters */}
             <div className="flex flex-wrap gap-3 items-center">
+                <label>Search mode{' '}
+                    <select aria-label="Search mode" value={mode}
+                        onChange={event => { setMode(event.target.value as typeof mode); setSelectedIds(new Set()); }}>
+                        <option value="keyword">Keyword</option>
+                        <option value="semantic" disabled={!access.can('model.invoke')}>Semantic</option>
+                        <option value="hybrid" disabled={!access.can('model.invoke')}>Hybrid</option>
+                    </select>
+                </label>
+                {!access.can('model.invoke') && <UnlockReason capability="model.invoke (semantic/hybrid search)" />}
                 <span className="text-xs font-medium text-neutral-500">
                     Filters:
                 </span>
@@ -170,8 +186,8 @@ export function SearchPage() {
             </div>
 
             {/* Results */}
-            {error && <p role="alert">Unable to search: {error.message}</p>}
-            {isLoading && (
+            {(mode === 'keyword' ? error : modelResults.error) && <p role="alert">Unable to search: {(mode === 'keyword' ? error : modelResults.error)?.message}</p>}
+            {(mode === 'keyword' ? isLoading : modelResults.isLoading) && (
                 <div className="text-sm text-neutral-500 animate-pulse">
                     Searching…
                 </div>
@@ -183,7 +199,8 @@ export function SearchPage() {
                 </div>
             )}
 
-            {hasFilters && !isLoading && results && results.length === 0 && (
+            {hasFilters && !(mode === 'keyword' ? isLoading : modelResults.isLoading)
+              && (mode === 'keyword' ? results : modelResults.data)?.length === 0 && (
                 <div className="text-sm text-neutral-500">
                     No results found
                     {debouncedQuery && (
@@ -195,7 +212,7 @@ export function SearchPage() {
                 </div>
             )}
 
-            {results && results.length > 0 && (
+            {mode === 'keyword' && results && results.length > 0 && (
                 <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/50 overflow-hidden">
                     <div className="px-4 py-2 border-b border-neutral-200 dark:border-neutral-800 text-xs text-neutral-500">
                         {results.length} result{results.length !== 1 && "s"}
@@ -215,6 +232,11 @@ export function SearchPage() {
                     />
                 </div>
             )}
+            {mode !== 'keyword' && modelResults.data && <ul>
+                {modelResults.data.map(result => <li key={`${result.resultType}:${result.documentId}:${result.savedPath}`}>
+                    <SourceCard source={result} onSelectDocument={id => navigate(`/documents?id=${id}`)} />
+                </li>)}
+            </ul>}
         </div>
     );
 }
