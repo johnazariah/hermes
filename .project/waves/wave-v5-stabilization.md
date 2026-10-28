@@ -100,6 +100,26 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-28 - Resume autonomous execution within the agreed boundaries
+
+- **Owner direction:** Asked to approve publication and the already scoped readiness capture, John responds: "How about I give you YOLO and you just do it all". This approves routine implementation, commit/push and CI execution for the agreed remediation without repeated approval prompts.
+- **Preserved decisions:** The two specifically approved encrypted captures remain bounded to their respective single lines. This is not permission for wider raw logs, personal-corpus access, shared-runner mutation, destructive data changes or weaker installer acceptance. Normal merge still requires actual evidence; no bypass is authorised.
+- **Immediate action:** Publish the qualified readiness-only retarget, execute its one manual capture, authenticate/decrypt locally, and use the exact result to choose the smallest grounded correction. Continue routine verification/publication autonomously; escalate only genuinely new sensitive or destructive decisions.
+
+### 2026-10-28 - Qualify the exclusively retargeted readiness capture
+
+- **Changed:** A fresh author moves the one-attempt hook exclusively to the first unsupported display in a bound active readiness part, site 2. The old flag-query hook is removed. Missing eligibility, oversize, invalid encoding or capture failure cannot fall back to another line.
+- **Preserved:** Ten crypto/ownership function hashes and both workflows remain unchanged. Exact inverses pin the original query/readiness/acceptance code. Artifact validation follows the actual readiness origin, source and cleanup, not unrelated later flag-query failure. Both later query outcomes are covered without changing their verdicts.
+- **Review and validation:** Independent source review approves. Parent runs pass 560 startup and 288 cipher/origin controls, unchanged Setup contracts, workflow lint and root build/tests (2,198 Core, zero skips or warnings/errors).
+- **Next:** Ask interactive approval to commit/push this qualified retarget and run its one manual encrypted capture. No new capture or publication has occurred yet.
+
+### 2026-10-28 - Keep failed readiness facts unknown and authorise one specific capture
+
+- **Actual run:** Approved ordinary CI `40621816476`, installer job `122597390351`, at `5069bd0` passes all 556 controls but reports readiness complete 0 / fault 4 (unsupported display). All module/type/member/width outputs are unknown. Existing artifact `12787564475` contains one bounded 2,415-byte numeric report; no extra ciphertext is uploaded.
+- **Unchanged failure:** The original resolver-family refusal remains at point 26, with reasons 1/1, stages/evaluator 1/1 and kind/source/lexical 5/0/144. Native gate is still 500/501, zero skipped. No module absence, type availability, root cause or diagnostic fix is inferred.
+- **Interactive decision:** John explicitly selects "Yes—capture that one readiness-refusal line". This is a separate second capture permission, not reuse of the first approval: first bound readiness-rejected line only, at most 1 KB, encrypted-only GitHub artifact/private key and decryption local; no wider log, changed query/stop/settings or relaxed acceptance.
+- **Next:** A fresh author retargets the existing capture exclusively to the readiness refusal, with no later flag-query fallback. Its artifact eligibility must follow that origin and settlement, not depend on unrelated later query failure; readiness remains observational. Review and interactive publication approval precede any new run.
+
 ### 2026-10-28 - Approve the bounded readiness source after strict-context correction
 
 - **Implemented:** The fixed metadata bracket checks loaded `ntdll`, the explicit target type and field width at the same owned stop before the unchanged typed flag query. Current/event/source receipts remain bound; the bracket adds no flag authority, forced reload, target write or resume. Ordinary deferred symbol loading may occur.

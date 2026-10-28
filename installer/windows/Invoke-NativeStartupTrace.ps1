@@ -735,7 +735,7 @@ try {
 
     # FIRST-REFUSAL-BEGIN: fixed direct manual route only; all other traces stay off.
     if ($env:GITHUB_EVENT_NAME -ceq 'workflow_dispatch') {
-        $state.FirstRefusal = @{ Status = 4; Count = 0 }
+        $state.FirstRefusal = @{ Status = 4; Count = 0; Site = 0 }
         try {
             Import-Module (Join-Path $PSScriptRoot 'First-Refusal.psm1') -Force
             $state.FirstRefusal = New-HermesFirstRefusalCapture
@@ -857,6 +857,7 @@ $report = New-HermesStartupReport $state $debuggerEnded $drainsEnded
 if ($state.ContainsKey('FirstRefusal')) {
     $report.firstRefusalStatus = $state.FirstRefusal.Status
     $report.firstRefusalCount = $state.FirstRefusal.Count
+    $report.firstRefusalSite = $state.FirstRefusal.Site
 }
 # FIRST-REFUSAL-END
 try {

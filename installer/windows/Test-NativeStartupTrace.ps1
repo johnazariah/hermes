@@ -862,12 +862,32 @@ function Remove-ControlReadinessProtocolRefusalDelta {
 }
 function Remove-ControlReadinessDelta {
     param([string]$Source, [int]$Count = 1)
+    $Source = Remove-ControlReadinessCaptureDelta $Source
     if ($Source.Contains('function Add-HermesStartupScopedLine {', [StringComparison]::Ordinal)) {
         $Source = Remove-ControlReadinessProtocolRefusalDelta $Source
     }
     $pattern = '(?m)^([ ]*)# READINESS-BEGIN\n[\s\S]*?^\1# READINESS-END\n'
     Assert-Control ([regex]::Matches($Source, $pattern).Count -eq $Count)
     return [regex]::Replace($Source, $pattern, '')
+}
+function Remove-ControlReadinessCaptureDelta {
+    param([string]$Source)
+    $pattern = '(?m)^([ ]*)# READINESS-CAPTURE-BEGIN\n[\s\S]*?^\1# READINESS-CAPTURE-END\n'
+    if ($Source.Contains('function Add-HermesStartupScopedLine {', [StringComparison]::Ordinal)) {
+        Assert-Control ([regex]::Matches($Source, $pattern).Count -eq 3)
+        $Source = [regex]::Replace($Source, $pattern, '')
+        $anchor = '    # Fixed-source comparisons describe this refusal only.'
+        $oldHook = (@(
+            '    if ($State.ContainsKey(''FirstRefusal'') -and $null -ne $State.FirstRefusal) {',
+            '        try { Invoke-HermesFirstRefusalCapture $State.FirstRefusal $Line }',
+            '        catch { $State.FirstRefusal.Status = 7; $State.FirstRefusal.Count = 1 }',
+            '    }', ''
+        ) -join "`n")
+        Assert-Control ([regex]::Matches($Source, [regex]::Escape($anchor)).Count -eq 1)
+        return $Source.Replace($anchor, $oldHook + $anchor)
+    }
+    return $Source.Replace('Status = 4; Count = 0; Site = 0', 'Status = 4; Count = 0').
+        Replace('    $report.firstRefusalSite = $state.FirstRefusal.Site' + "`n", '')
 }
 function Remove-ControlTypedQueryDelta {
     param([string]$Driver)
@@ -886,7 +906,89 @@ function Remove-ControlDriverDeltas {
     Assert-Control ([regex]::Matches($Driver, $pattern).Count -eq 3)
     return Remove-ControlTypedQueryDelta ([regex]::Replace($Driver, $pattern, ''))
 }
-$cases = 1..556 # All 552 prior intents retained; four readiness protocol-taint controls.
+function Open-ControlReadinessCipher {
+    Import-Module (Join-Path $PSScriptRoot 'First-Refusal.psm1') -Force
+    & (Get-Module First-Refusal) {
+        $script:hookSource = (Get-Command Assert-FirstRefusalSource).ScriptBlock
+        $script:hookKey = (Get-Command Get-FirstRefusalPublicKey).ScriptBlock
+        $script:hookRsa = [Security.Cryptography.RSA]::Create(3072)
+        Set-Item Function:script:Assert-FirstRefusalSource {
+            param($Capture)
+            if ($Capture.ContainsKey('SourceFault')) { throw 'SYNTHETIC source/pin failure' }
+        }
+        Set-Item Function:script:Get-FirstRefusalPublicKey {
+            $public = [Security.Cryptography.RSA]::Create()
+            $read = 0
+            $public.ImportSubjectPublicKeyInfo($script:hookRsa.ExportSubjectPublicKeyInfo(), [ref]$read)
+            return $public
+        }
+        return [ordered]@{
+            key = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+                $script:hookRsa.ExportSubjectPublicKeyInfo())).ToLowerInvariant()
+            source = 'b' * 64; revision = 'c' * 40; run = '123'; attempt = '1'
+        }
+    }
+}
+function Close-ControlReadinessCipher {
+    & (Get-Module First-Refusal) {
+        Set-Item Function:script:Assert-FirstRefusalSource $script:hookSource
+        Set-Item Function:script:Get-FirstRefusalPublicKey $script:hookKey
+        $script:hookRsa.Dispose()
+        Remove-Variable hookSource, hookKey, hookRsa -Scope Script
+    }
+}
+function Assert-ControlReadinessPlaintext {
+    param([hashtable]$Capture, [string]$Expected)
+    $same = & (Get-Module First-Refusal) {
+        param($Bytes, $Context, $Expected)
+        $parts = Read-HermesFirstRefusalEnvelope $Bytes $Context
+        $key = $null; $plain = $null; $aes = $null
+        try {
+            $key = $script:hookRsa.Decrypt($parts.WrappedKey, [Security.Cryptography.RSAEncryptionPadding]::OaepSHA256)
+            $plain = [byte[]]::new($parts.Ciphertext.Length)
+            $aes = [Security.Cryptography.AesGcm]::new($key, 16)
+            $aes.Decrypt($parts.Nonce, $parts.Ciphertext, $parts.Tag, $plain, $parts.Aad)
+            return [Text.UTF8Encoding]::new($false, $true).GetString($plain) -ceq $Expected
+        } finally {
+            if ($null -ne $key) { [Array]::Clear($key) }
+            if ($null -ne $plain) { [Array]::Clear($plain) }
+            if ($null -ne $aes) { $aes.Dispose() }
+        }
+    } $Capture.Bytes $Capture.Context $Expected
+    Assert-Control $same
+}
+function Assert-ControlReadinessArtifact {
+    param([hashtable]$State, [string]$Root, [bool]$Completed)
+    $module = Get-Module First-Refusal
+    & $module {
+        param($Root, $Context)
+        $script:hookNew = (Get-Command New-HermesFirstRefusalCapture).ScriptBlock
+        $script:hookArtifact = @{ Status = 1; Count = 0; Site = 0; Bytes = $null
+            Pins = $null; Context = $Context; Root = $Root }
+        Set-Item Function:script:New-HermesFirstRefusalCapture { return $script:hookArtifact }
+    } $Root $State.FirstRefusal.Context
+    try {
+        $report = New-HermesStartupReport $State $Completed $Completed
+        $driver = [IO.File]::ReadAllText($driverAst.Extent.File)
+        $block = [regex]::Match($driver,
+            '(?m)^# FIRST-REFUSAL-BEGIN: closed numeric disposition[^\n]*\n(?<body>[\s\S]*?)^# FIRST-REFUSAL-END\n')
+        Assert-Control $block.Success
+        . ([scriptblock]::Create($block.Groups['body'].Value))
+        Assert-Control ($report.firstRefusalStatus -eq 3 -and $report.firstRefusalCount -eq 1 `
+            -and $report.firstRefusalSite -eq 2 -and $report.completed -eq [int]$Completed `
+            -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0)
+        [IO.File]::WriteAllText((Join-Path $Root '.artifacts/installer-evidence/startup-debug.json'),
+            ($report | ConvertTo-Json -Depth 4 -Compress))
+        $output = @(Assert-HermesFirstRefusalArtifact)
+        Assert-Control ($output.Count -eq 0)
+    } finally {
+        & $module {
+            Set-Item Function:script:New-HermesFirstRefusalCapture $script:hookNew
+            Remove-Variable hookNew, hookArtifact -Scope Script
+        }
+    }
+}
+$cases = 1..560 # Prior controls retained; 542 now proves the old capture target stays off.
 $passed = 0
 foreach ($case in $cases) {
     $state = $null
@@ -10058,7 +10160,7 @@ foreach ($case in $cases) {
                         -and $report.observations.subjects -eq 16 -and $report.observations.inputTasks -eq 50 `
                         -and $report.completed -eq 0 -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0 `
                         -and $json -notmatch 'Current expression|private|secret|S-1-|not enough arguments|extra character|\.printf')
-                    $report.firstRefusalStatus = 8; $report.firstRefusalCount = 1
+                    $report.firstRefusalStatus = 8; $report.firstRefusalCount = 1; $report.firstRefusalSite = 2
                     Assert-Control ([Text.Encoding]::UTF8.GetByteCount(($report | ConvertTo-Json -Depth 4 -Compress) + "`n") -le 4096)
                     foreach ($bad in @(-1, 256, '255', $true, $null)) {
                         $state.ScopedQueryFault.Wording = $bad
@@ -10074,7 +10176,8 @@ foreach ($case in $cases) {
                 }
             }
             542 {
-                foreach ($outcome in @('DefaultOff', 'First', 'CaptureFault', 'Encrypted', 'Unbound', 'AlreadyRefused')) {
+                # The old flag-query hook is deliberately gone, even when armed.
+                foreach ($outcome in @('DefaultOff', 'Armed', 'Unbound', 'AlreadyRefused')) {
                     $state = New-ControlScopedCreated
                     $physical = [StartupControlWriteStream]::new(0)
                     $writer = [IO.StreamWriter]::new($physical)
@@ -10085,40 +10188,13 @@ foreach ($case in $cases) {
                         Add-HermesStartupText $state $state.Out (
                             "HERMES_CDB v=4 kind=7 pid=22`nLast event: 16.1: Create process 1:16`nHERMES_ARM_STAGE v=1 stage=1`n") $true
                         Add-HermesStartupLine $state $evaluatorMasm
-                        if ($outcome -cne 'DefaultOff') { $state.FirstRefusal = @{ Status = 1; Count = 0; Seen = '' } }
+                        if ($outcome -cne 'DefaultOff') { $state.FirstRefusal = @{ Status = 1; Count = 0; Site = 0 } }
                         & $module {
                             function script:Invoke-HermesFirstRefusalCapture {
                                 param($Capture, $Line)
-                                $Capture.Count++
-                                $Capture.Seen = $Line
-                                if ($Capture.ContainsKey('Fail')) { throw 'SYNTHETIC private failure' }
-                                $Capture.Status = 2
+                                $Capture.Count++; throw 'Unexpected old capture target.'
                             }
                         }
-                        if ($outcome -ceq 'Encrypted') {
-                            Import-Module (Join-Path $PSScriptRoot 'First-Refusal.psm1') -Force
-                            $encryptionModule = Get-Module First-Refusal
-                            $state.FirstRefusal.Context = & $encryptionModule {
-                                $script:hookSource = (Get-Command Assert-FirstRefusalSource).ScriptBlock
-                                $script:hookKey = (Get-Command Get-FirstRefusalPublicKey).ScriptBlock
-                                $script:hookRsa = [Security.Cryptography.RSA]::Create(3072)
-                                Set-Item Function:script:Assert-FirstRefusalSource { param($Capture) }
-                                Set-Item Function:script:Get-FirstRefusalPublicKey {
-                                    $public = [Security.Cryptography.RSA]::Create()
-                                    $read = 0
-                                    $public.ImportSubjectPublicKeyInfo($script:hookRsa.ExportSubjectPublicKeyInfo(), [ref]$read)
-                                    return $public
-                                }
-                                return [ordered]@{
-                                    key = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
-                                        $script:hookRsa.ExportSubjectPublicKeyInfo())).ToLowerInvariant()
-                                    source = 'b' * 64; revision = 'c' * 40; run = '123'; attempt = '1'
-                                }
-                            }
-                            $state.FirstRefusal.Bytes = $null
-                            & $module { Remove-Item Function:Invoke-HermesFirstRefusalCapture }
-                        }
-                        if ($outcome -ceq 'CaptureFault') { $state.FirstRefusal.Fail = $true }
                         if ($outcome -ceq 'Unbound') { $state.Inventory.Block.EventPid = [uint32]33 }
                         if ($outcome -ceq 'AlreadyRefused') { Set-HermesStartupProtocolFault $state 1 }
                         $line = " `tSYNTHETIC unknown .printf HERMES_ARM_STAGE @@c++(@`$peb->NtGlobalFlag) error `t "
@@ -10128,28 +10204,8 @@ foreach ($case in $cases) {
                         Assert-Control ($state.Protocol -eq 1 -and -not $state.Acked -and -not $state.Continued `
                             -and $physical.Writes -eq 1 -and $state.InputTasks.Count -eq 1)
                         if ($outcome -cne 'DefaultOff') {
-                            $captured = $outcome -cin @('First', 'CaptureFault', 'Encrypted')
-                            Assert-Control ($state.FirstRefusal.Count -eq [int]$captured `
-                                -and $state.FirstRefusal.Seen -ceq $(if ($captured -and $outcome -cne 'Encrypted') { $line } else { '' }))
-                            if ($outcome -ceq 'Encrypted') {
-                                $same = & $encryptionModule {
-                                    param($Bytes, $Context, $Expected)
-                                    $parts = Read-HermesFirstRefusalEnvelope $Bytes $Context
-                                    $key = $script:hookRsa.Decrypt($parts.WrappedKey, [Security.Cryptography.RSAEncryptionPadding]::OaepSHA256)
-                                    $plain = [byte[]]::new($parts.Ciphertext.Length)
-                                    $aes = [Security.Cryptography.AesGcm]::new($key, 16)
-                                    try {
-                                        $aes.Decrypt($parts.Nonce, $parts.Ciphertext, $parts.Tag, $plain, $parts.Aad)
-                                        return [Text.UTF8Encoding]::new($false, $true).GetString($plain) -ceq $Expected
-                                    } finally { [Array]::Clear($key); [Array]::Clear($plain); $aes.Dispose() }
-                                } $state.FirstRefusal.Bytes $state.FirstRefusal.Context $line
-                                Assert-Control $same
-                            }
-                            if ($captured) {
-                                Assert-Control ($state.ScopedQueryFault.Kind -eq 1 -and $state.ScopedStageFault.Reason -eq 1 `
-                                    -and $state.ScopedFault.Reason -eq 1 `
-                                    -and $state.FirstRefusal.Status -eq $(if ($outcome -ceq 'CaptureFault') { 7 } else { 2 }))
-                            }
+                            Assert-Control ($state.FirstRefusal.Count -eq 0 -and $state.FirstRefusal.Site -eq 0 `
+                                -and $state.FirstRefusal.Status -eq 1)
                         }
                         Close-HermesStartupScopedInput $state $writer
                         Assert-Control $state.InputClosed
@@ -10157,17 +10213,7 @@ foreach ($case in $cases) {
                         Assert-Control ($report.completed -eq 0 -and $report.nativeAcceptance -eq 0 `
                             -and ($report | ConvertTo-Json -Depth 4 -Compress) -notmatch 'SYNTHETIC|private|\.printf')
                     } finally {
-                        if ($outcome -cne 'Encrypted') {
-                            & $module { Remove-Item Function:Invoke-HermesFirstRefusalCapture }
-                        }
-                        if ($outcome -ceq 'Encrypted') {
-                            & $encryptionModule {
-                                Set-Item Function:script:Assert-FirstRefusalSource $script:hookSource
-                                Set-Item Function:script:Get-FirstRefusalPublicKey $script:hookKey
-                                $script:hookRsa.Dispose()
-                                Remove-Variable hookSource, hookKey, hookRsa -Scope Script
-                            }
-                        }
+                        & $module { Remove-Item Function:Invoke-HermesFirstRefusalCapture }
                         Close-HermesStartupScopedInput $state $writer
                         $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
                     }
@@ -10175,7 +10221,7 @@ foreach ($case in $cases) {
             }
             543 {
                 # Whole-source inverses pin the complete pre-repair programs,
-                # including the unchanged first-refusal hook and action gates.
+                # restoring the separately pinned, intentionally retargeted hook.
                 $driver = [IO.File]::ReadAllText($driverAst.Extent.File)
                 $priorDriver = Remove-ControlTypedQueryDelta $driver
                 $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
@@ -10557,7 +10603,7 @@ foreach ($case in $cases) {
             }
             553 {
                 $source = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'Native-StartupTrace.psm1'))
-                $prior = Remove-ControlReadinessProtocolRefusalDelta $source
+                $prior = Remove-ControlReadinessProtocolRefusalDelta (Remove-ControlReadinessCaptureDelta $source)
                 $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
                     [Text.Encoding]::UTF8.GetBytes($prior))).ToLowerInvariant()
                 Assert-Control ($hash -ceq '71f4a2ac0d4f8a3e1c31e56947f3bb169c8313aa5823aa8e702eadfc93028ee8')
@@ -10718,6 +10764,307 @@ foreach ($case in $cases) {
                     }
                 }
             }
+            557 {
+                    # Only capture relocation and its numeric origin may differ
+                    # from 5069bd0; readiness, query, gates and verdicts are byte-exact.
+                    foreach ($entry in @(
+                        @('Native-StartupTrace.psm1', 'c80b8ed737adc5375d70a72cb9d95a43d42814f9c50c23ec2ced9a605927a232'),
+                        @('Invoke-NativeStartupTrace.ps1', '9b5bab641af3eea2dc5aa3d24f32f18149873f330de54cb274610f97059858a0')
+                    )) {
+                        $prior = Remove-ControlReadinessCaptureDelta ([IO.File]::ReadAllText(
+                            (Join-Path $PSScriptRoot $entry[0])))
+                        $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+                            [Text.Encoding]::UTF8.GetBytes($prior))).ToLowerInvariant()
+                        Assert-Control ($hash -ceq $entry[1])
+                    }
+                }
+            558 {
+                    # Real production framing/hook and hybrid encryption. Only
+                    # hosted ownership and the ephemeral synthetic recipient are faked.
+                    $context = Open-ControlReadinessCipher
+                    try {
+                        foreach ($entry in @(
+                            @{ Part = 1; Line = " `tSYNTHETIC unsupported readiness display `t "; Status = 2 },
+                            @{ Part = 2; Line = 'SYNTHETIC unsupported type display'; Status = 2 },
+                            @{ Part = 3; Line = 'SYNTHETIC unsupported member display'; Status = 2 },
+                            @{ Part = 1; Line = ('a' * 1024); Status = 2 },
+                            @{ Part = 1; Line = ('é' * 512); Status = 2 },
+                            @{ Part = 1; Line = ('😀' * 256); Status = 2 },
+                            @{ Part = 1; Line = ('a' * 1025); Status = 5 },
+                            @{ Part = 1; Line = ('é' * 513); Status = 5 },
+                            @{ Part = 1; Line = ('😀' * 257); Status = 5 },
+                            @{ Part = 1; Line = ([string][char]0xd800); Status = 6 },
+                            @{ Part = 1; Line = "SYNTHETIC`nsecond"; Status = 6 },
+                            @{ Part = 1; Line = "SYNTHETIC`rsecond"; Status = 6 },
+                            @{ Part = 1; Line = 'SYNTHETIC source/pin failure'; Status = 7; SourceFault = $true },
+                            @{ Part = 1; Line = 'SYNTHETIC crypto failure'; Status = 7; CryptoFault = $true },
+                            @{ Part = 1; Line = '00007ffb10000000 00007ffb10200000 ntdll (deferred) SYNTHETIC .printf HERMES_'; Status = 2 }
+                        )) {
+                            $state = New-ControlScopedCreated
+                            $physical = [StartupControlWriteStream]::new(0)
+                            $writer = [IO.StreamWriter]::new($physical)
+                            try {
+                                Open-ControlReadiness $state $writer
+                                Add-HermesStartupLine $state 'HERMES_READINESS v=1 part=1 pid=22'
+                                if ($entry.Part -gt 1 -or $entry.Line.StartsWith('00007', [StringComparison]::Ordinal)) {
+                                    Add-HermesStartupLine $state 'Last event: 16.1: Create process 1:16'
+                                    Add-HermesStartupLine $state 'start end module name'
+                                }
+                                foreach ($part in @(2, 3) | Where-Object { $_ -le $entry.Part }) {
+                                    Add-HermesStartupLine $state ("HERMES_READINESS v=1 part=$part pid=22")
+                                }
+                                $captureContext = [ordered]@{}
+                                foreach ($name in $context.Keys) { $captureContext[$name] = $context[$name] }
+                                if ($entry.ContainsKey('CryptoFault')) { $captureContext.key = 'f' * 64 }
+                                $state.FirstRefusal = @{ Status = 1; Count = 0; Site = 0; Bytes = $null
+                                    Pins = $null; Context = $captureContext; Root = '' }
+                                if ($entry.ContainsKey('SourceFault')) { $state.FirstRefusal.SourceFault = $true }
+                                $output = @(Add-HermesStartupLine $state $entry.Line)
+                                Assert-Control ($output.Count -eq 0 -and $state.FirstRefusal.Status -eq $entry.Status `
+                                    -and $state.FirstRefusal.Count -eq 1 -and $state.FirstRefusal.Site -eq 2 `
+                                    -and $state.Readiness.Fault -eq 4 -and $state.Readiness.Complete -eq 0)
+                                $first = $state.FirstRefusal.Bytes
+                                if ($entry.Status -eq 2) {
+                                    Assert-ControlReadinessPlaintext $state.FirstRefusal $entry.Line
+                                    Assert-Control (-not [Text.Encoding]::UTF8.GetString($first).Contains($entry.Line, [StringComparison]::Ordinal))
+                                } else { Assert-Control ($null -eq $first) }
+                                $faults = @($state.Protocol, $state.Unknown, $state.ScopedFault,
+                                    $state.ScopedStageFault, $state.ScopedQueryFault) | ConvertTo-Json -Compress
+                                Add-HermesStartupLine $state 'SYNTHETIC later unsupported readiness line'
+                                Assert-Control ((@($state.Protocol, $state.Unknown, $state.ScopedFault,
+                                    $state.ScopedStageFault, $state.ScopedQueryFault) | ConvertTo-Json -Compress) -ceq $faults)
+                                Add-HermesStartupLine $state 'HERMES_READINESS v=1 part=4 pid=22'
+                                Add-HermesStartupLine $state (Get-ControlScopedQuerySources $extension).Whole
+                                Add-HermesStartupLine $state "Couldn't resolve error at 'SYNTHETIC later .printf HERMES_ARM_STAGE'"
+                                Assert-Control ($state.FirstRefusal.Status -eq $entry.Status -and $state.FirstRefusal.Count -eq 1 `
+                                    -and $state.FirstRefusal.Site -eq 2 -and [object]::ReferenceEquals($first, $state.FirstRefusal.Bytes))
+                                $report = New-HermesStartupReport $state $false $false
+                                Assert-Control ($report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0 `
+                                    -and ($report | ConvertTo-Json -Depth 4 -Compress) -notmatch 'SYNTHETIC|private|\.printf')
+                                Complete-HermesFirstRefusalCapture $state.FirstRefusal $false
+                                Assert-Control ($null -eq $state.FirstRefusal.Bytes -and $state.FirstRefusal.Status -ne 3)
+                            } finally {
+                                Close-HermesStartupScopedInput $state $writer
+                                $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                            }
+                        }
+                    } finally { Close-ControlReadinessCipher }
+                }
+            559 {
+                    $module = Get-Module Native-StartupTrace
+                    & $module {
+                        function script:Invoke-HermesFirstRefusalCapture {
+                            param($Capture, $Line)
+                            $Capture.Count++; $Capture.Status = 2
+                        }
+                    }
+                    try {
+                        foreach ($change in @(
+                            { $state.FirstRefusal = $null },
+                            { $state.Remove('FirstRefusal') },
+                            { $state.FirstRefusal.Status = 4 },
+                            { $state.DiagnosticMode = 'Inventory' },
+                            { $state.Readiness.Source = 0 },
+                            { $state.Readiness.Part = 0 },
+                            { $state.Readiness.Part = 4 },
+                            { $state.Readiness.Fault = 1 },
+                            { $state.Readiness.Fault = 2 },
+                            { $state.Readiness.Fault = 3 },
+                            { $state.Readiness.Fault = 4 },
+                            { $state.Readiness.Fault = 5 },
+                            { $state.Inventory.Block.Pid = [uint32]33 },
+                            { $state.Inventory.Block.EventPid = [uint32]33 },
+                            { $state.Held.EventPid = [uint32]33 },
+                            { $state.ScopedInvocation.EventPid = [uint32]33 },
+                            { $state.ScopedInvocation.Source.ArmCommandSha256 = 'f' * 64 },
+                            { $state.NativeRowSnapshots.Resumed.Row.born = 124 },
+                            { $state.CreatedBinding = $null },
+                            { $state.ArmWritten = $false },
+                            { $state.ScopedEvaluator = 0 },
+                            { $state.ScopedEvaluator = 2 },
+                            { $state.ScopedStages = 0 },
+                            { $state.Inventory.Block.Stages = 0 },
+                            { $state.Inventory.Block.Flags = 2 },
+                            { $state.Observations.SdkCommandErrors = 1 },
+                            { $state.Failure = @{ Kind = 1 } },
+                            { $state.Out.End = $true },
+                            { $state.Out.Faulted = $true },
+                            { $state.Err.Faulted = $true },
+                            { $state.Protocol = 1 },
+                            { $state.Unknown = 1 },
+                            { $state.ScopedFault.Reason = 1 },
+                            { $state.ScopedStageFault.Reason = 1 },
+                            { $state.ScopedQueryFault.Kind = 1 },
+                            { $state.Error = 13 },
+                            { $state.Timeout = 1 },
+                            { $state.CleanupFault = 13 },
+                            { $state.NativeRowsFault = 1 },
+                            { $state.TraceFaulted = $true },
+                            { $state.DebuggerKillRequested = 1 },
+                            { $state.DebuggerExitAvailable = 1 },
+                            { $state.Stopped = $true },
+                            { $state.InputClosed = $true },
+                            { $state.Bounds = 1 },
+                            { $state.AcceptedUtf8Bytes = [long]8388608 },
+                            { $state.Readiness.Rows = 16 },
+                            { $state.Readiness.Bytes = 8192 }
+                        )) {
+                            $state = New-ControlScopedCreated
+                            $physical = [StartupControlWriteStream]::new(0)
+                            $writer = [IO.StreamWriter]::new($physical)
+                            try {
+                                Open-ControlReadiness $state $writer
+                                Add-HermesStartupLine $state 'HERMES_READINESS v=1 part=1 pid=22'
+                                $capture = @{ Status = 1; Count = 0; Site = 0 }
+                                $state.FirstRefusal = $capture
+                                . $change
+                                Add-HermesStartupLine $state 'SYNTHETIC ineligible readiness display'
+                                Add-HermesStartupLine $state 'HERMES_READINESS v=1 part=4 pid=22'
+                                Add-HermesStartupLine $state "Couldn't resolve error at 'SYNTHETIC old .printf HERMES_ARM_STAGE'"
+                                Assert-Control ($capture.Count -eq 0 -and $capture.Site -eq 0)
+                            } finally {
+                                Close-HermesStartupScopedInput $state $writer
+                                $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                            }
+                        }
+                        foreach ($first in @(
+                            'HERMES_READINESS v=1 part=2 pid=23',
+                            'HERMES_READINESS v=1 part=3 pid=22',
+                            'Last event: 17.1: Create process 1:17',
+                            (Get-ControlScopedQuerySources $extension).Whole,
+                            'HERMES_NTGLOBALFLAG v=1 pid=22 value=00000002',
+                            ('x' * 2049)
+                        )) {
+                            $state = New-ControlScopedCreated
+                            $writer = [IO.StreamWriter]::new([StartupControlWriteStream]::new(0))
+                            try {
+                                Open-ControlReadiness $state $writer
+                                Add-HermesStartupLine $state 'HERMES_READINESS v=1 part=1 pid=22'
+                                $state.FirstRefusal = @{ Status = 1; Count = 0; Site = 0 }
+                                Add-HermesStartupLine $state $first
+                                Add-HermesStartupLine $state 'SYNTHETIC must not capture later display'
+                                Assert-Control ($state.FirstRefusal.Count -eq 0 -and $state.FirstRefusal.Site -eq 0)
+                            } finally {
+                                Close-HermesStartupScopedInput $state $writer
+                                $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                            }
+                        }
+                    $state = New-ControlScopedCreated
+                    $writer = [IO.StreamWriter]::new([StartupControlWriteStream]::new(0))
+                    try {
+                        Open-ControlReadiness $state $writer
+                        $state.FirstRefusal = @{ Status = 1; Count = 0; Site = 0 }
+                        Add-HermesStartupText $state $state.Err "SYNTHETIC stderr must not capture`n" $false
+                        Add-HermesStartupText $state $state.Out (Get-ControlReadinessText) $true
+                        Assert-Control ($state.Readiness.Complete -eq 1 -and $state.Readiness.Fault -eq 0 `
+                            -and $state.FirstRefusal.Count -eq 0)
+                        Add-HermesStartupLine $state "Couldn't resolve error at 'SYNTHETIC old .printf HERMES_ARM_STAGE'"
+                        Assert-Control ($state.FirstRefusal.Count -eq 0 -and $state.FirstRefusal.Site -eq 0)
+                    } finally {
+                        Close-HermesStartupScopedInput $state $writer
+                        $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                    }
+                    & $module {
+                        function script:Invoke-HermesFirstRefusalCapture {
+                            param($Capture, $Line)
+                            throw 'SYNTHETIC unavailable capture function'
+                        }
+                    }
+                    $state = New-ControlScopedCreated
+                    $writer = [IO.StreamWriter]::new([StartupControlWriteStream]::new(0))
+                    try {
+                        Open-ControlReadiness $state $writer
+                        Add-HermesStartupLine $state 'HERMES_READINESS v=1 part=1 pid=22'
+                        $state.FirstRefusal = @{ Status = 1; Count = 0; Site = 0 }
+                        $output = @(Add-HermesStartupLine $state 'SYNTHETIC first unsupported display')
+                        Add-HermesStartupLine $state 'SYNTHETIC later line'
+                        Assert-Control ($output.Count -eq 0 -and $state.FirstRefusal.Count -eq 1 `
+                            -and $state.FirstRefusal.Site -eq 2 -and $state.FirstRefusal.Status -eq 7 `
+                            -and $state.Readiness.Fault -eq 4 -and $state.Protocol -eq 0)
+                    } finally {
+                        Close-HermesStartupScopedInput $state $writer
+                        $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                    }
+                    } finally { & $module { Remove-Item Function:Invoke-HermesFirstRefusalCapture } }
+                }
+            560 {
+                    $context = Open-ControlReadinessCipher
+                    try {
+                        foreach ($later in @('Success', 'Failure')) {
+                            $verdicts = @()
+                            foreach ($enabled in @($false, $true)) {
+                                $state = New-ControlScopedCreated
+                                $physical = [StartupControlWriteStream]::new(0)
+                                $writer = [IO.StreamWriter]::new($physical)
+                                $debugger = [pscustomobject]@{ HasExited = $false; StandardInput = $writer }
+                                try {
+                                    Open-ControlReadiness $state $writer
+                                    Add-HermesStartupLine $state 'HERMES_READINESS v=1 part=1 pid=22'
+                                    if ($enabled) {
+                                        $state.FirstRefusal = @{ Status = 1; Count = 0; Site = 0; Bytes = $null
+                                            Pins = $null; Context = $context; Root = '' }
+                                    }
+                                    Add-HermesStartupLine $state 'SYNTHETIC unsupported readiness display'
+                                    Assert-Control ($state.Protocol -eq 0 -and $state.Unknown -eq 0 `
+                                        -and $state.ScopedFault.Reason -eq 0 -and $state.Readiness.Fault -eq 4)
+                                    Add-HermesStartupLine $state 'HERMES_READINESS v=1 part=4 pid=22'
+                                    Add-HermesStartupLine $state (Get-ControlScopedQuerySources $extension).Whole
+                                    if ($later -ceq 'Success') {
+                                        Add-HermesStartupText $state $state.Out (
+                                            "HERMES_NTGLOBALFLAG v=1 pid=22 value=00000002`n" +
+                                            "HERMES_ARM_STAGE v=1 stage=2`nHERMES_CDB v=4 kind=8 pid=22`n1:000> ") $true
+                                        Invoke-ControlScopedPublisher
+                                        $report = Complete-ControlScoped $state $writer
+                                        Assert-Control ($report.completed -eq 1 -and $state.Protocol -eq 0 `
+                                            -and $state.ScopedQueryFault.Kind -eq 0 -and $state.ScopedStages -eq 3 `
+                                            -and $state.Acked -and $state.Continued)
+                                    } else {
+                                        Add-HermesStartupLine $state "Couldn't resolve error at 'SYNTHETIC original .printf HERMES_ARM_STAGE'"
+                                        Invoke-ControlScopedPublisher
+                                        $report = New-HermesStartupReport $state $false $false
+                                        Assert-Control ($report.completed -eq 0 -and $state.Protocol -eq 1 `
+                                            -and $state.ScopedQueryFault.Kind -eq 5 -and $state.ScopedStages -eq 1 `
+                                            -and -not $state.Acked -and -not $state.Continued)
+                                    }
+                                    Assert-Control ($report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0 `
+                                        -and $report.observations.readyFault -eq 4 -and $report.observations.readyComplete -eq 0)
+                                    $verdicts += ,(@($state.Protocol, $state.Unknown, $state.ScopedFault,
+                                        $state.ScopedStageFault, $state.ScopedQueryFault, $state.ScopedStages,
+                                        $state.Acked, $state.Continued, $report.completed, $report.armingVerified,
+                                        $report.firstFailureKind, $report.firstFailureStatus) | ConvertTo-Json -Compress)
+                                    if ($enabled) {
+                                        Assert-Control ($state.FirstRefusal.Count -eq 1 -and $state.FirstRefusal.Site -eq 2 `
+                                            -and $state.FirstRefusal.Status -eq 2)
+                                        Assert-ControlReadinessPlaintext $state.FirstRefusal 'SYNTHETIC unsupported readiness display'
+                                        $cipherRoot = Join-Path $PSScriptRoot ('obj/readiness-capture-controls/' + [Guid]::NewGuid().ToString('N'))
+                                        try {
+                                            $null = [IO.Directory]::CreateDirectory((Join-Path $cipherRoot '.artifacts/installer-evidence'))
+                                            $state.FirstRefusal.Root = $cipherRoot
+                                            Close-HermesStartupScopedInput $state $writer
+                                            $first = $state.FirstRefusal.Bytes
+                                            Complete-HermesFirstRefusalCapture $state.FirstRefusal $true
+                                            Assert-Control ($state.FirstRefusal.Status -eq 3 -and $null -eq $state.FirstRefusal.Bytes)
+                                            $disk = [IO.File]::ReadAllBytes((Join-Path $cipherRoot '.artifacts/installer-evidence/startup-first-refusal.enc'))
+                                            Assert-Control ([Linq.Enumerable]::SequenceEqual[byte]($first, $disk))
+                                            Assert-ControlReadinessArtifact $state $cipherRoot ($later -ceq 'Success')
+                                        } finally {
+                                            if ([IO.Directory]::Exists($cipherRoot)) {
+                                                Get-ChildItem -LiteralPath $cipherRoot -File -Recurse -Force | ForEach-Object {
+                                                    [IO.File]::SetAttributes($_.FullName, [IO.FileAttributes]::Normal)
+                                                }
+                                                Remove-Item -LiteralPath $cipherRoot -Recurse -Force
+                                            }
+                                        }
+                                    }
+                                } finally {
+                                    Close-HermesStartupScopedInput $state $writer
+                                    $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                                }
+                            }
+                            Assert-Control ($verdicts[0] -ceq $verdicts[1])
+                        }
+                    } finally { Close-ControlReadinessCipher }
+                }
             { $_ -in 415..420 } {
                 $closure = ($case - 415) % 3
                 $flushFault = $case -ge 418

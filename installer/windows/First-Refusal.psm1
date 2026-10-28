@@ -146,7 +146,7 @@ function New-HermesFirstRefusalCapture {
     # Status: 1 armed/no qualifying line; 2 encrypted/pending cleanup; 3 written;
     # 4 context/source unavailable; 5 byte bound; 6 encoding/newline; 7 capture
     # failure; 8 output/settlement failure. Count is the consumed attempt, 0 or 1.
-    $capture = @{ Status = 4; Count = 0; Bytes = $null; Pins = $null; Context = $null; Root = '' }
+    $capture = @{ Status = 4; Count = 0; Site = 0; Bytes = $null; Pins = $null; Context = $null; Root = '' }
     try {
         $capture.Root = Assert-FirstRefusalManualContext
         $checkout = Get-HermesCrashCheckout $capture.Root $env:GITHUB_SHA
@@ -242,12 +242,21 @@ function Assert-HermesFirstRefusalArtifact {
         Assert-FirstRefusalSource $capture
         $reportPath = Join-Path $capture.Root '.artifacts/installer-evidence/startup-debug.json'
         $report = [Text.UTF8Encoding]::new($false, $true).GetString(
-            (Read-HermesCrashBytes $reportPath)) | ConvertFrom-Json
-        if ($report.firstRefusalStatus -isnot [long] -or $report.firstRefusalStatus -ne 3 `
-            -or $report.firstRefusalCount -isnot [long] -or $report.firstRefusalCount -ne 1 `
-            -or $report.completed -ne 0 -or $report.cleanupFault -ne 0 `
-            -or $report.observations.ParserProtocol -ne 1 `
-            -or $report.observations.scopedReadFirstKind -lt 1) { throw '8' }
+            (Read-HermesCrashBytes $reportPath 4096)) | ConvertFrom-Json
+        # Every origin/cleanup/no-acceptance fact must be present and numeric.
+        # A later original flag-query classification is neither needed nor authority.
+        foreach ($entry in @(
+            @($report, 'v', 2), @($report, 'scopedCreateVersion', 1), @($report, 'advisory', 1),
+            @($report, 'firstRefusalStatus', 3), @($report, 'firstRefusalCount', 1), @($report, 'firstRefusalSite', 2),
+            @($report, 'nativeAcceptance', 0), @($report, 'originalGatePassed', 0),
+            @($report, 'cleanupFault', 0), @($report.observations, 'InputClosed', 1),
+            @($report.observations, 'readyComplete', 0), @($report.observations, 'readyFault', 4),
+            @($report.observations, 'scopedEvaluator', 1)
+        )) {
+            $value = $entry[0].PSObject.Properties[$entry[1]]
+            if ($null -eq $value -or $value.Value -isnot [long] -or $value.Value -ne $entry[2]) { throw '8' }
+        }
+        if ($report.completed -isnot [long] -or $report.completed -notin @(0, 1)) { throw '8' }
         $path = Join-Path $capture.Root '.artifacts/installer-evidence/startup-first-refusal.enc'
         Assert-HermesCrashPath $path
         if (([IO.File]::GetAttributes($path) -band [IO.FileAttributes]::ReadOnly) -eq 0) { throw '8' }

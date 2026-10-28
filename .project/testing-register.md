@@ -33,8 +33,40 @@ correction. All **556 startup controls**, **142 encryption controls**,
 unchanged Setup contracts, workflow lint and root build/tests (**2,198
 Core**, zero failures/skips or warnings/errors) pass locally. Exact
 whole-source inverse proofs retain the original flag/SDK/receipt/gate
-code. No C# or coverage scope changes. Native readiness remains unmeasured;
-interactive publication and one ordinary-CI run are still pending.
+code. No C# or coverage scope changes.
+
+The approved ordinary-CI check now completes at `5069bd0`, run
+`40621816476`, job `122597390351`: controls pass but readiness reports
+complete 0 / fault 4 (unsupported display), with every module/type/member/
+width fact unknown. This does not establish missing `ntdll` or unavailable
+types. The original resolver-family refusal remains, and the 501-case
+gate is still 500 passed / one failed / zero skipped. No second ciphertext
+is produced in ordinary CI.
+
+The owner separately approves one additional encrypted capture of only
+the first bound readiness-rejected line, at most 1 KB, under the same
+local-key/ciphertext-only/no-wider-log rules. Retargeting must disable the
+old flag-query capture hook and cannot fall back to another line.
+No new capture has run yet.
+
+The capture retarget is now independently source-reviewed and locally
+qualified. Only the first unsupported display in the active, source/
+identity-bound readiness part can consume the attempt; its numeric site
+is 2. The old flag-query hook is removed and cannot act as a fallback.
+Oversize, invalid encoding or source/crypto failure consumes the one
+eligible attempt without retrying a later line.
+
+Encryption, recipient key, authenticated envelope, source/manual guards,
+writer and settlement functions are unchanged. Public artifact validation
+requires the new site/readiness origin and actual cleanup/no-acceptance
+facts, independently of later original-query success or failure.
+Diagnostic `completed=1` is allowed only with both original/native
+acceptance flags zero; it is not mislabelled as installer success.
+All **560 startup**, **288 encryption/origin** controls, unchanged Setup
+contracts, workflow lint and root build/tests (**2,198 Core**, zero
+failures/skips or warnings/errors) pass. Exact source inverses prove no
+query, readiness or acceptance change. Publication and one new manual
+capture remain subject to interactive approval.
 
 ## Typed flag verification names the target module explicitly
 

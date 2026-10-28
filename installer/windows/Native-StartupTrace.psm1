@@ -1621,10 +1621,6 @@ function Set-HermesStartupScopedQueryRefusal {
         -or $State.Inventory.Block.Stages -ne 1 -or $State.Inventory.Block.Flags -ne -1) { return }
     if ((Get-HermesStartupObservation $State 'SdkCommandErrors' 15) -ne 0 `
         -or -not (Test-HermesStartupScopedArmFrame $State)) { return }
-    if ($State.ContainsKey('FirstRefusal') -and $null -ne $State.FirstRefusal) {
-        try { Invoke-HermesFirstRefusalCapture $State.FirstRefusal $Line }
-        catch { $State.FirstRefusal.Status = 7; $State.FirstRefusal.Count = 1 }
-    }
     # Fixed-source comparisons describe this refusal only. Neither a family
     # label nor an exact displayed source supplies query or flag authority.
     $query = '.catch { .if (@@c++(sizeof(((ntdll!_PEB*)@$peb)->NtGlobalFlag)) == 4) { .printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(((ntdll!_PEB*)@$peb)->NtGlobalFlag); }; .echo HERMES_ARM_STAGE v=1 stage=2; }'
@@ -1766,6 +1762,20 @@ function Test-HermesStartupReadinessError {
             -and $program.EndsWith($source, [StringComparison]::Ordinal)))
 }
 
+# READINESS-CAPTURE-BEGIN
+function Invoke-HermesStartupReadinessRefusalCapture {
+    param([hashtable]$State, [string]$Line)
+    if ($State.Readiness.Fault -ne 0 -or $State.Readiness.Source -ne 1 `
+        -or $State.Readiness.Part -notin @(1, 2, 3) -or $State.Readiness.Complete -ne 0 `
+        -or $null -ne $State.Failure -or -not (Test-HermesStartupReadinessFrame $State) `
+        -or -not $State.ContainsKey('FirstRefusal') -or $null -eq $State.FirstRefusal `
+        -or $State.FirstRefusal.Status -ne 1 -or $State.FirstRefusal.Count -ne 0) { return }
+    # Site 2 is the first unsupported display, not a missing end or flag-query refusal.
+    $State.FirstRefusal.Site = 2
+    try { Invoke-HermesFirstRefusalCapture $State.FirstRefusal $Line }
+    catch { $State.FirstRefusal.Status = 7; $State.FirstRefusal.Count = 1 }
+}
+# READINESS-CAPTURE-END
 function Add-HermesStartupReadinessLine {
     param([hashtable]$State, [string]$Line)
     $readiness = $State.Readiness
@@ -1850,6 +1860,9 @@ function Add-HermesStartupReadinessLine {
                 ')[ \t]+ntdll[ \t]+\((?<symbols>deferred|private pdb symbols|pdb symbols|export symbols)\)(?:[ \t]+[\x20-\x7e]{1,512})?[ \t]*\z')) {
             if ($Line.Contains('.printf', [StringComparison]::Ordinal) `
                 -or $Line.Contains('HERMES_', [StringComparison]::Ordinal)) {
+                # READINESS-CAPTURE-BEGIN
+                Invoke-HermesStartupReadinessRefusalCapture $State $Line
+                # READINESS-CAPTURE-END
                 Set-HermesStartupReadinessFault $State 4; return $false
             }
             $start = [Convert]::ToUInt64($Matches.start.Replace('`', ''), 16)
@@ -1885,6 +1898,9 @@ function Add-HermesStartupReadinessLine {
         return $true
     }
     if ($Line -ceq '' -and $readiness.Part -eq 1) { return $true }
+    # READINESS-CAPTURE-BEGIN
+    Invoke-HermesStartupReadinessRefusalCapture $State $Line
+    # READINESS-CAPTURE-END
     Set-HermesStartupReadinessFault $State 4
     return $false
 }

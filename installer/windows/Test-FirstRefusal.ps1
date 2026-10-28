@@ -179,12 +179,69 @@ Import-Module (Join-Path $PSScriptRoot 'First-Refusal.psm1') -Force
         $script:artifactCapture = @{ Status = 1; Count = 0; Bytes = $null; Pins = $null; Context = $context; Root = $testRoot }
         Set-Item Function:script:New-HermesFirstRefusalCapture { return $script:artifactCapture }
         $reportPath = Join-Path $directory 'startup-debug.json'
-        $report = @{ firstRefusalStatus = 3; firstRefusalCount = 1; completed = 0; cleanupFault = 0
-            observations = @{ ParserProtocol = 1; scopedReadFirstKind = 1 } }
+        $report = @{ v = 2; scopedCreateVersion = 1; advisory = 1
+            firstRefusalStatus = 3; firstRefusalCount = 1; firstRefusalSite = 2
+            completed = 0; cleanupFault = 0; nativeAcceptance = 0; originalGatePassed = 0
+            observations = @{ InputClosed = 1; readyComplete = 0; readyFault = 4
+                scopedEvaluator = 1; scopedStages = 1; ParserProtocol = 1; scopedReadFirstKind = 1 } }
         [IO.File]::WriteAllText($reportPath, ($report | ConvertTo-Json -Compress))
         $before = [IO.File]::GetLastWriteTimeUtc($path)
         $output = @(Assert-HermesFirstRefusalArtifact)
         Require ($output.Count -eq 0 -and [IO.File]::GetLastWriteTimeUtc($path) -eq $before)
+        # A readiness capture does not require the later original query to fail.
+        foreach ($later in @(
+            @{ Completed = 0; Protocol = 0; Kind = 0; Stages = 1 },
+            @{ Completed = 0; Protocol = 1; Kind = 5; Stages = 1 },
+            @{ Completed = 1; Protocol = 0; Kind = 0; Stages = 3 }
+        )) {
+            $report.completed = $later.Completed
+            $report.observations.ParserProtocol = $later.Protocol
+            $report.observations.scopedReadFirstKind = $later.Kind
+            $report.observations.scopedStages = $later.Stages
+            [IO.File]::WriteAllText($reportPath, ($report | ConvertTo-Json -Compress))
+            $output = @(Assert-HermesFirstRefusalArtifact)
+            Require ($output.Count -eq 0 -and [IO.File]::GetLastWriteTimeUtc($path) -eq $before)
+        }
+        $report.completed = 0
+        foreach ($entry in @(
+            @($report, 'v', 2), @($report, 'scopedCreateVersion', 1), @($report, 'advisory', 1),
+            @($report, 'firstRefusalStatus', 3), @($report, 'firstRefusalCount', 1), @($report, 'firstRefusalSite', 2),
+            @($report, 'completed', 0), @($report, 'nativeAcceptance', 0), @($report, 'originalGatePassed', 0),
+            @($report, 'cleanupFault', 0), @($report.observations, 'InputClosed', 1),
+            @($report.observations, 'readyComplete', 0), @($report.observations, 'readyFault', 4),
+            @($report.observations, 'scopedEvaluator', 1)
+        )) {
+            foreach ($bad in @($null, '0', '1', '2', $true, 0.0, -1, 9)) {
+                $entry[0][$entry[1]] = $bad
+                [IO.File]::WriteAllText($reportPath, ($report | ConvertTo-Json -Compress))
+                Require (Refuses { Assert-HermesFirstRefusalArtifact })
+            }
+            $entry[0].Remove($entry[1])
+            [IO.File]::WriteAllText($reportPath, ($report | ConvertTo-Json -Compress))
+            Require (Refuses { Assert-HermesFirstRefusalArtifact })
+            $entry[0][$entry[1]] = $entry[2]
+        }
+        foreach ($fault in @(0, 1, 2, 3, 5)) {
+            $report.observations.readyFault = $fault
+            [IO.File]::WriteAllText($reportPath, ($report | ConvertTo-Json -Compress))
+            Require (Refuses { Assert-HermesFirstRefusalArtifact })
+        }
+        $report.observations.readyFault = 4
+        foreach ($entry in @(
+            @($report, 'firstRefusalSite', 0), @($report, 'firstRefusalSite', 1),
+            @($report, 'firstRefusalCount', 0), @($report, 'nativeAcceptance', 1),
+            @($report, 'originalGatePassed', 1), @($report, 'cleanupFault', 13),
+            @($report.observations, 'readyComplete', 1), @($report.observations, 'scopedEvaluator', 0),
+            @($report.observations, 'InputClosed', 0)
+        )) {
+            $original = $entry[0][$entry[1]]; $entry[0][$entry[1]] = $entry[2]
+            [IO.File]::WriteAllText($reportPath, ($report | ConvertTo-Json -Compress))
+            Require (Refuses { Assert-HermesFirstRefusalArtifact })
+            $entry[0][$entry[1]] = $original
+        }
+        [IO.File]::WriteAllText($reportPath, (' ' * 4097))
+        Require (Refuses { Assert-HermesFirstRefusalArtifact })
+        [IO.File]::WriteAllText($reportPath, ($report | ConvertTo-Json -Compress))
         function script:Close-HermesCrashPins {
             param($Pins)
             Crash-Control\Close-HermesCrashPins $Pins
@@ -257,7 +314,11 @@ Import-Module (Join-Path $PSScriptRoot 'First-Refusal.psm1') -Force
             $script:sourceRoot = $original
             $original = $capture.Pins[0].Entry.sha256; $capture.Pins[0].Entry.sha256 = 'f' * 64
             Require (Refuses { Assert-FirstRefusalSource $capture })
+            $output = @(Invoke-HermesFirstRefusalCapture $capture 'SYNTHETIC rejected pin')
+            Require ($output.Count -eq 0 -and $capture.Status -eq 5 -and $capture.Count -eq 1 -and $null -eq $capture.Bytes)
             $capture.Pins[0].Entry.sha256 = $original
+            Invoke-HermesFirstRefusalCapture $capture 'SYNTHETIC no fallback after pin restored'
+            Require ($capture.Status -eq 5 -and $capture.Count -eq 1 -and $null -eq $capture.Bytes)
         } finally { Complete-HermesFirstRefusalCapture $capture $false }
         Require ($null -eq $capture.Pins -and -not [IO.File]::Exists($path))
         $script:sourceFacts.GITHUB_RUN_ID = 'invalid'
