@@ -19,6 +19,7 @@ if ($PipeFixture -ne 0) {
         if ($PipeFixture -eq 4096) {
             # An inert CDB transport surrogate, never a Windows/native proof.
             # It accepts only the actually published fixed program and g roles.
+            Import-Module (Join-Path $PSScriptRoot 'Native-StartupTrace.psm1') -Force
             $ast = [Management.Automation.Language.Parser]::ParseFile(
                 (Join-Path $PSScriptRoot 'Invoke-NativeStartupTrace.ps1'), [ref]$null, [ref]$null)
             foreach ($name in @('Assert-TraceCommandPath', 'New-InventoryEventCommands', 'New-ScopedCreateCommands')) {
@@ -767,15 +768,48 @@ function Get-ControlScopedReadback {
     return $text + "HERMES_ARM_STAGE v=1 stage=2`nHERMES_CDB v=4 kind=8 pid=22`n1:000> "
 }
 
+function Remove-ControlReadinessProgram {
+    param([string]$Source)
+    $program = (Get-HermesStartupReadinessSource) + "`r`n"
+    Assert-Control ([regex]::Matches($Source, [regex]::Escape($program)).Count -eq 1)
+    return $Source.Replace($program, '')
+}
+
 function Get-ControlScopedQuerySources {
     param([string]$Extension)
-    $query = ((New-ScopedCreateCommands $Extension)['startup-arm.cdb'] -split "`r`n")[6]
+    $query = ((Remove-ControlReadinessProgram (
+        New-ScopedCreateCommands $Extension)['startup-arm.cdb']) -split "`r`n")[6]
     $start = $query.IndexOf('.printf ', [StringComparison]::Ordinal)
     $end = $query.IndexOf(' }; .echo ', [StringComparison]::Ordinal)
     Assert-Control ($start -gt 0 -and $end -gt $start)
     $read = $query.Substring($start, $end - $start)
     Assert-Control ($read -ceq '.printf "HERMES_NTGLOBALFLAG v=1 pid=%u value=%08x\n", @$tpid, @@c++(((ntdll!_PEB*)@$peb)->NtGlobalFlag);')
     return @{ Whole = $query; Read = $read }
+}
+
+function Open-ControlReadiness {
+    param([hashtable]$State, [IO.StreamWriter]$Writer, [switch]$WithoutSource)
+    Invoke-HermesStartupScopedInput $State $Writer Arm
+    Add-HermesStartupText $State $State.Out (
+        "HERMES_CDB v=4 kind=7 pid=22`nLast event: 16.1: Create process 1:16`nHERMES_ARM_STAGE v=1 stage=1`n") $true
+    Add-HermesStartupLine $State $evaluatorMasm
+    if (-not $WithoutSource) { Add-HermesStartupLine $State (Get-HermesStartupReadinessSource) }
+}
+
+function Get-ControlReadinessText {
+    param(
+        [string]$Module = '00007ffb`10000000 00007ffb`10200000 ntdll (deferred)',
+        [string]$Type = 'HERMES_READINESS_TYPE v=1 pid=22 bytes=2048',
+        [string]$Member = 'HERMES_READINESS_MEMBER v=1 pid=22 bytes=4'
+    )
+    $lines = @('HERMES_READINESS v=1 part=1 pid=22',
+        'Last event: 16.1: Create process 1:16', 'start end module name')
+    if ($Module -cne '') { $lines += $Module }
+    $lines += 'HERMES_READINESS v=1 part=2 pid=22'
+    if ($Type -cne '') { $lines += $Type }
+    $lines += 'HERMES_READINESS v=1 part=3 pid=22'
+    if ($Member -cne '') { $lines += $Member }
+    return ($lines + @('HERMES_READINESS v=1 part=4 pid=22', '') -join "`n")
 }
 
 function Invoke-ControlScopedPublisher {
@@ -812,8 +846,32 @@ $typedQuerySourceInsertion = @(
     '        # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/c---numbers-and-operators',
     '        # Missing target symbols or fields remain unavailable, never an offset fallback.', ''
 ) -join "`n"
+$readinessProtocolRefusalInsertion = @'
+    # Legacy refusals keep their first classification. Bare rejected readiness
+    # diagnostics must not leave the original protocol usable by later output.
+    if ($State.Readiness.Source -eq 1 -and $State.Readiness.Part -in @(1, 2, 3) `
+        -and $Line -cmatch
+        "\A(?:(?:Type information missing error at|Memory access error at|Couldn't resolve error at|Numeric expression missing from|Syntax error (?:at|in)|Type does not have requested member at) '[\x20-\x7e]{1,2048}'|Type ntdll!_PEB not found)\z") {
+        Set-HermesStartupProtocolFault $State 1
+    }
+'@ + "`n"
+function Remove-ControlReadinessProtocolRefusalDelta {
+    param([string]$Source)
+    Assert-Control ([regex]::Matches($Source, [regex]::Escape($readinessProtocolRefusalInsertion)).Count -eq 1)
+    return $Source.Replace($readinessProtocolRefusalInsertion, '')
+}
+function Remove-ControlReadinessDelta {
+    param([string]$Source, [int]$Count = 1)
+    if ($Source.Contains('function Add-HermesStartupScopedLine {', [StringComparison]::Ordinal)) {
+        $Source = Remove-ControlReadinessProtocolRefusalDelta $Source
+    }
+    $pattern = '(?m)^([ ]*)# READINESS-BEGIN\n[\s\S]*?^\1# READINESS-END\n'
+    Assert-Control ([regex]::Matches($Source, $pattern).Count -eq $Count)
+    return [regex]::Replace($Source, $pattern, '')
+}
 function Remove-ControlTypedQueryDelta {
     param([string]$Driver)
+    $Driver = Remove-ControlReadinessDelta $Driver
     Assert-Control ([regex]::Matches($Driver, [regex]::Escape($typedQuerySourceInsertion)).Count -eq 1 `
         -and [regex]::Matches($Driver, [regex]::Escape('((ntdll!_PEB*)@$peb)->NtGlobalFlag')).Count -eq 2 `
         -and -not $Driver.Contains('@$peb->NtGlobalFlag', [StringComparison]::Ordinal))
@@ -828,7 +886,7 @@ function Remove-ControlDriverDeltas {
     Assert-Control ([regex]::Matches($Driver, $pattern).Count -eq 3)
     return Remove-ControlTypedQueryDelta ([regex]::Replace($Driver, $pattern, ''))
 }
-$cases = 1..545 # All 542 prior intents retained; three typed-query repair controls.
+$cases = 1..556 # All 552 prior intents retained; four readiness protocol-taint controls.
 $passed = 0
 foreach ($case in $cases) {
     $state = $null
@@ -3828,7 +3886,7 @@ foreach ($case in $cases) {
                 Assert-Control ($state.Bounds -eq 1 -and $state.Block.Flags -eq -1)
             }
             211 {
-                $source = (New-ScopedCreateCommands $extension)['startup-arm.cdb']
+                $source = Remove-ControlReadinessProgram (New-ScopedCreateCommands $extension)['startup-arm.cdb']
                 $lines = $source -split "`r`n"
                 Assert-Control ($lines.Count -eq 9 -and $lines[4].StartsWith('.catch { !') `
                     -and $lines[4].EndsWith('.gflag +sls; .echo HERMES_ARM_STAGE v=1 stage=1; }') `
@@ -7468,7 +7526,7 @@ foreach ($case in $cases) {
                         @('startup-ibp.cdb', 'c2c6509cc08fab26e327f2aea8abdd950662d2c17534440d6dcca0ab3c374fc7'),
                         @('startup-epr.cdb', 'b99a7cbc74fd6ddd7a03bafa9f021333f62be4455e3e643036a4c8b88601d10f'),
                         @('startup.cdb', '84aa3a9b7176d5b70468db52aa4d0da45c6b7f3cc338a8223a8963457c6c1b23'),
-                        @('startup-arm.cdb', 'fd381a77e02a1b56e323ba37705f8cf5aba1ad77c4373f48e73c26203957669e')
+                        @('startup-arm.cdb', '9b2f9ea356d6c75960901b566fadc6e45fb6726ec8fea803990badb407c24e9e')
                     )) {
                         $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
                             [Text.Encoding]::ASCII.GetBytes($sources[$item[0]]))).ToLowerInvariant()
@@ -8302,7 +8360,7 @@ foreach ($case in $cases) {
                     $module = $sdk.Substring(0, $sdk.Length - 4)
                     $sources = New-ScopedCreateCommands $sdk
                     $arm = $sources['startup-arm.cdb']
-                    $lines = $arm -split "`r`n"
+                    $lines = (Remove-ControlReadinessProgram $arm) -split "`r`n"
                     $statement = '.catch { !' + $module + '.gflag +sls; .echo HERMES_ARM_STAGE v=1 stage=1; }'
                     Assert-Control ($sources.Count -eq 5 -and $lines.Count -eq 9 -and $lines[4] -ceq $statement `
                         -and $lines[5] -ceq '.expr /s masm' `
@@ -8315,7 +8373,7 @@ foreach ($case in $cases) {
                         @('startup-ibp.cdb', 'c2c6509cc08fab26e327f2aea8abdd950662d2c17534440d6dcca0ab3c374fc7'),
                         @('startup-epr.cdb', 'b99a7cbc74fd6ddd7a03bafa9f021333f62be4455e3e643036a4c8b88601d10f'),
                         @('startup.cdb', '84aa3a9b7176d5b70468db52aa4d0da45c6b7f3cc338a8223a8963457c6c1b23'),
-                        @('startup-arm.cdb', '90f897b61fd8b81aeac2a8c81a617455554c2c354fa7965d8ec52f2e64a27600')
+                        @('startup-arm.cdb', 'f4ff579aa24f467f22f693c80ddfecf57c6567f1928bfc0bf7443155afa39e3d')
                     )) {
                         $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
                             [Text.Encoding]::ASCII.GetBytes($sources[$item[0]]))).ToLowerInvariant()
@@ -8325,7 +8383,7 @@ foreach ($case in $cases) {
                         [Text.Encoding]::ASCII.GetBytes($lines[6]))).ToLowerInvariant()
                     $previousStatement = '.catch { !"' + $module.Replace('\', '\\') +
                         '".gflag +sls; .echo HERMES_ARM_STAGE v=1 stage=1; }'
-                    $previous = $arm.Replace($statement, $previousStatement).Replace(".expr /s masm`r`n", '').
+                    $previous = (Remove-ControlReadinessProgram $arm).Replace($statement, $previousStatement).Replace(".expr /s masm`r`n", '').
                         Replace('((ntdll!_PEB*)@$peb)->NtGlobalFlag', '@$peb->NtGlobalFlag')
                     $previousHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
                         [Text.Encoding]::ASCII.GetBytes($previous))).ToLowerInvariant()
@@ -8953,7 +9011,8 @@ foreach ($case in $cases) {
                         $physical = [StartupControlWriteStream]::new(0)
                         $writer = [IO.StreamWriter]::new($physical)
                         $debugger = [pscustomobject]@{ HasExited = $false; StandardInput = $writer }
-                        $lines = (Get-TraceSelectedSources $extension)['startup-arm.cdb'] -split "`r`n"
+                        $lines = (Remove-ControlReadinessProgram (
+                            Get-TraceSelectedSources $extension)['startup-arm.cdb']) -split "`r`n"
                         try {
                             Invoke-ControlScopedPublisher
                             foreach ($index in 0..7) {
@@ -9010,7 +9069,8 @@ foreach ($case in $cases) {
             }
             524 {
                 foreach ($index in @(0, 4, 6, 7)) {
-                    $line = ((New-ScopedCreateCommands $extension)['startup-arm.cdb'] -split "`r`n")[$index]
+                    $line = ((Remove-ControlReadinessProgram (
+                        New-ScopedCreateCommands $extension)['startup-arm.cdb']) -split "`r`n")[$index]
                     foreach ($entry in @(
                         @{ Text = (' ' + $line); Reason = $(if ($index -eq 4) { 15 } else { 1 }) },
                         @{ Text = ($line + ' '); Reason = $(if ($index -eq 4) { 15 } else { 1 }) },
@@ -9223,7 +9283,7 @@ foreach ($case in $cases) {
                     $sdk = 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\winxp\exts.dll'
                     # Factor out the separate interpreter command, retaining
                     # the original one-character arm-program proof.
-                    $arm = (New-ScopedCreateCommands $sdk)['startup-arm.cdb'].Replace(".expr /s masm`r`n", '').
+                    $arm = (Remove-ControlReadinessProgram (New-ScopedCreateCommands $sdk)['startup-arm.cdb']).Replace(".expr /s masm`r`n", '').
                         Replace('((ntdll!_PEB*)@$peb)->NtGlobalFlag', '@$peb->NtGlobalFlag')
                     $expression = '@@c++(@$peb->NtGlobalFlag)'
                     $needle = $expression + '; }; .echo'
@@ -9475,7 +9535,7 @@ foreach ($case in $cases) {
                     function Assert-TraceCommandPath { param([string]$Path) return $Path }
                     function Join-Path { param([string]$Path, [string]$ChildPath) return $Path + '\' + $ChildPath }
                     $root = 'C:\owned\command-root'
-                    $arm = (New-ScopedCreateCommands 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\winxp\exts.dll')['startup-arm.cdb'].
+                    $arm = (Remove-ControlReadinessProgram (New-ScopedCreateCommands 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\winxp\exts.dll')['startup-arm.cdb']).
                         Replace('((ntdll!_PEB*)@$peb)->NtGlobalFlag', '@$peb->NtGlobalFlag')
                     $fixed = ".expr /s masm`r`n"
                     Assert-Control ([regex]::Matches($arm, [regex]::Escape($fixed)).Count -eq 1)
@@ -9979,6 +10039,11 @@ foreach ($case in $cases) {
                     $state.ScopedStageFault = @{ Reason = 5; Shape = 1023 }
                     $state.ScopedQueryFault.Kind = 6; $state.ScopedQueryFault.Source = 2
                     $state.ScopedQueryFault.Lexical = 1023; $state.ScopedQueryFault.TrimKind = 5
+                    # Saturate the additive observation fields in the existing
+                    # worst-case report, including the later capture counters.
+                    $state.Readiness.Complete = 1; $state.Readiness.Fault = 0
+                    $state.Readiness.Module = 2; $state.Readiness.Symbols = 3
+                    $state.Readiness.Type = 2; $state.Readiness.Member = 1; $state.Readiness.Width = 65536
                     $state.DebuggerKillRequested = 1
                     foreach ($subject in 100..114) {
                         $state.Inventory.Subjects[[string]$subject] = @{ Create = 1; Initial = 1; Exit = 1; ExitCode = 0 }
@@ -10116,7 +10181,8 @@ foreach ($case in $cases) {
                 $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
                     [Text.Encoding]::UTF8.GetBytes($priorDriver))).ToLowerInvariant()
                 Assert-Control ($hash -ceq 'cf287ed82be603defab86b20db9e940de74a51b77bd8cbd1e8ab078702bb470d')
-                $moduleSource = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'Native-StartupTrace.psm1'))
+                $moduleSource = Remove-ControlReadinessDelta (
+                    [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'Native-StartupTrace.psm1'))) 4
                 $field = '((ntdll!_PEB*)@$peb)->NtGlobalFlag'
                 Assert-Control ([regex]::Matches($moduleSource, [regex]::Escape($field)).Count -eq 7 `
                     -and -not $moduleSource.Contains('@$peb->NtGlobalFlag', [StringComparison]::Ordinal))
@@ -10233,6 +10299,422 @@ foreach ($case in $cases) {
                             Close-HermesStartupScopedInput $state $writer
                             $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
                         }
+                    }
+                }
+            }
+            546 {
+                foreach ($entry in @(
+                    @('Invoke-NativeStartupTrace.ps1', 1, '5e08faf4b9afb6bcfcf297bb7ae1acf97036772313e7e0fd99fe9644001e45e1'),
+                    @('Native-StartupTrace.psm1', 4, '61c773547c72dcfb0902012395b6d1e2b442eaaa0b12fc5d869d095fb4f5fa52')
+                )) {
+                    $prior = Remove-ControlReadinessDelta ([IO.File]::ReadAllText(
+                        (Join-Path $PSScriptRoot $entry[0]))) $entry[1]
+                    $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+                        [Text.Encoding]::UTF8.GetBytes($prior))).ToLowerInvariant()
+                    Assert-Control ($hash -ceq $entry[2])
+                }
+                $program = Get-HermesStartupReadinessSource
+                Assert-Control ($program.Length -le 1024 `
+                    -and [regex]::Matches($program, [regex]::Escape('lm o m ntdll')).Count -eq 1 `
+                    -and [regex]::Matches($program, [regex]::Escape('sizeof(ntdll!_PEB)')).Count -eq 1 `
+                    -and [regex]::Matches($program, [regex]::Escape('#RTL_FIELD_SIZE(ntdll!_PEB, NtGlobalFlag)')).Count -eq 1 `
+                    -and $program -cnotmatch '\.reload|\.sym|\.load|gflag|\|s|\.process|@@masm|\b(?:g|ed|eb|eq|r)\b' `
+                    -and [regex]::Matches($program, 'HERMES_READINESS v=1 part=').Count -eq 4)
+                $arm = (New-ScopedCreateCommands $extension)['startup-arm.cdb']
+                Assert-Control ([regex]::Matches($arm, [regex]::Escape($program)).Count -eq 1 `
+                    -and ($arm -split "`r`n")[6] -ceq $program `
+                    -and ($arm -split "`r`n")[7] -ceq (Get-ControlScopedQuerySources $extension).Whole)
+                $typeError = "Couldn't resolve error at '@@c++(sizeof(ntdll!_PEB))'"
+                $memberError = "Couldn't resolve error at '@@c++(#RTL_FIELD_SIZE(ntdll!_PEB, NtGlobalFlag))'"
+                Assert-Control ((Test-HermesStartupReadinessError $typeError 2) `
+                    -and -not (Test-HermesStartupReadinessError $typeError 3) `
+                    -and (Test-HermesStartupReadinessError $memberError 3) `
+                    -and -not (Test-HermesStartupReadinessError $memberError 2))
+            }
+            547 {
+                foreach ($symbol in @(@('deferred', 1), @('private pdb symbols', 2),
+                        @('pdb symbols', 2), @('export symbols', 3))) {
+                    foreach ($width in @(4, 8)) {
+                        $state = New-ControlScopedCreated
+                        $physical = [StartupControlWriteStream]::new(0)
+                        $writer = [IO.StreamWriter]::new($physical)
+                        $debugger = [pscustomobject]@{ HasExited = $false; StandardInput = $writer }
+                        try {
+                            Open-ControlReadiness $state $writer
+                            $row = '00007ffb`10000000 00007ffb`10200000 ntdll (' + $symbol[0] + ')'
+                            if ($symbol[1] -eq 2) { $row += ' C:\SYNTHETIC-private\ntdll.pdb' }
+                            $text = Get-ControlReadinessText -Module $row `
+                                -Member ('HERMES_READINESS_MEMBER v=1 pid=22 bytes=' + $width)
+                            for ($offset = 0; $offset -lt $text.Length; $offset += 7) {
+                                Add-HermesStartupText $state $state.Out (
+                                    $text.Substring($offset, [Math]::Min(7, $text.Length - $offset))) $true
+                            }
+                            Invoke-ControlScopedPublisher
+                            $report = New-HermesStartupReport $state $false $false
+                            Assert-Control ($report.observations.readyComplete -eq 1 -and $report.observations.readyFault -eq 0 `
+                                -and $report.observations.readyModule -eq 1 -and $report.observations.readyModState -eq $symbol[1] `
+                                -and $report.observations.readyType -eq 1 -and $report.observations.readyMember -eq 1 `
+                                -and $report.observations.readyWidth -eq $width -and $state.Protocol -eq 0 `
+                                -and $state.Inventory.Block.Flags -eq -1 -and $state.ScopedStages -eq 1 `
+                                -and $physical.Writes -eq 1 -and -not $state.Acked -and -not $state.Continued `
+                                -and ($report | ConvertTo-Json -Depth 4 -Compress) -notmatch 'SYNTHETIC|private|ntdll|_PEB|NtGlobalFlag')
+                        } finally {
+                            Close-HermesStartupScopedInput $state $writer
+                            $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                        }
+                    }
+                }
+            }
+            548 {
+                foreach ($entry in @(
+                    @{ Module = ''; Type = ''; Member = ''; M = 2; T = 0; F = 0 },
+                    @{ Module = ''; Type = ''; Member = ''; M = 0; T = 0; F = 0; NoHeader = $true },
+                    @{ Module = '00007ffb10000000 00007ffb10200000 ntdll (deferred)';
+                        Type = ''; Member = ''; M = 1; T = 0; F = 0 },
+                    @{ Module = '00007ffb10000000 00007ffb10200000 ntdll (export symbols)';
+                        Type = 'Type ntdll!_PEB not found'; Member = 'Type ntdll!_PEB not found'; M = 1; T = 2; F = 2 },
+                    @{ Module = '00007ffb10000000 00007ffb10200000 ntdll (deferred)';
+                        Type = "Couldn't resolve error at '@@c++(sizeof(ntdll!_PEB))'";
+                        Member = "Type information missing error at '@@c++(#RTL_FIELD_SIZE(ntdll!_PEB, NtGlobalFlag))'";
+                        M = 1; T = 2; F = 2 }
+                )) {
+                    $state = New-ControlScopedCreated
+                    $physical = [StartupControlWriteStream]::new(0)
+                    $writer = [IO.StreamWriter]::new($physical)
+                    try {
+                        Open-ControlReadiness $state $writer
+                        $text = Get-ControlReadinessText -Module $entry.Module -Type $entry.Type -Member $entry.Member
+                        if ($entry.ContainsKey('NoHeader')) { $text = $text.Replace("start end module name`n", '') }
+                        Add-HermesStartupText $state $state.Out $text $true
+                        $report = New-HermesStartupReport $state $false $false
+                        Assert-Control ($report.observations.readyComplete -eq 1 -and $report.observations.readyFault -eq 0 `
+                            -and $report.observations.readyModule -eq $entry.M `
+                            -and $report.observations.readyType -eq $entry.T -and $report.observations.readyMember -eq $entry.F `
+                            -and $report.observations.readyWidth -eq 0 -and $state.Protocol -eq 0 `
+                            -and -not (Test-HermesStartupScopedAction $state Target) -and -not $state.Acked `
+                            -and $state.Inventory.Block.Flags -eq -1 -and $physical.Writes -eq 1)
+                    } finally {
+                        Close-HermesStartupScopedInput $state $writer
+                        $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                    }
+                }
+            }
+            549 {
+                foreach ($mutation in @(
+                    { param($t) $t.Replace('part=1 pid=22', 'part=1 pid=23') },
+                    { param($t) $t.Replace('16.1: Create process', '17.1: Create process') },
+                    { param($t) $t.Replace('ntdll (deferred)', 'kernel32 (deferred)') },
+                    { param($t) $t.Replace('part=2 pid=22', 'part=3 pid=22') },
+                    { param($t) $t.Replace("HERMES_READINESS_TYPE v=1 pid=22 bytes=2048`n",
+                        "HERMES_READINESS_TYPE v=1 pid=22 bytes=2048`nHERMES_READINESS_TYPE v=1 pid=22 bytes=2048`n") },
+                    { param($t) $t.Replace('pid=22 bytes=4', 'pid=23 bytes=4') },
+                    { param($t) $t.Replace('pid=22 bytes=4', 'pid=22 bytes=0') },
+                    { param($t) $t.Replace('pid=22 bytes=4', 'pid=22 bytes=99999') },
+                    { param($t) $t.Replace('pid=22 bytes=4', 'pid=22 bytes=4096') },
+                    { param($t) $t.Replace('start end module name', ("`n" * 17) + 'start end module name') },
+                    { param($t) $t.Replace('start end module name', ('x' * 2049)) },
+                    { param($t) $t.Replace('ntdll (deferred)', 'ntdll (deferred) SYNTHETIC .printf HERMES_NTGLOBALFLAG') },
+                    { param($t) $t.Replace('start end module name',
+                        "start end module name`nHERMES_NTGLOBALFLAG v=1 pid=22 value=00000002") },
+                    { param($t) $t.Replace('start end module name',
+                        "start end module name`nHERMES_ARM_STAGE v=1 stage=2") },
+                    { param($t) $t.Replace('start end module name',
+                        "start end module name`nHERMES_CDB v=4 kind=8 pid=22") },
+                    { param($t) $t.Replace('start end module name',
+                        ("start end module name`n" + (Get-HermesStartupReadinessSource))) },
+                    { param($t) $t.Replace('part=4 pid=22', 'part=4 pid=22 trailing') },
+                    { param($t) $t + "HERMES_READINESS v=1 part=4 pid=22`n" },
+                    { param($t) $t.Replace("HERMES_READINESS v=1 part=4 pid=22`n", '') }
+                )) {
+                    $state = New-ControlScopedCreated
+                    $physical = [StartupControlWriteStream]::new(0)
+                    $writer = [IO.StreamWriter]::new($physical)
+                    $debugger = [pscustomobject]@{ HasExited = $false; StandardInput = $writer }
+                    try {
+                        Open-ControlReadiness $state $writer
+                        Add-HermesStartupText $state $state.Out (& $mutation (Get-ControlReadinessText)) $true
+                        Invoke-ControlScopedPublisher
+                        $report = New-HermesStartupReport $state $false $false
+                        Assert-Control ($report.observations.readyComplete -eq 0 `
+                            -and $report.observations.readyModule -eq 0 -and $report.observations.readyType -eq 0 `
+                            -and $report.observations.readyMember -eq 0 -and $report.observations.readyWidth -eq 0 `
+                            -and $state.Inventory.Block.Flags -eq -1 -and $physical.Writes -eq 1 `
+                            -and -not $state.Acked -and -not $state.Continued)
+                    } finally {
+                        Close-HermesStartupScopedInput $state $writer
+                        $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                    }
+                }
+            }
+            550 {
+                foreach ($privateSource in @($false, $true)) {
+                    $state = New-ControlScopedCreated
+                    $physical = [StartupControlWriteStream]::new(0)
+                    $writer = [IO.StreamWriter]::new($physical)
+                    $debugger = [pscustomobject]@{ HasExited = $false; StandardInput = $writer }
+                    try {
+                        Open-ControlReadiness $state $writer
+                        $typeSource = '@@c++(sizeof(ntdll!_PEB))'
+                        if ($privateSource) { $typeSource = '.printf SYNTHETIC-private ' + $typeSource }
+                        Add-HermesStartupText $state $state.Out (Get-ControlReadinessText `
+                            -Type ("Couldn't resolve error at '$typeSource'") `
+                            -Member "Type information missing error at '@@c++(#RTL_FIELD_SIZE(ntdll!_PEB, NtGlobalFlag))'") $true
+                        if (-not $privateSource) {
+                            Assert-Control ($state.Protocol -eq 0 -and $state.Readiness.Type -eq 2 `
+                                -and $state.Readiness.Member -eq 2 -and $state.Readiness.Complete -eq 1)
+                            # Synthetic original-query failure, not a captured line.
+                            $read = (Get-ControlScopedQuerySources $extension).Read
+                            Add-HermesStartupLine $state ("Couldn't resolve error at '" + $read +
+                                " .echo HERMES_ARM_STAGE v=1 stage=2; SYNTHETIC'")
+                            Assert-Control ($state.ScopedFault.Reason -eq 1 -and $state.ScopedStageFault.Reason -eq 1 `
+                                -and $state.ScopedFault.Echo -eq 64 -and $state.ScopedQueryFault.Kind -eq 5 `
+                                -and $state.ScopedQueryFault.Source -eq 0 -and $state.ScopedQueryFault.Lexical -eq 144)
+                        }
+                        Invoke-ControlScopedPublisher
+                        $report = New-HermesStartupReport $state $false $false
+                        Assert-Control ($state.Protocol -eq 1 -and $state.Inventory.Block.Flags -eq -1 `
+                            -and $physical.Writes -eq 1 -and -not $state.Acked -and -not $state.Continued `
+                            -and -not $state.ContainsKey('FirstRefusal') -and $report.nativeAcceptance -eq 0 `
+                            -and ($report | ConvertTo-Json -Depth 4 -Compress) -notmatch 'SYNTHETIC|private|ntdll|_PEB|NtGlobalFlag')
+                    } finally {
+                        Close-HermesStartupScopedInput $state $writer
+                        $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                    }
+                }
+            }
+            551 {
+                foreach ($outcome in @('Missing', 'Zero', 'WrongPid', 'Malformed', 'NoQuery', 'Full', 'UnknownFull', 'UnclosedFull')) {
+                    $state = New-ControlScopedCreated
+                    $physical = [StartupControlWriteStream]::new(0)
+                    $writer = [IO.StreamWriter]::new($physical)
+                    $debugger = [pscustomobject]@{ HasExited = $false; StandardInput = $writer }
+                    try {
+                        Open-ControlReadiness $state $writer
+                        $metadata = if ($outcome -ceq 'UnknownFull') {
+                            Get-ControlReadinessText -Module 'SYNTHETIC unrecognised module display'
+                        } else { Get-ControlReadinessText }
+                        if ($outcome -ceq 'UnclosedFull') {
+                            $metadata = $metadata.Replace("HERMES_READINESS v=1 part=4 pid=22`n", '')
+                        }
+                        Add-HermesStartupText $state $state.Out $metadata $true
+                        Add-HermesStartupLine $state (Get-ControlScopedQuerySources $extension).Whole
+                        if ($outcome -cne 'Missing') {
+                            $line = switch ($outcome) {
+                                Zero { 'HERMES_NTGLOBALFLAG v=1 pid=22 value=00000000' }
+                                WrongPid { 'HERMES_NTGLOBALFLAG v=1 pid=23 value=00000002' }
+                                Malformed { 'HERMES_NTGLOBALFLAG v=1 pid=22 value=2' }
+                                default { 'HERMES_NTGLOBALFLAG v=1 pid=22 value=00000002' }
+                            }
+                            Add-HermesStartupLine $state $line
+                        }
+                        if ($outcome -cne 'NoQuery') { Add-HermesStartupLine $state 'HERMES_ARM_STAGE v=1 stage=2' }
+                        Add-HermesStartupText $state $state.Out "HERMES_CDB v=4 kind=8 pid=22`n1:000> " $true
+                        Invoke-ControlScopedPublisher
+                        $allowed = $outcome -cin @('Full', 'UnknownFull', 'UnclosedFull')
+                        $report = New-HermesStartupReport $state $false $false
+                        $observed = $outcome -cnotin @('UnknownFull', 'UnclosedFull')
+                        Assert-Control ($report.observations.readyComplete -eq [int]$observed `
+                            -and $report.observations.readyWidth -eq (4 * [int]$observed) `
+                            -and $physical.Writes -eq (1 + [int]$allowed) -and $state.Acked -eq $allowed `
+                            -and $state.Continued -eq $allowed -and $report.nativeAcceptance -eq 0 `
+                            -and $report.originalGatePassed -eq 0 -and $report.completed -eq 0)
+                    } finally {
+                        Close-HermesStartupScopedInput $state $writer
+                        $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                    }
+                }
+            }
+            552 {
+                foreach ($change in @(
+                    { $state.Held.EventPid = [uint32]33 },
+                    { $state.ScopedInvocation.Source.ArmCommandSha256 = 'f' * 64 },
+                    { $state.NativeRowSnapshots.Resumed.Row.born = 124 },
+                    { $state.ScopedEvaluator = 2 },
+                    { $state.Observations.SdkCommandErrors = 1 },
+                    { $state.Out.End = $true },
+                    { $state.Protocol = 1 },
+                    { $state.AcceptedUtf8Bytes = [long]8388608 },
+                    { $null = $state.ScopedEchoes.Remove((Get-HermesStartupReadinessSource)) }
+                )) {
+                    $state = New-ControlScopedCreated
+                    $physical = [StartupControlWriteStream]::new(0)
+                    $writer = [IO.StreamWriter]::new($physical)
+                    try {
+                        Open-ControlReadiness $state $writer -WithoutSource
+                        . $change
+                        Add-HermesStartupLine $state (Get-HermesStartupReadinessSource)
+                        Add-HermesStartupText $state $state.Out (Get-ControlReadinessText) $true
+                        $report = New-HermesStartupReport $state $false $false
+                        Assert-Control ($report.observations.readyComplete -eq 0 -and $report.observations.readyModule -eq 0 `
+                            -and $report.observations.readyType -eq 0 -and $report.observations.readyMember -eq 0 `
+                            -and $report.observations.readyWidth -eq 0 -and $physical.Writes -eq 1 -and -not $state.Acked `
+                            -and [Text.Encoding]::UTF8.GetByteCount(($report | ConvertTo-Json -Depth 4 -Compress) + "`n") -le 4096)
+                    } finally {
+                        Close-HermesStartupScopedInput $state $writer
+                        $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                    }
+                }
+            }
+            553 {
+                $source = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'Native-StartupTrace.psm1'))
+                $prior = Remove-ControlReadinessProtocolRefusalDelta $source
+                $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+                    [Text.Encoding]::UTF8.GetBytes($prior))).ToLowerInvariant()
+                Assert-Control ($hash -ceq '71f4a2ac0d4f8a3e1c31e56947f3bb169c8313aa5823aa8e702eadfc93028ee8')
+            }
+            554 {
+                foreach ($diagnostic in @(
+                    "Couldn't resolve error at '@@c++(#RTL_FIELD_SIZE(ntdll!_PEB, NtGlobalFlag))'",
+                    "Couldn't resolve error at 'unknown_source'",
+                    "Type information missing error at 'unknown_source'",
+                    "Memory access error at 'unknown_source'",
+                    "Numeric expression missing from 'unknown_source'",
+                    "Syntax error at 'unknown_source'",
+                    "Syntax error in 'unknown_source'",
+                    "Type does not have requested member at 'unknown_source'"
+                )) {
+                    $state = New-ControlScopedCreated
+                    $physical = [StartupControlWriteStream]::new(0)
+                    $writer = [IO.StreamWriter]::new($physical)
+                    $debugger = [pscustomobject]@{ HasExited = $false; StandardInput = $writer }
+                    try {
+                        Open-ControlReadiness $state $writer
+                        foreach ($line in @(
+                            'HERMES_READINESS v=1 part=1 pid=22',
+                            'Last event: 16.1: Create process 1:16',
+                            'start end module name',
+                            '00007ffb10000000 00007ffb10200000 ntdll (deferred)',
+                            'HERMES_READINESS v=1 part=2 pid=22'
+                        )) { Add-HermesStartupLine $state $line }
+                        Assert-Control ($state.Protocol -eq 0 -and $state.Readiness.Part -eq 2 `
+                            -and $state.Readiness.Source -eq 1 -and $state.Readiness.Fault -eq 0 `
+                            -and $state.Unknown -eq 0 -and $state.ScopedStages -eq 1 `
+                            -and $state.Inventory.Block.Flags -eq -1 `
+                            -and (Get-HermesStartupObservation $state 'SdkCommandErrors' 15) -eq 0)
+                        Add-HermesStartupLine $state $diagnostic
+                        $first = @($state.ScopedFault, $state.ScopedQueryFault, $state.ScopedStageFault) |
+                            ConvertTo-Json -Compress
+                        Assert-Control ($state.Protocol -eq 1 -and $state.Readiness.Fault -eq 4 `
+                            -and $state.ScopedFault.Reason -eq 1 -and $state.ScopedQueryFault.Kind -eq 0 `
+                            -and $state.ScopedStageFault.Reason -eq 0 -and $state.Unknown -eq 0 `
+                            -and (Get-HermesStartupObservation $state 'SdkCommandErrors' 15) -eq 0)
+                        foreach ($line in @(
+                            'HERMES_READINESS_TYPE v=1 pid=22 bytes=2048',
+                            'HERMES_READINESS v=1 part=3 pid=22',
+                            'HERMES_READINESS_MEMBER v=1 pid=22 bytes=4',
+                            'HERMES_READINESS v=1 part=4 pid=22',
+                            (Get-ControlScopedQuerySources $extension).Whole,
+                            'HERMES_NTGLOBALFLAG v=1 pid=22 value=00000002',
+                            'HERMES_ARM_STAGE v=1 stage=2',
+                            'HERMES_CDB v=4 kind=8 pid=22'
+                        )) { Add-HermesStartupLine $state $line }
+                        Add-HermesStartupText $state $state.Out '1:000> ' $true
+                        Invoke-ControlScopedPublisher
+                        Add-HermesStartupLine $state "Syntax error at '.printf SYNTHETIC-later-refusal'"
+                        Invoke-ControlScopedPublisher
+                        $report = New-HermesStartupReport $state $false $false
+                        Assert-Control ($state.Protocol -eq 1 -and $state.Readiness.Fault -eq 4 `
+                            -and (@($state.ScopedFault, $state.ScopedQueryFault, $state.ScopedStageFault) |
+                                ConvertTo-Json -Compress) -ceq $first `
+                            -and $state.ScopedStages -eq 1 -and $state.Inventory.Block.Flags -eq -1 `
+                            -and $null -eq $state.Arm -and $physical.Writes -eq 1 -and $state.InputTasks.Count -eq 1 `
+                            -and -not $state.Acked -and -not $state.ContinueAttempted -and -not $state.Continued `
+                            -and -not $state.Held.Released -and -not (Test-HermesStartupScopedAction $state Target) `
+                            -and -not $state.ContainsKey('FirstRefusal') -and $report.armingVerified -eq 0 `
+                            -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0 -and $report.completed -eq 0 `
+                            -and ($report | ConvertTo-Json -Depth 4 -Compress) -notmatch 'unknown_source|SYNTHETIC|ntdll|_PEB|NtGlobalFlag')
+                    } finally {
+                        Close-HermesStartupScopedInput $state $writer
+                        $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                    }
+                }
+            }
+            555 {
+                foreach ($outside in @('Before', 'After')) {
+                    foreach ($diagnostic in @(
+                        "Couldn't resolve error at '@@c++(#RTL_FIELD_SIZE(ntdll!_PEB, NtGlobalFlag))'",
+                        "Couldn't resolve error at 'unknown_source'"
+                    )) {
+                        $state = New-ControlScopedCreated
+                        $physical = [StartupControlWriteStream]::new(0)
+                        $writer = [IO.StreamWriter]::new($physical)
+                        $debugger = [pscustomobject]@{ HasExited = $false; StandardInput = $writer }
+                        try {
+                            Open-ControlReadiness $state $writer
+                            if ($outside -ceq 'After') {
+                                Add-HermesStartupText $state $state.Out (Get-ControlReadinessText) $true
+                            }
+                            Assert-Control ($state.Readiness.Part -eq $(if ($outside -ceq 'Before') { 0 } else { 4 }))
+                            Add-HermesStartupLine $state $diagnostic
+                            if ($outside -ceq 'Before') {
+                                Add-HermesStartupText $state $state.Out (Get-ControlReadinessText) $true
+                            }
+                            foreach ($line in @(
+                                (Get-ControlScopedQuerySources $extension).Whole,
+                                'HERMES_NTGLOBALFLAG v=1 pid=22 value=00000002',
+                                'HERMES_ARM_STAGE v=1 stage=2',
+                                'HERMES_CDB v=4 kind=8 pid=22'
+                            )) { Add-HermesStartupLine $state $line }
+                            Add-HermesStartupText $state $state.Out '1:000> ' $true
+                            Invoke-ControlScopedPublisher
+                            Assert-Control ($state.Protocol -eq 0 -and $state.ScopedFault.Reason -eq 0 `
+                                -and $state.ScopedQueryFault.Kind -eq 0 -and $state.Unknown -eq 0 `
+                                -and $state.Readiness.Complete -eq 1 -and $state.Readiness.Fault -eq 0 `
+                                -and $state.ScopedStages -eq 3 -and $state.Arm.Flags -eq 2 `
+                                -and $physical.Writes -eq 2 -and $state.InputTasks.Count -eq 2 `
+                                -and $state.Acked -and $state.ContinueAttempted -and $state.Continued `
+                                -and $state.Held.Released -and -not $state.ContainsKey('FirstRefusal'))
+                        } finally {
+                            Close-HermesStartupScopedInput $state $writer
+                            $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                        }
+                    }
+                }
+            }
+            556 {
+                foreach ($entry in @(
+                    @{ Prefix = 'Syntax error at'; Reason = 14; Kind = 4; Echo = 16 },
+                    @{ Prefix = "Couldn't resolve error at"; Reason = 1; Kind = 5; Echo = 64 }
+                )) {
+                    $state = New-ControlScopedCreated
+                    $physical = [StartupControlWriteStream]::new(0)
+                    $writer = [IO.StreamWriter]::new($physical)
+                    $debugger = [pscustomobject]@{ HasExited = $false; StandardInput = $writer }
+                    try {
+                        Open-ControlReadiness $state $writer
+                        foreach ($line in @(
+                            'HERMES_READINESS v=1 part=1 pid=22',
+                            'Last event: 16.1: Create process 1:16',
+                            'HERMES_READINESS v=1 part=2 pid=22'
+                        )) { Add-HermesStartupLine $state $line }
+                        Add-HermesStartupLine $state ($entry.Prefix + " '" +
+                            (Get-ControlScopedQuerySources $extension).Read + "'")
+                        $first = @($state.ScopedFault, $state.ScopedQueryFault, $state.ScopedStageFault) |
+                            ConvertTo-Json -Compress
+                        Assert-Control ($state.Protocol -eq 1 -and $state.Readiness.Fault -eq 4 `
+                            -and $state.ScopedFault.Reason -eq $entry.Reason -and $state.ScopedFault.Echo -eq $entry.Echo `
+                            -and $state.ScopedQueryFault.Kind -eq $entry.Kind -and $state.ScopedQueryFault.Source -eq 2)
+                        foreach ($line in @(
+                            "Couldn't resolve error at 'unknown_source'",
+                            'HERMES_READINESS v=1 part=4 pid=22',
+                            (Get-ControlScopedQuerySources $extension).Whole,
+                            'HERMES_NTGLOBALFLAG v=1 pid=22 value=00000002',
+                            'HERMES_ARM_STAGE v=1 stage=2',
+                            'HERMES_CDB v=4 kind=8 pid=22'
+                        )) { Add-HermesStartupLine $state $line }
+                        Add-HermesStartupText $state $state.Out '1:000> ' $true
+                        Invoke-ControlScopedPublisher
+                        $report = New-HermesStartupReport $state $false $false
+                        Assert-Control ((@($state.ScopedFault, $state.ScopedQueryFault, $state.ScopedStageFault) |
+                                ConvertTo-Json -Compress) -ceq $first `
+                            -and $state.Protocol -eq 1 -and $state.ScopedStages -eq 1 -and $state.Inventory.Block.Flags -eq -1 `
+                            -and $physical.Writes -eq 1 -and $state.InputTasks.Count -eq 1 `
+                            -and -not $state.Acked -and -not $state.ContinueAttempted -and -not $state.Continued `
+                            -and -not $state.Held.Released -and -not $state.ContainsKey('FirstRefusal') `
+                            -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0 -and $report.completed -eq 0)
+                    } finally {
+                        Close-HermesStartupScopedInput $state $writer
+                        $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
                     }
                 }
             }

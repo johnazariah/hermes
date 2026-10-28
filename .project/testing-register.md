@@ -2,6 +2,40 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Readiness is an observation, never substitute flag proof
+
+One fixed source-bound bracket precedes the unchanged flag query at the
+same owned CREATE_PROCESS stop. It checks the current/event identity,
+loaded-module listing filtered only to `ntdll`, actual `sizeof(ntdll!_PEB)`
+and metadata-only `#RTL_FIELD_SIZE` for `NtGlobalFlag`. It does not read a
+flag value or set arming authority. No forced reload, symbol-path override,
+process switch, offset fallback, target resume or new target write occurs.
+Normal metadata lookup may trigger deferred symbol loading/cache/network
+activity; it is not claimed to be non-perturbing.
+
+The bracket is bounded to 16 rows, 8,192 UTF-8 bytes and 2,048 characters
+per row within the unchanged overall deadline/bounds. Complete framing
+alone is not successful readiness. Module no-match refers only to the
+debugger's filtered loaded list, not physical absence from Windows.
+Type/member diagnostic outcomes mean an exact source-bound error, not
+proof that a type is absent or that a network/PDB cause exists. Missing
+output stays unknown. Only numeric outcomes enter the report.
+
+Wrong-part, unknown-source and injected protocol records cannot supply
+evidence or allow continuation. A fresh-author correction explicitly
+taints the original protocol after legacy parsing when a rejected bare
+diagnostic would otherwise escape, preserving existing first-fault
+classification. End-to-end controls follow both rejected diagnostics
+with a valid original readback and prove no ACK/continuation/release.
+
+Independent review approves the combined three-file source after this
+correction. All **556 startup controls**, **142 encryption controls**,
+unchanged Setup contracts, workflow lint and root build/tests (**2,198
+Core**, zero failures/skips or warnings/errors) pass locally. Exact
+whole-source inverse proofs retain the original flag/SDK/receipt/gate
+code. No C# or coverage scope changes. Native readiness remains unmeasured;
+interactive publication and one ordinary-CI run are still pending.
+
 ## Typed flag verification names the target module explicitly
 
 The scoped arm query now uses `((ntdll!_PEB*)@$peb)->NtGlobalFlag` for
@@ -23,9 +57,18 @@ Direct source review and local execution pass **545 startup controls**
 (all 542 prior intents plus three new controls), **142 encryption controls**,
 unchanged Setup contracts, workflow lint and root build/tests (**2,198 Core**,
 zero failures/skips or warnings/errors). No C# or coverage scope changes.
-Target-type availability at CREATE_PROCESS is not established by portable
-tests; one actual ordinary-CI verification is still required. That context
-keeps encrypted capture off and does not authorise a second capture.
+The approved ordinary-CI verification now completes at `e359c43`, run
+`40595687726`, installer job `122510892026`. Controls pass, but no typed
+flag value is established. Existing numeric fields report first/stage
+reasons 1/1, stages 1, evaluator 1, echo mask 64 and read
+kind/source/lexical/trim/wording/token = 5/0/144/5/1/0: a resolver-family
+refusal, not verified target-type availability. The diagnostic remains
+blocked; the query change is not declared a successful fix.
+All 501 native cases execute, 500 pass and the original case fails,
+zero skipped. Both application jobs, Tray and compatibility pass.
+Encrypted validation/upload are skipped and no second ciphertext is
+produced. Further changes/runs require an interactive decision after
+source-only analysis of the early-stop symbol/type prerequisite.
 
 ## First-refusal capture encrypts only one approved bounded line
 

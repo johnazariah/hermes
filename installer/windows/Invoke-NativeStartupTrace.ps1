@@ -248,6 +248,10 @@ function New-ScopedCreateCommands {
         # Pin general command parsing after the SDK call; explicit @@c++ stays.
         # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/evaluating-expressions
         '.expr /s masm',
+        # READINESS-BEGIN
+        # Read-only metadata may trigger normal deferred symbol loading.
+        (Get-HermesStartupReadinessSource),
+        # READINESS-END
         # Qualify the target module's type for both the width check and read.
         # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/c---numbers-and-operators
         # Missing target symbols or fields remain unavailable, never an offset fallback.

@@ -30,6 +30,10 @@ function New-HermesStartupState {
         ScopedFault = @{ Reason = 0; Phase = 0; Block = 0; Held = 0; Echo = 0 }
         ScopedStageFault = @{ Reason = 0; Shape = 0 }
         ScopedQueryFault = @{ Kind = 0; Source = 0; Lexical = 0; TrimKind = 0; Wording = 0; Token = 0 }
+        # READINESS-BEGIN
+        Readiness = @{ Source = 0; Part = 0; Complete = 0; Fault = 0; Rows = 0; Bytes = 0
+            Event = 0; Header = 0; Module = 0; Symbols = 0; Type = 0; TypeBytes = 0; Member = 0; Width = 0 }
+        # READINESS-END
         Held = $null; ArmAttempted = $false; ArmWritten = $false; SideWrites = 0
         InputWriter = $null; InputTasks = [Collections.Generic.List[Threading.Tasks.Task]]::new()
         DriverSha256 = ''; ModuleSha256 = ''; ArmCommandSha256 = ''; ExtensionSha256 = ''
@@ -1699,6 +1703,192 @@ function Set-HermesStartupScopedQueryRefusal {
     }
 }
 
+# READINESS-BEGIN
+function Get-HermesStartupReadinessSource {
+    # lm is restricted to loaded ntdll; no paths/addresses escape the parser.
+    # sizeof and #RTL_FIELD_SIZE require actual target-module type information.
+    # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/lm--list-loaded-modules-
+    # https://learn.microsoft.com/windows-hardware/drivers/debuggercmds/c---numbers-and-operators
+    @(
+        '.printf "HERMES_READINESS v=1 part=1 pid=%u\n", @$tpid',
+        '.lastevent', 'lm o m ntdll',
+        '.printf "HERMES_READINESS v=1 part=2 pid=%u\n", @$tpid',
+        '.catch { .printf "HERMES_READINESS_TYPE v=1 pid=%u bytes=%u\n", @$tpid, @@c++(sizeof(ntdll!_PEB)); }',
+        '.printf "HERMES_READINESS v=1 part=3 pid=%u\n", @$tpid',
+        '.catch { .printf "HERMES_READINESS_MEMBER v=1 pid=%u bytes=%u\n", @$tpid, @@c++(#RTL_FIELD_SIZE(ntdll!_PEB, NtGlobalFlag)); }',
+        '.printf "HERMES_READINESS v=1 part=4 pid=%u\n", @$tpid'
+    ) -join '; '
+}
+
+function Test-HermesStartupReadinessFrame {
+    param([hashtable]$State)
+    return $State.DiagnosticMode -ceq 'ScopedCreateV1' -and $State.Protocol -eq 0 `
+        -and $State.ScopedFault.Reason -eq 0 -and $State.ScopedStageFault.Reason -eq 0 `
+        -and $State.ScopedQueryFault.Kind -eq 0 -and $State.Unknown -eq 0 -and $State.Error -eq 0 `
+        -and $State.Timeout -eq 0 -and $State.CleanupFault -eq 0 -and $State.NativeRowsFault -eq 0 `
+        -and -not $State.TraceFaulted -and $State.DebuggerKillRequested -eq 0 -and -not $State.Stopped `
+        -and $State.ScopedEvaluator -eq 1 -and $State.ScopedStages -eq 1 `
+        -and $null -ne $State.Inventory.Block -and $State.Inventory.Block.Stages -eq 1 `
+        -and $State.Inventory.Block.Flags -eq -1 `
+        -and (Get-HermesStartupObservation $State 'SdkCommandErrors' 15) -eq 0 `
+        -and (Test-HermesStartupScopedArmFrame $State)
+}
+
+function Set-HermesStartupReadinessFault {
+    param([hashtable]$State, [ValidateRange(1, 5)][int]$Reason)
+    if ($State.Readiness.Fault -eq 0) { $State.Readiness.Fault = $Reason }
+    $State.Readiness.Complete = 0
+}
+
+function Test-HermesStartupReadinessError {
+    param([string]$Line, [int]$Part)
+    # Only a closed diagnostic whose quoted source is a suffix of the fixed
+    # command for this part. Unknown printf/source taint goes to the old parser.
+    if ($Part -notin @(2, 3)) { return $false }
+    if ($Line -ceq 'Type ntdll!_PEB not found') { return $true }
+    if ($Line -cnotmatch
+        "\A(?:Type information missing error at|Couldn't resolve error at|Numeric expression missing from|Syntax error (?:at|in)|Type does not have requested member at) '(?<source>[\x20-\x7e]{1,2048})'\z") {
+        return $false
+    }
+    $source = $Matches.source
+    $program = Get-HermesStartupReadinessSource
+    $token = if ($Part -eq 2) { '.catch { .printf "HERMES_READINESS_TYPE' } `
+        else { '.catch { .printf "HERMES_READINESS_MEMBER' }
+    $start = $program.IndexOf($token, [StringComparison]::Ordinal)
+    $end = $program.IndexOf('; };', $start, [StringComparison]::Ordinal) + 1
+    $command = $program.Substring($start, $end - $start)
+    $expression = if ($Part -eq 2) { '@@c++(sizeof(ntdll!_PEB))' } `
+        else { '@@c++(#RTL_FIELD_SIZE(ntdll!_PEB, NtGlobalFlag))' }
+    $cursor = $program.Length - $source.Length
+    return $source.Length -ge 16 -and ($source -ceq $expression -or $source -ceq $program `
+        -or ($command + ' }') -ceq $source -or $command.EndsWith($source, [StringComparison]::Ordinal) `
+        -or ($cursor -ge $start -and $cursor -lt $end `
+            -and $program.EndsWith($source, [StringComparison]::Ordinal)))
+}
+
+function Add-HermesStartupReadinessLine {
+    param([hashtable]$State, [string]$Line)
+    $readiness = $State.Readiness
+    $source = Get-HermesStartupReadinessSource
+    $echo = $Line -creplace '\A[0-9]{1,3}:[0-9a-f]{3}> ', ''
+    $isSource = $echo -ceq $source
+    $isMarker = $Line.Contains('HERMES_READINESS', [StringComparison]::Ordinal)
+    if (-not $isSource -and -not $isMarker -and $readiness.Part -notin @(1, 2, 3)) { return $false }
+    if (-not (Test-HermesStartupReadinessFrame $State)) {
+        Set-HermesStartupReadinessFault $State 1
+        return $false
+    }
+    if ($isSource) {
+        if (-not $State.ScopedEchoes.Contains($source)) {
+            Set-HermesStartupReadinessFault $State 5; return $false
+        }
+        if ($readiness.Source -ne 0 -or $readiness.Part -ne 0) { Set-HermesStartupReadinessFault $State 2 }
+        else { $readiness.Source = 1 }
+        return $true
+    }
+    if ($readiness.Source -ne 1) {
+        Set-HermesStartupReadinessFault $State 5; return $false
+    }
+    if ($readiness.Part -in @(1, 2, 3)) {
+        # A missing readiness end cannot turn metadata output into flag or
+        # stage evidence. Only the exact published original query ends this
+        # observation context without an accepted readiness closing marker.
+        if ($State.ScopedEchoes.Contains($echo) -and $echo.StartsWith('.catch { .if (', [StringComparison]::Ordinal) `
+            -and $echo.Contains('HERMES_NTGLOBALFLAG', [StringComparison]::Ordinal)) {
+            Set-HermesStartupReadinessFault $State 4; $readiness.Part = 4
+            return $false
+        }
+        if ($Line -cmatch '\AHERMES_(?:NTGLOBALFLAG|ARM_STAGE|CDB)(?:[ \t]|\z)') {
+            Set-HermesStartupReadinessFault $State 4
+            Set-HermesStartupProtocolFault $State 9
+            return $true
+        }
+    }
+    if ($readiness.Fault -ne 0 -and $Line -cmatch
+        '\AHERMES_READINESS v=1 part=4 pid=(?<pid>[1-9][0-9]{0,9})\z' `
+        -and [long]$Matches.pid -eq $State.Target.pid) {
+        $readiness.Part = 4
+        return $true
+    }
+    if ($readiness.Fault -ne 0) { return $false }
+    $readiness.Rows++; $readiness.Bytes += [Text.Encoding]::UTF8.GetByteCount($Line)
+    if ($readiness.Rows -gt 16 -or $readiness.Bytes -gt 8192 -or $Line.Length -gt 2048) {
+        Set-HermesStartupReadinessFault $State 3; return $false
+    }
+    if ($Line -cmatch '\AHERMES_READINESS v=1 part=(?<part>[1-4]) pid=(?<pid>[1-9][0-9]{0,9})\z') {
+        $part = [int]$Matches.part
+        if ([long]$Matches.pid -ne $State.Target.pid -or $part -ne $readiness.Part + 1 `
+            -or ($part -gt 1 -and $readiness.Event -ne 1)) {
+            Set-HermesStartupReadinessFault $State 2; return $true
+        }
+        $readiness.Part = $part
+        # A complete, header-bearing filtered enumeration with no matching row
+        # proves no loaded ntdll entry in this debugger list, NOT no mapped DLL.
+        if ($part -eq 2 -and $readiness.Header -eq 1 -and $readiness.Module -eq 0) {
+            $readiness.Module = 2
+        }
+        if ($part -eq 4) { $readiness.Complete = 1 }
+        return $true
+    }
+    if ($readiness.Part -eq 1 -and $Line -cmatch
+        '\ALast event: (?<pid>[0-9a-f]{1,8})\.[0-9a-f]{1,8}: Create process [0-9]+:(?<event>[0-9a-f]{1,8})\z') {
+        if ($readiness.Event -ne 0 -or [Convert]::ToUInt32($Matches.pid, 16) -ne $State.Target.pid `
+            -or [Convert]::ToUInt32($Matches.event, 16) -ne $State.Target.pid) {
+            Set-HermesStartupReadinessFault $State 2
+        } else { $readiness.Event = 1 }
+        return $true
+    }
+    if ($readiness.Part -eq 1 -and $readiness.Event -eq 1) {
+        if ($Line -cmatch '\A[ \t]*start[ \t]+end[ \t]+module name[ \t]*\z') {
+            if ($readiness.Header -ne 0) { Set-HermesStartupReadinessFault $State 2 }
+            else { $readiness.Header = 1 }
+            return $true
+        }
+        $address = '[0-9a-f]{8}(?:`?[0-9a-f]{8})?'
+        if ($readiness.Header -eq 1 -and $Line -cmatch
+            ('\A[ \t]*(?<start>' + $address + ')[ \t]+(?<end>' + $address +
+                ')[ \t]+ntdll[ \t]+\((?<symbols>deferred|private pdb symbols|pdb symbols|export symbols)\)(?:[ \t]+[\x20-\x7e]{1,512})?[ \t]*\z')) {
+            if ($Line.Contains('.printf', [StringComparison]::Ordinal) `
+                -or $Line.Contains('HERMES_', [StringComparison]::Ordinal)) {
+                Set-HermesStartupReadinessFault $State 4; return $false
+            }
+            $start = [Convert]::ToUInt64($Matches.start.Replace('`', ''), 16)
+            $end = [Convert]::ToUInt64($Matches.end.Replace('`', ''), 16)
+            if ($readiness.Module -ne 0 -or $start -eq 0 -or $start -ge $end) {
+                Set-HermesStartupReadinessFault $State 2
+            } else {
+                $readiness.Module = 1
+                $readiness.Symbols = switch ($Matches.symbols) { deferred { 1 }; 'export symbols' { 3 }; default { 2 } }
+            }
+            return $true
+        }
+    }
+    if ($Line -cmatch '\AHERMES_READINESS_(?<kind>TYPE|MEMBER) v=1 pid=(?<pid>[1-9][0-9]{0,9}) bytes=(?<bytes>[1-9][0-9]{0,4})\z') {
+        $field = if ($Matches.kind -ceq 'TYPE') { 'Type' } else { 'Member' }
+        $part = if ($field -ceq 'Type') { 2 } else { 3 }
+        $width = [int]$Matches.bytes
+        if ([long]$Matches.pid -ne $State.Target.pid -or $readiness.Part -ne $part `
+            -or $readiness[$field] -ne 0 -or $width -gt 65536 `
+            -or ($field -ceq 'Member' -and $readiness.Type -eq 1 -and $width -gt $readiness.TypeBytes)) {
+            Set-HermesStartupReadinessFault $State 2
+        } else {
+            $readiness[$field] = 1
+            if ($field -ceq 'Member') { $readiness.Width = $width }
+            else { $readiness.TypeBytes = $width }
+        }
+        return $true
+    }
+    if (Test-HermesStartupReadinessError $Line $readiness.Part) {
+        $field = if ($readiness.Part -eq 2) { 'Type' } else { 'Member' }
+        if ($readiness[$field] -ne 0) { Set-HermesStartupReadinessFault $State 2 }
+        else { $readiness[$field] = 2 }
+        return $true
+    }
+    if ($Line -ceq '' -and $readiness.Part -eq 1) { return $true }
+    Set-HermesStartupReadinessFault $State 4
+    return $false
+}
+# READINESS-END
 function Get-HermesStartupScopedStageShape {
     param([hashtable]$State, [string]$Line)
     if ($State.DiagnosticMode -cne 'ScopedCreateV1' -or $State.Protocol -ne 0 `
@@ -1790,6 +1980,9 @@ function Get-HermesStartupScopedEchoMask {
 function Add-HermesStartupScopedLine {
     param([hashtable]$State, [string]$Line)
     if ($State.Protocol -ne 0 -or $State.Bounds -ne 0 -or $State.AcceptedUtf8Bytes -ge 8388608) { return }
+    # READINESS-BEGIN
+    if (Add-HermesStartupReadinessLine $State $Line) { return }
+    # READINESS-END
     $wasStopped = $State.Stopped
     Set-HermesStartupStoppedPrompt $State $Line
     Add-HermesStartupSdkError $State $Line
@@ -1880,6 +2073,13 @@ function Add-HermesStartupScopedLine {
         return
     }
     Add-HermesStartupFailure $State $Line
+    # Legacy refusals keep their first classification. Bare rejected readiness
+    # diagnostics must not leave the original protocol usable by later output.
+    if ($State.Readiness.Source -eq 1 -and $State.Readiness.Part -in @(1, 2, 3) `
+        -and $Line -cmatch
+        "\A(?:(?:Type information missing error at|Memory access error at|Couldn't resolve error at|Numeric expression missing from|Syntax error (?:at|in)|Type does not have requested member at) '[\x20-\x7e]{1,2048}'|Type ntdll!_PEB not found)\z") {
+        Set-HermesStartupProtocolFault $State 1
+    }
 }
 
 function Set-HermesStartupDebuggerExit {
@@ -2501,6 +2701,25 @@ function New-HermesStartupReport {
         # 0 other/unavailable; 1 {; 2 }; 3 .printf; 4 .catch; 5 .if;
         # 6 Syntax; 7 Error; 8 Unable. Case-sensitive, never echo acceptance.
         $selected.scopedReadFirstToken = Get-HermesStartupInventoryNumber $State.ScopedQueryFault['Token'] 8
+        # READINESS-BEGIN
+        # Observation only: 0 unknown, never absent/false. Module 1 loaded row;
+        # 2 completed filtered enumeration with no match (not OS image absence).
+        # Type/member 1 actual metadata result; 2 a closed, source-bound
+        # diagnostic, NOT proof of absence or a PDB/network failure cause.
+        # Module symbols: 1 deferred; 2 PDB display; 3 export-only display.
+        $ready = $State.Readiness
+        $selected.readyComplete = Get-HermesStartupInventoryNumber $ready.Complete 1
+        $selected.readyFault = Get-HermesStartupInventoryNumber $ready.Fault 5
+        $valid = $ready.Complete -is [int] -and $ready.Complete -eq 1 `
+            -and $ready.Fault -is [int] -and $ready.Fault -eq 0
+        $selected.readyModule = if ($valid) { Get-HermesStartupInventoryNumber $ready.Module 2 } else { 0 }
+        $selected.readyModState = if ($valid) { Get-HermesStartupInventoryNumber $ready.Symbols 3 } else { 0 }
+        $selected.readyType = if ($valid) { Get-HermesStartupInventoryNumber $ready.Type 2 } else { 0 }
+        $selected.readyMember = if ($valid) { Get-HermesStartupInventoryNumber $ready.Member 2 } else { 0 }
+        $selected.readyWidth = if ($valid -and $selected.readyMember -eq 1) {
+            Get-HermesStartupInventoryNumber $ready.Width 65536
+        } else { 0 }
+        # READINESS-END
         $report.observations = $selected
     }
     return $report

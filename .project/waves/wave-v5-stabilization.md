@@ -100,6 +100,20 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-28 - Approve the bounded readiness source after strict-context correction
+
+- **Implemented:** The fixed metadata bracket checks loaded `ntdll`, the explicit target type and field width at the same owned stop before the unchanged typed flag query. Current/event/source receipts remain bound; the bracket adds no flag authority, forced reload, target write or resume. Ordinary deferred symbol loading may occur.
+- **Review correction:** Independent review finds that wrong-part/unknown-source bare diagnostics could fall through the old parser without taint. A fresh author adds a post-legacy refusal fallback, preserving old first-fault classifications. New end-to-end cases prove a later valid flag cannot cause ACK/continuation after either rejected diagnostic. Final source review approves.
+- **Validation:** All 556 startup and 142 encryption controls pass, retaining prior intents, alongside unchanged Setup contracts, workflow lint and root build/tests (2,198 Core, zero skips or warnings/errors). Exact inverse hashes pin the untouched original driver/module logic.
+- **Limits and next:** These are portable/source results, not native type readiness. Ask interactive approval to publish and execute the single ordinary-CI readiness check. Do not start another encrypted capture, change the query/stop or treat unavailable metadata as a pass.
+
+### 2026-10-28 - Keep the unresolved typed query explicit after its one verification
+
+- **Published and executed:** John approves publication and verification of the qualified query. Revision `e359c43`, ordinary PR CI `40595687726`, actual installer job `122510892026`, passes all 545 controls but does not establish a typed flag value. The original gate remains 500/501, zero skipped.
+- **Numeric outcome:** Existing report artifact `12775898703` contains only bounded `startup-debug.json`. First/stage reasons are 1/1, stages 1, evaluator 1, echo mask 64, read kind/source/lexical/trim/wording/token = 5/0/144/5/1/0. This identifies a resolver-family refusal after qualification, not proof of type availability or a particular PDB/network/loader cause. No successful repair is claimed.
+- **Unchanged boundaries:** Both application jobs, Tray and compatibility pass; installer lifecycle and publish remain skipped. Encrypted-capture validation/upload are skipped, with no second ciphertext artifact. No raw-line capture, manual rerun, parser tolerance, offset fallback or token-policy change occurs.
+- **Next:** The retained author performs read-only mapping of type/symbol prerequisites at the owned CREATE_PROCESS stop and proposes one precise next action for interactive approval before any further implementation or run.
+
 ### 2026-10-28 - Qualify the explicit target-type query
 
 - **Changed:** A fresh PowerShell author qualifies the PEB field through `ntdll!_PEB` in both the exact width guard and typed read. Generated source, fixed echo/read comparisons and lexical fingerprints remain consistent. No offset fallback, ignored error, SDK-operation change or acceptance substitution is introduced.
