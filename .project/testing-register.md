@@ -2,6 +2,25 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## Readiness accepts only the proved benign timestamp display
+
+The authenticated capture grounds a 13-line rule for the complete
+`.lastevent` timestamp display. It is optional and accepted only once in
+bound part 1, after the matching event and before the module header.
+Invariant calendar/time/weekday validation and the measured UTC `+ 0:00`
+form are required. The date is discarded; no timestamp enters readiness
+facts, flag proof or the report.
+
+Direct source review confirms no query, bound, identity, stop, SDK,
+receipt, continuation or capture-policy change. All **568 startup** and
+**288 crypto/origin** controls pass, retaining prior intents. New controls
+cover omitted/valid timestamps, invalid calendars/time/offsets, injection,
+duplicates, wrong parts/bindings, bounds and equal original query verdicts
+with or without the display. Setup contracts, workflow lint and root
+build/tests pass (**2,198 Core**, zero failures/skips or warnings/errors).
+Exact source inverses restore `cccba7d`; the readiness program remains
+477 bytes. Native readiness remains to be measured with capture off.
+
 ## Readiness is an observation, never substitute flag proof
 
 One fixed source-bound bracket precedes the unchanged flag query at the
@@ -47,7 +66,12 @@ The owner separately approves one additional encrypted capture of only
 the first bound readiness-rejected line, at most 1 KB, under the same
 local-key/ciphertext-only/no-wider-log rules. Retargeting must disable the
 old flag-query capture hook and cannot fall back to another line.
-No new capture has run yet.
+That separately approved capture now runs at `cccba7d`, manual run
+`40644687220`, job `122670641226`. The fixed ciphertext artifact
+`12796793528` contains one 771-byte envelope; independently expected
+context and local GCM authentication pass. The first rejected display
+is a normal `.lastevent` debugger timestamp, not a module/type error.
+Only that semantic finding is recorded publicly, not the actual timestamp.
 
 The capture retarget is now independently source-reviewed and locally
 qualified. Only the first unsupported display in the active, source/
@@ -65,8 +89,13 @@ acceptance flags zero; it is not mislabelled as installer success.
 All **560 startup**, **288 encryption/origin** controls, unchanged Setup
 contracts, workflow lint and root build/tests (**2,198 Core**, zero
 failures/skips or warnings/errors) pass. Exact source inverses prove no
-query, readiness or acceptance change. Publication and one new manual
-capture remain subject to interactive approval.
+query, readiness or acceptance change. The owner approves publication
+and execution under renewed autonomous direction. Ordinary PR CI
+`40644672082` remains ciphertext-free and passes both application jobs,
+Tray and compatibility; the original native failure persists.
+The second capture permission is complete and does not authorise a
+third capture. A strictly scoped timestamp-display correction is now
+required before readiness can be measured.
 
 ## Typed flag verification names the target module explicitly
 

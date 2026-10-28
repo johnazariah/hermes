@@ -100,6 +100,19 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-28 - Handle the proved timestamp without granting authority
+
+- **Changed:** A fresh author adds 13 production lines to recognise the complete benign `.lastevent` timestamp. It is optional, invariant-validated, UTC-only as measured, and accepted once only after the matching event and before the module header in bound readiness part 1. The date is discarded; it proves no module/type/flag fact.
+- **Review and validation:** Direct review of the production delta and complete new controls finds no material issue. All 568 startup and 288 cipher/origin controls pass, alongside unchanged Setup contracts, workflow lint and root build/tests (2,198 Core, zero skips or warnings/errors). Exact inverse hashes restore `cccba7d`; the 477-byte query and 16/8192/2048 bounds remain unchanged.
+- **Next:** Publish under renewed autonomous approval and measure the actual readiness facts through ordinary CI. No further encrypted capture, query variant, stop or acceptance change is introduced.
+
+### 2026-10-28 - Authenticate the readiness timestamp and select the narrow correction
+
+- **Actual capture:** Revision `cccba7d`, genuine manual `40644687220`, job `122670641226`, passes all 288 crypto/origin controls and the site-2 validator/upload. Artifact `12796793528` contains only the fixed 771-byte ciphertext envelope, SHA-256 `7da2adf26c2e1055ddb12a429baec431d37431707333170e58fbc0dad98ff5cf`. Local independently expected context and GCM verification succeed.
+- **Grounded diagnosis:** The single privately inspected line is a normal `.lastevent` debugger timestamp. No actual timestamp is published. The readiness parser lacks this benign display rule; its fault 4 does not prove a module/type failure.
+- **Preserved state:** The original native gate remains 500/501. Ordinary PR `40644672082` passes both application jobs, Tray and compatibility and produces no ciphertext. Both specific capture permissions are now used; no third capture is implied by autonomous mode.
+- **Next:** A fresh author adds only complete invariant timestamp recognition, once after the matching event and before the module header in bound readiness part 1. It must add no readiness/flag authority, accept no injected/error text, change no query/stop/settings, and retain every original acceptance check. Verify through ordinary CI with capture off after review/local gates.
+
 ### 2026-10-28 - Resume autonomous execution within the agreed boundaries
 
 - **Owner direction:** Asked to approve publication and the already scoped readiness capture, John responds: "How about I give you YOLO and you just do it all". This approves routine implementation, commit/push and CI execution for the agreed remediation without repeated approval prompts.

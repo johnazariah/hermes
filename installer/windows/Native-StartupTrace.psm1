@@ -1849,6 +1849,19 @@ function Add-HermesStartupReadinessLine {
         return $true
     }
     if ($readiness.Part -eq 1 -and $readiness.Event -eq 1) {
+        if ($readiness.Header -eq 0 -and -not $readiness.ContainsKey('TimestampSeen') -and $Line -cmatch
+            ('\A  debugger time: (?<time>(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) ' +
+                '(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ' +
+                '[1-9][0-9]? [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3} [0-9]{4}) \(UTC \+ 0:00\)\z')) {
+            # Optional display metadata only; discard the validated date.
+            $timestamp = [datetime]::MinValue
+            if ([datetime]::TryParseExact($Matches.time, 'ddd MMM d HH:mm:ss.fff yyyy',
+                    [Globalization.CultureInfo]::InvariantCulture,
+                    [Globalization.DateTimeStyles]::None, [ref]$timestamp)) {
+                $readiness.TimestampSeen = $true
+                return $true
+            }
+        }
         if ($Line -cmatch '\A[ \t]*start[ \t]+end[ \t]+module name[ \t]*\z') {
             if ($readiness.Header -ne 0) { Set-HermesStartupReadinessFault $State 2 }
             else { $readiness.Header = 1 }
