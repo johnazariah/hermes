@@ -100,6 +100,19 @@ or live document was opened. Results record behavior and counts, not content.
 
 ## Log
 
+### 2026-10-28 - Qualify the numeric first-failure snapshot
+
+- **Changed:** Only already-parsed readiness state is snapshotted at the first bound refusal. No new debugger command, query, stop, raw line or capture is added; successful readiness/flag facts and original verdicts are unchanged.
+- **Review correction:** Direct review rejects an empty sampling catch that concealed whether context was unbound or sampling failed. A fresh author adds explicit numeric sampling-error reporting while retaining the original refusal and cleanup. Later faults cannot overwrite the first snapshot.
+- **Validation:** Direct final source/test review and parent runs pass 574 startup / 288 cipher controls, unchanged Setup contracts, workflow lint and root build/tests (2,198 Core, zero skips or warnings/errors). Saturated numeric report remains 2,720/4,096 bytes; exact inverses preserve all previous logic.
+- **Next:** Publish and inspect one ordinary-CI report for the first-failure part and prior event/header/module evidence. Treat partial-state values as diagnostics only, not type/flag proof; no third capture.
+
+### 2026-10-28 - Keep the remaining display refusal numeric-only
+
+- **Actual verification:** Ordinary CI `40647256069`, job `122678859868`, at `4ad472d` passes 568 controls but still reports readiness complete 0 / fault 4 and unknown facts. Artifact `12798780058` contains one 2,415-byte numeric report. Original resolver-family fields and native 500/501 outcome are unchanged; both application jobs, Tray and compatibility pass. No ciphertext is uploaded.
+- **Limit:** Handling the proved timestamp does not establish that it was the only unsupported display. No new line or cause is inferred from fault 4, and neither of the two completed capture permissions is reused.
+- **Next:** A fresh author adds a bounded numeric snapshot of existing state at the first refusal: the part/row and what event/header/module evidence was already parsed. This is diagnostic partial state, not positive readiness or arming authority; queries, stop, token policy and acceptance stay unchanged.
+
 ### 2026-10-28 - Handle the proved timestamp without granting authority
 
 - **Changed:** A fresh author adds 13 production lines to recognise the complete benign `.lastevent` timestamp. It is optional, invariant-validated, UTC-only as measured, and accepted once only after the matching event and before the module header in bound readiness part 1. The date is discarded; it proves no module/type/flag fact.

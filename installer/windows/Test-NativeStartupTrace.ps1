@@ -875,9 +875,17 @@ $readinessTimestampInsertion = @'
 '@ + "`n"
 function Remove-ControlReadinessTimestampDelta {
     param([string]$Source)
+    $Source = Remove-ControlReadinessContextDelta $Source
     if (-not $Source.Contains('function Add-HermesStartupScopedLine {', [StringComparison]::Ordinal)) { return $Source }
     Assert-Control ([regex]::Matches($Source, [regex]::Escape($readinessTimestampInsertion)).Count -eq 1)
     return $Source.Replace($readinessTimestampInsertion, '')
+}
+function Remove-ControlReadinessContextDelta {
+    param([string]$Source)
+    if (-not $Source.Contains('function Add-HermesStartupScopedLine {', [StringComparison]::Ordinal)) { return $Source }
+    $pattern = '(?m)^([ ]*)# READINESS-CONTEXT-BEGIN\n[\s\S]*?^\1# READINESS-CONTEXT-END\n'
+    Assert-Control ([regex]::Matches($Source, $pattern).Count -eq 3)
+    return [regex]::Replace($Source, $pattern, '')
 }
 function Remove-ControlReadinessProtocolRefusalDelta {
     param([string]$Source)
@@ -1013,7 +1021,7 @@ function Assert-ControlReadinessArtifact {
         }
     }
 }
-$cases = 1..568 # Prior 560 controls retained; timestamp fixtures use synthetic dates only.
+$cases = 1..574 # Prior 568 controls retained; advisory context uses held parser state only.
 $passed = 0
 foreach ($case in $cases) {
     $state = $null
@@ -10171,6 +10179,8 @@ foreach ($case in $cases) {
                     $state.Readiness.Complete = 1; $state.Readiness.Fault = 0
                     $state.Readiness.Module = 2; $state.Readiness.Symbols = 3
                     $state.Readiness.Type = 2; $state.Readiness.Member = 1; $state.Readiness.Width = 65536
+                    $state.ReadinessFailure = @{ Available = 1; SamplingError = 13; Part = 3; Rows = 17; Seen = 7
+                        Module = 2; ModState = 3; ListComplete = 1; Type = 2; Member = 2 }
                     $state.DebuggerKillRequested = 1
                     foreach ($subject in 100..114) {
                         $state.Inventory.Subjects[[string]$subject] = @{ Create = 1; Initial = 1; Exit = 1; ExitCode = 0 }
@@ -10180,6 +10190,8 @@ foreach ($case in $cases) {
                     $report = New-HermesStartupReport $state $false $false
                     $json = $report | ConvertTo-Json -Depth 4 -Compress
                     Assert-Control ([Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
+                        -and $report.observations.readyFailError -eq 13 `
+                        -and $report.observations.readyFailRows -eq 17 -and $report.observations.readyFailSeen -eq 7 `
                         -and $report.observations.scopedReadFirstWording -eq 255 -and $report.observations.scopedReadFirstToken -eq 8 `
                         -and $report.observations.scopedReadFirstLexical -eq 1023 -and $report.observations.scopedEvaluator -eq 1 `
                         -and $report.observations.subjects -eq 16 -and $report.observations.inputTasks -eq 50 `
@@ -11474,6 +11486,325 @@ foreach ($case in $cases) {
                         }
                     }
                     Assert-Control ($verdicts[0] -ceq $verdicts[1])
+                }
+            }
+            569 {
+                # Factoring only the new diagnostic blocks restores every byte
+                # of HEAD 4ad472d, including all earlier source/acceptance guards.
+                $source = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'Native-StartupTrace.psm1'))
+                $prior = Remove-ControlReadinessContextDelta $source
+                $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+                    [Text.Encoding]::UTF8.GetBytes($prior))).ToLowerInvariant()
+                Assert-Control ($hash -ceq 'b0b45c9538c2600fbaa76cf8a1d62ed08c5576daed584e852cce06c0ccf097f5' `
+                    -and (Get-HermesStartupReadinessSource).Length -eq 477 `
+                    -and ($source -split "`n").Count - ($prior -split "`n").Count -eq 41)
+            }
+            570 {
+                $timestamp = '  debugger time: Mon Feb 29 12:34:56.789 2016 (UTC + 0:00)'
+                $eventLines = @('HERMES_READINESS v=1 part=1 pid=22',
+                    'Last event: 16.1: Create process 1:16')
+                $headerLines = $eventLines + @($timestamp, 'start end module name')
+                $moduleLines = $headerLines + '00007ffb`10000000 00007ffb`10200000 ntdll (deferred)'
+                $typeLines = $moduleLines + 'HERMES_READINESS v=1 part=2 pid=22'
+                $memberLines = $typeLines + @('HERMES_READINESS_TYPE v=1 pid=22 bytes=2048',
+                    'HERMES_READINESS v=1 part=3 pid=22')
+                $casesRoot = Join-Path $PSScriptRoot ('obj/readiness-context-controls/' + [Guid]::NewGuid().ToString('N'))
+                try {
+                    $null = [IO.Directory]::CreateDirectory($casesRoot)
+                    foreach ($entry in @(
+                        @{ Before = @('HERMES_READINESS v=1 part=1 pid=22'); Bad = 'Last event: 17.1: Create process 1:17'
+                            Part = 1; Seen = 0; Module = 0; ModState = 0; Type = 0; List = 0; Fault = 2 },
+                        @{ Before = $eventLines; Bad = $timestamp.Replace('Feb 29', 'Feb 30')
+                            Part = 1; Seen = 1; Module = 0; ModState = 0; Type = 0; List = 0; Fault = 4 },
+                        @{ Before = $eventLines + $timestamp; Bad = 'start end SYNTHETIC_PRIVATE module header'
+                            Part = 1; Seen = 5; Module = 0; ModState = 0; Type = 0; List = 0; Fault = 4 },
+                        @{ Before = $headerLines; Bad = 'SYNTHETIC_PRIVATE unsupported module row'
+                            Part = 1; Seen = 7; Module = 0; ModState = 0; Type = 0; List = 0; Fault = 4 },
+                        @{ Before = $headerLines; Bad = '00007ffb`10000000 00007ffb`10000000 ntdll (deferred)'
+                            Part = 1; Seen = 7; Module = 0; ModState = 0; Type = 0; List = 0; Fault = 2 },
+                        @{ Before = $headerLines; Bad = '00007ffb`10000000 00007ffb`10200000 ntdll (deferred) .printf "SYNTHETIC_PRIVATE"'
+                            Part = 1; Seen = 7; Module = 0; ModState = 0; Type = 0; List = 0; Fault = 4 },
+                        @{ Before = $typeLines; Bad = "Couldn't resolve error at 'unknown_source'"
+                            Part = 2; Seen = 7; Module = 1; ModState = 1; Type = 0; List = 1; Fault = 4 },
+                        @{ Before = $headerLines + 'HERMES_READINESS v=1 part=2 pid=22'
+                            Bad = "Type information missing error at 'unknown_source'"
+                            Part = 2; Seen = 7; Module = 2; ModState = 0; Type = 0; List = 1; Fault = 4 },
+                        @{ Before = $eventLines + 'HERMES_READINESS v=1 part=2 pid=22'
+                            Bad = "Couldn't resolve error at 'unknown_source'"
+                            Part = 2; Seen = 1; Module = 0; ModState = 0; Type = 0; List = 0; Fault = 4 },
+                        @{ Before = $memberLines; Bad = "Couldn't resolve error at 'unknown_source'"
+                            Part = 3; Seen = 7; Module = 1; ModState = 1; Type = 1; List = 1; Fault = 4 },
+                        @{ Before = $typeLines + @('Type ntdll!_PEB not found', 'HERMES_READINESS v=1 part=3 pid=22')
+                            Bad = "Type does not have requested member at 'unknown_source'"
+                            Part = 3; Seen = 7; Module = 1; ModState = 1; Type = 2; List = 1; Fault = 4 },
+                        @{ Before = $moduleLines; Bad = 'HERMES_READINESS v=1 part=2 pid=33'
+                            Part = 1; Seen = 7; Module = 1; ModState = 1; Type = 0; List = 0; Fault = 2 },
+                        @{ Before = $typeLines; Bad = 'SYNTHETIC_PRIVATE .printf "HERMES_READINESS_TYPE"'
+                            Part = 2; Seen = 7; Module = 1; ModState = 1; Type = 0; List = 1; Fault = 4 }
+                    )) {
+                        $state = New-ControlScopedCreated
+                        $writer = [IO.StreamWriter]::new([StartupControlWriteStream]::new(0))
+                        try {
+                            Open-ControlReadiness $state $writer
+                            foreach ($line in $entry.Before) { Add-HermesStartupLine $state $line }
+                            $output = @(Add-HermesStartupLine $state $entry.Bad)
+                            Assert-Control ($output.Count -eq 0 -and $state.Readiness.Fault -eq $entry.Fault `
+                                -and $state.ReadinessFailure.Count -eq 9 -and -not $state.ContainsKey('FirstRefusal'))
+                            $expected = @{ Available = 1; Error = 0; Part = $entry.Part; Rows = $entry.Before.Count + 1
+                                Seen = $entry.Seen; Module = $entry.Module; ModState = $entry.ModState
+                                ListComplete = $entry.List; Type = $entry.Type; Member = 0 }
+                            $first = $state.ReadinessFailure | ConvertTo-Json -Compress
+                            foreach ($line in @('HERMES_READINESS v=1 part=4 pid=22',
+                                    'SYNTHETIC_PRIVATE later data', (Get-HermesStartupReadinessSource))) {
+                                Add-HermesStartupLine $state $line
+                            }
+                            $report = New-HermesStartupReport $state $false $false
+                            foreach ($name in $expected.Keys) {
+                                Assert-Control ($report.observations['readyFail' + $name] -eq $expected[$name])
+                            }
+                            Assert-Control (($state.ReadinessFailure | ConvertTo-Json -Compress) -ceq $first `
+                                -and $state.Readiness.Fault -eq $entry.Fault -and $report.observations.readyComplete -eq 0 `
+                                -and $report.observations.readyModule -eq 0 -and $report.observations.readyModState -eq 0 `
+                                -and $report.observations.readyType -eq 0 -and $report.observations.readyMember -eq 0 `
+                                -and $report.observations.readyWidth -eq 0 -and $report.armingVerified -eq 0 `
+                                -and $report.completed -eq 0 -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0 `
+                                -and @($state.ReadinessFailure.Values | Where-Object { $_ -isnot [int] }).Count -eq 0)
+                            $path = Join-Path $casesRoot 'startup-debug.json'
+                            [IO.File]::WriteAllText($path, ($report | ConvertTo-Json -Depth 4 -Compress) + "`n")
+                            $disk = [IO.File]::ReadAllText($path)
+                            Assert-Control ([Text.Encoding]::UTF8.GetByteCount($disk) -le 4096 `
+                                -and $disk -cnotmatch 'SYNTHETIC_PRIVATE|unknown_source|debugger time|2016|\.printf|ntdll|_PEB|7ffb|TimestampSeen')
+                        } finally {
+                            Close-HermesStartupScopedInput $state $writer
+                            $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                        }
+                    }
+                } finally {
+                    if ([IO.Directory]::Exists($casesRoot)) { Remove-Item -LiteralPath $casesRoot -Recurse -Force }
+                }
+            }
+            571 {
+                foreach ($entry in @(
+                    @{ Setup = { $state.Held.EventPid = [uint32]33 }; Fault = 1 },
+                    @{ Setup = { $state.ScopedInvocation.Source.ArmCommandSha256 = 'f' * 64 }; Fault = 1 },
+                    @{ Setup = { $state.NativeRowSnapshots.Resumed.Row.born = 124 }; Fault = 1 },
+                    @{ Setup = { $state.Readiness.Source = 0 }; Fault = 5 }
+                )) {
+                    $state = New-ControlScopedCreated
+                    $writer = [IO.StreamWriter]::new([StartupControlWriteStream]::new(0))
+                    try {
+                        Open-ControlReadiness $state $writer
+                        Add-HermesStartupLine $state 'HERMES_READINESS v=1 part=1 pid=22'
+                        . $entry.Setup
+                        Add-HermesStartupLine $state 'SYNTHETIC unsupported display'
+                        $report = New-HermesStartupReport $state $false $false
+                        Assert-Control ($state.Readiness.Fault -eq $entry.Fault -and $state.ReadinessFailure.Count -eq 0 `
+                            -and $report.observations.readyFailAvailable -eq 0 -and $report.observations.readyFailError -eq 0 `
+                            -and @($report.observations.Keys | Where-Object {
+                                $_.StartsWith('readyFail') -and $report.observations[$_] -ne 0 }).Count -eq 0)
+                    } finally {
+                        Close-HermesStartupScopedInput $state $writer
+                        $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                    }
+                }
+                foreach ($source in @('', 'SYNTHETIC unknown .printf "HERMES_READINESS"')) {
+                    $state = New-ControlScopedCreated
+                    $writer = [IO.StreamWriter]::new([StartupControlWriteStream]::new(0))
+                    try {
+                        Open-ControlReadiness $state $writer -WithoutSource
+                        if ($source -cne '') { Add-HermesStartupLine $state $source }
+                        Add-HermesStartupLine $state 'HERMES_READINESS v=1 part=1 pid=22'
+                        $report = New-HermesStartupReport $state $false $false
+                        Assert-Control ($state.Readiness.Fault -eq 5 -and $state.ReadinessFailure.Count -eq 0 `
+                            -and $report.observations.readyFailAvailable -eq 0 -and $report.observations.readyFailError -eq 0 `
+                            -and $report.observations.readyFailSeen -eq 0)
+                    } finally {
+                        Close-HermesStartupScopedInput $state $writer
+                        $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                    }
+                }
+                # The existing original-query echo ends a missing readiness
+                # block: capture its preceding part/row count, not the new part 4.
+                $state = New-ControlScopedCreated
+                $writer = [IO.StreamWriter]::new([StartupControlWriteStream]::new(0))
+                try {
+                    Open-ControlReadiness $state $writer
+                    foreach ($line in @('HERMES_READINESS v=1 part=1 pid=22',
+                            'Last event: 16.1: Create process 1:16', 'start end module name',
+                            'HERMES_READINESS v=1 part=2 pid=22')) { Add-HermesStartupLine $state $line }
+                    Add-HermesStartupLine $state (Get-ControlScopedQuerySources $extension).Whole
+                    $report = New-HermesStartupReport $state $false $false
+                    Assert-Control ($state.Readiness.Fault -eq 4 -and $state.Readiness.Part -eq 4 `
+                        -and $report.observations.readyFailPart -eq 2 -and $report.observations.readyFailRows -eq 4 `
+                        -and $report.observations.readyFailSeen -eq 3 -and $report.observations.readyFailModule -eq 2 `
+                        -and $report.observations.readyFailListComplete -eq 1 -and $state.Protocol -eq 0)
+                } finally {
+                    Close-HermesStartupScopedInput $state $writer
+                    $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                }
+            }
+            572 {
+                $state = New-ControlScopedCreated
+                $physical = [StartupControlWriteStream]::new(0)
+                $writer = [IO.StreamWriter]::new($physical)
+                $module = Get-Module Native-StartupTrace
+                try {
+                    Open-ControlReadiness $state $writer
+                    $text = Get-ControlReadinessText -Timestamp '  debugger time: Mon Feb 29 12:34:56.789 2016 (UTC + 0:00)'
+                    Add-HermesStartupText $state $state.Out ($text.Substring(0,
+                        $text.IndexOf('HERMES_READINESS v=1 part=4', [StringComparison]::Ordinal))) $true
+                    Assert-Control ($state.Readiness.Part -eq 3 -and $state.Readiness.Module -eq 1 `
+                        -and $state.Readiness.Type -eq 1 -and $state.Readiness.Member -eq 1)
+                    & $module {
+                        $script:contextFrame = (Get-Command Test-HermesStartupReadinessFrame).ScriptBlock
+                        Set-Item Function:script:Test-HermesStartupReadinessFrame { throw 'SYNTHETIC_PRIVATE sampling fault' }
+                    }
+                    $output = @(Set-HermesStartupReadinessFault $state 4)
+                    Assert-Control ($output.Count -eq 0 -and $state.Readiness.Fault -eq 4 `
+                        -and $state.Readiness.Complete -eq 0 -and $state.ReadinessFailure.Count -eq 2 `
+                        -and $state.ReadinessFailure.Available -eq 0 -and $state.ReadinessFailure.SamplingError -eq 13 `
+                        -and $state.Protocol -eq 0 -and $state.Error -eq 0 -and $state.CleanupFault -eq 0 `
+                        -and $physical.CanWrite -and -not $state.InputClosed)
+                    $first = $state.ReadinessFailure | ConvertTo-Json -Compress
+                    & $module { Set-Item Function:script:Test-HermesStartupReadinessFrame $script:contextFrame }
+                    Assert-Control (Test-HermesStartupReadinessFrame $state)
+                    $output = @(Set-HermesStartupReadinessFault $state 2)
+                    $report = New-HermesStartupReport $state $false $false
+                    $json = $report | ConvertTo-Json -Depth 4 -Compress
+                    Assert-Control ($output.Count -eq 0 -and $state.Readiness.Fault -eq 4 `
+                        -and ($state.ReadinessFailure | ConvertTo-Json -Compress) -ceq $first `
+                        -and $report.observations.readyFailError -eq 13 -and $report.observations.readyFailAvailable -eq 0 `
+                        -and @($report.observations.Keys | Where-Object {
+                            $_.StartsWith('readyFail') -and $_ -cne 'readyFailError' -and $report.observations[$_] -ne 0 }).Count -eq 0 `
+                        -and $report.observations.readyComplete -eq 0 -and $report.observations.readyModule -eq 0 `
+                        -and $report.observations.readyModState -eq 0 -and $report.observations.readyType -eq 0 `
+                        -and $report.observations.readyMember -eq 0 -and $report.observations.readyWidth -eq 0 `
+                        -and $report.armingVerified -eq 0 -and $report.completed -eq 0 `
+                        -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0 `
+                        -and $json -cnotmatch 'SYNTHETIC_PRIVATE|sampling fault|Exception|ntdll|_PEB|debugger time|2016' `
+                        -and [Text.Encoding]::UTF8.GetByteCount($json + "`n") -le 4096 `
+                        -and @($state.ReadinessFailure.Values | Where-Object { $_ -isnot [int] }).Count -eq 0)
+                    $writer.Flush()
+                    Assert-Control ($physical.CanWrite -and $physical.Writes -eq 1 -and $state.InputTasks.Count -eq 1 `
+                        -and -not $state.Acked -and -not $state.Continued -and -not $state.Held.Released `
+                        -and -not $state.ContainsKey('FirstRefusal'))
+                } finally {
+                    & $module {
+                        Set-Item Function:script:Test-HermesStartupReadinessFrame $script:contextFrame
+                        Remove-Variable contextFrame -Scope Script
+                    }
+                    Close-HermesStartupScopedInput $state $writer
+                    $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                }
+                Assert-Control ($state.InputClosed -and $physical.Closed -and $physical.Closes -ge 1 -and $state.CleanupFault -eq 0)
+            }
+            573 {
+                $module = Get-Module Native-StartupTrace
+                $prior = Remove-ControlReadinessContextDelta ([IO.File]::ReadAllText(
+                    (Join-Path $PSScriptRoot 'Native-StartupTrace.psm1')))
+                $ast = [Management.Automation.Language.Parser]::ParseInput($prior, [ref]$null, [ref]$null)
+                $definition = $ast.Find({
+                    param($n)
+                    $n -is [Management.Automation.Language.FunctionDefinitionAst] `
+                        -and $n.Name -ceq 'Set-HermesStartupReadinessFault'
+                }, $true)
+                $originalSetter = & $module { (Get-Command Set-HermesStartupReadinessFault).ScriptBlock }
+                try {
+                    foreach ($outcome in @('Full', 'Missing', 'Resolver', 'SourceInjection')) {
+                        $verdicts = @()
+                        foreach ($enabled in @($false, $true)) {
+                            & $module {
+                                param($Setter)
+                                Set-Item Function:script:Set-HermesStartupReadinessFault $Setter
+                            } $(if ($enabled) { $originalSetter } else { $definition.Body.GetScriptBlock() })
+                            $state = New-ControlScopedCreated
+                            $physical = [StartupControlWriteStream]::new(0)
+                            $writer = [IO.StreamWriter]::new($physical)
+                            $debugger = [pscustomobject]@{ HasExited = $false; StandardInput = $writer }
+                            try {
+                                Open-ControlReadiness $state $writer
+                                foreach ($line in @('HERMES_READINESS v=1 part=1 pid=22',
+                                        'Last event: 16.1: Create process 1:16', 'start end module name',
+                                        '00007ffb`10000000 00007ffb`10200000 ntdll (deferred)',
+                                        'HERMES_READINESS v=1 part=2 pid=22',
+                                        'HERMES_READINESS_TYPE v=1 pid=22 bytes=2048',
+                                        'HERMES_READINESS v=1 part=3 pid=22',
+                                        'SYNTHETIC unsupported readiness display',
+                                        'HERMES_READINESS v=1 part=4 pid=22',
+                                        (Get-ControlScopedQuerySources $extension).Whole)) { Add-HermesStartupLine $state $line }
+                                if ($outcome -ceq 'Full') {
+                                    Add-HermesStartupLine $state 'HERMES_NTGLOBALFLAG v=1 pid=22 value=00000002'
+                                } elseif ($outcome -ceq 'Resolver') {
+                                    Add-HermesStartupLine $state "Couldn't resolve error at 'SYNTHETIC original .printf HERMES_ARM_STAGE'"
+                                } elseif ($outcome -ceq 'SourceInjection') {
+                                    Add-HermesStartupLine $state ('SYNTHETIC ' + (Get-ControlScopedQuerySources $extension).Whole)
+                                }
+                                Add-HermesStartupText $state $state.Out (
+                                    "HERMES_ARM_STAGE v=1 stage=2`nHERMES_CDB v=4 kind=8 pid=22`n1:000> ") $true
+                                Invoke-ControlScopedPublisher
+                                $report = if ($outcome -ceq 'Full') {
+                                    Complete-ControlScoped $state $writer
+                                } else { New-HermesStartupReport $state $false $false }
+                                Assert-Control ($report.observations.readyFailAvailable -eq [int]$enabled `
+                                    -and $state.Readiness.Fault -eq 4 -and $report.observations.readyComplete -eq 0 `
+                                    -and $report.observations.readyModule -eq 0 -and $report.observations.readyType -eq 0 `
+                                    -and $state.Acked -eq ($outcome -ceq 'Full') -and $state.Continued -eq ($outcome -ceq 'Full') `
+                                    -and $report.completed -eq [int]($outcome -ceq 'Full') `
+                                    -and $report.nativeAcceptance -eq 0 -and $report.originalGatePassed -eq 0 `
+                                    -and -not $state.ContainsKey('FirstRefusal'))
+                                foreach ($name in @($report.observations.Keys)) {
+                                    if ($name.StartsWith('readyFail', [StringComparison]::Ordinal)) { $report.observations.Remove($name) }
+                                }
+                                $verdicts += ,(@($state.Protocol, $state.Unknown, $state.ScopedFault, $state.ScopedStageFault,
+                                    $state.ScopedQueryFault, $state.Readiness, $state.ScopedStages, $state.Acked,
+                                    $state.Continued, $physical.Writes, $report) | ConvertTo-Json -Depth 5 -Compress)
+                            } finally {
+                                Close-HermesStartupScopedInput $state $writer
+                                $state.Out.Hash.Dispose(); $state.Err.Hash.Dispose()
+                            }
+                        }
+                        Assert-Control ($verdicts[0] -ceq $verdicts[1])
+                    }
+                } finally {
+                    & $module {
+                        param($Setter)
+                        Set-Item Function:script:Set-HermesStartupReadinessFault $Setter
+                    } $originalSetter
+                }
+            }
+            574 {
+                $state = New-ControlScopedCreated
+                $maxima = @{ Available = 1; Part = 3; Rows = 17; Seen = 7; Module = 2
+                    ModState = 3; ListComplete = 1; Type = 2; Member = 2 }
+                foreach ($field in $maxima.Keys) {
+                    foreach ($bad in @(-1, ($maxima[$field] + 1), 'SYNTHETIC_PRIVATE', '1', $true, $null, [datetime]::MinValue)) {
+                        $state.ReadinessFailure = $maxima.Clone()
+                        $state.ReadinessFailure[$field] = $bad
+                        $report = New-HermesStartupReport $state $false $false
+                        Assert-Control ($report.observations['readyFail' + $field] -eq 0 `
+                            -and [Text.Encoding]::UTF8.GetByteCount(($report | ConvertTo-Json -Depth 4 -Compress) + "`n") -le 4096)
+                        if ($field -ceq 'Available') {
+                            Assert-Control (@($report.observations.Keys | Where-Object {
+                                $_.StartsWith('readyFail') -and $report.observations[$_] -ne 0 }).Count -eq 0)
+                        }
+                    }
+                }
+                foreach ($badMap in @($null, 'SYNTHETIC_PRIVATE', @{}, @{ Available = 1 })) {
+                    $state.ReadinessFailure = $badMap
+                    $report = New-HermesStartupReport $state $false $false
+                    Assert-Control ($report.observations.readyFailPart -eq 0 -and $report.observations.readyFailRows -eq 0 `
+                        -and $report.observations.readyFailError -eq 0 `
+                        -and ($report | ConvertTo-Json -Depth 4 -Compress) -cnotmatch 'SYNTHETIC_PRIVATE')
+                }
+                foreach ($errorCode in @(0, 13, -1, 1, 12, 14, [int]::MaxValue, 'SYNTHETIC_PRIVATE', '13', $true, $null, [long]13)) {
+                    $state.ReadinessFailure = $maxima.Clone()
+                    $state.ReadinessFailure.SamplingError = $errorCode
+                    $report = New-HermesStartupReport $state $false $false
+                    Assert-Control ($report.observations.readyFailError -eq [int](13 * [int]($errorCode -is [int] -and $errorCode -eq 13)) `
+                        -and ($report | ConvertTo-Json -Depth 4 -Compress) -cnotmatch 'SYNTHETIC_PRIVATE')
+                    foreach ($field in $maxima.Keys) {
+                        Assert-Control ($report.observations['readyFail' + $field] -eq $maxima[$field])
+                    }
                 }
             }
             { $_ -in 415..420 } {

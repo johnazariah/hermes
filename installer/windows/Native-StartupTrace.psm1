@@ -33,6 +33,9 @@ function New-HermesStartupState {
         # READINESS-BEGIN
         Readiness = @{ Source = 0; Part = 0; Complete = 0; Fault = 0; Rows = 0; Bytes = 0
             Event = 0; Header = 0; Module = 0; Symbols = 0; Type = 0; TypeBytes = 0; Member = 0; Width = 0 }
+        # READINESS-CONTEXT-BEGIN
+        ReadinessFailure = @{}
+        # READINESS-CONTEXT-END
         # READINESS-END
         Held = $null; ArmAttempted = $false; ArmWritten = $false; SideWrites = 0
         InputWriter = $null; InputTasks = [Collections.Generic.List[Threading.Tasks.Task]]::new()
@@ -1732,6 +1735,26 @@ function Test-HermesStartupReadinessFrame {
 
 function Set-HermesStartupReadinessFault {
     param([hashtable]$State, [ValidateRange(1, 5)][int]$Reason)
+    # READINESS-CONTEXT-BEGIN
+    if ($State.Readiness.Fault -eq 0) {
+        try {
+            $ready = $State.Readiness
+            if ($ready.Source -eq 1 -and $ready.Part -in @(1, 2, 3) `
+                -and (Test-HermesStartupReadinessFrame $State)) {
+                $State.ReadinessFailure = @{
+                    Available = 1; Part = $ready.Part; Rows = $ready.Rows
+                    Seen = [int]($ready.Event -eq 1) + 2 * [int]($ready.Header -eq 1) `
+                        + 4 * [int]($ready['TimestampSeen'] -eq $true)
+                    Module = $ready.Module; ModState = $ready.Symbols
+                    ListComplete = [int]($ready.Part -ge 2 -and $ready.Header -eq 1)
+                    Type = $ready.Type; Member = $ready.Member
+                }
+            }
+        } catch { # Advisory sampling cannot pre-empt the original refusal.
+            $State.ReadinessFailure = @{ Available = 0; SamplingError = 13 }
+        }
+    }
+    # READINESS-CONTEXT-END
     if ($State.Readiness.Fault -eq 0) { $State.Readiness.Fault = $Reason }
     $State.Readiness.Complete = 0
 }
@@ -2748,6 +2771,24 @@ function New-HermesStartupReport {
         $selected.readyWidth = if ($valid -and $selected.readyMember -eq 1) {
             Get-HermesStartupInventoryNumber $ready.Width 65536
         } else { 0 }
+        # READINESS-CONTEXT-BEGIN
+        # Advisory first-fault partial state, never successful readiness facts.
+        # Available 0: all context unavailable. Seen bits: accepted event 1,
+        # LM header 2, timestamp 4 (no date). Module/ModState/Type/Member use
+        # the codebooks above; Module 0 stays unknown even when Available is 1.
+        # ListComplete 1: the header-bearing filtered list reached part 2.
+        $failure = $State.ReadinessFailure -as [hashtable]
+        if ($null -eq $failure) { $failure = @{} }
+        # Error 13: sampling failed; 0: no sampling error, including unbound context.
+        $selected.readyFailError = if ($failure['SamplingError'] -is [int] `
+            -and $failure['SamplingError'] -eq 13) { 13 } else { 0 }
+        foreach ($entry in @(@('Available', 1), @('Part', 3), @('Rows', 17), @('Seen', 7),
+                @('Module', 2), @('ModState', 3), @('ListComplete', 1), @('Type', 2), @('Member', 2))) {
+            $selected['readyFail' + $entry[0]] = if ((Get-HermesStartupInventoryNumber $failure['Available'] 1) -eq 1) {
+                Get-HermesStartupInventoryNumber $failure[$entry[0]] $entry[1]
+            } else { 0 }
+        }
+        # READINESS-CONTEXT-END
         # READINESS-END
         $report.observations = $selected
     }

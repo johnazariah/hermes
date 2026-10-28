@@ -2,6 +2,30 @@
 
 > **Rule**: Update this file whenever tests are added, removed, or modified.
 
+## First readiness failure retains bounded numeric context
+
+The first readiness refusal now snapshots only already-parsed, source/
+identity-bound state before mutation: part/row, accepted event/header/
+timestamp bits, prior module/symbol classification, filtered-list completion
+and prior type/member outcomes. It retains no text, address, path or date.
+These are advisory partial-state fields, not complete readiness or arming
+proof; successful-readiness fields still clear on failure.
+
+The snapshot is once-only. Unbound context remains unavailable; a sampling
+exception is explicitly reported as `readyFailError=13`, separately from
+natural unavailability, without replacing the original fault or stopping
+cleanup. Later data cannot overwrite the first snapshot. No debugger command,
+query, stop, timer, token operation, capture or acceptance gate changes.
+
+Direct source review approves the fresh-author error-surfacing correction.
+All **574 startup** and **288 crypto/origin** controls pass, along with
+unchanged Setup contracts, workflow lint and root build/tests (**2,198
+Core**, zero failures/skips or warnings/errors). Tests verify first-fault
+immutability, wrong bindings, no raw-marker persistence, explicit sampling
+faults and identical original verdicts with/without observation. Saturated
+report size is 2,720 bytes within the fixed 4,096-byte cap. Actual native
+first-failure context remains to be measured with capture off.
+
 ## Readiness accepts only the proved benign timestamp display
 
 The authenticated capture grounds a 13-line rule for the complete
@@ -19,7 +43,16 @@ duplicates, wrong parts/bindings, bounds and equal original query verdicts
 with or without the display. Setup contracts, workflow lint and root
 build/tests pass (**2,198 Core**, zero failures/skips or warnings/errors).
 Exact source inverses restore `cccba7d`; the readiness program remains
-477 bytes. Native readiness remains to be measured with capture off.
+477 bytes.
+
+Actual ordinary CI `40647256069`, job `122678859868`, at `4ad472d`
+passes 568 controls but still reports readiness complete 0 / fault 4,
+with all module/type/member/width facts unknown. The benign timestamp
+correction is not claimed to have completed readiness. The original
+resolver-family refusal and 500/501 native result remain. Both application
+hosts, Tray and compatibility pass; no ciphertext is uploaded.
+The next investigation reports numeric first-failure context from the
+already-parsed state, without another debugger query or raw capture.
 
 ## Readiness is an observation, never substitute flag proof
 
